@@ -88,6 +88,25 @@ class CircuitBreakerInference(TypedDict):
     consecutive_failures: int
     reason: str
 
+def format_instrument_with_fallback(sheet: SheetState) -> str:
+    """Format instrument name with fallback indicator if applicable.
+
+    Shows the current instrument and, when fallback history exists,
+    annotates with the previous instrument and reason.
+
+    Examples:
+        "claude-code"  (no fallback)
+        "gemini-cli [dim](was claude-code: rate_limit_exhausted)[/dim]"
+    """
+    name = sheet.instrument_name or ""
+    if not sheet.instrument_fallback_history:
+        return name
+    last = sheet.instrument_fallback_history[-1]
+    original = last.get("from", "")
+    reason = last.get("reason", "fallback")
+    return f"{name} [dim](was {original}: {reason})[/dim]"
+
+
 # =============================================================================
 # CLI Commands
 # =============================================================================
@@ -1054,10 +1073,16 @@ def _render_sheet_details(job: CheckpointState) -> None:
         s.instrument_name for s in job.sheets.values()
     )
 
+    # Detect whether any sheet has fallback history (widens instrument column)
+    has_fallbacks = any(
+        s.instrument_fallback_history for s in job.sheets.values()
+    )
+
     console.print("\n[bold]Sheet Details[/bold]")
     sheet_table = create_sheet_details_table(
         has_descriptions=has_descriptions,
         has_instruments=has_instruments,
+        has_fallbacks=has_fallbacks,
     )
 
     for sheet_num in sorted(job.sheets.keys()):
@@ -1085,7 +1110,8 @@ def _render_sheet_details(job: CheckpointState) -> None:
         if has_descriptions:
             row.append(descriptions.get(sheet_num, ""))
         if has_instruments:
-            row.append(sheet.instrument_name or "")
+            row.append(format_instrument_with_fallback(sheet))
+
         row.extend([status_str, str(sheet.attempt_count), val_str, error_str])
 
         sheet_table.add_row(*row)

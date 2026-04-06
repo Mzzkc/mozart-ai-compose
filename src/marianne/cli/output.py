@@ -392,6 +392,7 @@ def create_sheet_details_table(
     *,
     has_descriptions: bool = False,
     has_instruments: bool = False,
+    has_fallbacks: bool = False,
 ) -> Table:
     """Create a styled table for detailed sheet status.
 
@@ -410,7 +411,11 @@ def create_sheet_details_table(
     if has_descriptions:
         table.add_column("Description", style="dim", width=20, no_wrap=True)
     if has_instruments:
-        table.add_column("Instrument", style="dim", width=14, no_wrap=True)
+        if has_fallbacks:
+            # Wider, wrapping column when fallback indicators appear
+            table.add_column("Instrument", style="dim", min_width=14, no_wrap=False)
+        else:
+            table.add_column("Instrument", style="dim", width=14, no_wrap=True)
     table.add_column("Status", width=12)
     table.add_column("Attempts", justify="right", width=8)
     table.add_column("Validation", width=10)

@@ -1328,6 +1328,39 @@ class BatonAdapter:
                 exc_info=True,
             )
 
+    async def _publish_fallback_events(self) -> None:
+        """Drain and publish InstrumentFallback events from the baton core.
+
+        Called after each event cycle in the main loop. The baton core
+        collects InstrumentFallback events as side effects of event
+        processing and dispatch. This method drains them and publishes
+        to the EventBus for dashboard, learning hub, and notifications.
+        """
+        events = self._baton.drain_fallback_events()
+        if not events:
+            return
+
+        if self._event_bus is None:
+            return
+
+        from marianne.daemon.baton.events import to_observer_event
+
+        for fallback_ev in events:
+            obs_event = to_observer_event(fallback_ev)
+            try:
+                await self._event_bus.publish(obs_event)
+            except Exception:
+                _logger.warning(
+                    "adapter.fallback_event_publish_failed",
+                    extra={
+                        "job_id": fallback_ev.job_id,
+                        "sheet_num": fallback_ev.sheet_num,
+                        "from_instrument": fallback_ev.from_instrument,
+                        "to_instrument": fallback_ev.to_instrument,
+                    },
+                    exc_info=True,
+                )
+
     # =========================================================================
     # Main Loop
     # =========================================================================
@@ -1533,6 +1566,9 @@ class BatonAdapter:
                 await dispatch_ready(
                     self._baton, config, self._dispatch_callback
                 )
+
+                # Publish any fallback events to EventBus
+                await self._publish_fallback_events()
 
                 # Check for job completions after dispatch
                 self._check_completions()

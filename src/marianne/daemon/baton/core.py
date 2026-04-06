@@ -131,6 +131,11 @@ class BatonCore:
         self._state_dirty = False
         self._timer = timer
 
+        # Fallback event collection — side effects of event processing.
+        # The adapter drains these after each event cycle and publishes
+        # them to the EventBus for observability (dashboard, learning hub).
+        self._fallback_events: list[InstrumentFallback] = []
+
         # Retry backoff configuration (from RetryConfig defaults)
         self._base_retry_delay: float = 10.0
         self._retry_exponential_base: float = 2.0
@@ -145,6 +150,16 @@ class BatonCore:
     def is_running(self) -> bool:
         """Whether the main loop is currently running."""
         return self._running
+
+    def drain_fallback_events(self) -> list[InstrumentFallback]:
+        """Return and clear collected InstrumentFallback events.
+
+        Called by the adapter after each event cycle to publish
+        fallback events to the EventBus for observability.
+        """
+        events = list(self._fallback_events)
+        self._fallback_events.clear()
+        return events
 
     @property
     def job_count(self) -> int:
@@ -464,6 +479,13 @@ class BatonCore:
                 # Re-queue for dispatch with the new instrument
                 sheet.status = BatonSheetStatus.PENDING
                 self._state_dirty = True
+                self._fallback_events.append(InstrumentFallback(
+                    job_id=job_id,
+                    sheet_num=sheet_num,
+                    from_instrument=from_instrument,
+                    to_instrument=to_instrument,
+                    reason="rate_limit_exhausted",
+                ))
                 _logger.info(
                     "baton.sheet.instrument_fallback",
                     extra={
@@ -542,6 +564,13 @@ class BatonCore:
                 if to_instrument is not None:
                     sheet.status = BatonSheetStatus.PENDING
                     self._state_dirty = True
+                    self._fallback_events.append(InstrumentFallback(
+                        job_id=job_id,
+                        sheet_num=sheet.sheet_num,
+                        from_instrument=from_instrument,
+                        to_instrument=to_instrument,
+                        reason="unavailable",
+                    ))
                     _logger.info(
                         "baton.sheet.instrument_fallback",
                         extra={
@@ -565,6 +594,13 @@ class BatonCore:
             if to_instrument is not None:
                 sheet.status = BatonSheetStatus.PENDING
                 self._state_dirty = True
+                self._fallback_events.append(InstrumentFallback(
+                    job_id=job_id,
+                    sheet_num=sheet.sheet_num,
+                    from_instrument=from_instrument,
+                    to_instrument=to_instrument,
+                    reason="unavailable",
+                ))
                 _logger.info(
                     "baton.sheet.instrument_fallback",
                     extra={
