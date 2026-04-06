@@ -52,10 +52,10 @@ exclude:
 
 analysis:
   entry_points:
-    - "src/mozart/cli/__init__.py::main"
-    - "src/mozart/daemon/manager.py::DaemonManager"
-    - "src/mozart/execution/runner/sheet.py::SheetRunner"
-    - "src/mozart/execution/runner/lifecycle.py::LifecycleManager"
+    - "src/marianne/cli/__init__.py::main"
+    - "src/marianne/daemon/manager.py::DaemonManager"
+    - "src/marianne/execution/runner/sheet.py::SheetRunner"
+    - "src/marianne/execution/runner/lifecycle.py::LifecycleManager"
   max_call_depth: 20
   max_type_chain: 10
 
@@ -76,15 +76,15 @@ diagnostics:
     - asymmetric_handling
   suppressions:
     # Sequential DB migrations — all versions must coexist by design
-    - entity: "src/mozart/state/sqlite_backend.py::_migrate_v1"
+    - entity: "src/marianne/state/sqlite_backend.py::_migrate_v1"
       diagnostic: "incomplete_migration"
       reason: "Sequential schema migrations — v1 through v4 all run in order"
-    - entity: "src/mozart/state/sqlite_backend.py::_migrate_v2"
+    - entity: "src/marianne/state/sqlite_backend.py::_migrate_v2"
       diagnostic: "incomplete_migration"
       reason: "Sequential schema migrations — v1 through v4 all run in order"
-    - entity: "src/mozart/state/sqlite_backend.py::_migrate_v3"
+    - entity: "src/marianne/state/sqlite_backend.py::_migrate_v3"
       diagnostic: "incomplete_migration"
       reason: "Sequential schema migrations — v1 through v4 all run in order"
-    - entity: "src/mozart/state/sqlite_backend.py::_migrate_v4"
+    - entity: "src/marianne/state/sqlite_backend.py::_migrate_v4"
       diagnostic: "incomplete_migration"
       reason: "Sequential schema migrations — v1 through v4 all run in order"
