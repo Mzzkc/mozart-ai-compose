@@ -516,3 +516,26 @@ Three-agent review of the composer's F-490 fix. The fix added a `_safe_killpg(pg
 - [ ] [Agent 3 — Pattern extension review] This is the meta-task. The takeaway from F-490 is **defensive coding around process control is necessary and critical — not optional, not "only when it breaks", not "we can add it later"**. Produce a short document at `workspaces/v1-beta-v3/movement-5/process-control-defensive-patterns.md` that codifies the pattern as a project-wide convention: (a) every `os.kill*` and `os.killpg*` call must go through a guarded helper, (b) the guard must validate pgid/pid against init, own pgroup, and own pid before issuing the syscall, (c) the guard must log at warning level when it refuses so silent misbehavior is visible in conductor.log, (d) tests MUST NOT patch `os.killpg` without also patching `os.getpgid` to return a safe value — otherwise the mocked call path doesn't exercise the real guard, (e) any new code that touches process lifecycle during PR review should be checked against this pattern. Then extend the pattern beyond process control: identify other system-call families where "trust the value, call the syscall" could have the same blast radius (file descriptors, shared memory, socket paths, signal handlers, unshare/mount calls) and recommend guards for those too. This feeds into the `.mozart/spec/constraints.yaml` as a new MUST. (priority: P0) [source: F-490, composer directive]
 
 **Reviewers: do not just validate the fix. Assume the fix is wrong until you have verified each of the six call sites cannot reach a state where `_safe_killpg` is bypassed or where the guard itself fails. Assume the pattern exists elsewhere in the codebase until you have proven it does not.**
+
+---
+
+## TDD Tests Parked on `xfail(strict=True)` — DO NOT DELETE
+
+These tests were written in the TDD "red first" style. They assert behavior that intentionally does NOT exist yet (or was intentionally disabled). They are parked on `pytest.mark.xfail(strict=True)` so that:
+- They stay in the suite and continue to exercise the test infrastructure that runs them.
+- They do not pollute the failure output of normal runs.
+- If the underlying feature lands (or is accidentally re-enabled), the tests will XPASS-fail and pytest will force the team to consciously remove the marker.
+
+**Do not delete these tests. Do not remove the xfail marker without also reviewing the assertions.** TDD red tests are load-bearing documentation of the expected shape of future work.
+
+- [ ] **Re-enable F-483 / F-487 orphan-cleanup tests** (priority: P1) [source: F-487 emergency disable, TDD continuation]
+  - Files: `tests/test_f483_orphan_cleanup_multi.py`, `tests/test_pgroup.py` `TestReapOrphanedBackends` class
+  - Blocked on: per-job PID tracking in the conductor DB (see composer-notes.yaml "PROCESS CLEANUP SIMPLIFICATION")
+  - When per-job PID tracking lands and the orphan cleanup paths are re-enabled with correct scoping, remove the `pytest.mark.xfail(strict=True)` marker at the top of `test_f483_orphan_cleanup_multi.py` and above the `TestReapOrphanedBackends` class. Re-run and verify the tests pass against the new implementation. If the assertions no longer match the new design, update the tests rather than deleting them — the "orphaned child of a dead tracked backend must be killed" invariant is what we still want.
+  - If the tests XPASS before this task is explicitly worked: **stop**, read the ticket, and confirm that the re-enable was intentional and scoped safely. Do not auto-remove the xfail marker.
+
+- [ ] **Re-enable fallback state sync tests (prior-F-490)** (priority: P1) [source: Harper-era baton work, unfinished feature]
+  - File: `tests/test_f490_fallback_sync.py` (note: file name collides with the composer's filed F-490 which is unrelated — rename this file when the work is picked up)
+  - Blocked on: extending `adapter._invoke_sync_callback` and `_sync_single_sheet` to propagate `instrument_name` and `fallback_history` from the baton's `SheetExecutionState` to the `CheckpointState`. The currently-filed callback signature is `(job_id, sheet_num, checkpoint_status)` — the feature needs a new signature that also includes the fallback state so the live state shows the correct instrument after a fallback.
+  - When the feature lands, remove the `pytest.mark.xfail(strict=True)` marker at the top of `test_f490_fallback_sync.py`, rename the file to match a new F-number (the "F-490" in the name was never filed in FINDINGS.md — the composer's F-490 is the os.killpg guard), and verify all assertions pass. Six tests total.
+  - Related: `workspaces/v1-beta-v3/FINDINGS.md#F-490` (composer's, unrelated to this test). File a new F-number for the fallback-sync work when it's picked up.

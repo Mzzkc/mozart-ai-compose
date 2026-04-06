@@ -18,14 +18,14 @@ from pathlib import Path
 
 import pytest
 
-from mozart.core.config.instruments import (
+from marianne.core.config.instruments import (
     CliCommand,
     CliOutputConfig,
     CliProfile,
     InstrumentProfile,
 )
-from mozart.instruments.loader import InstrumentProfileLoader
-from mozart.instruments.registry import InstrumentRegistry, register_native_instruments
+from marianne.instruments.loader import InstrumentProfileLoader
+from marianne.instruments.registry import InstrumentRegistry, register_native_instruments
 
 
 # =============================================================================
@@ -44,7 +44,7 @@ class TestDiscoverInstruments:
         builtins_dir = (
             Path(__file__).parent.parent
             / "src"
-            / "mozart"
+            / "marianne"
             / "instruments"
             / "builtins"
         )
@@ -63,7 +63,7 @@ class TestDiscoverInstruments:
         builtins_dir = (
             Path(__file__).parent.parent
             / "src"
-            / "mozart"
+            / "marianne"
             / "instruments"
             / "builtins"
         )
@@ -81,7 +81,7 @@ class TestDiscoverInstruments:
         builtins_dir = (
             Path(__file__).parent.parent
             / "src"
-            / "mozart"
+            / "marianne"
             / "instruments"
             / "builtins"
         )
@@ -117,7 +117,7 @@ class TestDiscoverInstruments:
         builtins_dir = (
             Path(__file__).parent.parent
             / "src"
-            / "mozart"
+            / "marianne"
             / "instruments"
             / "builtins"
         )
@@ -145,7 +145,7 @@ class TestScoreInstrumentField:
 
     def test_instrument_field_on_job_config(self) -> None:
         """JobConfig accepts `instrument:` field."""
-        from mozart.core.config.job import JobConfig
+        from marianne.core.config.job import JobConfig
 
         config = JobConfig(
             name="test-instrument",
@@ -158,7 +158,7 @@ class TestScoreInstrumentField:
 
     def test_backend_still_works(self) -> None:
         """Old `backend:` syntax still works unchanged."""
-        from mozart.core.config.job import JobConfig
+        from marianne.core.config.job import JobConfig
 
         config = JobConfig(
             name="test-backend",
@@ -177,7 +177,7 @@ class TestScoreInstrumentField:
         because backend always has a default value. Conflict = user explicitly set
         both instrument: and backend.type to something non-default.
         """
-        from mozart.core.config.job import JobConfig
+        from marianne.core.config.job import JobConfig
 
         with pytest.raises(ValueError, match="Cannot specify both"):
             JobConfig(
@@ -375,14 +375,14 @@ class TestJsonPathExtractorRealWorld:
 
     def test_claude_code_result_path(self) -> None:
         """Extract result from Claude Code JSON output."""
-        from mozart.utils.json_path import extract_json_path
+        from marianne.utils.json_path import extract_json_path
 
         response = {"result": "Hello, world!", "usage": {"input_tokens": 10}}
         assert extract_json_path(response, "result") == "Hello, world!"
 
     def test_gemini_nested_token_path(self) -> None:
         """Extract tokens from Gemini's nested stats structure."""
-        from mozart.utils.json_path import extract_json_path
+        from marianne.utils.json_path import extract_json_path
 
         response = {
             "response": "Hello",
@@ -403,7 +403,7 @@ class TestJsonPathExtractorRealWorld:
 
     def test_missing_path_returns_none(self) -> None:
         """Missing path returns None, not crash."""
-        from mozart.utils.json_path import extract_json_path
+        from marianne.utils.json_path import extract_json_path
 
         response = {"result": "hello"}
         assert extract_json_path(response, "nonexistent.path") is None
@@ -411,7 +411,7 @@ class TestJsonPathExtractorRealWorld:
     @pytest.mark.adversarial
     def test_path_on_non_dict_returns_none(self) -> None:
         """Path navigation on a scalar value returns None."""
-        from mozart.utils.json_path import extract_json_path
+        from marianne.utils.json_path import extract_json_path
 
         response = {"result": "hello"}
         assert extract_json_path(response, "result.nested") is None
@@ -419,7 +419,7 @@ class TestJsonPathExtractorRealWorld:
     @pytest.mark.adversarial
     def test_empty_path(self) -> None:
         """Empty path string returns the whole object."""
-        from mozart.utils.json_path import extract_json_path
+        from marianne.utils.json_path import extract_json_path
 
         response = {"result": "hello"}
         # An empty path should return the root or None — depends on implementation
@@ -441,7 +441,7 @@ class TestTemplateVariableAliases:
 
     def test_sheet_entity_provides_movement_and_stage(self) -> None:
         """Sheet.template_variables() includes both old and new terms."""
-        from mozart.core.sheet import Sheet
+        from marianne.core.sheet import Sheet
 
         sheet = Sheet(
             num=5,
@@ -480,7 +480,7 @@ class TestTemplateVariableAliases:
 
     def test_solo_sheet_has_voice_none(self) -> None:
         """A sheet with no fan-out has voice=None."""
-        from mozart.core.sheet import Sheet
+        from marianne.core.sheet import Sheet
 
         sheet = Sheet(
             num=1,

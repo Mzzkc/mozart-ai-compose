@@ -17,14 +17,14 @@ from pathlib import Path
 
 import pytest
 
-from mozart.core.config.instruments import (
+from marianne.core.config.instruments import (
     CliCommand,
     CliOutputConfig,
     CliProfile,
     InstrumentProfile,
     ModelCapacity,
 )
-from mozart.execution.instruments.cli_backend import PluginCliBackend
+from marianne.execution.instruments.cli_backend import PluginCliBackend
 
 
 def _make_profile(
@@ -138,10 +138,10 @@ class TestClaudeCodeProfileMcpDisable:
 
     def test_claude_code_profile_has_mcp_disable_args(self) -> None:
         """claude-code profile defines mcp_disable_args for MCP isolation."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         profiles = InstrumentProfileLoader.load_directory(
-            Path(__file__).parent.parent / "src" / "mozart" / "instruments" / "builtins"
+            Path(__file__).parent.parent / "src" / "marianne" / "instruments" / "builtins"
         )
         claude_profile = profiles.get("claude-code")
         assert claude_profile is not None
@@ -159,10 +159,10 @@ class TestClaudeCodeProfileMcpDisable:
     def test_claude_code_mcp_parity_with_legacy(self) -> None:
         """PluginCliBackend with claude-code profile produces the same MCP
         args as the legacy ClaudeCliBackend."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         profiles = InstrumentProfileLoader.load_directory(
-            Path(__file__).parent.parent / "src" / "mozart" / "instruments" / "builtins"
+            Path(__file__).parent.parent / "src" / "marianne" / "instruments" / "builtins"
         )
         claude_profile = profiles.get("claude-code")
         assert claude_profile is not None

@@ -15,13 +15,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from mozart.core.config.instruments import (
+from marianne.core.config.instruments import (
     CliCommand,
     CliOutputConfig,
     CliProfile,
     InstrumentProfile,
 )
-from mozart.execution.instruments.cli_backend import PluginCliBackend
+from marianne.execution.instruments.cli_backend import PluginCliBackend
 
 
 def _make_profile(
@@ -122,10 +122,10 @@ class TestPluginCliBackendMcpDisabling:
 
     def test_real_claude_code_profile_gets_mcp_disabled(self) -> None:
         """Integration: the real claude-code profile gets MCP disabled."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         profiles = InstrumentProfileLoader.load_directory(
-            Path(__file__).parent.parent / "src" / "mozart" / "instruments" / "builtins"
+            Path(__file__).parent.parent / "src" / "marianne" / "instruments" / "builtins"
         )
         claude_profile = profiles.get("claude-code")
         assert claude_profile is not None, "claude-code profile must exist"

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from mozart.daemon.config import DaemonConfig
+from marianne.daemon.config import DaemonConfig
 
 
 # =============================================================================
@@ -30,7 +30,7 @@ class TestCloneNameSanitizationAdversarial:
 
     def test_path_traversal_dots(self) -> None:
         """Path traversal with dots must be sanitized."""
-        from mozart.daemon.clone import _sanitize_name
+        from marianne.daemon.clone import _sanitize_name
 
         assert ".." not in _sanitize_name("../../etc/passwd")
         # Should produce something like "etc-passwd"
@@ -40,14 +40,14 @@ class TestCloneNameSanitizationAdversarial:
 
     def test_null_bytes_stripped(self) -> None:
         """Null bytes must not survive sanitization."""
-        from mozart.daemon.clone import _sanitize_name
+        from marianne.daemon.clone import _sanitize_name
 
         result = _sanitize_name("test\x00evil")
         assert "\x00" not in result
 
     def test_very_long_name(self) -> None:
         """Very long names should produce a usable path."""
-        from mozart.daemon.clone import resolve_clone_paths
+        from marianne.daemon.clone import resolve_clone_paths
 
         long_name = "a" * 500
         paths = resolve_clone_paths(long_name)
@@ -57,7 +57,7 @@ class TestCloneNameSanitizationAdversarial:
 
     def test_unicode_characters(self) -> None:
         """Unicode characters should be sanitized to safe ASCII."""
-        from mozart.daemon.clone import _sanitize_name
+        from marianne.daemon.clone import _sanitize_name
 
         result = _sanitize_name("tëst-ünîcödé")
         # Non-ASCII should be replaced with hyphens
@@ -66,7 +66,7 @@ class TestCloneNameSanitizationAdversarial:
 
     def test_only_special_chars(self) -> None:
         """A name of only special characters produces empty string."""
-        from mozart.daemon.clone import _sanitize_name
+        from marianne.daemon.clone import _sanitize_name
 
         result = _sanitize_name("///...")
         # After sanitization and stripping, might be empty
@@ -75,13 +75,13 @@ class TestCloneNameSanitizationAdversarial:
 
     def test_spaces_in_name(self) -> None:
         """Spaces become hyphens."""
-        from mozart.daemon.clone import _sanitize_name
+        from marianne.daemon.clone import _sanitize_name
 
         assert _sanitize_name("my clone") == "my-clone"
 
     def test_consecutive_special_chars_collapse(self) -> None:
         """Multiple consecutive special chars collapse to single hyphen."""
-        from mozart.daemon.clone import _sanitize_name
+        from marianne.daemon.clone import _sanitize_name
 
         result = _sanitize_name("a///b...c")
         assert "---" not in result  # Should collapse
@@ -94,7 +94,7 @@ class TestCloneNameSanitizationAdversarial:
         would both sanitize to '0', causing clone path collisions. Hyphens
         in path components like /tmp/mozart-clone--test.sock are safe.
         """
-        from mozart.daemon.clone import _sanitize_name
+        from marianne.daemon.clone import _sanitize_name
 
         assert _sanitize_name("-test-") == "-test-"
         assert _sanitize_name("---test---") == "-test-"  # hyphen collapse, not strip
@@ -110,7 +110,7 @@ class TestCloneConfigInheritance:
 
     def test_max_concurrent_jobs_preserved(self) -> None:
         """max_concurrent_jobs from base config survives clone."""
-        from mozart.daemon.clone import build_clone_config
+        from marianne.daemon.clone import build_clone_config
 
         base = DaemonConfig(max_concurrent_jobs=10)
         clone = build_clone_config("test", base_config=base)
@@ -118,7 +118,7 @@ class TestCloneConfigInheritance:
 
     def test_use_baton_preserved(self) -> None:
         """use_baton flag from base config survives clone."""
-        from mozart.daemon.clone import build_clone_config
+        from marianne.daemon.clone import build_clone_config
 
         base = DaemonConfig(use_baton=True)
         clone = build_clone_config("test", base_config=base)
@@ -126,7 +126,7 @@ class TestCloneConfigInheritance:
 
     def test_max_concurrent_sheets_preserved(self) -> None:
         """max_concurrent_sheets from base config survives clone."""
-        from mozart.daemon.clone import build_clone_config
+        from marianne.daemon.clone import build_clone_config
 
         base = DaemonConfig(max_concurrent_sheets=8)
         clone = build_clone_config("test", base_config=base)
@@ -134,7 +134,7 @@ class TestCloneConfigInheritance:
 
     def test_clone_socket_differs_from_base(self) -> None:
         """Clone socket must always differ from base."""
-        from mozart.daemon.clone import build_clone_config
+        from marianne.daemon.clone import build_clone_config
 
         base = DaemonConfig()
         clone = build_clone_config("test", base_config=base)
@@ -142,7 +142,7 @@ class TestCloneConfigInheritance:
 
     def test_clone_pid_differs_from_base(self) -> None:
         """Clone PID file must always differ from base."""
-        from mozart.daemon.clone import build_clone_config
+        from marianne.daemon.clone import build_clone_config
 
         base = DaemonConfig()
         clone = build_clone_config("test", base_config=base)
@@ -150,7 +150,7 @@ class TestCloneConfigInheritance:
 
     def test_clone_state_db_differs_from_base(self) -> None:
         """Clone state DB path must always differ from base (F-132)."""
-        from mozart.daemon.clone import build_clone_config
+        from marianne.daemon.clone import build_clone_config
 
         base = DaemonConfig()
         clone = build_clone_config("test", base_config=base)
@@ -159,7 +159,7 @@ class TestCloneConfigInheritance:
 
     def test_clone_state_db_matches_resolved_paths(self) -> None:
         """Clone config state_db_path must match ClonePaths.state_db (F-132)."""
-        from mozart.daemon.clone import build_clone_config, resolve_clone_paths
+        from marianne.daemon.clone import build_clone_config, resolve_clone_paths
 
         base = DaemonConfig()
         clone = build_clone_config("staging", base_config=base)
@@ -168,7 +168,7 @@ class TestCloneConfigInheritance:
 
     def test_named_clones_have_different_state_dbs(self) -> None:
         """Different clone names must produce different state DB paths (F-132)."""
-        from mozart.daemon.clone import build_clone_config
+        from marianne.daemon.clone import build_clone_config
 
         base = DaemonConfig()
         clone_a = build_clone_config("alpha", base_config=base)
@@ -177,7 +177,7 @@ class TestCloneConfigInheritance:
 
     def test_none_base_config_uses_defaults(self) -> None:
         """Without base config, clone uses DaemonConfig defaults."""
-        from mozart.daemon.clone import build_clone_config
+        from marianne.daemon.clone import build_clone_config
 
         clone = build_clone_config("test", base_config=None)
         defaults = DaemonConfig()
@@ -197,7 +197,7 @@ class TestStartConductorCloneConfig:
         """F-132: start_conductor clone path override must set state_db_path."""
         from unittest.mock import patch
 
-        from mozart.daemon.clone import resolve_clone_paths
+        from marianne.daemon.clone import resolve_clone_paths
 
         clone_paths = resolve_clone_paths("f132-test")
 
@@ -208,7 +208,7 @@ class TestStartConductorCloneConfig:
 
         original_init = None
         try:
-            from mozart.daemon.process import DaemonProcess
+            from marianne.daemon.process import DaemonProcess
 
             original_init = DaemonProcess.__init__
 
@@ -219,12 +219,12 @@ class TestStartConductorCloneConfig:
             DaemonProcess.__init__ = capturing_init  # type: ignore[assignment]
 
             with (
-                patch("mozart.daemon.process._load_config", return_value=mock_config),
-                patch("mozart.daemon.process._read_pid", return_value=None),
-                patch("mozart.core.logging.configure_logging"),
-                patch("mozart.daemon.process._daemonize"),
+                patch("marianne.daemon.process._load_config", return_value=mock_config),
+                patch("marianne.daemon.process._read_pid", return_value=None),
+                patch("marianne.core.logging.configure_logging"),
+                patch("marianne.daemon.process._daemonize"),
             ):
-                from mozart.daemon.process import start_conductor
+                from marianne.daemon.process import start_conductor
 
                 with pytest.raises(SystemExit):
                     start_conductor(clone_name="f132-test")
@@ -251,7 +251,7 @@ class TestStartConductorCloneConfig:
 
         original_init = None
         try:
-            from mozart.daemon.process import DaemonProcess
+            from marianne.daemon.process import DaemonProcess
 
             original_init = DaemonProcess.__init__
 
@@ -263,14 +263,14 @@ class TestStartConductorCloneConfig:
 
             with (
                 patch(
-                    "mozart.daemon.process._load_config",
+                    "marianne.daemon.process._load_config",
                     return_value=DaemonConfig(),
                 ),
-                patch("mozart.daemon.process._read_pid", return_value=None),
-                patch("mozart.core.logging.configure_logging"),
-                patch("mozart.daemon.process._daemonize"),
+                patch("marianne.daemon.process._read_pid", return_value=None),
+                patch("marianne.core.logging.configure_logging"),
+                patch("marianne.daemon.process._daemonize"),
             ):
-                from mozart.daemon.process import start_conductor
+                from marianne.daemon.process import start_conductor
 
                 with pytest.raises(SystemExit):
                     start_conductor(clone_name="isolation-test")
@@ -294,7 +294,7 @@ class TestClonePathIsolation:
 
     def test_production_paths_not_in_clone(self) -> None:
         """No clone path should equal any production path."""
-        from mozart.daemon.clone import resolve_clone_paths
+        from marianne.daemon.clone import resolve_clone_paths
 
         prod = DaemonConfig()
         for name in [None, "", "test", "staging", "ci"]:
@@ -304,7 +304,7 @@ class TestClonePathIsolation:
 
     def test_all_clone_paths_contain_clone_marker(self) -> None:
         """Every clone path must contain 'clone' for visibility."""
-        from mozart.daemon.clone import resolve_clone_paths
+        from marianne.daemon.clone import resolve_clone_paths
 
         paths = resolve_clone_paths("mytest")
         assert "clone" in str(paths.socket)
@@ -314,7 +314,7 @@ class TestClonePathIsolation:
 
     def test_default_and_named_clones_differ(self) -> None:
         """Default clone and named clone have different paths."""
-        from mozart.daemon.clone import resolve_clone_paths
+        from marianne.daemon.clone import resolve_clone_paths
 
         default = resolve_clone_paths(None)
         named = resolve_clone_paths("custom")
@@ -332,7 +332,7 @@ class TestCloneGlobalStateCleanup:
 
     def test_set_none_deactivates(self) -> None:
         """Setting None deactivates clone mode."""
-        from mozart.daemon.clone import (
+        from marianne.daemon.clone import (
             get_clone_name,
             is_clone_active,
             set_clone_name,
@@ -346,7 +346,7 @@ class TestCloneGlobalStateCleanup:
 
     def test_empty_string_is_active(self) -> None:
         """Empty string activates clone mode (default clone)."""
-        from mozart.daemon.clone import is_clone_active, set_clone_name
+        from marianne.daemon.clone import is_clone_active, set_clone_name
 
         set_clone_name("")
         try:
@@ -365,11 +365,11 @@ class TestBuiltInProfileValidation:
 
     def test_gemini_cli_has_aggregate_tokens(self) -> None:
         """gemini-cli profile must have aggregate_tokens=True."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         loader = InstrumentProfileLoader()
         profiles = loader.load_directory(
-            Path("src/mozart/instruments/builtins")
+            Path("src/marianne/instruments/builtins")
         )
         gemini = profiles.get("gemini-cli")
         assert gemini is not None, "gemini-cli profile not found"
@@ -378,11 +378,11 @@ class TestBuiltInProfileValidation:
 
     def test_claude_code_no_aggregate_tokens(self) -> None:
         """claude-code profile must have aggregate_tokens=False."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         loader = InstrumentProfileLoader()
         profiles = loader.load_directory(
-            Path("src/mozart/instruments/builtins")
+            Path("src/marianne/instruments/builtins")
         )
         claude = profiles.get("claude-code")
         assert claude is not None, "claude-code profile not found"
@@ -391,11 +391,11 @@ class TestBuiltInProfileValidation:
 
     def test_gemini_cli_has_wildcard_token_paths(self) -> None:
         """gemini-cli token paths must use wildcards for multi-model routing."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         loader = InstrumentProfileLoader()
         profiles = loader.load_directory(
-            Path("src/mozart/instruments/builtins")
+            Path("src/marianne/instruments/builtins")
         )
         gemini = profiles.get("gemini-cli")
         assert gemini is not None
@@ -404,11 +404,11 @@ class TestBuiltInProfileValidation:
 
     def test_claude_code_has_direct_token_paths(self) -> None:
         """claude-code token paths must NOT use wildcards (single model)."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         loader = InstrumentProfileLoader()
         profiles = loader.load_directory(
-            Path("src/mozart/instruments/builtins")
+            Path("src/marianne/instruments/builtins")
         )
         claude = profiles.get("claude-code")
         assert claude is not None
@@ -417,11 +417,11 @@ class TestBuiltInProfileValidation:
 
     def test_all_builtin_profiles_load_without_error(self) -> None:
         """Every built-in profile must load and validate against the schema."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         loader = InstrumentProfileLoader()
         profiles = loader.load_directory(
-            Path("src/mozart/instruments/builtins")
+            Path("src/marianne/instruments/builtins")
         )
         assert len(profiles) >= 6, f"Expected 6+ built-in profiles, got {len(profiles)}"
         for name, profile in profiles.items():
@@ -431,11 +431,11 @@ class TestBuiltInProfileValidation:
 
     def test_gemini_cli_has_error_patterns(self) -> None:
         """gemini-cli profile must have comprehensive error patterns."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         loader = InstrumentProfileLoader()
         profiles = loader.load_directory(
-            Path("src/mozart/instruments/builtins")
+            Path("src/marianne/instruments/builtins")
         )
         gemini = profiles.get("gemini-cli")
         assert gemini is not None
@@ -447,11 +447,11 @@ class TestBuiltInProfileValidation:
 
     def test_claude_code_has_rate_limit_patterns(self) -> None:
         """claude-code profile must have rate limit patterns for F-098."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         loader = InstrumentProfileLoader()
         profiles = loader.load_directory(
-            Path("src/mozart/instruments/builtins")
+            Path("src/marianne/instruments/builtins")
         )
         claude = profiles.get("claude-code")
         assert claude is not None

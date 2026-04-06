@@ -1,5 +1,0 @@
-max_concurrent_jobs: 2
-profiler:
-  enabled: false
-learning:
-  enabled: false

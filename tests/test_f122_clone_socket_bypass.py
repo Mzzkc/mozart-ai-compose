@@ -22,8 +22,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from mozart.daemon.ipc.client import DaemonClient
-from mozart.state.base import StateBackend
+from marianne.daemon.ipc.client import DaemonClient
+from marianne.state.base import StateBackend
 
 
 def _mock_client() -> MagicMock:
@@ -57,15 +57,15 @@ class TestHooksCloneAware:
 
         with (
             patch(
-                "mozart.daemon.detect._resolve_socket_path",
+                "marianne.daemon.detect._resolve_socket_path",
                 return_value=clone_socket,
             ) as mock_resolve,
             patch(
-                "mozart.daemon.detect.is_daemon_available",
+                "marianne.daemon.detect.is_daemon_available",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
-            patch("mozart.daemon.ipc.client.DaemonClient") as mock_client_cls,
+            patch("marianne.daemon.ipc.client.DaemonClient") as mock_client_cls,
         ):
             client = _mock_client()
             client.submit_job = AsyncMock(
@@ -73,7 +73,7 @@ class TestHooksCloneAware:
             )
             mock_client_cls.return_value = client
 
-            from mozart.execution.hooks import _try_daemon_submit
+            from marianne.execution.hooks import _try_daemon_submit
 
             ok, job_id = await _try_daemon_submit(
                 job_path=Path("/tmp/test.yaml"),
@@ -94,15 +94,15 @@ class TestHooksCloneAware:
 
         with (
             patch(
-                "mozart.daemon.detect._resolve_socket_path",
+                "marianne.daemon.detect._resolve_socket_path",
                 return_value=default_socket,
             ),
             patch(
-                "mozart.daemon.detect.is_daemon_available",
+                "marianne.daemon.detect.is_daemon_available",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
-            patch("mozart.daemon.ipc.client.DaemonClient") as mock_client_cls,
+            patch("marianne.daemon.ipc.client.DaemonClient") as mock_client_cls,
         ):
             client = _mock_client()
             client.submit_job = AsyncMock(
@@ -110,7 +110,7 @@ class TestHooksCloneAware:
             )
             mock_client_cls.return_value = client
 
-            from mozart.execution.hooks import _try_daemon_submit
+            from marianne.execution.hooks import _try_daemon_submit
 
             await _try_daemon_submit(
                 job_path=Path("/tmp/test.yaml"),
@@ -123,7 +123,7 @@ class TestHooksCloneAware:
 
     def test_hooks_no_longer_imports_socket_config(self) -> None:
         """hooks.py should not import SocketConfig for DaemonClient creation."""
-        from mozart.execution import hooks
+        from marianne.execution import hooks
 
         source = inspect.getsource(hooks._try_daemon_submit)
         assert "SocketConfig" not in source, (
@@ -133,7 +133,7 @@ class TestHooksCloneAware:
 
     def test_hooks_uses_resolve_socket_path_in_source(self) -> None:
         """hooks.py _try_daemon_submit source calls _resolve_socket_path."""
-        from mozart.execution import hooks
+        from marianne.execution import hooks
 
         source = inspect.getsource(hooks._try_daemon_submit)
         assert "_resolve_socket_path" in source, (
@@ -153,15 +153,15 @@ class TestMcpToolsCloneAware:
 
         with (
             patch(
-                "mozart.mcp.tools._resolve_socket_path",
+                "marianne.mcp.tools._resolve_socket_path",
                 return_value=clone_socket,
             ) as mock_resolve,
-            patch("mozart.mcp.tools.DaemonClient") as mock_client_cls,
-            patch("mozart.mcp.tools.JobControlService"),
+            patch("marianne.mcp.tools.DaemonClient") as mock_client_cls,
+            patch("marianne.mcp.tools.JobControlService"),
         ):
             mock_client_cls.return_value = _mock_client()
 
-            from mozart.mcp.tools import JobTools
+            from marianne.mcp.tools import JobTools
 
             tools = JobTools(_mock_backend(), Path("/tmp"))
 
@@ -171,7 +171,7 @@ class TestMcpToolsCloneAware:
 
     def test_mcp_tools_no_longer_uses_daemon_config_for_socket(self) -> None:
         """MCP tools should not use DaemonConfig().socket.path directly."""
-        from mozart.mcp import tools
+        from marianne.mcp import tools
 
         source = inspect.getsource(tools.JobTools.__init__)
         assert "DaemonConfig().socket.path" not in source, (
@@ -188,7 +188,7 @@ class TestDashboardRoutesCloneAware:
 
     def test_daemon_status_no_hardcoded_socket(self) -> None:
         """daemon_status should not use DaemonConfig().socket.path."""
-        from mozart.dashboard.routes import jobs
+        from marianne.dashboard.routes import jobs
 
         source = inspect.getsource(jobs.daemon_status)
         assert "DaemonConfig().socket.path" not in source, (
@@ -198,7 +198,7 @@ class TestDashboardRoutesCloneAware:
 
     def test_daemon_status_uses_resolve_socket_path_in_source(self) -> None:
         """daemon_status source calls _resolve_socket_path."""
-        from mozart.dashboard.routes import jobs
+        from marianne.dashboard.routes import jobs
 
         source = inspect.getsource(jobs.daemon_status)
         assert "_resolve_socket_path" in source, (
@@ -218,16 +218,16 @@ class TestJobControlServiceCloneAware:
 
         with (
             patch(
-                "mozart.dashboard.services.job_control._resolve_socket_path",
+                "marianne.dashboard.services.job_control._resolve_socket_path",
                 return_value=clone_socket,
             ) as mock_resolve,
             patch(
-                "mozart.dashboard.services.job_control.DaemonClient",
+                "marianne.dashboard.services.job_control.DaemonClient",
             ) as mock_client_cls,
         ):
             mock_client_cls.return_value = _mock_client()
 
-            from mozart.dashboard.services.job_control import JobControlService
+            from marianne.dashboard.services.job_control import JobControlService
 
             svc = JobControlService(_mock_backend(), Path("/tmp"))
 
@@ -237,7 +237,7 @@ class TestJobControlServiceCloneAware:
 
     def test_job_control_no_hardcoded_fallback(self) -> None:
         """JobControlService should not hardcode daemon.sock path."""
-        from mozart.dashboard.services import job_control
+        from marianne.dashboard.services import job_control
 
         source = inspect.getsource(job_control.JobControlService.__init__)
         assert "daemon.sock" not in source, (
@@ -246,7 +246,7 @@ class TestJobControlServiceCloneAware:
 
     def test_job_control_no_daemon_config_for_socket(self) -> None:
         """JobControlService should not use DaemonConfig().socket.path."""
-        from mozart.dashboard.services import job_control
+        from marianne.dashboard.services import job_control
 
         source = inspect.getsource(job_control.JobControlService.__init__)
         assert "DaemonConfig().socket.path" not in source, (
@@ -266,14 +266,14 @@ class TestDashboardAppCloneAware:
 
         with (
             patch(
-                "mozart.daemon.detect._resolve_socket_path",
+                "marianne.daemon.detect._resolve_socket_path",
                 return_value=clone_socket,
             ) as mock_resolve,
-            patch("mozart.daemon.ipc.client.DaemonClient") as mock_client_cls,
+            patch("marianne.daemon.ipc.client.DaemonClient") as mock_client_cls,
         ):
             mock_client_cls.return_value = _mock_client()
 
-            from mozart.dashboard.app import _create_daemon_client
+            from marianne.dashboard.app import _create_daemon_client
 
             client = _create_daemon_client()
 
@@ -283,7 +283,7 @@ class TestDashboardAppCloneAware:
 
     def test_app_factory_no_hardcoded_socket(self) -> None:
         """_create_daemon_client should not use DaemonConfig().socket.path."""
-        from mozart.dashboard import app
+        from marianne.dashboard import app
 
         source = inspect.getsource(app._create_daemon_client)
         assert "DaemonConfig().socket.path" not in source, (
@@ -293,7 +293,7 @@ class TestDashboardAppCloneAware:
 
     def test_app_factory_uses_resolve_in_source(self) -> None:
         """_create_daemon_client source calls _resolve_socket_path."""
-        from mozart.dashboard import app
+        from marianne.dashboard import app
 
         source = inspect.getsource(app._create_daemon_client)
         assert "_resolve_socket_path" in source, (

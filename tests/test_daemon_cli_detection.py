@@ -16,9 +16,9 @@ from typing import Any
 
 import pytest
 
-from mozart.daemon.detect import is_daemon_available, try_daemon_route
-from mozart.daemon.ipc.handler import RequestHandler
-from mozart.daemon.ipc.server import DaemonServer
+from marianne.daemon.detect import is_daemon_available, try_daemon_route
+from marianne.daemon.ipc.handler import RequestHandler
+from marianne.daemon.ipc.server import DaemonServer
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -136,7 +136,7 @@ class TestTryDaemonRoute:
         Previously returned (False, None) which caused misleading "conductor
         not running" messages. Now re-raises with restart guidance.
         """
-        from mozart.daemon.exceptions import MethodNotFoundError
+        from marianne.daemon.exceptions import MethodNotFoundError
 
         sock = tmp_path / "test.sock"
         server = DaemonServer(sock, _make_detect_handler())
@@ -199,7 +199,7 @@ class TestCliNonDaemonRegression:
         """
         result = subprocess.run(
             [
-                sys.executable, "-m", "mozart", "run",
+                sys.executable, "-m", "marianne", "run",
                 "examples/simple-sheet.yaml", "--dry-run",
             ],
             capture_output=True,
@@ -225,7 +225,7 @@ class TestCliNonDaemonRegression:
         """mozart validate succeeds without a daemon socket."""
         result = subprocess.run(
             [
-                sys.executable, "-m", "mozart", "validate",
+                sys.executable, "-m", "marianne", "validate",
                 "examples/simple-sheet.yaml",
             ],
             capture_output=True,

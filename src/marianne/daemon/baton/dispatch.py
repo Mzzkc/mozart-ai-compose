@@ -134,14 +134,34 @@ async def dispatch_ready(
                 result.record_skip(f"instrument_concurrency:{instrument}")
                 continue
 
-            # Check instrument rate limit
+            # Check instrument rate limit (transient — don't fallback)
             if instrument in config.rate_limited_instruments:
                 result.record_skip(f"rate_limited:{instrument}")
                 continue
 
-            # Check circuit breaker
-            if instrument in config.open_circuit_breakers:
-                result.record_skip(f"circuit_breaker:{instrument}")
+            # Check instrument availability — try fallback chain when
+            # circuit breaker is OPEN or instrument is unregistered.
+            # Loop to handle chains where multiple fallbacks are also
+            # unavailable (e.g., claude-code→gemini-cli→ollama when
+            # both claude-code and gemini-cli are OPEN).
+            _skipped = False
+            while (
+                instrument in config.open_circuit_breakers
+                or instrument not in baton._instruments
+            ):
+                if baton._check_and_fallback_unavailable(sheet, job_id):
+                    instrument = sheet.instrument_name
+                    # Check if the new instrument is rate-limited
+                    if instrument in config.rate_limited_instruments:
+                        result.record_skip(f"rate_limited:{instrument}")
+                        _skipped = True
+                        break
+                    # Loop continues to check the new instrument
+                else:
+                    result.record_skip(f"circuit_breaker:{instrument}")
+                    _skipped = True
+                    break
+            if _skipped:
                 continue
 
             # Dispatch!

@@ -18,7 +18,7 @@ from textwrap import dedent
 
 import pytest
 
-from mozart.core.config.instruments import InstrumentProfile
+from marianne.core.config.instruments import InstrumentProfile
 
 
 # --- Helpers ---
@@ -96,7 +96,7 @@ class TestInstrumentLoaderHappyPath:
 
     def test_load_single_profile(self, tmp_path: Path) -> None:
         """Load a single valid YAML profile from a directory."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         instruments_dir = tmp_path / "instruments"
         _write_yaml(instruments_dir / "test.yaml", _minimal_cli_yaml())
@@ -108,7 +108,7 @@ class TestInstrumentLoaderHappyPath:
 
     def test_load_multiple_profiles(self, tmp_path: Path) -> None:
         """Load multiple YAML profiles from a directory."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         instruments_dir = tmp_path / "instruments"
         _write_yaml(instruments_dir / "alpha.yaml", _minimal_cli_yaml("alpha"))
@@ -121,7 +121,7 @@ class TestInstrumentLoaderHappyPath:
 
     def test_load_realistic_profile(self, tmp_path: Path) -> None:
         """Load a realistic Gemini CLI profile."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         instruments_dir = tmp_path / "instruments"
         _write_yaml(instruments_dir / "gemini-cli.yaml", _gemini_yaml())
@@ -139,7 +139,7 @@ class TestInstrumentLoaderHappyPath:
 
     def test_yml_extension_accepted(self, tmp_path: Path) -> None:
         """Both .yaml and .yml extensions are recognized."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         instruments_dir = tmp_path / "instruments"
         _write_yaml(instruments_dir / "foo.yml", _minimal_cli_yaml("foo"))
@@ -149,7 +149,7 @@ class TestInstrumentLoaderHappyPath:
 
     def test_empty_directory_returns_empty(self, tmp_path: Path) -> None:
         """Empty directory returns empty dict, not error."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         instruments_dir = tmp_path / "empty"
         instruments_dir.mkdir()
@@ -159,7 +159,7 @@ class TestInstrumentLoaderHappyPath:
 
     def test_nonexistent_directory_returns_empty(self, tmp_path: Path) -> None:
         """Nonexistent directory returns empty dict, not error."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         profiles = InstrumentProfileLoader.load_directory(
             tmp_path / "does-not-exist"
@@ -177,7 +177,7 @@ class TestInstrumentLoaderMultiDirectory:
 
     def test_venue_overrides_org(self, tmp_path: Path) -> None:
         """Venue profiles override org profiles on name collision."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         org_dir = tmp_path / "org"
         venue_dir = tmp_path / "venue"
@@ -193,7 +193,7 @@ class TestInstrumentLoaderMultiDirectory:
 
     def test_non_overlapping_profiles_merged(self, tmp_path: Path) -> None:
         """Non-overlapping profiles from different dirs are all included."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         org_dir = tmp_path / "org"
         venue_dir = tmp_path / "venue"
@@ -209,7 +209,7 @@ class TestInstrumentLoaderMultiDirectory:
 
     def test_later_dir_wins_on_collision(self, tmp_path: Path) -> None:
         """Last directory in list wins when names collide (expected: venue last)."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         dir_a = tmp_path / "a"
         dir_b = tmp_path / "b"
@@ -226,7 +226,7 @@ class TestInstrumentLoaderMultiDirectory:
 
     def test_missing_dirs_in_list_skipped(self, tmp_path: Path) -> None:
         """Missing directories in the list are skipped gracefully."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         real_dir = tmp_path / "real"
         _write_yaml(real_dir / "a.yaml", _minimal_cli_yaml("a"))
@@ -248,7 +248,7 @@ class TestInstrumentLoaderErrors:
 
     def test_invalid_yaml_skipped(self, tmp_path: Path) -> None:
         """Invalid YAML syntax is logged and skipped."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         instruments_dir = tmp_path / "instruments"
         _write_yaml(instruments_dir / "good.yaml", _minimal_cli_yaml("good"))
@@ -260,7 +260,7 @@ class TestInstrumentLoaderErrors:
 
     def test_validation_failure_skipped(self, tmp_path: Path) -> None:
         """YAML that fails Pydantic validation is skipped."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         instruments_dir = tmp_path / "instruments"
         _write_yaml(instruments_dir / "good.yaml", _minimal_cli_yaml("good"))
@@ -277,7 +277,7 @@ class TestInstrumentLoaderErrors:
 
     def test_empty_yaml_skipped(self, tmp_path: Path) -> None:
         """Empty YAML file is skipped."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         instruments_dir = tmp_path / "instruments"
         _write_yaml(instruments_dir / "good.yaml", _minimal_cli_yaml("good"))
@@ -289,7 +289,7 @@ class TestInstrumentLoaderErrors:
 
     def test_yaml_list_instead_of_dict_skipped(self, tmp_path: Path) -> None:
         """YAML that parses as a list (not dict) is skipped."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         instruments_dir = tmp_path / "instruments"
         _write_yaml(instruments_dir / "good.yaml", _minimal_cli_yaml("good"))
@@ -300,7 +300,7 @@ class TestInstrumentLoaderErrors:
 
     def test_non_yaml_files_ignored(self, tmp_path: Path) -> None:
         """Non-YAML files (.json, .txt, .md) are silently ignored."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         instruments_dir = tmp_path / "instruments"
         _write_yaml(instruments_dir / "good.yaml", _minimal_cli_yaml("good"))
@@ -314,7 +314,7 @@ class TestInstrumentLoaderErrors:
 
     def test_subdirectories_not_recursed(self, tmp_path: Path) -> None:
         """Subdirectories are not recursed into."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         instruments_dir = tmp_path / "instruments"
         _write_yaml(instruments_dir / "top.yaml", _minimal_cli_yaml("top"))
@@ -330,7 +330,7 @@ class TestInstrumentLoaderErrors:
 
     def test_duplicate_names_in_same_dir_last_wins(self, tmp_path: Path) -> None:
         """Two files defining the same name: last alphabetically wins."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         instruments_dir = tmp_path / "instruments"
         _write_yaml(
@@ -360,7 +360,7 @@ class TestInstrumentLoaderAdversarial:
     @pytest.mark.adversarial
     def test_binary_file_in_directory_ignored(self, tmp_path: Path) -> None:
         """Binary file with .yaml extension is handled gracefully."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         instruments_dir = tmp_path / "instruments"
         _write_yaml(instruments_dir / "good.yaml", _minimal_cli_yaml("good"))
@@ -372,7 +372,7 @@ class TestInstrumentLoaderAdversarial:
     @pytest.mark.adversarial
     def test_unicode_content_in_yaml(self, tmp_path: Path) -> None:
         """Unicode instrument names and descriptions are handled."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         instruments_dir = tmp_path / "instruments"
         yaml_content = """\
@@ -396,7 +396,7 @@ class TestInstrumentLoaderAdversarial:
     @pytest.mark.adversarial
     def test_very_large_yaml_accepted(self, tmp_path: Path) -> None:
         """Very large profile (many models) is accepted."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         instruments_dir = tmp_path / "instruments"
         models = "\n".join(

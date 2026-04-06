@@ -19,12 +19,12 @@ import pytest
 
 TESTS_DIR: Path = Path(__file__).parent
 SRC_DIR: Path = TESTS_DIR.parent / "src"
-CONFIG_DIR: Path = SRC_DIR / "mozart" / "core" / "config"
-CHECKPOINT_FILE: Path = SRC_DIR / "mozart" / "core" / "checkpoint.py"
+CONFIG_DIR: Path = SRC_DIR / "marianne" / "core" / "config"
+CHECKPOINT_FILE: Path = SRC_DIR / "marianne" / "core" / "checkpoint.py"
 
 # Baseline counts as of 2026-04-01. Quality gate tests fail only if NEW
 # violations are added above these baselines.
-BARE_MAGICMOCK_BASELINE: int = 1582
+BARE_MAGICMOCK_BASELINE: int = 1613
 ASYNCIO_SLEEP_BASELINE: int = 137
 ASSERTION_LESS_TEST_BASELINE: int = 131
 

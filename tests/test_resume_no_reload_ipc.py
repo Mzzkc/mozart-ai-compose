@@ -14,8 +14,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mozart.core.checkpoint import CheckpointState, JobStatus
-from mozart.daemon.manager import DaemonJobStatus, JobManager, JobMeta
+from marianne.core.checkpoint import CheckpointState, JobStatus
+from marianne.daemon.manager import DaemonJobStatus, JobManager, JobMeta
 
 
 # ---------------------------------------------------------------------------
@@ -43,12 +43,12 @@ class TestCliResumeNoReloadParam:
 
         with (
             patch(
-                "mozart.daemon.detect.try_daemon_route",
+                "marianne.daemon.detect.try_daemon_route",
                 side_effect=fake_daemon_route,
             ),
-            patch("mozart.cli.commands.resume.configure_global_logging"),
+            patch("marianne.cli.commands.resume.configure_global_logging"),
         ):
-            from mozart.cli.commands.resume import _resume_job
+            from marianne.cli.commands.resume import _resume_job
 
             await _resume_job(
                 job_id="test-job",
@@ -78,12 +78,12 @@ class TestCliResumeNoReloadParam:
 
         with (
             patch(
-                "mozart.daemon.detect.try_daemon_route",
+                "marianne.daemon.detect.try_daemon_route",
                 side_effect=fake_daemon_route,
             ),
-            patch("mozart.cli.commands.resume.configure_global_logging"),
+            patch("marianne.cli.commands.resume.configure_global_logging"),
         ):
-            from mozart.cli.commands.resume import _resume_job
+            from marianne.cli.commands.resume import _resume_job
 
             await _resume_job(
                 job_id="test-job",
@@ -194,7 +194,7 @@ class TestServiceResumeNoReload:
 
     def test_no_reload_true_uses_snapshot(self, tmp_path: Path) -> None:
         """When no_reload=True, snapshot is used even if config file exists."""
-        from mozart.daemon.job_service import JobService
+        from marianne.daemon.job_service import JobService
 
         config_file = tmp_path / "score.yaml"
         config_file.write_text(
@@ -226,7 +226,7 @@ class TestServiceResumeNoReload:
 
     def test_no_reload_false_reloads_from_disk(self, tmp_path: Path) -> None:
         """When no_reload=False (default), config is reloaded from disk."""
-        from mozart.daemon.job_service import JobService
+        from marianne.daemon.job_service import JobService
 
         config_file = tmp_path / "score.yaml"
         config_file.write_text(
@@ -268,8 +268,8 @@ class TestCostLimitResetOnReload:
 
     def test_cost_limit_reached_reset_when_cost_limits_change(self) -> None:
         """cost_limit_reached must be reset when cost_limits section changes."""
-        from mozart.core.config import JobConfig
-        from mozart.execution.reconciliation import reconcile_config
+        from marianne.core.config import JobConfig
+        from marianne.execution.reconciliation import reconcile_config
 
         old_snapshot = {
             "name": "test",
@@ -314,8 +314,8 @@ class TestCostLimitResetOnReload:
 
     def test_cost_limit_not_reset_when_cost_limits_unchanged(self) -> None:
         """cost_limit_reached should NOT be reset when cost_limits don't change."""
-        from mozart.core.config import JobConfig
-        from mozart.execution.reconciliation import reconcile_config
+        from marianne.core.config import JobConfig
+        from marianne.execution.reconciliation import reconcile_config
 
         # Use a full model dump as snapshot so all defaults match
         base_config = JobConfig.model_validate({
@@ -362,7 +362,7 @@ class TestBatonResumeNoReload:
         """_resume_via_baton must have no_reload parameter."""
         import inspect
 
-        from mozart.daemon.manager import JobManager
+        from marianne.daemon.manager import JobManager
 
         sig = inspect.signature(JobManager._resume_via_baton)
         assert "no_reload" in sig.parameters, (
@@ -373,7 +373,7 @@ class TestBatonResumeNoReload:
         """_resume_job_task routes no_reload to _resume_via_baton."""
         import ast
 
-        source_file = Path(__file__).parent.parent / "src" / "mozart" / "daemon" / "manager.py"
+        source_file = Path(__file__).parent.parent / "src" / "marianne" / "daemon" / "manager.py"
         source = source_file.read_text()
 
         # The call to _resume_via_baton inside _resume_job_task must include

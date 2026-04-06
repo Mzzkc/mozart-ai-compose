@@ -13,8 +13,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mozart.daemon.pgroup import ProcessGroupManager
-from mozart.daemon.system_probe import SystemProbe
+from marianne.daemon.pgroup import ProcessGroupManager
+from marianne.daemon.system_probe import SystemProbe
 
 
 # ─── Setup ─────────────────────────────────────────────────────────────
@@ -28,8 +28,8 @@ class TestSetup:
         pgm = ProcessGroupManager()
 
         with (
-            patch("mozart.daemon.pgroup.os.setpgrp") as mock_setpgrp,
-            patch("mozart.daemon.pgroup.atexit.register"),
+            patch("marianne.daemon.pgroup.os.setpgrp") as mock_setpgrp,
+            patch("marianne.daemon.pgroup.atexit.register"),
         ):
             pgm.setup()
 
@@ -41,8 +41,8 @@ class TestSetup:
         pgm = ProcessGroupManager()
 
         with (
-            patch("mozart.daemon.pgroup.os.setpgrp") as mock_setpgrp,
-            patch("mozart.daemon.pgroup.atexit.register"),
+            patch("marianne.daemon.pgroup.os.setpgrp") as mock_setpgrp,
+            patch("marianne.daemon.pgroup.atexit.register"),
         ):
             pgm.setup()
             pgm.setup()
@@ -54,8 +54,8 @@ class TestSetup:
         pgm = ProcessGroupManager()
 
         with (
-            patch("mozart.daemon.pgroup.os.setpgrp"),
-            patch("mozart.daemon.pgroup.atexit.register") as mock_atexit,
+            patch("marianne.daemon.pgroup.os.setpgrp"),
+            patch("marianne.daemon.pgroup.atexit.register") as mock_atexit,
         ):
             pgm.setup()
 
@@ -66,10 +66,10 @@ class TestSetup:
         pgm = ProcessGroupManager()
 
         with (
-            patch("mozart.daemon.pgroup.os.setpgrp", side_effect=OSError("EPERM")),
-            patch("mozart.daemon.pgroup.os.getpid", return_value=1234),
-            patch("mozart.daemon.pgroup.os.getpgrp", return_value=1234),
-            patch("mozart.daemon.pgroup.atexit.register"),
+            patch("marianne.daemon.pgroup.os.setpgrp", side_effect=OSError("EPERM")),
+            patch("marianne.daemon.pgroup.os.getpid", return_value=1234),
+            patch("marianne.daemon.pgroup.os.getpgrp", return_value=1234),
+            patch("marianne.daemon.pgroup.atexit.register"),
         ):
             pgm.setup()
 
@@ -80,9 +80,9 @@ class TestSetup:
         pgm = ProcessGroupManager()
 
         with (
-            patch("mozart.daemon.pgroup.os.setpgrp", side_effect=OSError("EPERM")),
-            patch("mozart.daemon.pgroup.os.getpid", return_value=1234),
-            patch("mozart.daemon.pgroup.os.getpgrp", return_value=5678),
+            patch("marianne.daemon.pgroup.os.setpgrp", side_effect=OSError("EPERM")),
+            patch("marianne.daemon.pgroup.os.getpid", return_value=1234),
+            patch("marianne.daemon.pgroup.os.getpgrp", return_value=5678),
         ):
             pgm.setup()
 
@@ -109,13 +109,13 @@ class TestKillAllChildren:
         pgm._is_leader = True
 
         with (
-            patch("mozart.daemon.pgroup.os.getpgrp", return_value=1234),
-            patch("mozart.daemon.pgroup.os.getpid", return_value=1234),
+            patch("marianne.daemon.pgroup.os.getpgrp", return_value=1234),
+            patch("marianne.daemon.pgroup.os.getpid", return_value=1234),
             patch.object(
                 ProcessGroupManager, "_count_group_members", return_value=3,
             ),
-            patch("mozart.daemon.pgroup.os.killpg") as mock_killpg,
-            patch("mozart.daemon.pgroup.signal.signal") as mock_signal,
+            patch("marianne.daemon.pgroup.os.killpg") as mock_killpg,
+            patch("marianne.daemon.pgroup.signal.signal") as mock_signal,
         ):
             result = pgm.kill_all_children()
 
@@ -128,13 +128,13 @@ class TestKillAllChildren:
         pgm._is_leader = True
 
         with (
-            patch("mozart.daemon.pgroup.os.getpgrp", return_value=1234),
-            patch("mozart.daemon.pgroup.os.getpid", return_value=1234),
+            patch("marianne.daemon.pgroup.os.getpgrp", return_value=1234),
+            patch("marianne.daemon.pgroup.os.getpid", return_value=1234),
             patch.object(
                 ProcessGroupManager, "_count_group_members", return_value=1,
             ),
-            patch("mozart.daemon.pgroup.os.killpg") as mock_killpg,
-            patch("mozart.daemon.pgroup.signal.signal"),
+            patch("marianne.daemon.pgroup.os.killpg") as mock_killpg,
+            patch("marianne.daemon.pgroup.signal.signal"),
         ):
             result = pgm.kill_all_children(sig=signal.SIGKILL)
 
@@ -147,8 +147,8 @@ class TestKillAllChildren:
         pgm._is_leader = True
 
         with (
-            patch("mozart.daemon.pgroup.os.getpgrp", return_value=1234),
-            patch("mozart.daemon.pgroup.os.getpid", return_value=1234),
+            patch("marianne.daemon.pgroup.os.getpgrp", return_value=1234),
+            patch("marianne.daemon.pgroup.os.getpid", return_value=1234),
             patch.object(
                 ProcessGroupManager, "_count_group_members", return_value=0,
             ),
@@ -164,13 +164,13 @@ class TestKillAllChildren:
         pgm._is_leader = True
 
         with (
-            patch("mozart.daemon.pgroup.os.getpgrp", return_value=1234),
-            patch("mozart.daemon.pgroup.os.getpid", return_value=1234),
+            patch("marianne.daemon.pgroup.os.getpgrp", return_value=1234),
+            patch("marianne.daemon.pgroup.os.getpid", return_value=1234),
             patch.object(
                 ProcessGroupManager, "_count_group_members", return_value=1,
             ),
-            patch("mozart.daemon.pgroup.os.killpg", side_effect=ProcessLookupError),
-            patch("mozart.daemon.pgroup.signal.signal"),
+            patch("marianne.daemon.pgroup.os.killpg", side_effect=ProcessLookupError),
+            patch("marianne.daemon.pgroup.signal.signal"),
         ):
             result = pgm.kill_all_children()
 
@@ -182,13 +182,13 @@ class TestKillAllChildren:
         pgm._is_leader = True
 
         with (
-            patch("mozart.daemon.pgroup.os.getpgrp", return_value=1234),
-            patch("mozart.daemon.pgroup.os.getpid", return_value=1234),
+            patch("marianne.daemon.pgroup.os.getpgrp", return_value=1234),
+            patch("marianne.daemon.pgroup.os.getpid", return_value=1234),
             patch.object(
                 ProcessGroupManager, "_count_group_members", return_value=1,
             ),
-            patch("mozart.daemon.pgroup.os.killpg", side_effect=PermissionError),
-            patch("mozart.daemon.pgroup.signal.signal"),
+            patch("marianne.daemon.pgroup.os.killpg", side_effect=PermissionError),
+            patch("marianne.daemon.pgroup.signal.signal"),
         ):
             result = pgm.kill_all_children()
 
@@ -206,13 +206,13 @@ class TestKillAllChildren:
             return signal.SIG_DFL  # Return previous handler
 
         with (
-            patch("mozart.daemon.pgroup.os.getpgrp", return_value=1234),
-            patch("mozart.daemon.pgroup.os.getpid", return_value=1234),
+            patch("marianne.daemon.pgroup.os.getpgrp", return_value=1234),
+            patch("marianne.daemon.pgroup.os.getpid", return_value=1234),
             patch.object(
                 ProcessGroupManager, "_count_group_members", return_value=1,
             ),
-            patch("mozart.daemon.pgroup.os.killpg"),
-            patch("mozart.daemon.pgroup.signal.signal", side_effect=track_signal),
+            patch("marianne.daemon.pgroup.os.killpg"),
+            patch("marianne.daemon.pgroup.signal.signal", side_effect=track_signal),
         ):
             pgm.kill_all_children(sig=signal.SIGTERM)
 
@@ -263,16 +263,23 @@ class TestCleanupOrphans:
 
         with (
             patch.dict("sys.modules", {"psutil": mock_psutil}),
-            patch("mozart.daemon.pgroup.os.waitpid") as mock_waitpid,
-            patch("mozart.daemon.pgroup.os.getpid", return_value=1000),
+            patch("marianne.daemon.pgroup.os.waitpid") as mock_waitpid,
+            patch("marianne.daemon.pgroup.os.getpid", return_value=1000),
         ):
             result = pgm.cleanup_orphans()
 
         assert 999 in result
         mock_waitpid.assert_called_once_with(999, os.WNOHANG)
 
-    def test_cleanup_kills_orphans_of_dead_tracked_backend(self):
-        """cleanup_orphans kills orphans when their tracked backend is dead."""
+    def test_cleanup_does_not_kill_sleeping_orphans_of_dead_tracked_backend(self):
+        """cleanup_orphans does NOT kill sleeping orphans — ancestry-based killing disabled (F-483).
+
+        The F-483 fix disabled ancestry-based orphan killing because it was too
+        aggressive — killing Chrome, pytest, pyright, and other legitimate processes
+        in the daemon's tree. Only zombie reaping remains active. Orphaned MCP
+        servers accumulate but don't crash the system. Per-job PID tracking in
+        the conductor DB will replace this.
+        """
         pgm = ProcessGroupManager()
         pgm.track_backend_pid(99999)  # Will appear dead via os.kill probe
 
@@ -294,13 +301,14 @@ class TestCleanupOrphans:
 
         with (
             patch.dict("sys.modules", {"psutil": mock_psutil}),
-            patch("mozart.daemon.pgroup.os.getpid", return_value=1000),
-            patch("mozart.daemon.pgroup.os.kill", side_effect=OSError),
+            patch("marianne.daemon.pgroup.os.getpid", return_value=1000),
+            patch("marianne.daemon.pgroup.os.kill", side_effect=OSError),
         ):
             result = pgm.cleanup_orphans()
 
-        assert 888 in result
-        orphan.kill.assert_called_once()
+        # Ancestry-based killing disabled — sleeping orphan is NOT cleaned up
+        assert 888 not in result
+        orphan.kill.assert_not_called()
 
     def test_cleanup_ignores_normal_children(self):
         """cleanup_orphans leaves healthy children alone."""
@@ -315,7 +323,7 @@ class TestCleanupOrphans:
         healthy.pid = 777
         healthy.is_running.return_value = True
         healthy.status.return_value = "sleeping"
-        healthy.cmdline.return_value = ["python", "-m", "mozart"]
+        healthy.cmdline.return_value = ["python", "-m", "marianne"]
         healthy.ppid.return_value = 1000  # Not reparented
 
         mock_process = MagicMock()
@@ -324,7 +332,7 @@ class TestCleanupOrphans:
 
         with (
             patch.dict("sys.modules", {"psutil": mock_psutil}),
-            patch("mozart.daemon.pgroup.os.getpid", return_value=1000),
+            patch("marianne.daemon.pgroup.os.getpid", return_value=1000),
         ):
             result = pgm.cleanup_orphans()
 
@@ -367,7 +375,7 @@ class TestCleanupOrphans:
 
         with (
             patch.dict("sys.modules", {"psutil": mock_psutil}),
-            patch("mozart.daemon.pgroup.os.getpid", return_value=1000),
+            patch("marianne.daemon.pgroup.os.getpid", return_value=1000),
         ):
             result = pgm.cleanup_orphans()
 
@@ -400,8 +408,8 @@ class TestCountGroupMembers:
             return {100: 1234, 200: 1234, 300: 9999}[pid]
 
         with (
-            patch("mozart.daemon.system_probe._psutil", mock_psutil),
-            patch("mozart.daemon.system_probe.os.getpgid", side_effect=fake_getpgid),
+            patch("marianne.daemon.system_probe._psutil", mock_psutil),
+            patch("marianne.daemon.system_probe.os.getpgid", side_effect=fake_getpgid),
         ):
             count = ProcessGroupManager._count_group_members(
                 pgid=1234, exclude_pid=100,
@@ -431,13 +439,13 @@ class TestAtexitCleanup:
         pgm._is_leader = True
 
         with (
-            patch("mozart.daemon.pgroup.os.getpgrp", return_value=1234),
-            patch("mozart.daemon.pgroup.os.getpid", return_value=1234),
+            patch("marianne.daemon.pgroup.os.getpgrp", return_value=1234),
+            patch("marianne.daemon.pgroup.os.getpid", return_value=1234),
             patch.object(
                 ProcessGroupManager, "_count_group_members", return_value=2,
             ),
-            patch("mozart.daemon.pgroup.os.killpg") as mock_killpg,
-            patch("mozart.daemon.pgroup.signal.signal"),
+            patch("marianne.daemon.pgroup.os.killpg") as mock_killpg,
+            patch("marianne.daemon.pgroup.signal.signal"),
         ):
             pgm._atexit_cleanup()
 
@@ -449,12 +457,12 @@ class TestAtexitCleanup:
         pgm._is_leader = True
 
         with (
-            patch("mozart.daemon.pgroup.os.getpgrp", return_value=1234),
-            patch("mozart.daemon.pgroup.os.getpid", return_value=1234),
+            patch("marianne.daemon.pgroup.os.getpgrp", return_value=1234),
+            patch("marianne.daemon.pgroup.os.getpid", return_value=1234),
             patch.object(
                 ProcessGroupManager, "_count_group_members", return_value=0,
             ),
-            patch("mozart.daemon.pgroup.os.killpg") as mock_killpg,
+            patch("marianne.daemon.pgroup.os.killpg") as mock_killpg,
         ):
             pgm._atexit_cleanup()
 
@@ -466,7 +474,7 @@ class TestAtexitCleanup:
         pgm._is_leader = True
 
         with (
-            patch("mozart.daemon.pgroup.os.getpgrp", side_effect=RuntimeError("boom")),
+            patch("marianne.daemon.pgroup.os.getpgrp", side_effect=RuntimeError("boom")),
         ):
             # Should not raise
             pgm._atexit_cleanup()
@@ -507,13 +515,13 @@ class TestSystemProbeDelegation:
         pgm._is_leader = True
 
         with (
-            patch("mozart.daemon.pgroup.os.getpgrp", return_value=1234),
-            patch("mozart.daemon.pgroup.os.getpid", return_value=1234),
+            patch("marianne.daemon.pgroup.os.getpgrp", return_value=1234),
+            patch("marianne.daemon.pgroup.os.getpid", return_value=1234),
             patch.object(
                 SystemProbe, "count_group_members", return_value=2,
             ) as mock_probe,
-            patch("mozart.daemon.pgroup.os.killpg") as mock_killpg,
-            patch("mozart.daemon.pgroup.signal.signal"),
+            patch("marianne.daemon.pgroup.os.killpg") as mock_killpg,
+            patch("marianne.daemon.pgroup.signal.signal"),
         ):
             result = pgm.kill_all_children()
 
@@ -527,12 +535,12 @@ class TestSystemProbeDelegation:
         pgm._is_leader = True
 
         with (
-            patch("mozart.daemon.pgroup.os.getpgrp", return_value=1234),
-            patch("mozart.daemon.pgroup.os.getpid", return_value=1234),
+            patch("marianne.daemon.pgroup.os.getpgrp", return_value=1234),
+            patch("marianne.daemon.pgroup.os.getpid", return_value=1234),
             patch.object(
                 SystemProbe, "count_group_members", return_value=0,
             ),
-            patch("mozart.daemon.pgroup.os.killpg") as mock_killpg,
+            patch("marianne.daemon.pgroup.os.killpg") as mock_killpg,
         ):
             result = pgm.kill_all_children()
 

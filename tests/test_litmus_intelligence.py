@@ -91,24 +91,24 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from mozart.core.config import PromptConfig, ValidationRule
-from mozart.core.config.spec import SpecFragment
-from mozart.core.sheet import Sheet
-from mozart.daemon.baton.core import BatonCore
-from mozart.daemon.baton.events import (
+from marianne.core.config import PromptConfig, ValidationRule
+from marianne.core.config.spec import SpecFragment
+from marianne.core.sheet import Sheet
+from marianne.daemon.baton.core import BatonCore
+from marianne.daemon.baton.events import (
     RateLimitExpired,
     RateLimitHit,
     RetryDue,
     SheetAttemptResult,
     SheetSkipped,
 )
-from mozart.daemon.baton.state import (
+from marianne.daemon.baton.state import (
     AttemptMode,
     BatonSheetStatus,
     SheetExecutionState,
 )
-from mozart.prompts.preamble import build_preamble
-from mozart.prompts.templating import PromptBuilder, SheetContext
+from marianne.prompts.preamble import build_preamble
+from marianne.prompts.templating import PromptBuilder, SheetContext
 
 # =============================================================================
 # 1. PROMPT ASSEMBLY EFFECTIVENESS
@@ -266,8 +266,8 @@ class TestPromptAssemblyEffectiveness:
         The litmus: does the completion prompt help the agent finish
         the remaining work without re-doing what already succeeded?
         """
-        from mozart.execution.validation.models import ValidationResult
-        from mozart.prompts.templating import CompletionContext
+        from marianne.execution.validation.models import ValidationResult
+        from marianne.prompts.templating import CompletionContext
 
         config = PromptConfig(template="Build everything", variables={})
         builder = PromptBuilder(config)
@@ -336,7 +336,7 @@ class TestSpecTagsSerializationRoundtrip:
         This tests the actual Pydantic serialization path that the daemon
         uses when snapshotting and restoring job config.
         """
-        from mozart.core.config.job import SheetConfig
+        from marianne.core.config.job import SheetConfig
 
         original = SheetConfig(
             size=10,
@@ -363,7 +363,7 @@ class TestSpecTagsSerializationRoundtrip:
         This is the more extreme case: actual JSON.dumps/loads, which
         always converts int keys to strings.
         """
-        from mozart.core.config.job import SheetConfig
+        from marianne.core.config.job import SheetConfig
 
         original = SheetConfig(
             size=10,
@@ -388,7 +388,7 @@ class TestSpecTagsSerializationRoundtrip:
 
         Same risk as spec_tags — integer keys become strings in JSON.
         """
-        from mozart.core.config.job import SheetConfig
+        from marianne.core.config.job import SheetConfig
 
         original = SheetConfig(
             size=10,
@@ -931,9 +931,9 @@ class TestBatonMusicianPromptRendering:
         This is THE litmus test for F-104. If the assembled prompt is just
         the template, the intelligence pipeline isn't working.
         """
-        from mozart.core.config.execution import ValidationRule as VR
-        from mozart.daemon.baton.musician import _build_prompt
-        from mozart.daemon.baton.state import AttemptContext
+        from marianne.core.config.execution import ValidationRule as VR
+        from marianne.daemon.baton.musician import _build_prompt
+        from marianne.daemon.baton.state import AttemptContext
 
         sheet = Sheet(
             num=3, movement=2, voice=1, voice_count=3,
@@ -979,8 +979,8 @@ class TestBatonMusicianPromptRendering:
         This matters because completion mode means validations partially passed.
         The agent should focus on what FAILED, not redo everything.
         """
-        from mozart.daemon.baton.musician import _build_prompt
-        from mozart.daemon.baton.state import AttemptContext
+        from marianne.daemon.baton.musician import _build_prompt
+        from marianne.daemon.baton.state import AttemptContext
 
         sheet = Sheet(
             num=1, movement=1, voice=None, voice_count=1,
@@ -1014,8 +1014,8 @@ class TestBatonMusicianPromptRendering:
         """
         import tempfile
 
-        from mozart.daemon.baton.musician import _build_prompt
-        from mozart.daemon.baton.state import AttemptContext
+        from marianne.daemon.baton.musician import _build_prompt
+        from marianne.daemon.baton.state import AttemptContext
 
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".md", delete=False
@@ -1050,8 +1050,8 @@ class TestBatonMusicianPromptRendering:
         If the retry preamble is identical to first run, the agent learns
         nothing from the retry — it just repeats the same approach.
         """
-        from mozart.daemon.baton.musician import _build_prompt
-        from mozart.daemon.baton.state import AttemptContext
+        from marianne.daemon.baton.musician import _build_prompt
+        from marianne.daemon.baton.state import AttemptContext
 
         sheet = Sheet(
             num=1, movement=1, voice=None, voice_count=1,
@@ -1079,7 +1079,7 @@ class TestBatonMusicianPromptRendering:
         An agent seeing '{workspace}/auth.py' has to guess the path.
         An agent seeing '/tmp/ws/auth.py' knows exactly what to create.
         """
-        from mozart.daemon.baton.musician import _format_validation_requirements
+        from marianne.daemon.baton.musician import _format_validation_requirements
 
         rules = [
             type("Rule", (), {
@@ -1120,7 +1120,7 @@ class TestErrorTaxonomyIntelligence:
         The recovery strategy differs: stale → longer delay (agent may need
         more think time), timeout → shorter delay (try again sooner).
         """
-        from mozart.core.errors.codes import (
+        from marianne.core.errors.codes import (
             _RETRY_BEHAVIORS,
             ErrorCode,
         )
@@ -1145,8 +1145,8 @@ class TestErrorTaxonomyIntelligence:
         Without this, stale kills and backend timeouts are indistinguishable
         in diagnostics — making F-097 undiagnosable.
         """
-        from mozart.core.errors.classifier import ErrorClassifier
-        from mozart.core.errors.codes import ErrorCode
+        from marianne.core.errors.classifier import ErrorClassifier
+        from marianne.core.errors.codes import ErrorCode
 
         classifier = ErrorClassifier()
 
@@ -1180,8 +1180,8 @@ class TestErrorTaxonomyIntelligence:
         Phase 4.5 ALWAYS runs, even after Phase 1, and scans stdout+stderr for
         rate limit patterns.
         """
-        from mozart.core.errors.classifier import ErrorClassifier
-        from mozart.core.errors.codes import ErrorCategory
+        from marianne.core.errors.classifier import ErrorClassifier
+        from marianne.core.errors.codes import ErrorCategory
 
         classifier = ErrorClassifier()
 
@@ -1208,8 +1208,8 @@ class TestErrorTaxonomyIntelligence:
         Many CLI tools write error messages to stdout, not stderr.
         The classifier must scan BOTH.
         """
-        from mozart.core.errors.classifier import ErrorClassifier
-        from mozart.core.errors.codes import ErrorCategory
+        from marianne.core.errors.classifier import ErrorClassifier
+        from marianne.core.errors.codes import ErrorCategory
 
         classifier = ErrorClassifier()
 
@@ -1330,8 +1330,8 @@ class TestCrossSystemIntegration:
         "EXECUTION_ERROR". The baton uses these to decide retry/fail/escalate.
         If the mapping is wrong, good classifications lead to bad decisions.
         """
-        from mozart.backends.base import ExecutionResult
-        from mozart.daemon.baton.musician import _classify_error
+        from marianne.backends.base import ExecutionResult
+        from marianne.daemon.baton.musician import _classify_error
 
         # AUTH_FAILURE → baton should fail immediately (no retry)
         auth_result = ExecutionResult(
@@ -1373,8 +1373,8 @@ class TestCrossSystemIntegration:
         6+ storage locations (F-003). The redaction happens in the musician's
         _capture_output, which is the single bottleneck for all output.
         """
-        from mozart.backends.base import ExecutionResult
-        from mozart.daemon.baton.musician import _capture_output
+        from marianne.backends.base import ExecutionResult
+        from marianne.daemon.baton.musician import _capture_output
 
         result = ExecutionResult(
             success=True,
@@ -1399,8 +1399,8 @@ class TestCrossSystemIntegration:
         and retries. Without this contract, every sheet without validations
         would retry until exhaustion.
         """
-        from mozart.backends.base import ExecutionResult
-        from mozart.daemon.baton.musician import _validate
+        from marianne.backends.base import ExecutionResult
+        from marianne.daemon.baton.musician import _validate
 
         sheet = Sheet(
             num=1, movement=1, voice=None, voice_count=1,
@@ -1441,8 +1441,8 @@ class TestRestartRecoveryIntelligence:
         Without this, the baton would re-execute finished work —
         wasting cost and potentially producing different results.
         """
-        from mozart.core.checkpoint import CheckpointState, SheetState, SheetStatus
-        from mozart.daemon.baton.adapter import BatonAdapter
+        from marianne.core.checkpoint import CheckpointState, SheetState, SheetStatus
+        from marianne.daemon.baton.adapter import BatonAdapter
 
         # Build a checkpoint that represents a partially-completed job:
         # sheet 1 completed, sheet 2 failed, sheet 3 skipped, sheet 4 in_progress
@@ -1502,8 +1502,8 @@ class TestRestartRecoveryIntelligence:
         Without this, a sheet that already tried 3 times would get 3 MORE
         tries after restart — violating the max_retries contract.
         """
-        from mozart.core.checkpoint import CheckpointState, SheetState, SheetStatus
-        from mozart.daemon.baton.adapter import BatonAdapter
+        from marianne.core.checkpoint import CheckpointState, SheetState, SheetStatus
+        from marianne.daemon.baton.adapter import BatonAdapter
 
         checkpoint = CheckpointState(
             job_id="attempt-carry",
@@ -1544,8 +1544,8 @@ class TestRestartRecoveryIntelligence:
         The litmus: recover a sheet with attempt_count >= max_retries,
         send one more failure, verify it goes to FAILED (not retry).
         """
-        from mozart.core.checkpoint import CheckpointState, SheetState, SheetStatus
-        from mozart.daemon.baton.adapter import BatonAdapter
+        from marianne.core.checkpoint import CheckpointState, SheetState, SheetStatus
+        from marianne.daemon.baton.adapter import BatonAdapter
 
         checkpoint = CheckpointState(
             job_id="exhausted-recovery",
@@ -1601,7 +1601,7 @@ class TestCompletionSignaling:
     async def test_completion_signals_on_all_success(self) -> None:
         """wait_for_completion returns True when all sheets complete successfully."""
         import asyncio
-        from mozart.daemon.baton.adapter import BatonAdapter
+        from marianne.daemon.baton.adapter import BatonAdapter
 
         adapter = BatonAdapter(max_concurrent_sheets=10)
 
@@ -1634,7 +1634,7 @@ class TestCompletionSignaling:
     async def test_completion_signals_false_on_failure(self) -> None:
         """wait_for_completion returns False when any sheet fails."""
         import asyncio
-        from mozart.daemon.baton.adapter import BatonAdapter
+        from marianne.daemon.baton.adapter import BatonAdapter
 
         adapter = BatonAdapter(max_concurrent_sheets=10)
 
@@ -1684,7 +1684,7 @@ class TestCredentialSafetyInErrorPaths:
 
     def test_redact_credentials_catches_anthropic_key_in_error(self) -> None:
         """An Anthropic key in an exception message is redacted."""
-        from mozart.utils.credential_scanner import redact_credentials
+        from marianne.utils.credential_scanner import redact_credentials
 
         error_msg = "ConnectionError: Auth failed with key sk-ant-api03-REAL_SECRET_KEY_1234567890abcdef"
         redacted = redact_credentials(error_msg)
@@ -1698,7 +1698,7 @@ class TestCredentialSafetyInErrorPaths:
 
     def test_redact_credentials_catches_multiple_key_types(self) -> None:
         """Multiple credential types in one message are all redacted."""
-        from mozart.utils.credential_scanner import redact_credentials
+        from marianne.utils.credential_scanner import redact_credentials
 
         error_msg = (
             "Config error: ANTHROPIC_API_KEY=sk-ant-api03-ABCDEFGH123456789012345678901234 "
@@ -1722,7 +1722,7 @@ class TestCredentialSafetyInErrorPaths:
         the import and the call site.
         """
         import inspect
-        from mozart.daemon.baton import musician
+        from marianne.daemon.baton import musician
 
         source = inspect.getsource(musician)
 
@@ -1739,7 +1739,7 @@ class TestCredentialSafetyInErrorPaths:
 
     def test_github_slack_hf_tokens_also_caught(self) -> None:
         """F-023: GitHub, Slack, and HF tokens are caught in error messages."""
-        from mozart.utils.credential_scanner import redact_credentials
+        from marianne.utils.credential_scanner import redact_credentials
 
         error_msg = (
             "AuthError: ghp_1234567890abcdef1234567890abcdef123456 "
@@ -1776,7 +1776,7 @@ class TestParallelFailureIntelligence:
         can't isinstance-check a string, so RateLimitExhaustedError becomes
         a generic FatalError, and jobs FAIL instead of PAUSE.
         """
-        from mozart.execution.parallel import ParallelBatchResult
+        from marianne.execution.parallel import ParallelBatchResult
 
         # The exceptions field must exist
         result = ParallelBatchResult(
@@ -1802,7 +1802,7 @@ class TestParallelFailureIntelligence:
         dependency resolution, and synthesis sheets execute on incomplete
         input — exactly what happened in the rosetta score.
         """
-        from mozart.execution.parallel import ParallelExecutor
+        from marianne.execution.parallel import ParallelExecutor
 
         assert hasattr(ParallelExecutor, "propagate_failure_to_dependents"), (
             "ParallelExecutor must have propagate_failure_to_dependents (F-113)"
@@ -1820,7 +1820,7 @@ class TestParallelFailureIntelligence:
         resolution. We check the source code for the terminal set.
         """
         import inspect
-        from mozart.execution import parallel
+        from marianne.execution import parallel
 
         source = inspect.getsource(parallel)
 
@@ -1838,7 +1838,7 @@ class TestParallelFailureIntelligence:
         )
 
         # Verify the exceptions field exists on ParallelBatchResult (F-111)
-        from mozart.execution.parallel import ParallelBatchResult
+        from marianne.execution.parallel import ParallelBatchResult
 
         assert "exceptions" in ParallelBatchResult.__dataclass_fields__, (
             "ParallelBatchResult must have exceptions dict to preserve "
@@ -1861,7 +1861,7 @@ class TestCloneConfigIsolation:
 
     def test_clone_state_db_differs_from_production(self) -> None:
         """Clone state_db_path must NOT be the default production path."""
-        from mozart.daemon.clone import build_clone_config
+        from marianne.daemon.clone import build_clone_config
 
         clone_config = build_clone_config(None)
 
@@ -1879,7 +1879,7 @@ class TestCloneConfigIsolation:
 
     def test_named_clones_are_isolated_from_each_other(self) -> None:
         """Two named clones must have different state DB paths."""
-        from mozart.daemon.clone import build_clone_config
+        from marianne.daemon.clone import build_clone_config
 
         config_a = build_clone_config("alpha")
         config_b = build_clone_config("beta")
@@ -1896,8 +1896,8 @@ class TestCloneConfigIsolation:
 
         Without this, clone testing doesn't replicate production behavior.
         """
-        from mozart.daemon.clone import build_clone_config
-        from mozart.daemon.config import DaemonConfig
+        from marianne.daemon.clone import build_clone_config
+        from marianne.daemon.config import DaemonConfig
 
         production = DaemonConfig(max_concurrent_jobs=7)
         clone = build_clone_config(None, base_config=production)
@@ -1934,7 +1934,7 @@ class TestCostLimitWiringIntelligence:
 
     def test_cost_limit_config_has_max_cost_per_job(self) -> None:
         """CostLimitConfig has max_cost_per_job, NOT max_cost_usd."""
-        from mozart.core.config.execution import CostLimitConfig
+        from marianne.core.config.execution import CostLimitConfig
 
         config = CostLimitConfig(enabled=True, max_cost_per_job=25.0)
         assert config.max_cost_per_job == 25.0
@@ -1954,7 +1954,7 @@ class TestCostLimitWiringIntelligence:
         correct config field name.
         """
         import inspect
-        from mozart.daemon import manager
+        from marianne.daemon import manager
 
         # The fixed code should reference max_cost_per_job in config access
         run_via_baton_source = inspect.getsource(manager.JobManager._run_via_baton)
@@ -2014,8 +2014,8 @@ class TestBatonRunnerStateMappingTotality:
 
     def test_every_checkpoint_status_maps_to_baton_status(self) -> None:
         """All CheckpointState statuses have a baton mapping."""
-        from mozart.core.checkpoint import SheetStatus
-        from mozart.daemon.baton.adapter import checkpoint_to_baton_status
+        from marianne.core.checkpoint import SheetStatus
+        from marianne.daemon.baton.adapter import checkpoint_to_baton_status
 
         unmapped = []
         for status in SheetStatus:
@@ -2031,7 +2031,7 @@ class TestBatonRunnerStateMappingTotality:
 
     def test_every_baton_status_maps_to_checkpoint_status(self) -> None:
         """All baton statuses have a checkpoint mapping."""
-        from mozart.daemon.baton.adapter import baton_to_checkpoint_status
+        from marianne.daemon.baton.adapter import baton_to_checkpoint_status
 
         unmapped = []
         for status in BatonSheetStatus:
@@ -2066,8 +2066,8 @@ class TestInstrumentAliasResolution:
 
     def test_alias_resolves_to_profile_name(self) -> None:
         """A movement using an alias name resolves to the alias's profile."""
-        from mozart.core.config.job import InstrumentDef, JobConfig, MovementDef
-        from mozart.core.sheet import build_sheets
+        from marianne.core.config.job import InstrumentDef, JobConfig, MovementDef
+        from marianne.core.sheet import build_sheets
 
         config = JobConfig(
             name="alias-test",
@@ -2098,8 +2098,8 @@ class TestInstrumentAliasResolution:
 
     def test_alias_config_merges_with_score_config(self) -> None:
         """Alias config overrides score-level instrument_config."""
-        from mozart.core.config.job import InstrumentDef, JobConfig, MovementDef
-        from mozart.core.sheet import build_sheets
+        from marianne.core.config.job import InstrumentDef, JobConfig, MovementDef
+        from marianne.core.sheet import build_sheets
 
         config = JobConfig(
             name="merge-test",
@@ -2131,8 +2131,8 @@ class TestInstrumentAliasResolution:
 
     def test_per_sheet_overrides_alias(self) -> None:
         """Per-sheet instrument takes priority over alias."""
-        from mozart.core.config.job import InstrumentDef, JobConfig
-        from mozart.core.sheet import build_sheets
+        from marianne.core.config.job import InstrumentDef, JobConfig
+        from marianne.core.sheet import build_sheets
 
         config = JobConfig(
             name="priority-test",
@@ -2173,10 +2173,10 @@ class TestInstrumentValidationWithAliases:
 
     def test_alias_names_accepted_by_validator(self) -> None:
         """V210 should NOT warn on instrument names that match score aliases."""
-        from mozart.validation.checks.config import InstrumentNameCheck
+        from marianne.validation.checks.config import InstrumentNameCheck
 
         checker = InstrumentNameCheck()
-        from mozart.core.config.job import InstrumentDef, JobConfig, MovementDef
+        from marianne.core.config.job import InstrumentDef, JobConfig, MovementDef
 
         config = JobConfig(
             name="valid-alias",
@@ -2226,7 +2226,7 @@ class TestSuccessOutcomeAfterRestart:
 
     def test_18_attempts_classifies_as_retry(self) -> None:
         """F-127: 18 cumulative attempts must NOT be success_first_try."""
-        from mozart.execution.runner.sheet import SheetExecutionMixin
+        from marianne.execution.runner.sheet import SheetExecutionMixin
 
         outcome, first_try = SheetExecutionMixin._classify_success_outcome(
             cumulative_attempts=18,
@@ -2239,7 +2239,7 @@ class TestSuccessOutcomeAfterRestart:
 
     def test_1_attempt_classifies_as_first_try(self) -> None:
         """Single attempt is genuinely first_try."""
-        from mozart.execution.runner.sheet import SheetExecutionMixin
+        from marianne.execution.runner.sheet import SheetExecutionMixin
 
         outcome, first_try = SheetExecutionMixin._classify_success_outcome(
             cumulative_attempts=1,
@@ -2250,7 +2250,7 @@ class TestSuccessOutcomeAfterRestart:
 
     def test_completion_mode_classifies_correctly(self) -> None:
         """Sheet that needed completion mode is SUCCESS_COMPLETION."""
-        from mozart.execution.runner.sheet import SheetExecutionMixin
+        from marianne.execution.runner.sheet import SheetExecutionMixin
 
         outcome, first_try = SheetExecutionMixin._classify_success_outcome(
             cumulative_attempts=3,
@@ -2278,7 +2278,7 @@ class TestParallelExceptionPreservation:
 
     def test_exceptions_dict_exists_on_batch_result(self) -> None:
         """ParallelBatchResult has an exceptions dict for type preservation."""
-        from mozart.execution.parallel import ParallelBatchResult
+        from marianne.execution.parallel import ParallelBatchResult
 
         result = ParallelBatchResult(sheets=[1, 2])
         assert hasattr(result, "exceptions"), (
@@ -2290,9 +2290,9 @@ class TestParallelExceptionPreservation:
         """_find_rate_limit_in_batch can find the exception by type."""
         from datetime import datetime, timezone
 
-        from mozart.execution.parallel import ParallelBatchResult
-        from mozart.execution.runner.lifecycle import LifecycleMixin
-        from mozart.execution.runner.models import RateLimitExhaustedError
+        from marianne.execution.parallel import ParallelBatchResult
+        from marianne.execution.runner.lifecycle import LifecycleMixin
+        from marianne.execution.runner.models import RateLimitExhaustedError
 
         resume_time = datetime(2026, 4, 1, 12, 0, 0, tzinfo=timezone.utc)
         exc = RateLimitExhaustedError(
@@ -2316,8 +2316,8 @@ class TestParallelExceptionPreservation:
 
     def test_non_rate_limit_error_not_found(self) -> None:
         """Non-rate-limit exceptions are not misidentified."""
-        from mozart.execution.parallel import ParallelBatchResult
-        from mozart.execution.runner.lifecycle import LifecycleMixin
+        from marianne.execution.parallel import ParallelBatchResult
+        from marianne.execution.runner.lifecycle import LifecycleMixin
 
         result = ParallelBatchResult(
             sheets=[1],
@@ -2353,8 +2353,8 @@ class TestFailurePropagationIntelligence:
         Without FAILED in the terminal set, the DAG hangs forever after
         restart because _permanently_failed is ephemeral.
         """
-        from mozart.core.checkpoint import SheetStatus
-        from mozart.execution.parallel import ParallelExecutor
+        from marianne.core.checkpoint import SheetStatus
+        from marianne.execution.parallel import ParallelExecutor
 
         # Verify FAILED is recognized as terminal for DAG purposes
         # by checking get_next_parallel_batch behavior
@@ -2387,14 +2387,14 @@ class TestBatonEventStubLogging:
         import io
         import logging
 
-        from mozart.daemon.baton.events import StaleCheck
+        from marianne.daemon.baton.events import StaleCheck
 
         baton = BatonCore()
 
         log_capture = io.StringIO()
         handler = logging.StreamHandler(log_capture)
         handler.setLevel(logging.WARNING)
-        logger = logging.getLogger("mozart.daemon.baton.core")
+        logger = logging.getLogger("marianne.daemon.baton.core")
         logger.addHandler(handler)
         try:
             await baton.handle_event(StaleCheck(job_id="j1", sheet_num=1))
@@ -2411,14 +2411,14 @@ class TestBatonEventStubLogging:
         import io
         import logging
 
-        from mozart.daemon.baton.events import CronTick
+        from marianne.daemon.baton.events import CronTick
 
         baton = BatonCore()
 
         log_capture = io.StringIO()
         handler = logging.StreamHandler(log_capture)
         handler.setLevel(logging.WARNING)
-        logger = logging.getLogger("mozart.daemon.baton.core")
+        logger = logging.getLogger("marianne.daemon.baton.core")
         logger.addHandler(handler)
         try:
             await baton.handle_event(CronTick(
@@ -2452,7 +2452,7 @@ class TestCredentialRedactionDefenseInDepth:
 
     def test_redact_credentials_catches_long_anthropic_key(self) -> None:
         """The credential scanner pattern requires 10+ chars after sk-ant-api."""
-        from mozart.utils.credential_scanner import redact_credentials
+        from marianne.utils.credential_scanner import redact_credentials
 
         # Realistic key — 30+ chars after prefix
         key = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890"
@@ -2462,7 +2462,7 @@ class TestCredentialRedactionDefenseInDepth:
 
     def test_redact_credentials_catches_openai_key(self) -> None:
         """OpenAI keys are detected and redacted."""
-        from mozart.utils.credential_scanner import redact_credentials
+        from marianne.utils.credential_scanner import redact_credentials
 
         key = "sk-proj-abcdefghijklmnopqrstuvwxyz1234"
         result = redact_credentials(f"Error: {key}")
@@ -2470,7 +2470,7 @@ class TestCredentialRedactionDefenseInDepth:
 
     def test_redact_credentials_catches_github_pat(self) -> None:
         """GitHub PATs added in F-023 are caught (36+ chars after prefix)."""
-        from mozart.utils.credential_scanner import redact_credentials
+        from marianne.utils.credential_scanner import redact_credentials
 
         # Pattern requires ghp_ + 36+ alphanumeric chars
         key = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklm"
@@ -2482,7 +2482,7 @@ class TestCredentialRedactionDefenseInDepth:
         from pathlib import Path as P
 
         # Read the actual source to verify structural wiring
-        musician_path = P("src/mozart/daemon/baton/musician.py")
+        musician_path = P("src/marianne/daemon/baton/musician.py")
         source = musician_path.read_text()
 
         # The exception handler (around line 165) must call redact_credentials
@@ -2501,7 +2501,7 @@ class TestCredentialRedactionDefenseInDepth:
         """musician.py _classify_error return value is redacted (F-136)."""
         from pathlib import Path as P
 
-        source = P("src/mozart/daemon/baton/musician.py").read_text()
+        source = P("src/marianne/daemon/baton/musician.py").read_text()
 
         # The _classify_error return value must be redacted before use
         # Look for: redact_credentials(raw_error_msg) if raw_error_msg
@@ -2541,8 +2541,8 @@ class TestSemanticContextTagEffectiveness:
     def test_semantic_tags_match_stored_validation_namespace(self) -> None:
         """Tags from build_semantic_context_tags contain validation:TYPE
         entries that match the pattern storage format."""
-        from mozart.core.config.job import JobConfig, PromptConfig, ValidationRule
-        from mozart.execution.runner.patterns import build_semantic_context_tags
+        from marianne.core.config.job import JobConfig, PromptConfig, ValidationRule
+        from marianne.execution.runner.patterns import build_semantic_context_tags
 
         config = JobConfig(
             name="tag-test",
@@ -2567,8 +2567,8 @@ class TestSemanticContextTagEffectiveness:
     def test_semantic_tags_include_broad_categories(self) -> None:
         """Tags include broad categories (success, retry, completion) that
         match patterns discovered from any execution context."""
-        from mozart.core.config.job import JobConfig, PromptConfig
-        from mozart.execution.runner.patterns import build_semantic_context_tags
+        from marianne.core.config.job import JobConfig, PromptConfig
+        from marianne.execution.runner.patterns import build_semantic_context_tags
 
         config = JobConfig(
             name="broad-tag-test",
@@ -2589,8 +2589,8 @@ class TestSemanticContextTagEffectiveness:
     def test_old_positional_tags_are_gone(self) -> None:
         """The old positional tags (sheet:N, job:X) that caused F-009 no longer
         appear in semantic tag output."""
-        from mozart.core.config.job import JobConfig, PromptConfig
-        from mozart.execution.runner.patterns import build_semantic_context_tags
+        from marianne.core.config.job import JobConfig, PromptConfig
+        from marianne.execution.runner.patterns import build_semantic_context_tags
 
         config = JobConfig(
             name="positional-tag-test",
@@ -2616,8 +2616,8 @@ class TestSemanticContextTagEffectiveness:
         The A/B comparison: positional tags would have ZERO overlap with stored
         tags. Semantic tags should have >0 overlap.
         """
-        from mozart.core.config.job import JobConfig, PromptConfig, ValidationRule
-        from mozart.execution.runner.patterns import build_semantic_context_tags
+        from marianne.core.config.job import JobConfig, PromptConfig, ValidationRule
+        from marianne.execution.runner.patterns import build_semantic_context_tags
 
         config = JobConfig(
             name="overlap-test",
@@ -2663,9 +2663,9 @@ class TestPromptRendererWiring:
 
     def test_register_job_with_prompt_config_creates_renderer(self) -> None:
         """Passing prompt_config to register_job creates a PromptRenderer."""
-        from mozart.core.config.job import PromptConfig
-        from mozart.core.sheet import Sheet
-        from mozart.daemon.baton.adapter import BatonAdapter
+        from marianne.core.config.job import PromptConfig
+        from marianne.core.sheet import Sheet
+        from marianne.daemon.baton.adapter import BatonAdapter
 
         adapter = BatonAdapter(max_concurrent_sheets=10)
 
@@ -2696,8 +2696,8 @@ class TestPromptRendererWiring:
 
     def test_register_job_without_prompt_config_has_no_renderer(self) -> None:
         """Without prompt_config, no PromptRenderer is created (pre-F-158 behavior)."""
-        from mozart.core.sheet import Sheet
-        from mozart.daemon.baton.adapter import BatonAdapter
+        from marianne.core.sheet import Sheet
+        from marianne.daemon.baton.adapter import BatonAdapter
 
         adapter = BatonAdapter(max_concurrent_sheets=10)
 
@@ -2725,11 +2725,11 @@ class TestPromptRendererWiring:
         This is the core litmus for F-158: does the prompt assembly pipeline
         make agent prompts MORE EFFECTIVE?
         """
-        from mozart.core.config.job import PromptConfig, ValidationRule
-        from mozart.core.config.spec import SpecFragment
-        from mozart.core.sheet import Sheet
-        from mozart.daemon.baton.prompt import PromptRenderer
-        from mozart.daemon.baton.state import AttemptContext, AttemptMode
+        from marianne.core.config.job import PromptConfig, ValidationRule
+        from marianne.core.config.spec import SpecFragment
+        from marianne.core.sheet import Sheet
+        from marianne.daemon.baton.prompt import PromptRenderer
+        from marianne.daemon.baton.state import AttemptContext, AttemptMode
 
         raw_template = "Build the authentication module"
 
@@ -2810,8 +2810,8 @@ class TestDispatchGuardEffectiveness:
     def test_dispatch_failure_sends_e505_to_baton(self) -> None:
         """The _send_dispatch_failure method posts a SheetAttemptResult
         with E505 error classification to the baton inbox."""
-        from mozart.daemon.baton.adapter import BatonAdapter
-        from mozart.daemon.baton.events import SheetAttemptResult
+        from marianne.daemon.baton.adapter import BatonAdapter
+        from marianne.daemon.baton.events import SheetAttemptResult
 
         adapter = BatonAdapter(max_concurrent_sheets=10)
 
@@ -2845,7 +2845,7 @@ class TestDispatchGuardEffectiveness:
         All three must call _send_dispatch_failure. Without this, ANY of them
         would cause infinite dispatch loops.
         """
-        source = Path("src/mozart/daemon/baton/adapter.py").read_text()
+        source = Path("src/marianne/daemon/baton/adapter.py").read_text()
 
         # Find _dispatch_callback
         start = source.find("async def _dispatch_callback(")
@@ -2894,8 +2894,8 @@ class TestRateLimitAutoResumeEffectiveness:
         """_handle_rate_limit_hit schedules a RateLimitExpired event."""
         from unittest.mock import MagicMock
 
-        from mozart.daemon.baton.core import BatonCore
-        from mozart.daemon.baton.events import RateLimitHit
+        from marianne.daemon.baton.core import BatonCore
+        from marianne.daemon.baton.events import RateLimitHit
 
         baton = BatonCore.__new__(BatonCore)
         baton._instruments = {
@@ -2928,9 +2928,9 @@ class TestRateLimitAutoResumeEffectiveness:
         move back to PENDING — enabling dispatch to resume."""
         from unittest.mock import MagicMock
 
-        from mozart.daemon.baton.core import BatonCore
-        from mozart.daemon.baton.events import RateLimitExpired
-        from mozart.daemon.baton.state import BatonSheetStatus
+        from marianne.daemon.baton.core import BatonCore
+        from marianne.daemon.baton.events import RateLimitExpired
+        from marianne.daemon.baton.state import BatonSheetStatus
 
         baton = BatonCore.__new__(BatonCore)
         baton._instruments = {
@@ -2970,8 +2970,8 @@ class TestRateLimitAutoResumeEffectiveness:
         """
         from unittest.mock import MagicMock
 
-        from mozart.daemon.baton.core import BatonCore
-        from mozart.daemon.baton.events import RateLimitHit
+        from marianne.daemon.baton.core import BatonCore
+        from marianne.daemon.baton.events import RateLimitHit
 
         baton = BatonCore.__new__(BatonCore)
         baton._instruments = {
@@ -3016,7 +3016,7 @@ class TestModelOverrideEffectiveness:
         """PluginCliBackend.apply_overrides replaces the active model."""
         from unittest.mock import MagicMock
 
-        from mozart.execution.instruments.cli_backend import PluginCliBackend
+        from marianne.execution.instruments.cli_backend import PluginCliBackend
 
         profile = MagicMock()
         profile.display_name = "test-instrument"
@@ -3044,7 +3044,7 @@ class TestModelOverrideEffectiveness:
         """After clear_overrides, the original model is restored."""
         from unittest.mock import MagicMock
 
-        from mozart.execution.instruments.cli_backend import PluginCliBackend
+        from marianne.execution.instruments.cli_backend import PluginCliBackend
 
         profile = MagicMock()
         profile.display_name = "test"
@@ -3069,7 +3069,7 @@ class TestModelOverrideEffectiveness:
         """Passing empty overrides doesn't corrupt model state."""
         from unittest.mock import MagicMock
 
-        from mozart.execution.instruments.cli_backend import PluginCliBackend
+        from marianne.execution.instruments.cli_backend import PluginCliBackend
 
         backend = PluginCliBackend.__new__(PluginCliBackend)
         backend._profile = MagicMock()
@@ -3104,8 +3104,8 @@ class TestConcertChainingEffectiveness:
         """Returns True when at least one sheet reached COMPLETED."""
         from unittest.mock import MagicMock
 
-        from mozart.daemon.baton.adapter import BatonAdapter
-        from mozart.daemon.baton.state import BatonSheetStatus
+        from marianne.daemon.baton.adapter import BatonAdapter
+        from marianne.daemon.baton.state import BatonSheetStatus
 
         adapter = BatonAdapter(max_concurrent_sheets=10)
 
@@ -3123,8 +3123,8 @@ class TestConcertChainingEffectiveness:
         """Returns False when all sheets failed — no new work was done."""
         from unittest.mock import MagicMock
 
-        from mozart.daemon.baton.adapter import BatonAdapter
-        from mozart.daemon.baton.state import BatonSheetStatus
+        from marianne.daemon.baton.adapter import BatonAdapter
+        from marianne.daemon.baton.state import BatonSheetStatus
 
         adapter = BatonAdapter(max_concurrent_sheets=10)
 
@@ -3145,7 +3145,7 @@ class TestConcertChainingEffectiveness:
         Structural verification: the manager.py code path references both
         has_completed_sheets and completed_new_work in the baton path.
         """
-        source = Path("src/mozart/daemon/manager.py").read_text()
+        source = Path("src/marianne/daemon/manager.py").read_text()
 
         # The baton execution path must wire completed_new_work
         assert "has_completed_sheets" in source, (
@@ -3181,7 +3181,7 @@ class TestRateLimitWaitCapEffectiveness:
 
     def test_wait_cap_exists_in_constants(self) -> None:
         """RESET_TIME_MAXIMUM_WAIT_SECONDS is defined and reasonable."""
-        from mozart.core.constants import RESET_TIME_MAXIMUM_WAIT_SECONDS
+        from marianne.core.constants import RESET_TIME_MAXIMUM_WAIT_SECONDS
 
         assert RESET_TIME_MAXIMUM_WAIT_SECONDS <= 86400.0, (
             f"Wait cap must be ≤24h (86400s), got {RESET_TIME_MAXIMUM_WAIT_SECONDS}. "
@@ -3193,13 +3193,13 @@ class TestRateLimitWaitCapEffectiveness:
 
     def test_clamp_wait_reduces_astronomical_values(self) -> None:
         """_clamp_wait (or equivalent) reduces values above the cap."""
-        from mozart.core.errors.classifier import ErrorClassifier
+        from marianne.core.errors.classifier import ErrorClassifier
 
         classifier = ErrorClassifier.__new__(ErrorClassifier)
 
         # Simulate astronomical wait
         clamped = classifier._clamp_wait(999999.0)
-        from mozart.core.constants import RESET_TIME_MAXIMUM_WAIT_SECONDS
+        from marianne.core.constants import RESET_TIME_MAXIMUM_WAIT_SECONDS
 
         assert clamped <= RESET_TIME_MAXIMUM_WAIT_SECONDS, (
             f"999999s must be clamped to ≤{RESET_TIME_MAXIMUM_WAIT_SECONDS}s, "
@@ -3208,7 +3208,7 @@ class TestRateLimitWaitCapEffectiveness:
 
     def test_reasonable_waits_are_not_clamped(self) -> None:
         """Normal wait times (within min-max range) pass through unclamped."""
-        from mozart.core.errors.classifier import ErrorClassifier
+        from marianne.core.errors.classifier import ErrorClassifier
 
         classifier = ErrorClassifier.__new__(ErrorClassifier)
 
@@ -3241,8 +3241,8 @@ class TestCrossSheetContextInBatonPrompts:
 
     def test_prompt_renderer_populates_previous_outputs(self) -> None:
         """AttemptContext.previous_outputs flows through to SheetContext."""
-        from mozart.daemon.baton.prompt import PromptRenderer
-        from mozart.daemon.baton.state import AttemptContext, AttemptMode
+        from marianne.daemon.baton.prompt import PromptRenderer
+        from marianne.daemon.baton.state import AttemptContext, AttemptMode
 
         template = "Previous: {{ previous_outputs }}"
         renderer = PromptRenderer(
@@ -3273,8 +3273,8 @@ class TestCrossSheetContextInBatonPrompts:
 
     def test_prompt_renderer_populates_previous_files(self) -> None:
         """AttemptContext.previous_files flows through to SheetContext."""
-        from mozart.daemon.baton.prompt import PromptRenderer
-        from mozart.daemon.baton.state import AttemptContext, AttemptMode
+        from marianne.daemon.baton.prompt import PromptRenderer
+        from marianne.daemon.baton.state import AttemptContext, AttemptMode
 
         template = "Files: {{ previous_files }}"
         renderer = PromptRenderer(
@@ -3307,8 +3307,8 @@ class TestCrossSheetContextInBatonPrompts:
 
         This is the WITHOUT side of the WITH/WITHOUT comparison.
         """
-        from mozart.daemon.baton.prompt import PromptRenderer
-        from mozart.daemon.baton.state import AttemptContext, AttemptMode
+        from marianne.daemon.baton.prompt import PromptRenderer
+        from marianne.daemon.baton.state import AttemptContext, AttemptMode
 
         template = "{{ previous_outputs }}"
         renderer = PromptRenderer(
@@ -3481,7 +3481,7 @@ class TestAutoFreshDetection:
 
     def test_modified_score_detected_as_needing_fresh_run(self, tmp_path: Path) -> None:
         """A score modified after completion triggers auto-fresh."""
-        from mozart.daemon.manager import _should_auto_fresh
+        from marianne.daemon.manager import _should_auto_fresh
 
         score_file = tmp_path / "test.yaml"
         score_file.write_text("version: 1")
@@ -3501,7 +3501,7 @@ class TestAutoFreshDetection:
 
     def test_unmodified_score_does_not_trigger_fresh(self, tmp_path: Path) -> None:
         """A score NOT modified after completion does NOT trigger auto-fresh."""
-        from mozart.daemon.manager import _should_auto_fresh
+        from marianne.daemon.manager import _should_auto_fresh
 
         score_file = tmp_path / "test.yaml"
         score_file.write_text("version: 1")
@@ -3518,7 +3518,7 @@ class TestAutoFreshDetection:
 
     def test_missing_score_file_does_not_crash(self) -> None:
         """Missing score file returns False gracefully, not an exception."""
-        from mozart.daemon.manager import _should_auto_fresh
+        from marianne.daemon.manager import _should_auto_fresh
 
         result = _should_auto_fresh(Path("/nonexistent/score.yaml"), 100.0)
         assert result is False, (
@@ -3528,7 +3528,7 @@ class TestAutoFreshDetection:
 
     def test_none_completed_at_returns_false(self, tmp_path: Path) -> None:
         """No completion timestamp means we can't compare → no auto-fresh."""
-        from mozart.daemon.manager import _should_auto_fresh
+        from marianne.daemon.manager import _should_auto_fresh
 
         score_file = tmp_path / "test.yaml"
         score_file.write_text("version: 1")
@@ -3561,7 +3561,7 @@ class TestBackpressureRejectionIntelligence:
         """When only rate limits are active (memory fine), reason is 'rate_limit'."""
         from unittest.mock import MagicMock
 
-        from mozart.daemon.backpressure import BackpressureController
+        from marianne.daemon.backpressure import BackpressureController
 
         controller = BackpressureController.__new__(BackpressureController)
         controller._monitor = MagicMock()
@@ -3585,7 +3585,7 @@ class TestBackpressureRejectionIntelligence:
         """When memory is high (>85%), reason is 'resource' regardless of rate limits."""
         from unittest.mock import MagicMock
 
-        from mozart.daemon.backpressure import BackpressureController
+        from marianne.daemon.backpressure import BackpressureController
 
         controller = BackpressureController.__new__(BackpressureController)
         controller._monitor = MagicMock()
@@ -3608,7 +3608,7 @@ class TestBackpressureRejectionIntelligence:
         """When nothing is pressured, reason is None (accept the job)."""
         from unittest.mock import MagicMock
 
-        from mozart.daemon.backpressure import BackpressureController
+        from marianne.daemon.backpressure import BackpressureController
 
         controller = BackpressureController.__new__(BackpressureController)
         controller._monitor = MagicMock()
@@ -3647,7 +3647,7 @@ class TestCrossSheetCredentialRedaction:
 
     def test_anthropic_key_redacted_in_file_content(self) -> None:
         """Anthropic API keys in captured files are redacted."""
-        from mozart.utils.credential_scanner import redact_credentials
+        from marianne.utils.credential_scanner import redact_credentials
 
         file_content = (
             "# Config\n"
@@ -3668,7 +3668,7 @@ class TestCrossSheetCredentialRedaction:
 
     def test_multiple_credential_types_all_redacted(self) -> None:
         """All credential patterns (Anthropic, OpenAI, AWS, etc.) are caught."""
-        from mozart.utils.credential_scanner import redact_credentials
+        from marianne.utils.credential_scanner import redact_credentials
 
         file_content = (
             "ANTHROPIC_KEY=sk-ant-api03-longkeyvalue1234567890abcdefgh\n"
@@ -3684,7 +3684,7 @@ class TestCrossSheetCredentialRedaction:
 
     def test_clean_content_passes_through_unchanged(self) -> None:
         """Content without credentials passes through unmodified."""
-        from mozart.utils.credential_scanner import redact_credentials
+        from marianne.utils.credential_scanner import redact_credentials
 
         file_content = "# Analysis Report\nThe system uses async I/O.\n"
 
@@ -3717,7 +3717,7 @@ class TestMethodNotFoundErrorDifferentiation:
 
     def test_method_not_found_is_distinct_from_daemon_error(self) -> None:
         """MethodNotFoundError is a DaemonError subclass with distinct identity."""
-        from mozart.daemon.exceptions import DaemonError, MethodNotFoundError
+        from marianne.daemon.exceptions import DaemonError, MethodNotFoundError
 
         err = MethodNotFoundError("daemon.unknown_method not recognized")
 
@@ -3732,7 +3732,7 @@ class TestMethodNotFoundErrorDifferentiation:
 
     def test_error_message_guides_toward_restart(self) -> None:
         """The error type's docstring should help the user fix the problem."""
-        from mozart.daemon.exceptions import MethodNotFoundError
+        from marianne.daemon.exceptions import MethodNotFoundError
 
         doc = MethodNotFoundError.__doc__ or ""
 
@@ -3745,8 +3745,8 @@ class TestMethodNotFoundErrorDifferentiation:
 
     def test_method_not_found_code_mapping(self) -> None:
         """JSON-RPC error code -32601 maps to MethodNotFoundError."""
-        from mozart.daemon.exceptions import MethodNotFoundError
-        from mozart.daemon.ipc.errors import (
+        from marianne.daemon.exceptions import MethodNotFoundError
+        from marianne.daemon.ipc.errors import (
             METHOD_NOT_FOUND,
             _CODE_EXCEPTION_MAP,
         )
@@ -3782,7 +3782,7 @@ class TestCostJsonExtractionEffectiveness:
 
     def test_json_extraction_finds_tokens(self) -> None:
         """JSON output with usage field yields actual token counts."""
-        from mozart.backends.claude_cli import ClaudeCliBackend
+        from marianne.backends.claude_cli import ClaudeCliBackend
 
         backend = ClaudeCliBackend.__new__(ClaudeCliBackend)
         backend.output_format = "json"
@@ -3808,7 +3808,7 @@ class TestCostJsonExtractionEffectiveness:
 
     def test_non_json_format_returns_none(self) -> None:
         """When output_format is not 'json', extraction returns None."""
-        from mozart.backends.claude_cli import ClaudeCliBackend
+        from marianne.backends.claude_cli import ClaudeCliBackend
 
         backend = ClaudeCliBackend.__new__(ClaudeCliBackend)
         backend.output_format = "text"
@@ -3824,7 +3824,7 @@ class TestCostJsonExtractionEffectiveness:
 
     def test_malformed_json_returns_none_gracefully(self) -> None:
         """Broken JSON doesn't crash — returns None."""
-        from mozart.backends.claude_cli import ClaudeCliBackend
+        from marianne.backends.claude_cli import ClaudeCliBackend
 
         backend = ClaudeCliBackend.__new__(ClaudeCliBackend)
         backend.output_format = "json"
@@ -3845,7 +3845,7 @@ class TestCostJsonExtractionEffectiveness:
         be estimated as ~143 tokens by char estimation (500 chars / 3.5).
         The JSON path is 100x more accurate for this case.
         """
-        from mozart.backends.claude_cli import ClaudeCliBackend
+        from marianne.backends.claude_cli import ClaudeCliBackend
 
         backend = ClaudeCliBackend.__new__(ClaudeCliBackend)
         backend.output_format = "json"
@@ -3896,10 +3896,10 @@ class TestPluginCliBackendMcpGap:
 
     def test_mcp_config_flag_exists_on_profile(self) -> None:
         """The claude-code profile defines mcp_config_flag."""
-        from mozart.instruments.loader import InstrumentProfileLoader
+        from marianne.instruments.loader import InstrumentProfileLoader
 
         profiles = InstrumentProfileLoader.load_directory(
-            Path(__file__).parent.parent / "src" / "mozart" / "instruments" / "builtins"
+            Path(__file__).parent.parent / "src" / "marianne" / "instruments" / "builtins"
         )
         claude_profile = profiles.get("claude-code")
         assert claude_profile is not None, "claude-code profile must exist"
@@ -3916,13 +3916,13 @@ class TestPluginCliBackendMcpGap:
         Now: mcp_disable_args provides profile-driven MCP disabling —
         each instrument defines its own disable mechanism.
         """
-        from mozart.core.config.instruments import (
+        from marianne.core.config.instruments import (
             CliCommand,
             CliOutputConfig,
             CliProfile,
             InstrumentProfile,
         )
-        from mozart.execution.instruments.cli_backend import PluginCliBackend
+        from marianne.execution.instruments.cli_backend import PluginCliBackend
 
         profile = InstrumentProfile(
             name="test-claude",
@@ -3961,7 +3961,7 @@ class TestPluginCliBackendMcpGap:
 
     def test_legacy_backend_disables_mcp_by_default(self) -> None:
         """ClaudeCliBackend has disable_mcp=True — the behavior PluginCliBackend lacks."""
-        from mozart.backends.claude_cli import ClaudeCliBackend
+        from marianne.backends.claude_cli import ClaudeCliBackend
 
         backend = ClaudeCliBackend.__new__(ClaudeCliBackend)
         # The constructor sets disable_mcp=True by default
@@ -4008,7 +4008,7 @@ class TestCheckpointSyncDuckTyping:
         both attributes. This test verifies every single-sheet event type
         satisfies the duck type contract.
         """
-        from mozart.daemon.baton.events import (
+        from marianne.daemon.baton.events import (
             EscalationNeeded,
             EscalationResolved,
             EscalationTimeout,
@@ -4062,7 +4062,7 @@ class TestCheckpointSyncDuckTyping:
         This verifies the duck typing branch correctly SKIPS these events,
         allowing the explicit isinstance handlers to catch them.
         """
-        from mozart.daemon.baton.events import (
+        from marianne.daemon.baton.events import (
             CancelJob,
             JobTimeout,
             ShutdownRequested,
@@ -4087,7 +4087,7 @@ class TestCheckpointSyncDuckTyping:
         It needs the _sync_all_sheets_for_instrument handler because it
         transitions WAITING sheets across multiple jobs.
         """
-        from mozart.daemon.baton.events import RateLimitExpired
+        from marianne.daemon.baton.events import RateLimitExpired
 
         event = RateLimitExpired(instrument="claude-code")
 
@@ -4121,7 +4121,7 @@ class TestStateDiffDedup:
 
     def test_dedup_cache_structure(self) -> None:
         """The adapter stores _synced_status as (job_id, sheet_num) → status."""
-        from mozart.daemon.baton.adapter import BatonAdapter
+        from marianne.daemon.baton.adapter import BatonAdapter
 
         adapter = BatonAdapter.__new__(BatonAdapter)
         adapter._synced_status = {}
@@ -4147,9 +4147,9 @@ class TestStateDiffDedup:
         """
         from unittest.mock import MagicMock
 
-        from mozart.daemon.baton.adapter import BatonAdapter
-        from mozart.daemon.baton.core import BatonCore
-        from mozart.daemon.baton.state import BatonSheetStatus, SheetExecutionState
+        from marianne.daemon.baton.adapter import BatonAdapter
+        from marianne.daemon.baton.core import BatonCore
+        from marianne.daemon.baton.state import BatonSheetStatus, SheetExecutionState
 
         adapter = BatonAdapter.__new__(BatonAdapter)
         adapter._baton = BatonCore()
@@ -4183,9 +4183,9 @@ class TestStateDiffDedup:
         """Status change fires callback even when sheet was previously synced."""
         from unittest.mock import MagicMock
 
-        from mozart.daemon.baton.adapter import BatonAdapter
-        from mozart.daemon.baton.core import BatonCore
-        from mozart.daemon.baton.state import BatonSheetStatus, SheetExecutionState
+        from marianne.daemon.baton.adapter import BatonAdapter
+        from marianne.daemon.baton.core import BatonCore
+        from marianne.daemon.baton.state import BatonSheetStatus, SheetExecutionState
 
         adapter = BatonAdapter.__new__(BatonAdapter)
         adapter._baton = BatonCore()
@@ -4242,7 +4242,7 @@ class TestBatonLegacyFailedSheetParity:
         added FAILED sheet collection), update it to verify the fix includes
         stdout from failed sheets.
         """
-        from mozart.daemon.baton.state import BatonSheetStatus
+        from marianne.daemon.baton.state import BatonSheetStatus
 
         # The baton's collection logic checks:
         # 1. SKIPPED → inject [SKIPPED] placeholder (F-251)
@@ -4303,7 +4303,7 @@ class TestLoadCheckpointFromDaemonDb:
         """
         import inspect
 
-        from mozart.daemon.manager import JobManager
+        from marianne.daemon.manager import JobManager
 
         source = inspect.getsource(JobManager._load_checkpoint)
 
@@ -4324,7 +4324,7 @@ class TestLoadCheckpointFromDaemonDb:
         """The workspace parameter exists for API compat but is explicitly unused."""
         import inspect
 
-        from mozart.daemon.manager import JobManager
+        from marianne.daemon.manager import JobManager
 
         source = inspect.getsource(JobManager._load_checkpoint)
 
@@ -4368,7 +4368,7 @@ class TestPendingJobQueueOrdering:
         # Verify the implementation uses a plain dict (not unordered set or similar)
         import inspect
 
-        from mozart.daemon.manager import JobManager
+        from marianne.daemon.manager import JobManager
 
         source = inspect.getsource(JobManager.__init__)
 
@@ -4394,7 +4394,7 @@ class TestPendingJobQueueOrdering:
         """_start_pending_jobs uses list(self._pending_jobs.keys()) for FIFO."""
         import inspect
 
-        from mozart.daemon.manager import JobManager
+        from marianne.daemon.manager import JobManager
 
         source = inspect.getsource(JobManager._start_pending_jobs)
 
@@ -4432,7 +4432,7 @@ class TestCrossSheetCredentialPipelineEndToEnd:
         Pipeline: workspace file → _collect_cross_sheet_context → redact →
         AttemptContext.previous_files → PromptRenderer → final prompt.
         """
-        from mozart.utils.credential_scanner import redact_credentials
+        from marianne.utils.credential_scanner import redact_credentials
 
         # Step 1: Workspace file contains a credential
         workspace_content = (
@@ -4461,7 +4461,7 @@ class TestCrossSheetCredentialPipelineEndToEnd:
 
     def test_multiple_credential_types_blocked_in_pipeline(self) -> None:
         """All credential types are blocked across the capture pipeline."""
-        from mozart.utils.credential_scanner import redact_credentials
+        from marianne.utils.credential_scanner import redact_credentials
 
         dangerous_content = (
             "OpenAI: sk-proj-1234567890abcdefghijklmnopqrstuvwxyz\n"
@@ -4485,7 +4485,7 @@ class TestCrossSheetCredentialPipelineEndToEnd:
         import inspect
 
         # Legacy runner path
-        from mozart.execution.runner.context import ContextBuildingMixin
+        from marianne.execution.runner.context import ContextBuildingMixin
 
         context_source = inspect.getsource(ContextBuildingMixin)
         assert "redact_credentials" in context_source, (
@@ -4495,7 +4495,7 @@ class TestCrossSheetCredentialPipelineEndToEnd:
         )
 
         # Baton adapter path
-        from mozart.daemon.baton.adapter import BatonAdapter
+        from marianne.daemon.baton.adapter import BatonAdapter
 
         adapter_source = inspect.getsource(BatonAdapter._collect_cross_sheet_context)
         assert "redact_credentials" in adapter_source, (

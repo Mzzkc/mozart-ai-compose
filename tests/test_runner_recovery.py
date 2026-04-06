@@ -1,4 +1,4 @@
-"""Tests for RecoveryMixin (src/mozart/execution/runner/recovery.py)."""
+"""Tests for RecoveryMixin (src/marianne/execution/runner/recovery.py)."""
 
 from __future__ import annotations
 
@@ -7,13 +7,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mozart.backends.base import ExecutionResult
-from mozart.core.checkpoint import CheckpointState
-from mozart.core.config import JobConfig
-from mozart.core.errors import ClassificationResult, ClassifiedError, ErrorClassifier
-from mozart.core.errors.codes import ErrorCategory, ErrorCode
-from mozart.execution.runner.models import FatalError
-from mozart.execution.runner.recovery import RecoveryMixin
+from marianne.backends.base import ExecutionResult
+from marianne.core.checkpoint import CheckpointState
+from marianne.core.config import JobConfig
+from marianne.core.errors import ClassificationResult, ClassifiedError, ErrorClassifier
+from marianne.core.errors.codes import ErrorCategory, ErrorCode
+from marianne.execution.runner.models import FatalError
+from marianne.execution.runner.recovery import RecoveryMixin
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +151,7 @@ class TestInferActiveSheetNum:
 class TestGetRetryDelay:
     """Tests for _get_retry_delay with exponential backoff and jitter."""
 
-    _RANDOM_PATCH = "mozart.execution.runner.recovery.random.random"
+    _RANDOM_PATCH = "marianne.execution.runner.recovery.random.random"
 
     @staticmethod
     def _harness(*, jitter: bool = False, **kwargs: Any) -> _RecoveryHarness:

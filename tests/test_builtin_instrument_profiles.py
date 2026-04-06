@@ -1,6 +1,6 @@
 """Tests for built-in instrument profile YAML files.
 
-Validates that all YAML files in src/mozart/instruments/builtins/
+Validates that all YAML files in src/marianne/instruments/builtins/
 parse correctly into InstrumentProfile models. This ensures the
 shipped profiles won't fail at conductor startup.
 """
@@ -12,9 +12,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from mozart.core.config.instruments import InstrumentProfile
+from marianne.core.config.instruments import InstrumentProfile
 
-BUILTINS_DIR = Path(__file__).parent.parent / "src" / "mozart" / "instruments" / "builtins"
+BUILTINS_DIR = Path(__file__).parent.parent / "src" / "marianne" / "instruments" / "builtins"
 
 
 def _load_all_profiles() -> list[tuple[str, InstrumentProfile]]:

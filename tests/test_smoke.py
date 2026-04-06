@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from mozart.cli import app
+from marianne.cli import app
 
 runner = CliRunner()
 
@@ -30,7 +30,7 @@ def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
         return False, None
 
     monkeypatch.setattr(
-        "mozart.daemon.detect.try_daemon_route", _fake_route,
+        "marianne.daemon.detect.try_daemon_route", _fake_route,
     )
 
 
@@ -38,130 +38,130 @@ def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
 # Module import smoke tests
 # =============================================================================
 
-# Every top-level package under mozart should be importable.
+# Every top-level package under marianne should be importable.
 # Catching circular imports, missing deps, and syntax errors.
 IMPORTABLE_MODULES = [
     # Core
-    "mozart",
-    "mozart.core",
-    "mozart.core.checkpoint",
-    "mozart.core.constants",
-    "mozart.core.fan_out",
-    "mozart.core.logging",
+    "marianne",
+    "marianne.core",
+    "marianne.core.checkpoint",
+    "marianne.core.constants",
+    "marianne.core.fan_out",
+    "marianne.core.logging",
     # Config
-    "mozart.core.config",
-    "mozart.core.config.backend",
-    "mozart.core.config.execution",
-    "mozart.core.config.job",
-    "mozart.core.config.learning",
-    "mozart.core.config.orchestration",
-    "mozart.core.config.workspace",
+    "marianne.core.config",
+    "marianne.core.config.backend",
+    "marianne.core.config.execution",
+    "marianne.core.config.job",
+    "marianne.core.config.learning",
+    "marianne.core.config.orchestration",
+    "marianne.core.config.workspace",
     # Errors
-    "mozart.core.errors",
-    "mozart.core.errors.classifier",
-    "mozart.core.errors.codes",
-    "mozart.core.errors.models",
-    "mozart.core.errors.parsers",
-    "mozart.core.errors.signals",
+    "marianne.core.errors",
+    "marianne.core.errors.classifier",
+    "marianne.core.errors.codes",
+    "marianne.core.errors.models",
+    "marianne.core.errors.parsers",
+    "marianne.core.errors.signals",
     # CLI
-    "mozart.cli",
-    "mozart.cli.helpers",
-    "mozart.cli.output",
-    "mozart.cli.commands",
-    "mozart.cli.commands.run",
-    "mozart.cli.commands.resume",
-    "mozart.cli.commands.pause",
-    "mozart.cli.commands.status",
-    "mozart.cli.commands.validate",
-    "mozart.cli.commands.recover",
-    "mozart.cli.commands.diagnose",
-    "mozart.cli.commands.dashboard",
-    "mozart.cli.commands.config_cmd",
+    "marianne.cli",
+    "marianne.cli.helpers",
+    "marianne.cli.output",
+    "marianne.cli.commands",
+    "marianne.cli.commands.run",
+    "marianne.cli.commands.resume",
+    "marianne.cli.commands.pause",
+    "marianne.cli.commands.status",
+    "marianne.cli.commands.validate",
+    "marianne.cli.commands.recover",
+    "marianne.cli.commands.diagnose",
+    "marianne.cli.commands.dashboard",
+    "marianne.cli.commands.config_cmd",
     # Backends
-    "mozart.backends",
-    "mozart.backends.base",
-    "mozart.backends.claude_cli",
+    "marianne.backends",
+    "marianne.backends.base",
+    "marianne.backends.claude_cli",
     # State
-    "mozart.state",
-    "mozart.state.base",
-    "mozart.state.json_backend",
-    "mozart.state.memory",
-    "mozart.state.sqlite_backend",
+    "marianne.state",
+    "marianne.state.base",
+    "marianne.state.json_backend",
+    "marianne.state.memory",
+    "marianne.state.sqlite_backend",
     # Execution
-    "mozart.execution",
-    "mozart.execution.hooks",
-    "mozart.execution.runner",
-    "mozart.execution.runner.base",
-    "mozart.execution.runner.sheet",
-    "mozart.execution.runner.lifecycle",
-    "mozart.execution.runner.recovery",
-    "mozart.execution.runner.cost",
-    "mozart.execution.runner.models",
-    "mozart.execution.validation",
-    "mozart.execution.validation.engine",
+    "marianne.execution",
+    "marianne.execution.hooks",
+    "marianne.execution.runner",
+    "marianne.execution.runner.base",
+    "marianne.execution.runner.sheet",
+    "marianne.execution.runner.lifecycle",
+    "marianne.execution.runner.recovery",
+    "marianne.execution.runner.cost",
+    "marianne.execution.runner.models",
+    "marianne.execution.validation",
+    "marianne.execution.validation.engine",
     # Learning
-    "mozart.learning",
-    "mozart.learning.patterns",
-    "mozart.learning.migration",
-    "mozart.learning.store",
-    "mozart.learning.store.base",
-    "mozart.learning.store.models",
+    "marianne.learning",
+    "marianne.learning.patterns",
+    "marianne.learning.migration",
+    "marianne.learning.store",
+    "marianne.learning.store.base",
+    "marianne.learning.store.models",
     # Validation
-    "mozart.validation",
-    "mozart.validation.base",
-    "mozart.validation.runner",
-    "mozart.validation.reporter",
-    "mozart.validation.checks",
-    "mozart.validation.checks.jinja",
-    "mozart.validation.checks.paths",
-    "mozart.validation.checks.config",
+    "marianne.validation",
+    "marianne.validation.base",
+    "marianne.validation.runner",
+    "marianne.validation.reporter",
+    "marianne.validation.checks",
+    "marianne.validation.checks.jinja",
+    "marianne.validation.checks.paths",
+    "marianne.validation.checks.config",
     # Daemon
-    "mozart.daemon",
-    "mozart.daemon.config",
-    "mozart.daemon.detect",
-    "mozart.daemon.exceptions",
-    "mozart.daemon.health",
-    "mozart.daemon.backpressure",
-    "mozart.daemon.ipc",
-    "mozart.daemon.ipc.protocol",
-    "mozart.daemon.ipc.errors",
-    "mozart.daemon.registry",
-    "mozart.daemon.types",
-    "mozart.daemon.output",
-    "mozart.daemon.task_utils",
-    "mozart.daemon.rate_coordinator",
-    "mozart.daemon.scheduler",
-    "mozart.daemon.monitor",
-    "mozart.daemon.system_probe",
-    "mozart.daemon.pgroup",
+    "marianne.daemon",
+    "marianne.daemon.config",
+    "marianne.daemon.detect",
+    "marianne.daemon.exceptions",
+    "marianne.daemon.health",
+    "marianne.daemon.backpressure",
+    "marianne.daemon.ipc",
+    "marianne.daemon.ipc.protocol",
+    "marianne.daemon.ipc.errors",
+    "marianne.daemon.registry",
+    "marianne.daemon.types",
+    "marianne.daemon.output",
+    "marianne.daemon.task_utils",
+    "marianne.daemon.rate_coordinator",
+    "marianne.daemon.scheduler",
+    "marianne.daemon.monitor",
+    "marianne.daemon.system_probe",
+    "marianne.daemon.pgroup",
     # Healing
-    "mozart.healing",
-    "mozart.healing.context",
-    "mozart.healing.coordinator",
-    "mozart.healing.diagnosis",
-    "mozart.healing.registry",
-    "mozart.healing.remedies",
-    "mozart.healing.remedies.base",
+    "marianne.healing",
+    "marianne.healing.context",
+    "marianne.healing.coordinator",
+    "marianne.healing.diagnosis",
+    "marianne.healing.registry",
+    "marianne.healing.remedies",
+    "marianne.healing.remedies.base",
     # Isolation
-    "mozart.isolation",
-    "mozart.isolation.worktree",
+    "marianne.isolation",
+    "marianne.isolation.worktree",
     # MCP
-    "mozart.mcp",
-    "mozart.mcp.resources",
-    "mozart.mcp.tools",
+    "marianne.mcp",
+    "marianne.mcp.resources",
+    "marianne.mcp.tools",
     # Notifications
-    "mozart.notifications",
-    "mozart.notifications.base",
-    "mozart.notifications.factory",
+    "marianne.notifications",
+    "marianne.notifications.base",
+    "marianne.notifications.factory",
     # Prompts
-    "mozart.prompts",
-    "mozart.prompts.templating",
+    "marianne.prompts",
+    "marianne.prompts.templating",
     # Utils
-    "mozart.utils",
-    "mozart.utils.time",
+    "marianne.utils",
+    "marianne.utils.time",
     # Workspace
-    "mozart.workspace",
-    "mozart.workspace.lifecycle",
+    "marianne.workspace",
+    "marianne.workspace.lifecycle",
 ]
 
 
@@ -362,7 +362,7 @@ class TestLogFollower:
 
     def test_parse_line_json(self, tmp_path: Path) -> None:
         """JSON lines are parsed into dicts."""
-        from mozart.cli.commands.diagnose import LogFollower
+        from marianne.cli.commands.diagnose import LogFollower
         follower = LogFollower(log_path=tmp_path / "test.log")
         entry = follower.parse_line('{"event": "started", "level": "INFO"}')
         assert entry is not None
@@ -371,7 +371,7 @@ class TestLogFollower:
 
     def test_parse_line_plain_text(self, tmp_path: Path) -> None:
         """Non-JSON lines are wrapped in a dict with _raw flag."""
-        from mozart.cli.commands.diagnose import LogFollower
+        from marianne.cli.commands.diagnose import LogFollower
         follower = LogFollower(log_path=tmp_path / "test.log")
         entry = follower.parse_line("plain text log line")
         assert entry is not None
@@ -380,21 +380,21 @@ class TestLogFollower:
 
     def test_parse_line_empty(self, tmp_path: Path) -> None:
         """Empty lines return None."""
-        from mozart.cli.commands.diagnose import LogFollower
+        from marianne.cli.commands.diagnose import LogFollower
         follower = LogFollower(log_path=tmp_path / "test.log")
         assert follower.parse_line("") is None
         assert follower.parse_line("   ") is None
 
     def test_should_include_no_filters(self, tmp_path: Path) -> None:
         """With no filters, all entries pass."""
-        from mozart.cli.commands.diagnose import LogFollower
+        from marianne.cli.commands.diagnose import LogFollower
         follower = LogFollower(log_path=tmp_path / "test.log")
         assert follower.should_include({"event": "x", "level": "DEBUG"}) is True
         assert follower.should_include({"event": "x", "level": "ERROR"}) is True
 
     def test_should_include_level_filter(self, tmp_path: Path) -> None:
         """Level filter excludes entries below threshold."""
-        from mozart.cli.commands.diagnose import LogFollower
+        from marianne.cli.commands.diagnose import LogFollower
         follower = LogFollower(log_path=tmp_path / "test.log", min_level=2)  # WARNING
         assert follower.should_include({"event": "x", "level": "DEBUG"}) is False
         assert follower.should_include({"event": "x", "level": "INFO"}) is False
@@ -403,7 +403,7 @@ class TestLogFollower:
 
     def test_should_include_job_filter(self, tmp_path: Path) -> None:
         """Job ID filter excludes non-matching entries."""
-        from mozart.cli.commands.diagnose import LogFollower
+        from marianne.cli.commands.diagnose import LogFollower
         follower = LogFollower(log_path=tmp_path / "test.log", job_id="my-job")
         assert follower.should_include({"event": "x", "job_id": "my-job"}) is True
         assert follower.should_include({"event": "x", "job_id": "other"}) is False
@@ -411,7 +411,7 @@ class TestLogFollower:
 
     def test_format_entry_json_mode(self, tmp_path: Path) -> None:
         """JSON output mode returns raw JSON string."""
-        from mozart.cli.commands.diagnose import LogFollower
+        from marianne.cli.commands.diagnose import LogFollower
         follower = LogFollower(log_path=tmp_path / "test.log", json_output=True)
         import json
         entry = {"event": "test", "level": "INFO"}
@@ -420,14 +420,14 @@ class TestLogFollower:
 
     def test_format_entry_raw_line(self, tmp_path: Path) -> None:
         """Raw lines are returned as-is."""
-        from mozart.cli.commands.diagnose import LogFollower
+        from marianne.cli.commands.diagnose import LogFollower
         follower = LogFollower(log_path=tmp_path / "test.log")
         result = follower.format_entry({"event": "plain text", "_raw": True})
         assert result == "plain text"
 
     def test_format_entry_structured(self, tmp_path: Path) -> None:
         """Structured entries include level, component, and event."""
-        from mozart.cli.commands.diagnose import LogFollower
+        from marianne.cli.commands.diagnose import LogFollower
         follower = LogFollower(log_path=tmp_path / "test.log")
         entry = {
             "timestamp": "2026-01-01T10:30:00+00:00",
@@ -445,7 +445,7 @@ class TestLogFollower:
 
     def test_read_lines_from_file(self, tmp_path: Path) -> None:
         """Reading lines from a real file works."""
-        from mozart.cli.commands.diagnose import LogFollower
+        from marianne.cli.commands.diagnose import LogFollower
         log_file = tmp_path / "test.log"
         log_file.write_text("line1\nline2\nline3\n")
         follower = LogFollower(log_path=log_file)
@@ -454,7 +454,7 @@ class TestLogFollower:
 
     def test_read_lines_with_limit(self, tmp_path: Path) -> None:
         """Line limit returns only the last N lines."""
-        from mozart.cli.commands.diagnose import LogFollower
+        from marianne.cli.commands.diagnose import LogFollower
         log_file = tmp_path / "test.log"
         log_file.write_text("line1\nline2\nline3\nline4\nline5\n")
         follower = LogFollower(log_path=log_file)
@@ -465,7 +465,7 @@ class TestLogFollower:
 
     def test_read_lines_nonexistent_file(self, tmp_path: Path) -> None:
         """Reading from nonexistent file returns empty list."""
-        from mozart.cli.commands.diagnose import LogFollower
+        from marianne.cli.commands.diagnose import LogFollower
         follower = LogFollower(log_path=tmp_path / "missing.log")
         lines = follower.read_lines()
         assert lines == []

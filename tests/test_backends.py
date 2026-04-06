@@ -18,10 +18,10 @@ import anthropic
 import httpx
 import pytest
 
-from mozart.backends.anthropic_api import AnthropicApiBackend
-from mozart.backends.base import ExecutionResult
-from mozart.backends.claude_cli import ClaudeCliBackend
-from mozart.core.config import BackendConfig
+from marianne.backends.anthropic_api import AnthropicApiBackend
+from marianne.backends.base import ExecutionResult
+from marianne.backends.claude_cli import ClaudeCliBackend
+from marianne.core.config import BackendConfig
 
 # ============================================================================
 # AnthropicApiBackend Tests
@@ -1065,7 +1065,7 @@ class TestRecursiveLightBackendLogging:
         captured_logs: list[dict[str, Any]],
     ) -> None:
         """Test that HTTP requests are logged at DEBUG level."""
-        from mozart.backends.recursive_light import RecursiveLightBackend
+        from marianne.backends.recursive_light import RecursiveLightBackend
 
         backend = RecursiveLightBackend(rl_endpoint="http://test:8080")
 
@@ -1094,7 +1094,7 @@ class TestRecursiveLightBackendLogging:
         captured_logs: list[dict[str, Any]],
     ) -> None:
         """Test that successful responses are logged at INFO level."""
-        from mozart.backends.recursive_light import RecursiveLightBackend
+        from marianne.backends.recursive_light import RecursiveLightBackend
 
         backend = RecursiveLightBackend(rl_endpoint="http://test:8080")
 
@@ -1123,7 +1123,7 @@ class TestRecursiveLightBackendLogging:
         captured_logs: list[dict[str, Any]],
     ) -> None:
         """Test that connection errors are logged at WARNING level."""
-        from mozart.backends.recursive_light import RecursiveLightBackend
+        from marianne.backends.recursive_light import RecursiveLightBackend
 
         backend = RecursiveLightBackend(rl_endpoint="http://test:8080")
 
@@ -1397,10 +1397,18 @@ class TestExecuteImpl:
         proc.stdout.read = _failing_read
         proc.stdout.readline = _failing_read
 
+        # F-490 guard: getpgid(0) must return the real own-pgroup so the
+        # guard does not conclude that 12345 is the caller's own pgroup.
+        import os as _os
+        real_own_pgid = _os.getpgid(0)
+        assert real_own_pgid != 12345, "test assumption: own pgid != fake pgid"
         with (
             patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)),
             patch("os.killpg") as mock_killpg,
-            patch("os.getpgid", return_value=12345),
+            patch(
+                "os.getpgid",
+                side_effect=lambda pid: real_own_pgid if pid == 0 else 12345,
+            ),
         ):
             result = await backend._execute_impl("test prompt")
 

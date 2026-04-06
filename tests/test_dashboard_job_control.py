@@ -5,8 +5,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from mozart.core.checkpoint import CheckpointState, JobStatus
-from mozart.dashboard.services.job_control import (
+from marianne.core.checkpoint import CheckpointState, JobStatus
+from marianne.dashboard.services.job_control import (
     JobControlService,
     JobStartResult,
     ProcessHealth,
@@ -75,7 +75,7 @@ class TestJobControlService:
             # When called with *cmd_args, they become individual arguments
             assert len(args) >= 4
             assert args[1] == "-m"
-            assert args[2] == "mozart.cli"
+            assert args[2] == "marianne.cli"
             assert args[3] == "run"
             assert args[4] == str(sample_config_file)
 

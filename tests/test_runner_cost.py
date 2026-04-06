@@ -1,4 +1,4 @@
-"""Tests for CostMixin (src/mozart/execution/runner/cost.py)."""
+"""Tests for CostMixin (src/marianne/execution/runner/cost.py)."""
 
 from __future__ import annotations
 
@@ -7,11 +7,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from mozart.backends.base import ExecutionResult
-from mozart.core.checkpoint import CheckpointState, SheetState
-from mozart.core.config.execution import CostLimitConfig
-from mozart.execution.runner.cost import CostMixin
-from mozart.execution.runner.models import RunSummary
+from marianne.backends.base import ExecutionResult
+from marianne.core.checkpoint import CheckpointState, SheetState
+from marianne.core.config.execution import CostLimitConfig
+from marianne.execution.runner.cost import CostMixin
+from marianne.execution.runner.models import RunSummary
 
 
 # ---------------------------------------------------------------------------

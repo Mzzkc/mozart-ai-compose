@@ -1,4 +1,0 @@
-job_timeout_seconds: 172800  # 48 hours
-resource_limits:
-  max_memory_mb: 16384
-  max_processes: 100

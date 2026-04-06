@@ -14,11 +14,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from mozart.core.checkpoint import CheckpointState, JobStatus
-from mozart.core.config import BackendConfig, JobConfig, PromptConfig, SheetConfig
-from mozart.dashboard.services.job_control import JobControlService
-from mozart.execution.runner import GracefulShutdownError, JobRunner
-from mozart.state.json_backend import JsonStateBackend
+from marianne.core.checkpoint import CheckpointState, JobStatus
+from marianne.core.config import BackendConfig, JobConfig, PromptConfig, SheetConfig
+from marianne.dashboard.services.job_control import JobControlService
+from marianne.execution.runner import GracefulShutdownError, JobRunner
+from marianne.state.json_backend import JsonStateBackend
 
 
 @pytest.fixture
@@ -487,7 +487,7 @@ class TestPauseResumeIntegrationFlow:
             # Should have called subprocess with resume command
             mock_subprocess.assert_called_once()
             args = mock_subprocess.call_args[0]
-            assert "mozart.cli" in args
+            assert "marianne.cli" in args
             assert "resume" in args
             assert state.job_id in args
 

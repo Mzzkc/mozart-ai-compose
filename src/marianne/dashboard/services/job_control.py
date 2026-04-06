@@ -148,7 +148,7 @@ class JobControlService:
         temp_path: str | None = None
         try:
             # Build command arguments - using create_subprocess_exec for security
-            cmd_args = [sys.executable, "-m", "mozart.cli", "run"]
+            cmd_args = [sys.executable, "-m", "marianne.cli", "run"]
 
             if config_content:
                 # For inline content, we'll write to a temp file
@@ -918,7 +918,7 @@ class JobControlService:
                     logger.debug("Failed to clean pause signal on restart", exc_info=True)
 
             # Use mozart resume command with parameterized arguments
-            cmd_args = [sys.executable, "-m", "mozart.cli", "resume", job_id]
+            cmd_args = [sys.executable, "-m", "marianne.cli", "resume", job_id]
 
             # Add workspace if available in state
             if state.worktree_path:

@@ -6,7 +6,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from mozart.daemon.config import (
+from marianne.daemon.config import (
     DaemonConfig,
     ResourceLimitConfig,
     SemanticLearningConfig,
@@ -290,7 +290,7 @@ class TestLoadConfig:
 
     def test_load_from_yaml_sets_config_file(self, tmp_path: Path):
         """_load_config sets config_file to the resolved path of the loaded file."""
-        from mozart.daemon.process import _load_config
+        from marianne.daemon.process import _load_config
 
         cfg_path = tmp_path / "daemon.yaml"
         cfg_path.write_text(yaml.dump({"max_concurrent_jobs": 3}))
@@ -301,7 +301,7 @@ class TestLoadConfig:
 
     def test_load_with_none_returns_defaults(self):
         """_load_config(None) returns defaults; config_file depends on auto-discovery."""
-        from mozart.daemon.process import _load_config
+        from marianne.daemon.process import _load_config
 
         config = _load_config(None)
         # When ~/.mozart/conductor.yaml exists, auto-discovery sets config_file;
@@ -315,7 +315,7 @@ class TestLoadConfig:
 
     def test_load_nonexistent_file_returns_defaults(self, tmp_path: Path):
         """_load_config with non-existent file returns defaults."""
-        from mozart.daemon.process import _load_config
+        from marianne.daemon.process import _load_config
 
         config = _load_config(tmp_path / "nope.yaml")
         assert config.config_file is None
@@ -326,7 +326,7 @@ class TestJobManagerApplyConfig:
 
     def test_apply_config_rebuilds_semaphore_on_change(self):
         """apply_config creates a new semaphore when max_concurrent_jobs changes."""
-        from mozart.daemon.manager import JobManager
+        from marianne.daemon.manager import JobManager
 
         config = DaemonConfig(max_concurrent_jobs=5)
         manager = JobManager(config)
@@ -340,7 +340,7 @@ class TestJobManagerApplyConfig:
 
     def test_apply_config_no_semaphore_change_when_unchanged(self):
         """apply_config keeps the same semaphore when max_concurrent_jobs is unchanged."""
-        from mozart.daemon.manager import JobManager
+        from marianne.daemon.manager import JobManager
 
         config = DaemonConfig(max_concurrent_jobs=5)
         manager = JobManager(config)
@@ -353,7 +353,7 @@ class TestJobManagerApplyConfig:
 
     def test_apply_config_updates_config_reference(self):
         """apply_config replaces the _config reference."""
-        from mozart.daemon.manager import JobManager
+        from marianne.daemon.manager import JobManager
 
         old_config = DaemonConfig(job_timeout_seconds=3600.0)
         manager = JobManager(old_config)
@@ -366,7 +366,7 @@ class TestJobManagerApplyConfig:
 
     def test_apply_config_noop_when_identical(self):
         """apply_config with identical config does not rebuild semaphore."""
-        from mozart.daemon.manager import JobManager
+        from marianne.daemon.manager import JobManager
 
         config = DaemonConfig()
         manager = JobManager(config)
@@ -384,7 +384,7 @@ class TestResourceMonitorUpdateLimits:
 
     def test_update_limits_replaces_config(self):
         """update_limits replaces the internal config reference."""
-        from mozart.daemon.monitor import ResourceMonitor
+        from marianne.daemon.monitor import ResourceMonitor
 
         old_limits = ResourceLimitConfig(max_memory_mb=4096)
         monitor = ResourceMonitor(old_limits)
@@ -397,7 +397,7 @@ class TestResourceMonitorUpdateLimits:
 
     def test_update_limits_preserves_other_state(self):
         """update_limits does not affect degraded/failure state."""
-        from mozart.daemon.monitor import ResourceMonitor
+        from marianne.daemon.monitor import ResourceMonitor
 
         limits = ResourceLimitConfig()
         monitor = ResourceMonitor(limits)
@@ -430,7 +430,7 @@ class TestSemanticLearningConfig:
 
     def test_custom_backend(self):
         """Test custom backend config overrides defaults."""
-        from mozart.core.config.backend import BackendConfig
+        from marianne.core.config.backend import BackendConfig
 
         config = SemanticLearningConfig(
             enabled=False,
@@ -498,7 +498,7 @@ class TestSemanticLearningConfig:
 
     def test_daemon_config_custom_learning(self):
         """Test DaemonConfig accepts custom learning config via nested backend."""
-        from mozart.core.config.backend import BackendConfig
+        from marianne.core.config.backend import BackendConfig
 
         config = DaemonConfig(
             learning=SemanticLearningConfig(
@@ -533,7 +533,7 @@ class TestSemanticLearningConfig:
 
     def test_serialization_roundtrip(self):
         """Test SemanticLearningConfig survives model_dump -> model_validate."""
-        from mozart.core.config.backend import BackendConfig
+        from marianne.core.config.backend import BackendConfig
 
         original = SemanticLearningConfig(
             enabled=False,
@@ -556,7 +556,7 @@ class TestSemanticLearningConfig:
 
     def test_daemon_config_roundtrip_preserves_learning(self):
         """Test DaemonConfig roundtrip preserves learning field."""
-        from mozart.core.config.backend import BackendConfig
+        from marianne.core.config.backend import BackendConfig
 
         original = DaemonConfig(
             learning=SemanticLearningConfig(
