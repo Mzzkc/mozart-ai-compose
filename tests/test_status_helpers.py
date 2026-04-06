@@ -765,8 +765,8 @@ class TestStatusRichRendering:
             app, ["status", "timing-test", "--workspace", str(tmp_path)]
         )
         assert result.exit_code == 0
-        assert "Timing" in result.stdout
-        assert "Duration" in result.stdout
+        # Beautified status shows timing in header ("elapsed") and Stats section
+        assert "elapsed" in result.stdout or "Stats" in result.stdout
 
 
 # ---------------------------------------------------------------------------

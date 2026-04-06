@@ -62,6 +62,7 @@ from ..output import (
     create_sheet_details_table,
     create_synthesis_table,
     format_duration,
+    format_relative_time,
     format_sheet_display_status,
     format_timestamp,
     format_validation_status,
@@ -390,6 +391,15 @@ async def _status_job_watch(
         console.print("\n[dim]Watch mode stopped[/dim]")
 
 
+def _compute_elapsed(job: CheckpointState) -> float:
+    """Compute elapsed seconds for a job, preferring actual duration for finished jobs."""
+    if job.started_at:
+        if job.completed_at:
+            return (job.completed_at - job.started_at).total_seconds()
+        return (datetime.now(UTC) - job.started_at).total_seconds()
+    return 0.0
+
+
 _ACTIVE_STATUSES = {"queued", "running", "paused"}
 _RECENT_TERMINAL = {"completed", "failed", "cancelled"}
 
@@ -552,6 +562,13 @@ async def _list_jobs(
 
     jobs: list[dict[str, Any]] = result if isinstance(result, list) else []
 
+    # Filter test artifacts by default — /tmp/pytest paths are test runs
+    if not all_jobs and not status_filter:
+        jobs = [
+            j for j in jobs
+            if not _is_test_artifact(j)
+        ]
+
     # Filter: explicit --status overrides --all, otherwise default to active-only
     if status_filter:
         target = status_filter.lower()
@@ -589,15 +606,34 @@ async def _list_jobs(
         "cancelled": "dim",
     }
 
-    # Build rows and compute column widths
-    headers = ("SCORE ID", "STATUS", "WORKSPACE", "SUBMITTED")
+    # Build rows: SCORE ID, STATUS, PROGRESS, SUBMITTED (relative)
+    headers = ("SCORE ID", "STATUS", "PROGRESS", "SUBMITTED")
     rows: list[tuple[str, str, str, str]] = []
     for dj in jobs:
+        raw_status = str(dj.get("status", "unknown"))
+
+        # Progress display — show completed/total and percentage
+        progress_completed = dj.get("progress_completed", 0) or 0
+        progress_total = dj.get("progress_total", 0) or 0
+        if progress_total > 0:
+            pct = int(progress_completed / progress_total * 100)
+            progress_str = f"{progress_completed}/{progress_total} ({pct}%)"
+        else:
+            progress_str = "-"
+
+        # Relative time for submitted_at
+        submitted_at = dj.get("submitted_at")
+        if submitted_at:
+            submitted_dt = datetime.fromtimestamp(submitted_at, tz=UTC)
+            time_str = format_relative_time(submitted_dt)
+        else:
+            time_str = "-"
+
         rows.append((
             dj.get("job_id", "?"),
-            str(dj.get("status", "unknown")),
-            dj.get("workspace", "-"),
-            _format_daemon_timestamp(dj.get("submitted_at")),
+            raw_status,
+            progress_str,
+            time_str,
         ))
 
     widths = [len(hdr) for hdr in headers]
@@ -625,6 +661,17 @@ async def _list_jobs(
         console.print(styled, soft_wrap=True)
 
     console.print(f"\n[dim]{len(rows)} score(s)[/dim]")
+
+
+def _is_test_artifact(job: dict[str, Any]) -> bool:
+    """Check if a job is a test artifact (from pytest temp directories).
+
+    Test artifacts pollute the list view with entries like 'chain-target'
+    from '/tmp/pytest-of-user/...' workspaces. Hidden by default; shown
+    with --all.
+    """
+    workspace = str(job.get("workspace", ""))
+    return "/tmp/pytest" in workspace or "/pytest-" in workspace
 
 
 def _format_daemon_timestamp(ts: float | None) -> str:
@@ -971,7 +1018,7 @@ def _render_movement_grouped_details(
 
         # Status detail
         status_detail = f"[{color}]{mv_status}[/{color}]"
-        if mv_status == "running" and g["voice_count"] > 0:
+        if mv_status == "running" and g["sheet_count"] > 1:
             status_detail = (
                 f"[{color}]{g['completed_count']}/{g['sheet_count']} complete[/{color}]"
             )
@@ -1305,10 +1352,21 @@ def _render_synthesis_results(job: CheckpointState) -> None:
     if not job.synthesis_results:
         return
 
+    # Bound to last 5 batches to avoid unbounded table growth
+    _SYNTH_DISPLAY_LIMIT = 5
+    all_batches = list(job.synthesis_results.items())
+    display_batches = all_batches[-_SYNTH_DISPLAY_LIMIT:]
+    hidden_count = len(all_batches) - len(display_batches)
+
     console.print("\n[bold]Synthesis Results[/bold]")
+    if hidden_count > 0:
+        console.print(
+            f"  [dim]Showing last {_SYNTH_DISPLAY_LIMIT} of {len(all_batches)} batches[/dim]"
+        )
+
     synth_table = create_synthesis_table()
 
-    for batch_id, result in job.synthesis_results.items():
+    for batch_id, result in display_batches:
         sheets = result.get("sheets", [])
         sheets_str = ", ".join(str(s) for s in sheets[:4])
         if len(sheets) > 4:
@@ -1522,25 +1580,146 @@ def _render_progress_snapshots(job: CheckpointState) -> None:
             console.print(f"  [dim]({snap_count} snapshots captured)[/dim]")
 
 
+def _render_now_playing(
+    job: CheckpointState,
+    *,
+    target_console: Console | None = None,
+) -> None:
+    """Render 'Now Playing' section showing currently active sheets.
+
+    Shows sheet number, description (if available), instrument, and elapsed time
+    for each in-progress sheet. Helps composers understand what's executing right
+    now without reading a full sheet table.
+
+    Args:
+        job: CheckpointState with sheet data.
+        target_console: Console to print to. Uses module-level console if None.
+    """
+    con = target_console or console
+
+    active: list[tuple[int, SheetState]] = []
+    for sheet_num in sorted(job.sheets.keys()):
+        sheet = job.sheets[sheet_num]
+        if sheet.status == SheetStatus.IN_PROGRESS:
+            active.append((sheet_num, sheet))
+
+    if not active:
+        return
+
+    # Extract descriptions from config snapshot
+    descriptions: dict[int, str] = {}
+    if job.config_snapshot:
+        sheet_cfg = job.config_snapshot.get("sheet", {})
+        raw_descs = sheet_cfg.get("descriptions", {})
+        descriptions = {int(k): v for k, v in raw_descs.items()}
+
+    con.print("\n[bold]Now Playing[/bold]")
+    for sheet_num, sheet in active[:10]:
+        parts: list[str] = [f"  \u266a Sheet {sheet_num}"]
+
+        # Movement context
+        if sheet.movement is not None:
+            parts.append(f"M{sheet.movement}")
+
+        # Description
+        desc = descriptions.get(sheet_num, "")
+        if desc:
+            # Truncate long descriptions
+            if len(desc) > 30:
+                desc = desc[:27] + "..."
+            parts.append(desc)
+
+        # Instrument
+        if sheet.instrument_name:
+            parts.append(f"[dim]{sheet.instrument_name}[/dim]")
+
+        # Elapsed time
+        if sheet.started_at:
+            elapsed = (datetime.now(UTC) - sheet.started_at).total_seconds()
+            parts.append(f"[dim]{format_duration(elapsed)}[/dim]")
+
+        con.print(" \u00b7 ".join(parts))
+
+    if len(active) > 10:
+        con.print(f"  [dim]... and {len(active) - 10} more active sheets[/dim]")
+
+
+def _render_compact_stats(job: CheckpointState) -> None:
+    """Render timing and execution stats in a compact format.
+
+    Replaces the verbose separate Timing and Execution Stats sections with
+    a compact Stats section that prioritizes relative time and useful numbers.
+    """
+    console.print("\n[bold]Stats[/bold]")
+
+    # Timing line: uses relative times for context
+    parts: list[str] = []
+    if job.started_at:
+        parts.append(f"Started: {format_relative_time(job.started_at)}")
+    last_activity = get_last_activity_time(job)
+    if last_activity:
+        parts.append(f"Last activity: {format_relative_time(last_activity)}")
+
+    _SEP = " \u00b7 "
+    if parts:
+        console.print("  " + _SEP.join(parts))
+
+    # Execution numbers: only show non-zero stats
+    exec_parts: list[str] = []
+    exec_parts.append(f"Sheets: {job.last_completed_sheet}/{job.total_sheets}")
+    if job.total_retry_count > 0:
+        exec_parts.append(f"Retries: {job.total_retry_count}")
+    if job.rate_limit_waits > 0:
+        exec_parts.append(f"Rate waits: {job.rate_limit_waits}")
+        if job.status == JobStatus.RUNNING:
+            _show_active_rate_limits_sync()
+    quota_waits = getattr(job, "quota_waits", 0)
+    if quota_waits > 0:
+        exec_parts.append(f"Quota waits: {quota_waits}")
+
+    console.print("  " + _SEP.join(exec_parts))
+
+    # F-068: Show completed timestamp for terminal jobs
+    _TERMINAL_JOB_STATUSES = {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}
+    if job.completed_at and job.status in _TERMINAL_JOB_STATUSES:
+        console.print(f"  Completed: {format_relative_time(job.completed_at)}")
+
+
 def _output_status_rich(job: CheckpointState) -> None:
     """Output job status with rich formatting."""
     status_color = StatusColors.get_job_color(job.status)
 
-    header_lines = [
-        f"[bold]{job.job_name}[/bold]",
-        f"ID: [cyan]{job.job_id}[/cyan]",
-        f"Status: [{status_color}]{job.status.value.upper()}[/{status_color}]",
-    ]
+    # Build header with movement context when available
+    header_lines: list[str] = []
 
-    if job.started_at:
-        if job.completed_at:
-            duration = job.completed_at - job.started_at
-            header_lines.append(f"Duration: {format_duration(duration.total_seconds())}")
-        elif job.status == JobStatus.RUNNING and job.updated_at:
-            elapsed = datetime.now(UTC) - job.started_at
-            header_lines.append(f"Running for: {format_duration(elapsed.total_seconds())}")
+    # Movement context line — shows current movement for running jobs
+    if _has_movement_data(job) and job.status == JobStatus.RUNNING:
+        groups = _build_movement_groups(job)
+        current_mv = next((g for g in groups if g["status"] == "running"), None)
+        total_movements = len(groups)
+        if current_mv is not None:
+            mv_num = current_mv["movement"]
+            mv_desc = current_mv.get("description") or ""
+            if mv_desc:
+                header_lines.append(
+                    f"Movement {mv_num} of {total_movements} \u00b7 {mv_desc}"
+                )
+            else:
+                header_lines.append(f"Movement {mv_num} of {total_movements}")
 
-    console.print(Panel("\n".join(header_lines), title="Score Status"))
+    header_lines.append(f"[bold]{job.job_name}[/bold]")
+    if job.job_id != job.job_name:
+        header_lines.append(f"ID: [cyan]{job.job_id}[/cyan]")
+    header_lines.append(
+        f"Status: [{status_color}]{job.status.value.upper()}[/{status_color}]"
+        f" \u00b7 {format_duration(_compute_elapsed(job))} elapsed"
+    )
+
+    console.print(Panel(
+        "\n".join(header_lines),
+        title="Score Status",
+        border_style=status_color,
+    ))
 
     # Progress bar
     console.print("\n[bold]Progress[/bold]")
@@ -1555,15 +1734,15 @@ def _output_status_rich(job: CheckpointState) -> None:
         progress.add_task("Sheets", total=job.total_sheets, completed=job.last_completed_sheet)
         progress.refresh()
 
-    # Parallel execution info
-    if job.parallel_enabled:
-        console.print("\n[bold]Parallel Execution[/bold]")
-        console.print("  Mode: [cyan]Enabled[/cyan]")
-        console.print(f"  Max concurrent: {job.parallel_max_concurrent}")
-        console.print(f"  Batches executed: {job.parallel_batches_executed}")
-        if job.sheets_in_progress:
-            in_progress_str = ", ".join(str(s) for s in job.sheets_in_progress)
-            console.print(f"  Currently running: [blue]{in_progress_str}[/blue]")
+    # Now Playing — show active sheets with context
+    _render_now_playing(job)
+
+    # Parallel execution info (compact)
+    if job.parallel_enabled and job.parallel_batches_executed > 0:
+        console.print(
+            f"\n[dim]Parallel: {job.parallel_max_concurrent} concurrent"
+            f" \u00b7 {job.parallel_batches_executed} batches[/dim]"
+        )
 
     _render_synthesis_results(job)
     _render_sheet_details(job)
@@ -1578,32 +1757,8 @@ def _output_status_rich(job: CheckpointState) -> None:
         else:
             console.print(f"\n[bold red]Error:[/bold red] {job.error_message}")
 
-    # Timing info
-    console.print("\n[bold]Timing[/bold]")
-    if job.created_at:
-        console.print(f"  Created:  {format_timestamp(job.created_at)}")
-    if job.started_at:
-        console.print(f"  Started:  {format_timestamp(job.started_at)}")
-    if job.updated_at:
-        console.print(f"  Updated:  {format_timestamp(job.updated_at)}")
-    # F-068: Only show "Completed:" for terminal statuses. Running/paused jobs
-    # may have completed_at set (from individual sheet completions) but showing
-    # it creates cognitive dissonance with the RUNNING status label.
-    _TERMINAL_JOB_STATUSES = {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}
-    if job.completed_at and job.status in _TERMINAL_JOB_STATUSES:
-        console.print(f"  Completed: {format_timestamp(job.completed_at)}")
-
-    # Execution stats
-    quota_waits = getattr(job, "quota_waits", 0)
-    if job.total_retry_count > 0 or job.rate_limit_waits > 0 or quota_waits > 0:
-        console.print("\n[bold]Execution Stats[/bold]")
-        console.print(f"  Total retries: {job.total_retry_count}")
-        console.print(f"  Rate limit waits: {job.rate_limit_waits}")
-        if quota_waits > 0:
-            console.print(f"  Quota exhaustion waits: {quota_waits}")
-        # Show active rate limit time remaining when the job has rate limit waits
-        if job.rate_limit_waits > 0 and job.status == JobStatus.RUNNING:
-            _show_active_rate_limits_sync()
+    # Stats — compact line combining timing and execution stats
+    _render_compact_stats(job)
 
     # Cost summary
     _render_cost_summary(job)
@@ -1612,12 +1767,6 @@ def _output_status_rich(job: CheckpointState) -> None:
     _render_hook_results(job)
 
     _render_recent_errors(job)
-
-    # Last activity timestamp
-    last_activity = get_last_activity_time(job)
-    if last_activity:
-        console.print("\n[bold]Last Activity[/bold]")
-        console.print(f"  {format_timestamp(last_activity)}")
 
     # Circuit breaker state indicator
     cb_state = _infer_circuit_breaker_state(job)

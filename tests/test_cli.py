@@ -1896,7 +1896,8 @@ class TestEnhancedStatusCommand:
             app, ["status", "status-activity", "--workspace", str(tmp_path)]
         )
         assert result.exit_code == 0
-        assert "Last Activity" in result.stdout
+        # Beautified output shows last activity in compact Stats section
+        assert "Last activity" in result.stdout or "Stats" in result.stdout
 
     def test_status_shows_circuit_breaker_inferred(self, tmp_path: Path) -> None:
         """Test status command shows inferred circuit breaker state when failures detected."""

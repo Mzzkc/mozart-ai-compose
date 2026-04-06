@@ -122,6 +122,17 @@ Movement 5 — IN PROGRESS (2026-04-05).
 - **Test suite baseline:** 11,638 passed, 5 skipped, 0 failed (non-random).
 - **Meditation written:** meditations/ghost.md
 
+### M5 Progress (Lens)
+- **D-029 Status Beautification (P1):** Mateship pickup of Dash's D-029. All three status displays beautified.
+- **format_relative_time():** New utility in output.py — "just now", "5m ago", "3h 15m ago", "6d 12h ago". 7 TDD tests.
+- **Beautified `mozart status`:** Musical header panel with movement context ("Movement 3 of 10 · The Baton"), relative elapsed time, "Now Playing" section for active sheets (♪ prefix), compact Stats section replacing verbose Timing+Execution Stats.
+- **Beautified `mozart list`:** WORKSPACE column → PROGRESS column (50/100, 50%). Relative time. Test artifact filtering (/tmp/pytest paths hidden by default).
+- **Synthesis bounding:** Last 5 batches (was unbounded). "Showing last 5 of N" header.
+- **Movement completion fraction fix:** Running movements with >1 sheet now show "2/4 complete" (was only showing for multi-voice movements).
+- **Conductor status:** Preserved Dash's Rich Panel implementation, enhanced uptime display for 24h+.
+- **15 TDD tests** in test_status_beautification.py. 2 existing tests updated (format change).
+- **Meditation written:** meditations/lens.md
+
 ### M5 Progress (Codex)
 - **M5 documentation sweep (12 deliverables across 5 docs):** D-027 use_baton default True (daemon guide + config ref + limitations), F-149 backpressure rework (daemon guide + CLI ref), F-451 diagnose -w unhidden (CLI ref), instrument fallbacks (config ref section + score-writing guide section + TOC entries + V211), disable_mcp hazard (limitations), getting-started.md verified accurate.
 - **Key updates:** Baton section rewritten in daemon-guide (Phase 1+2 complete), backpressure no longer mentions rate-limit queueing (F-149 removed it), new Instrument Fallbacks section in config reference and score-writing guide.
@@ -140,6 +151,12 @@ Movement 5 — IN PROGRESS (2026-04-05).
 ### M5 Progress (Dash)
 - **D-029 COMPLETE: Status beautification (mateship pickup + conductor enhancement).** Unnamed musician implemented status beautification (header panel, Now Playing, compact stats, list progress, synthesis bounding). Dash pickup: conductor-status upgraded to Rich Panel with resource context (memory %, process limits, pressure indicator), job ID restored to header panel, format_duration extended for days, 2 broken tests fixed (test_status_with_valid_job_id, test_status_shows_last_activity). 24 TDD tests in test_d029_status_beautification.py.
 - **Meditation written:** meditations/dash.md
+
+### M5 Progress (Spark)
+- **Rosetta proof scores updated (P1):** All 6 examples/rosetta/ scores now have named `instruments:` aliases and per-movement instrument assignments. Each score maps task types to instrument archetypes (fast-scanner/deep-analyst, designer/generator/validator, etc.) with differentiated timeouts. Comments explain multi-provider deployment variants. All 6 validate clean.
+- **Gemini-cli rate limit test (P2):** 18 TDD tests in test_gemini_cli_rate_limit.py using gemini-cli.yaml's actual error patterns. Covers RESOURCE_EXHAUSTED, 429, Too Many Requests, quota exceeded, plus error classification (auth/capacity/timeout). All pass.
+- **Quality gate baseline fix:** BARE_MAGICMOCK 1625→1632 (new tests from M5 unnamed musician work).
+- **Meditation written:** meditations/spark.md
 
 Movement 4 — COMPLETE (2026-04-05). All movements M0-M4 complete.
 

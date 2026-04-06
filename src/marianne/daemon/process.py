@@ -253,23 +253,77 @@ def get_conductor_status(
         typer.echo("  (Could not connect to conductor socket for details)")
         return
 
+    from rich.console import Console
+    from rich.panel import Panel
+
+    con = Console()
+
+    # Build uptime string
+    uptime_str = ""
     if health:
         uptime = health.get("uptime_seconds", 0)
         hours, remainder = divmod(int(uptime), 3600)
         minutes, seconds = divmod(remainder, 60)
-        typer.echo(f"  Uptime: {hours}h {minutes}m {seconds}s")
+        if hours >= 24:
+            days = hours // 24
+            remaining_hours = hours % 24
+            uptime_str = f"{days}d {remaining_hours}h {minutes}m"
+        else:
+            uptime_str = f"{hours}h {minutes}m {seconds}s"
+
+    # Build panel content
+    lines: list[str] = []
+    lines.append(f"PID {pid} [dim]\u00b7[/dim] Up {uptime_str}" if uptime_str else f"PID {pid}")
 
     if ready:
         status_str = ready.get("status", "unknown")
-        symbol = "+" if status_str == "ready" else "-"
-        typer.echo(f"  [{symbol}] Readiness: {status_str}")
-        typer.echo(f"  Running jobs: {ready.get('running_jobs', '?')}")
-        typer.echo(f"  Memory: {ready.get('memory_mb', '?')} MB")
-        typer.echo(f"  Child processes: {ready.get('child_processes', '?')}")
-        typer.echo(f"  Accepting work: {ready.get('accepting_work', '?')}")
+        accepting = ready.get("accepting_work", False)
+        if status_str == "ready" and accepting:
+            lines.append("[green]Ready[/green] [dim]\u00b7[/dim] Accepting work")
+        elif status_str == "ready":
+            lines.append("[yellow]Ready[/yellow] [dim]\u00b7[/dim] Not accepting work")
+        else:
+            lines.append(f"Status: {status_str}")
+
+        running_jobs = ready.get("running_jobs", 0)
+        lines.append("")
+        if running_jobs > 0:
+            lines.append(f"Jobs: [bold]{running_jobs}[/bold] running")
+        else:
+            lines.append("[dim]No active jobs[/dim]")
+
+        # Resources with context
+        lines.append("")
+        lines.append("[bold]Resources[/bold]")
+        memory_mb = ready.get("memory_mb", 0)
+        memory_limit = ready.get("memory_limit_mb", 0)
+        child_procs = ready.get("child_processes", 0)
+        process_limit = ready.get("process_limit", 0)
+
+        if memory_limit and memory_limit > 0:
+            pct = int(memory_mb / memory_limit * 100)
+            lines.append(f"  Memory: {memory_mb} MB ({pct}% of {memory_limit} MB)")
+        else:
+            lines.append(f"  Memory: {memory_mb} MB")
+
+        if process_limit and process_limit > 0:
+            lines.append(f"  Processes: {child_procs} / {process_limit}")
+        else:
+            lines.append(f"  Processes: {child_procs}")
+
+        # Pressure indicator
+        pressure = ready.get("pressure", "NONE")
+        if isinstance(pressure, str) and pressure.upper() != "NONE":
+            lines.append(f"  Pressure: [yellow]{pressure}[/yellow]")
+        else:
+            lines.append("  Pressure: [green]NONE[/green]")
+
+    border_style = "green" if ready and ready.get("status") == "ready" else "yellow"
+    con.print(Panel("\n".join(lines), title="Conductor", border_style=border_style))
 
     if daemon_info:
-        typer.echo(f"  Version: {daemon_info.get('version', '?')}")
+        version = daemon_info.get("version", "?")
+        con.print(f"[dim]Version: {version}[/dim]")
 
 
 # ─── DaemonProcess ────────────────────────────────────────────────────

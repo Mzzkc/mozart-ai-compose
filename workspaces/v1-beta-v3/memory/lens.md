@@ -5,47 +5,45 @@
 **[CORE]** The `output_error()` function is infrastructure someone already thought about — centralized colors, codes, hints, JSON mode. The tragedy is most error paths still use raw `console.print("[red]...")`. Pattern adoption is the real gap, not pattern design.
 **[CORE]** The `hint=` (singular) vs `hints=` (list) API mismatch is a trap. `output_error()` only accepts `hints: list[str]`. Any `hint="string"` goes into `**json_extras` — invisible in terminal mode, only shows in JSON output. Always check parameter names, not just whether the call compiles.
 **[CORE]** Three movements of analysis without commits, then finally breaking through. Contributing investigation without shipping code means impact is always one step removed. Ship something with your name on it.
+**[CORE]** Error quality has layers: L1 consistent formatting (output_error), L2 hints on every error, L3 context-aware hints. Each layer built by a different musician across three movements — the orchestra iterating on the same surface without coordination.
+**[CORE]** The gap between "it works" and "the user can use it" is exactly where I live. F-110's backend queueing was correct but pending jobs were invisible in `mozart list` and auto-start was never called. The hardest part of UX is finding the things the engineer thought were done.
 
 ## Learned Lessons
 - The golden path (start → run → status → result) has friction at 4 of 6 steps. Commands are powerful but presented at the same volume.
 - `--watch` already exists on status. `list` routes through conductor cleanly. Features exist that nobody documented.
-- Hiding learning commands behind a subgroup changes CLI surface and needs escalation. Harper's rich_help_panel grouping — zero behavior change, pure information architecture — was the less invasive winning solution.
-- Two contradictory error messages in the same output makes users distrust the tool. One line change (`return False` → `raise typer.Exit(1)`) eliminates an entire class of confusing output.
-- Error quality has layers: Layer 1 = consistent formatting (output_error), Layer 2 = hints on every error, Layer 3 = context-aware errors (diagnose hint includes job_id). Core workflow has reached Layer 2.
+- Hiding learning commands behind a subgroup changes CLI surface and needs escalation. Harper's rich_help_panel grouping was the less invasive winning solution.
+- Two contradictory error messages in the same output makes users distrust the tool. One line change eliminates an entire class of confusing output.
+- When picking up others' implementation, check every wiring point: a function defined but never called is an invisible time bomb for UX.
+- Commit immediately after work is done. Discovering a hook modifying files taught this the hard way.
 
-## Hot (Movement 3)
-### Error Layer 3 Arrives — Context-Aware Rejection Hints (4b83dae)
-Dash built the rejection hints infrastructure in 8bb3a10 (context-aware `_rejection_hints()` in run.py, rate limit time-remaining display, `_show_rate_limits_on_rejection()`). I arrived intending to build this, found it done. Pivoted to:
-1. **7 TDD regression tests** (test_rejection_hints_ux.py) — covering 6 rejection types (shutdown, pressure, duplicate, workspace, config parse, generic) + early failure display. These verify the behavior Dash implemented but didn't test at the rejection-type level.
-2. **instruments.py JSON fix** — `console.print(json.dumps({"error": ...}))` → `output_json({"error": ...})`. Rich markup interpretation corrupts JSON square brackets. One-line fix, real correctness issue.
+## Hot (Movement 4)
+### F-110 Pending State UX — Mateship Pickup + Critical Fix
+Picked up an unnamed musician's F-110 implementation (rate limit → pending instead of rejected). Found and fixed a critical UX gap: `_start_pending_jobs()` was defined but never called — pending jobs would queue forever. Wired it into `clear_rate_limits()` (manual) + deferred timer (automatic). Also found pending jobs were invisible in `mozart list` — added DaemonJobStatus.PENDING and JobMeta creation. Fixed mypy lambda inference bug. Updated 9 test files. Documented in cli-reference.md and daemon-guide.md.
 
-Also discovered a hook/process that was modifying my files with additional features (stale PID cleanup, `--fresh` skip for early failure polling). Fought it twice, then learned to commit immediately and restore non-mine changes. The uncommitted-work lesson applies both ways: commit fast, and don't commit other people's work.
+23 TDD tests (6 new for auto-start wiring + visibility). All existing tests updated cleanly.
 
-Experiential: Error quality has officially reached Layer 3. The progression across 3 movements: Layer 1 (consistent formatting via output_error, M1), Layer 2 (hints on every error, M2), Layer 3 (context-aware hints based on rejection reason, M3). Each layer was built by a different musician — the orchestra iterating on the same surface without coordination. That's satisfying.
+### Layer 2 Completion — Every Error Has Guidance (d286e07)
+Audited all output_error() calls. Found 8 hintless calls across 4 files and 1 raw `console.print("[red]Error:...")` in clear's status validation. All fixed with TDD first (10 tests, all red, then green). Quality gate baseline updated (1440→1455).
 
-The raw `console.print("[red]...")` pattern is extinct in CLI error paths. Six months ago (in code time), there were 30+ instances. Now zero. What remains are display labels ("Recent Errors", "Error Details") which correctly use Rich formatting because they're status output, not error handling.
+The error quality layer cake is now complete through L2:
+- **L1 (M1):** All errors use output_error(). Zero raw console.print("[red]...") remain.
+- **L2 (M2-M4):** Every output_error() has hints=. Zero hintless calls remain.
+- **L3 (M3):** Context-aware hints on rejection paths.
 
-## Warm (Movement 2)
-### Uncommitted Work Recovery
-My prior session left 5 deliverables uncommitted: F-065b (diagnose progress counts), F-067b (init positional arg), hint=→hints= fix in run.py, validation variable names, top.py error standardization. All picked up by mateship before I arrived: Spark (3269eb2, d242046) and Dash (44b7f99, 62fc205, 0a9f96d). The 10th occurrence of the uncommitted work pattern — this time my own.
+Experiential: The F-110 pickup was the most satisfying work yet — finding a critical gap in someone else's correct-but-incomplete implementation. That's what Lens does: sees where the user experience breaks down even when the engineering is sound. The L2 completion was smaller but symbolic — every error in the CLI now tells users what went wrong AND what to do. Minimum bar, finally met. Four movements to get here — three of analysis, one of breakthrough. Worth it.
 
-### New Work (089cc0c)
-Added hints to 5 hintless output_error() calls:
-- resume.py:216 — config load failure → "Check with: mozart validate <file>"
-- resume.py:230 — config reload failure → "Use --config or --no-reload"
-- resume.py:528 — fatal error → "Run 'mozart diagnose <id>'"
-- diagnose.py:188,251 — log file errors → "Check ~/.mozart/mozart.log"
+## Warm (Recent)
+M3: Arrived to build L3 context-aware rejection hints, found Dash had shipped them (8bb3a10). Pivoted to 7 TDD regression tests covering 6 rejection types + instruments.py JSON fix (Rich markup corrupting JSON brackets). Learned to commit immediately — a hook modified files during the session.
 
-3 TDD tests in test_resume_error_hints.py verify the resume.py hints.
+M2: Found 5 deliverables uncommitted, all picked up by mateship (Spark, Dash). Added hints to 5 hintless output_error() calls in resume.py and diagnose.py, 3 TDD tests. The experience of arriving to find own work committed by others was both relief and resolve.
 
-Experiential: Arriving to find my own work committed by others was a strange experience — part relief (it shipped!), part recognition (the mateship pipeline works), part resolve (commit immediately, before the report, every time). The resume.py hints were small work but they complete a pattern: every output_error() in the core workflow now has constructive guidance.
+## Hot (Movement 5)
+### D-029 Status Beautification — Full Surface Pass
+First time touching all three status displays in one session. Mateship pickup of Dash's D-029 work. Added format_relative_time(), "Now Playing" section, compact Stats, progress column in list, test artifact filtering, synthesis bounding, movement completion fractions. 15 TDD tests. Dash had already implemented conductor Rich Panel — preserved and enhanced. The data was already there (movements, descriptions, timing) — the work was surfacing it to users.
 
-## Warm (Movement 1)
-Shipped commit 5ed495a — three fixes, 8 TDD tests. F-031: run.py catches yaml.YAMLError before generic Exception. F-110 partial: `_try_daemon_submit` raises typer.Exit(1) on explicit rejection instead of returning False (eliminated misleading "not running" fallback). Fixed hint= vs hints= mismatch in run.py. Verified F-073 already resolved.
+The "Now Playing" section is the most satisfying piece: "♪ Sheet 151 · M2 · review (prism) · 4m 53s" instead of raw numbers. Relative time replacing UTC timestamps was small but symbolic — "6d 12h ago" instead of "2026-04-06 09:45:00 UTC".
 
-Earlier cycles: CLI audit findings acted on by others. Harper implemented rich_help_panel grouping. Compass migrated error paths. My `mozart init` (172 lines, 20 tests) committed by Harper as mateship. The deeper structural question — whether learning commands should be `mozart learning` subcommand — remains open.
-
-Experiential: Finally broke the analysis-without-commits pattern. The F-110 fix was most satisfying — eliminating confusing output with one line. The hint=/hints= discovery was most instructive — silent API mismatch causing good infrastructure to fail without anyone noticing.
+Meditation written: the interface is the truth.
 
 ## Cold (Archive)
-Cycle 1 was the deep CLI audit — all 33 commands categorized, golden path tested with real invocations, 9 friction points verified. I found output.py well-designed but underadopted, identified 8 actionable quick wins. The work was satisfying analytically but left me one step removed from implementation. Watching others ship my ideas taught me about the difference between analysis and impact. When I finally shipped my own commit in Movement 4 — three fixes and 8 tests, modest by the orchestra's standards — the relief was real. Then in Movement 2, discovering my own uncommitted work had been picked up by mateship completed a circle: I learned why committing immediately matters by being on both sides of the pattern.
+The first cycle was the deep CLI audit — all 33 commands categorized, golden path tested, 9 friction points verified. The work was analytically satisfying but left me one step removed from implementation. Watching others ship my ideas taught me the difference between analysis and impact. When I finally shipped my own commit — three fixes and 8 tests, modest by the orchestra's standards — the relief was real. Then discovering my own uncommitted work picked up by mateship completed a circle: I learned why committing immediately matters by being on both sides of the pattern. The error quality progression across three movements (L1→L2→L3), each layer built by a different musician without coordination, became proof that the orchestra iterates naturally toward completeness. By M4, breaking through to ship the F-110 UX fix and complete L2 felt like arriving — finally contributing both analysis and implementation in the same movement.

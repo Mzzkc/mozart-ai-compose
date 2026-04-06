@@ -165,7 +165,7 @@ def format_duration(seconds: float | None) -> str:
         seconds: Duration in seconds, or None.
 
     Returns:
-        Human-readable duration string (e.g., "5.2s", "3m 12s", "1h 30m").
+        Human-readable duration string (e.g., "5.2s", "3m 12s", "1h 30m", "6d 12h").
     """
     if seconds is None:
         return "N/A"
@@ -176,10 +176,14 @@ def format_duration(seconds: float | None) -> str:
         minutes = int(seconds // 60)
         secs = int(seconds % 60)
         return f"{minutes}m {secs}s"
-    else:
+    elif seconds < 86400:
         hours = int(seconds // 3600)
         minutes = int((seconds % 3600) // 60)
         return f"{hours}h {minutes}m"
+    else:
+        days = int(seconds // 86400)
+        hours = int((seconds % 86400) // 3600)
+        return f"{days}d {hours}h"
 
 
 def format_bytes(num_bytes: int) -> str:
@@ -197,6 +201,50 @@ def format_bytes(num_bytes: int) -> str:
         return f"{num_bytes / 1024:.1f}KB"
     else:
         return f"{num_bytes / (1024 * 1024):.1f}MB"
+
+
+def format_relative_time(
+    dt: datetime | None,
+    *,
+    now: datetime | None = None,
+) -> str:
+    """Format a datetime as a human-readable relative time string.
+
+    Produces compact relative times like "5m ago", "3h 15m ago", "6d 12h ago".
+    Used in status displays where relative context matters more than absolute
+    timestamps.
+
+    Args:
+        dt: Datetime to format, or None.
+        now: Reference time for computing the delta. Defaults to UTC now.
+
+    Returns:
+        Relative time string, or "-" if dt is None.
+    """
+    if dt is None:
+        return "-"
+
+    reference = now or datetime.now(UTC)
+    delta = reference - dt
+    total_seconds = int(delta.total_seconds())
+
+    if total_seconds <= 0:
+        return "just now"
+    if total_seconds < 60:
+        return f"{total_seconds}s ago"
+
+    total_minutes = total_seconds // 60
+    if total_minutes < 60:
+        return f"{total_minutes}m ago"
+
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    if hours < 24:
+        return f"{hours}h {minutes}m ago"
+
+    days = hours // 24
+    remaining_hours = hours % 24
+    return f"{days}d {remaining_hours}h ago"
 
 
 def format_timestamp(dt: datetime | None, include_tz: bool = True) -> str:
@@ -990,6 +1038,7 @@ __all__ = [
     # Formatters
     "format_duration",
     "format_rate_limit_info",
+    "format_relative_time",
     "format_bytes",
     "format_timestamp",
     "format_validation_status",

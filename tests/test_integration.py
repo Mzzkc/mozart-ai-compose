@@ -515,15 +515,17 @@ class TestListMultipleJobs:
         assert result.exit_code == 0
         assert "2 score(s)" in result.stdout
 
-    def test_list_shows_workspace_info(self) -> None:
-        """List shows workspace path for each job."""
+    def test_list_shows_progress_info(self) -> None:
+        """List shows progress column and relative time (beautified, replaces workspace)."""
         jobs = _multi_job_daemon_data()
         with self._mock_route(jobs):
             result = runner.invoke(app, ["list", "--all"])
 
         assert result.exit_code == 0
-        # Should show workspace paths
-        assert "/ws/" in result.stdout
+        # Beautified list shows PROGRESS column, not WORKSPACE
+        assert "PROGRESS" in result.stdout
+        # Relative time shown
+        assert "ago" in result.stdout
 
 
 # ============================================================================

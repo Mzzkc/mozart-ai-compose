@@ -308,7 +308,7 @@ See FINDINGS.md F-097 through F-102 for full context.
 - [ ] Route claude-cli through PluginCliBackend (not native ClaudeCliBackend) (priority: P1) [source: F-105]
 - [x] [Blueprint] Expand instrument YAML schema: timeout/crash/capacity/stale patterns (priority: P1) [source: F-105] — Added crash_patterns and stale_patterns to CliErrorConfig (timeout_patterns and capacity_patterns already existed). 6 TDD tests. Log capture rules deferred.
 - [x] [Spark] Verify `PluginCliBackend._classify_error()` uses profile-defined error patterns (priority: P1) [source: F-101] — Verified: _check_rate_limit() uses rate_limit_patterns, _classify_output_errors() uses auth_error_patterns/crash_patterns/stale_patterns/timeout_patterns/capacity_patterns. All from profile. 22 existing tests in test_plugin_cli_backend.py cover this.
-- [ ] Add gemini-cli rate limit test: submit a sheet, mock rate limit response, verify E101/E102 classification (priority: P2) [source: F-101]
+- [x] [Spark] Add gemini-cli rate limit test: submit a sheet, mock rate limit response, verify E101/E102 classification (priority: P2) [source: F-101] — Created test_gemini_cli_rate_limit.py with 18 TDD tests using gemini-cli.yaml's actual error patterns. Tests cover: RESOURCE_EXHAUSTED, 429, Too Many Requests, quota exceeded, rate limit phrase detection. Error classification: auth (PERMISSION_DENIED, API key), capacity (503, UNAVAILABLE), timeout (DEADLINE_EXCEEDED, timed out). Combined rate limit + classification interaction tests.
 
 ### Finding ID System (D-018)
 - [x] [Bedrock] Design and implement finding ID collision prevention (priority: P2) [source: D-018, F-148] — Range-based allocation: `FINDING_RANGES.md` pre-allocates 10 IDs per musician per movement (M4: F-160 through F-479). Helper script `scripts/next-finding-id.sh` as fallback. FINDINGS.md header updated with protocol. Historical collision table documents 12 ambiguous IDs. F-148 RESOLVED.
@@ -383,7 +383,7 @@ Composes: Nurse Log → Barn Raising → Echelon Repair → Fan-out + Closed-Loo
 - [ ] Review and apply composition DAG to `scores/rosetta-corpus/composition-dag.yaml` (priority: P0) [source: composer directive]
 - [ ] Review and apply updated INDEX.md (no difficulty ratings, semantic when/why) (priority: P0) [source: composer directive]
 - [ ] Review and apply updated selection-guide.md (problem signals, not difficulty) (priority: P0) [source: composer directive]
-- [ ] Update 6 Rosetta proof scores in examples/rosetta/ with instrument: syntax and per-sheet instrumentation (priority: P1) [source: composer directive]
+- [x] [Spark] Update 6 Rosetta proof scores in examples/rosetta/ with instrument: syntax and per-sheet instrumentation (priority: P1) [source: composer directive] — Added named instrument definitions (`instruments:` aliases) and per-movement instrument assignments to all 6 scores: immune-cascade (fast-scanner/deep-analyst), echelon-repair (fast-classifier/code-analyst/architect), dead-letter-quarantine (designer/generator/validator), prefabrication (contract-designer/code-builder/verifier), shipyard-sequence (code-gen/gate-checker), source-triangulation (extractor/investigator/synthesizer). Each alias maps to claude-code with differentiated timeouts. Comments explain multi-provider deployment variants (Haiku/Sonnet/Opus mapping). All 6 validate clean.
 
 ---
 
