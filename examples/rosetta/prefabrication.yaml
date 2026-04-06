@@ -75,18 +75,41 @@ instrument: claude-code
 instrument_config:
   timeout_seconds: 1200  # 20 min per stage — code generation + validation
 
-# Movement declarations — names appear in `mozart status` output
+# Named instrument definitions — match instrument to track type.
+# Contract design needs deep reasoning. Code generation needs fast iteration.
+# Testing and docs need verification, not creativity. In a multi-provider
+# deployment: Opus for contract, Sonnet for tracks, Haiku for docs.
+instruments:
+  contract-designer:
+    profile: claude-code
+    config:
+      timeout_seconds: 600
+  code-builder:
+    profile: claude-code
+    config:
+      timeout_seconds: 1200
+  verifier:
+    profile: claude-code
+    config:
+      timeout_seconds: 600
+
+# Movement declarations — per-stage instruments
 movements:
   1:
     name: "Interface Contract"
+    instrument: contract-designer  # Contract design needs deep reasoning
   2:
     name: "Parallel Tracks"
+    instrument: code-builder       # Code generation — fast, parallel
   3:
     name: "Integration Testing"
+    instrument: verifier           # Testing is verification, not generation
   4:
     name: "Verification"
+    instrument: verifier           # Smoke testing
   5:
     name: "Documentation"
+    instrument: verifier           # Documentation — lightweight
 
 sheet:
   size: 1

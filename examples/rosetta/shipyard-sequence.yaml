@@ -75,15 +75,34 @@ instrument: claude-code
 instrument_config:
   timeout_seconds: 600
 
+# Named instrument definitions — match instrument to task type.
+# Foundation and modules need code generation. The validation gate is
+# deterministic (tool-only). Integration needs both code and judgment.
+# In a multi-provider deployment: Sonnet for generation, CLI-only or
+# Haiku for the gate, Opus for integration.
+instruments:
+  code-gen:
+    profile: claude-code
+    config:
+      timeout_seconds: 600
+  gate-checker:
+    profile: claude-code
+    config:
+      timeout_seconds: 120
+
 movements:
   1:
     name: "Foundation"
+    instrument: code-gen           # Code generation
   2:
     name: "Validation Gate"
+    instrument: gate-checker       # Deterministic tool checks — fast, cheap
   3:
     name: "Module Generation"
+    instrument: code-gen           # Parallel code generation
   4:
     name: "Integration"
+    instrument: code-gen           # Integration testing
 
 sheet:
   size: 1

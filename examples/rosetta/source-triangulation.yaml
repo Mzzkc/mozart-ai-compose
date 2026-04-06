@@ -58,13 +58,35 @@ instrument: claude-code
 instrument_config:
   timeout_seconds: 600
 
+# Named instrument definitions — match instrument to reasoning depth.
+# Claim extraction is lightweight. Investigation needs code/doc reading.
+# Triangulation synthesis needs deep cross-referencing. In a multi-provider
+# deployment: Haiku for extraction, Sonnet for investigation, Opus for
+# triangulation.
+instruments:
+  extractor:
+    profile: claude-code
+    config:
+      timeout_seconds: 300
+  investigator:
+    profile: claude-code
+    config:
+      timeout_seconds: 600
+  synthesizer:
+    profile: claude-code
+    config:
+      timeout_seconds: 900
+
 movements:
   1:
     name: "Claim Extraction"
+    instrument: extractor          # Lightweight claim identification
   2:
     name: "Independent Investigation"
+    instrument: investigator       # Code/doc/test analysis
   3:
     name: "Triangulation"
+    instrument: synthesizer        # Deep cross-referencing synthesis
 
 sheet:
   size: 1

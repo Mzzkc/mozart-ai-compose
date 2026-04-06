@@ -87,20 +87,42 @@ instrument_config:
     - Grep
     - Bash
 
-# Movement declarations — names appear in `mozart status` output
+# Named instrument definitions — match instrument to task difficulty.
+# The economic gradient is load-bearing: cheap sweeps (innate) use fast models,
+# expensive analysis (adaptive) uses deep reasoning models.
+instruments:
+  fast-scanner:
+    profile: claude-code
+    config:
+      timeout_seconds: 600
+  deep-analyst:
+    profile: claude-code
+    config:
+      timeout_seconds: 1800
+
+# Movement declarations — names appear in `mozart status` output.
+# Per-movement instruments route cheap work to fast models and expensive
+# work to deep reasoning models. In a multi-provider deployment, replace
+# fast-scanner with gemini-cli/Haiku and deep-analyst with Opus.
 movements:
   1:
     name: "Reconnaissance"
+    instrument: fast-scanner
   2:
     name: "Innate Response"
+    instrument: fast-scanner     # Stage 2: tool-heavy, cheap sweeps
   3:
     name: "Dendritic Handoff"
+    instrument: deep-analyst     # Stage 3: triage requires judgment
   4:
     name: "Adaptive Response"
+    instrument: deep-analyst     # Stage 4: deep code analysis
   5:
     name: "Remediation Synthesis"
+    instrument: deep-analyst
   6:
     name: "Immunological Memory"
+    instrument: fast-scanner     # Stage 6: documentation, low reasoning
 
 sheet:
   size: 1

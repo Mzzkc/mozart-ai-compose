@@ -75,20 +75,44 @@ instrument: claude-code
 instrument_config:
   timeout_seconds: 1800  # 30 min per stage — E3 depot needs deep analysis time
 
-# Movement declarations — names appear in `mozart status` output
+# Named instrument definitions — match instrument to echelon depth.
+# E1 is tool-heavy (fast, cheap), E2 needs code understanding (medium),
+# E3 needs architectural reasoning (deep, expensive). In a multi-provider
+# deployment: Haiku for E1, Sonnet for E2, Opus for E3.
+instruments:
+  fast-classifier:
+    profile: claude-code
+    config:
+      timeout_seconds: 600
+  code-analyst:
+    profile: claude-code
+    config:
+      timeout_seconds: 1200
+  architect:
+    profile: claude-code
+    config:
+      timeout_seconds: 1800
+
+# Movement declarations — per-tier instruments match echelon depth
 movements:
   1:
     name: "Surface Inventory"
+    instrument: fast-classifier    # Inventory is mapping, not analysis
   2:
     name: "Echelon Diagnosis"
+    instrument: code-analyst       # Classification needs code understanding
   3:
     name: "E1 Field Scan"
+    instrument: fast-classifier    # E1: automated tool scans
   4:
     name: "E2 Sustained Analysis"
+    instrument: code-analyst       # E2: code-level vulnerability analysis
   5:
     name: "E3 Depot Review"
+    instrument: architect          # E3: architectural security assessment
   6:
     name: "Audit Report"
+    instrument: code-analyst       # Report compilation from all echelons
 
 sheet:
   size: 1

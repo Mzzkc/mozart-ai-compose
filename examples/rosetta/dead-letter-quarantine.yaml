@@ -83,22 +83,48 @@ instrument: claude-code
 instrument_config:
   timeout_seconds: 900  # 15 min per stage
 
-# Movement declarations — names appear in `mozart status` output
+# Named instrument definitions — match instrument to task type.
+# Spec design and failure analysis need deep reasoning. Generation and
+# reprocessing need code fluency. Validation is deterministic (tool-only).
+# In a multi-provider deployment: Opus for analysis, Sonnet for generation,
+# Haiku or CLI-only for validation stages.
+instruments:
+  designer:
+    profile: claude-code
+    config:
+      timeout_seconds: 600
+  generator:
+    profile: claude-code
+    config:
+      timeout_seconds: 900
+  validator:
+    profile: claude-code
+    config:
+      timeout_seconds: 300
+
+# Movement declarations — per-stage instruments
 movements:
   1:
     name: "Specifications"
+    instrument: designer           # Spec design needs deep reasoning
   2:
     name: "Generation"
+    instrument: generator          # Code generation — fast, parallel
   3:
     name: "Validation"
+    instrument: validator          # Deterministic tool checks
   4:
     name: "Quarantine"
+    instrument: designer           # Failure categorization needs judgment
   5:
     name: "Failure Analysis"
+    instrument: designer           # Pattern analysis — the DLQ core
   6:
     name: "Reprocessing"
+    instrument: generator          # Adapted code regeneration
   7:
     name: "Final Verification"
+    instrument: validator          # Final tool checks
 
 sheet:
   size: 1
