@@ -2057,6 +2057,16 @@ Each finding should include:
 - **Impact:** Fan-in templates using `{{ previous_outputs }}` on the baton path would see gaps without explanation. Matters once the baton becomes the default execution path (Phase 2 transition).
 - **Resolution:** Added `BatonSheetStatus.SKIPPED` check before the `COMPLETED` filter in `_collect_cross_sheet_context()` at `adapter.py:730`. Skipped sheets now inject `"[SKIPPED]"` into `previous_outputs`. Updated existing test assertion. 4 TDD tests in `test_cross_sheet_safety.py`.
 
+### F-252: Unbounded instrument_fallback_history Accumulation
+- **Found by:** Warden, Movement 5
+- **Severity:** P2 (medium — state bloat, potential DoS under pathological fallback scenarios)
+- **Status:** Resolved (movement 5, Warden)
+- **Category:** state-integrity
+- **Error Class:** Unbounded collection growth — same class as error_history before MAX_ERROR_HISTORY was added
+- **Description:** `SheetState.instrument_fallback_history` (checkpoint.py:373) and `SheetExecutionState.fallback_history` (baton/state.py:244) grow without limit on each fallback transition. In pathological scenarios (many fallback instruments with repeated rate-limit cycling), a single sheet could accumulate thousands of records, bloating state files and memory. `error_history` already has `MAX_ERROR_HISTORY = 50` with `add_error_to_history()` enforcing the cap. Fallback history had no equivalent.
+- **Impact:** State serialization slowdown and memory growth proportional to fallback event count. In a 10-instrument fallback chain with 3 retries each, that's 30 records per sheet — manageable. But if rate limits cycle (instrument A rate-limited → fall back to B → B rate-limited → fall back to C → C clears → back to A → ...), the history grows unboundedly across retry cycles.
+- **Resolution:** Added `MAX_INSTRUMENT_FALLBACK_HISTORY = 50` to checkpoint.py (line 30) and `MAX_FALLBACK_HISTORY = 50` to baton/state.py (line 31). Added `SheetState.add_fallback_to_history()` (checkpoint.py:595) paralleling `add_error_to_history()`. Added trimming after append in `SheetExecutionState.advance_fallback()` (state.py:291). 10 TDD tests in `test_f252_fallback_history_cap.py`.
+
 ### F-202: Baton/Legacy Parity Gap — FAILED Sheet Stdout in Cross-Sheet Context
 - **Found by:** Breakpoint, Movement 4
 - **Severity:** P3 (low — baton is stricter, arguably more correct)

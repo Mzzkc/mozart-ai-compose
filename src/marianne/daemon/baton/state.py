@@ -29,6 +29,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+# Cap for fallback history per sheet — mirrors MAX_ERROR_HISTORY in checkpoint.py
+MAX_FALLBACK_HISTORY: int = 50
+
 from marianne.daemon.baton.events import SheetAttemptResult
 
 # =============================================================================
@@ -282,6 +285,10 @@ class SheetExecutionState:
             "reason": reason,
             "timestamp": datetime.datetime.now(tz=datetime.UTC).isoformat(),
         })
+
+        # Trim to prevent unbounded growth (F-252)
+        if len(self.fallback_history) > MAX_FALLBACK_HISTORY:
+            self.fallback_history = self.fallback_history[-MAX_FALLBACK_HISTORY:]
 
         return to_instrument
 

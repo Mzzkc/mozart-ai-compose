@@ -27,6 +27,7 @@ MAX_OUTPUT_CAPTURE_BYTES: int = 51200  # 50KB - last N bytes of stdout/stderr to
 
 # Constants for error history (Task 10: Error History Model)
 MAX_ERROR_HISTORY: int = 50  # Maximum number of error records to keep per sheet
+MAX_INSTRUMENT_FALLBACK_HISTORY: int = 50  # Maximum fallback records per sheet
 
 # Type alias for error types
 ErrorType = Literal["transient", "rate_limit", "permanent"]
@@ -590,6 +591,22 @@ class SheetState(BaseModel):
         self.error_history.append(error)
         if len(self.error_history) > MAX_ERROR_HISTORY:
             self.error_history = self.error_history[-MAX_ERROR_HISTORY:]
+
+    def add_fallback_to_history(self, record: dict[str, str]) -> None:
+        """Append a fallback record and enforce the history size limit.
+
+        All callers that add entries to ``instrument_fallback_history``
+        should use this method instead of appending directly so the list
+        never exceeds ``MAX_INSTRUMENT_FALLBACK_HISTORY`` entries.
+
+        Args:
+            record: Dict with keys from, to, reason, timestamp.
+        """
+        self.instrument_fallback_history.append(record)
+        if len(self.instrument_fallback_history) > MAX_INSTRUMENT_FALLBACK_HISTORY:
+            self.instrument_fallback_history = self.instrument_fallback_history[
+                -MAX_INSTRUMENT_FALLBACK_HISTORY:
+            ]
 
 
 class CheckpointState(BaseModel):
