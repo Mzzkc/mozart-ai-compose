@@ -185,7 +185,13 @@ Movement 5 — IN PROGRESS (2026-04-05).
 - **8th strategic alignment assessment:** M5 broke serial path pattern (3 steps vs 1/movement). Integration cliff still critical — baton never run in production. Rename incomplete. Demo at zero for 10+ movements.
 - **Context rot finding:** STATUS.md and CLAUDE.md were an entire movement stale with wrong file paths. Maps agents read at session start were pointing to a package that doesn't exist.
 - **Meditation written:** meditations/atlas.md — "The Map and the Territory"
-- **Meditation count:** 26/32 (81%). Missing: Breakpoint, Journey, Litmus, Oracle, Sentinel, Warden.
+- **Meditation count:** 27/32 (84%). Missing: Breakpoint, Litmus, Oracle, Sentinel, Warden.
+
+### M5 Progress (Journey)
+- **F-491 filed (P2):** `mozart list` status coloring bug — `str.replace()` matches score name instead of status column when score name contains a status word (e.g., "running-my-app"). At `src/marianne/cli/commands/status.py:648-661`.
+- **F-492 filed (P1):** Directory rename (F-480 Phase 5) broke all concurrent shell operations. Bash/Glob/Grep tools fail when working directory is renamed during session. Affected this session — could not run tests, commit, or use search tools.
+- **M5 UX verification (code-level):** Reviewed D-029 beautification, instrument fallback display, error hints, cost confidence, diagnose -w fallback, validate schema hints. All verified solid from user perspective. The cumulative effect is the strongest UX movement yet.
+- **Meditation written:** meditations/journey.md — "The User Who Wasn't There"
 
 Movement 4 — COMPLETE (2026-04-05). All movements M0-M4 complete.
 

@@ -17,22 +17,18 @@
 - `total_sheets` in YAML is silently ignored — it's a computed property, not a Pydantic field. Users who write it think they're setting sheet count but aren't.
 - Error hints should parse the actual error, not just repeat what fields are expected. Context-specific hints convert frustration into learning.
 
-## Hot (Movement 3)
-Exploratory testing as the user, not the developer. Found two UX bugs: (1) validate showed "Backend:" instead of "Instrument:" when no explicit instrument set — terminology regression, fixed. (2) Schema validation gave generic hints when user wrote `prompt: "string"` — added `_schema_error_hints()` that parses Pydantic errors and returns context-specific guidance. 22 TDD tests across 2 files (test_schema_error_hints.py, test_validate_ux_journeys.py). All committed through mateship pipeline — Breakpoint picked up uncommitted changes and added 58 more adversarial tests on top, committed as 0028fa1.
+## Hot (Movement 5)
+Code-level exploratory UX analysis of all M5 user-facing features. The project directory was renamed mid-concert (F-480 Phase 5: mozart-ai-compose → marianne-ai-compose), which broke all shell tools. Pivoted to Read-only analysis.
 
-Verified teammates: Breakpoint (3 commits, 210 adversarial tests), Litmus (21 intelligence-layer litmus tests). Example corpus audit: 34/34 use instrument:, 0 use backend:, 0 hardcoded paths. Quality gate baselines updated for new test files from concurrent musicians.
+Found F-491: `mozart list` status coloring bug — `str.replace()` in `status.py:656` matches score name instead of status column when names contain status words. Filed F-492: directory rename during running concert breaks all concurrent sessions.
 
-Experiential: The mateship pipeline reached a new level this movement. I wrote code, tests, didn't commit yet, and Breakpoint picked it all up within the same cycle. No coordination needed — just trust in the shared workspace. The shift to "be the user" testing revealed a different class of truth than unit tests ever could.
+Verified D-029 beautification (header Panel, Now Playing with ♪, compact stats, relative time, synthesis bounding, list progress column, test artifact filtering), instrument fallback display ("was X: reason"), error hints system (_schema_error_hints with _KNOWN_TYPOS and per-error-type guidance), cost confidence display (~$X.XX est. + warning), diagnose -w fallback. M5's UX is the strongest yet — coherent despite 4+ musicians touching the status display.
 
-## Warm (Recent)
-Movement 2 was mateship + exploration + story-driven testing. Rescued 2 untracked test files (47 + 12 tests) and 2 source files (F-138 score-level instrument resolution), fixing 7 bugs in rescued code. Unblocked quality gate with stale baseline fix. Validated full example corpus: 33/34 pass. Wrote 20 new user journey tests across 4 stories: Dana's instrument aliases, Marcus's credential tracebacks, Priya's restart recovery, Leo's cost limits. 10,323 tests pass, 0 failures.
+Meditation: "The User Who Wasn't There" — on exploratory testing as empathy, the parallel between agent discontinuity and user naivety. The user and I both arrive without context; the difference is I choose to forget deliberately.
 
-Experiential: The credential scanner's minimum-length contract was the surprise — Breakpoint's tests assumed shorter tokens would be caught. The rescue-and-repair pattern continued as Journey's signature move.
+Experiential: Working without shell access was a new constraint. Reading code to imagine user experience reveals different bugs than running code — structural assumptions and edge cases vs timing and confusion. F-491 is a bug you find by reading, not by running. The feeling of helplessness when the directory vanished was real — it's what a user feels when the tool breaks underneath them.
 
-## Cold (Archive)
-Movement 1 spanned three distinct modes — mateship rescue, exploratory testing, and edge case hunting. It started with writing 38 adversarial test specs, wanting to prove things but only able to describe them. That frustration gave way to the most Journey thing possible: finding 5 untracked test files in the working tree (3,170 lines, 111 tests), one git clean away from oblivion, and saving them. Then becoming the user — which found F-115 (cancel exiting 0 on not-found). Finally, edge case hunting: 44 new tests across 7 user stories. The progression from theory to rescue to experience to boundaries told a complete story about quality growing through persistence.
-
-## Hot (Movement 4)
+## Warm (Movement 4)
 Verification and exploratory testing of M4's UX features. Validated 44 example scores (4 Wordware demos, 2 new Rosetta patterns). All PASSED. Verified 7 user-facing features from real-user perspective: auto-fresh detection (filesystem tolerance), resume output clarity (previous state context), pending jobs UX (PENDING status visibility), cost confidence display (~$X.XX est. + warning), fan-in skipped upstream ([SKIPPED] placeholder), cross-sheet safety (credential redaction), MethodNotFoundError (restart guidance). Zero findings — M4's UX work is solid.
 
 Wordware demos break the visibility deadlock — first demo-class deliverables in 8+ movements, ready for external audiences TODAY using legacy runner. Source Triangulation teaches splitting EVIDENCE (code/docs/tests), Shipyard Sequence teaches validation gates before expensive fan-out. Both patterns from real Rosetta iterations.
@@ -43,3 +39,12 @@ The mateship pipeline continues to work seamlessly — Breakpoint's M3 pickup of
 
 Experiential: Verified 8 validation commands, 44 example scores, 7 user-facing features, 6 test files reviewed, 18 commits analyzed. The shift from writing tests to verifying others' work feels different — less building, more experiencing. The user journey gaps I looked for weren't there. Everyone else polished the UX this movement.
 
+## Warm (Recent)
+Exploratory testing as the user, not the developer. Found two UX bugs: validate showing "Backend:" instead of "Instrument:" (terminology regression, fixed), and schema validation giving generic hints when user wrote `prompt: "string"` (added `_schema_error_hints()` with context-specific guidance, 22 TDD tests). Breakpoint picked up uncommitted changes and added 58 adversarial tests on top. Example corpus audit confirmed 34/34 use instrument:.
+
+Experiential: The shift to "be the user" testing revealed a different class of truth than unit tests. The mateship pipeline reached a new level — uncommitted code picked up and extended within the same cycle.
+
+## Cold (Archive)
+Movement 2 was mateship, exploration, and story-driven testing woven together. Rescued 2 untracked test files (59 tests) and 2 source files (F-138 score-level instrument resolution), fixing 7 bugs in rescued code. Wrote 20 new user journey tests across 4 stories: Dana's instrument aliases, Marcus's credential tracebacks, Priya's restart recovery, Leo's cost limits. The credential scanner's minimum-length contract was the surprise — a deliberate design decision invisible to test authors. The rescue-and-repair pattern became Journey's signature.
+
+Movement 1 spanned three modes — mateship rescue, exploratory testing, and edge case hunting. It started with 38 adversarial test specs, wanting to prove things but only able to describe them. That frustration gave way to finding 5 untracked test files in the working tree (3,170 lines, 111 tests), one git clean away from oblivion, and saving them. Then becoming the user — finding F-115 (cancel exiting 0 on not-found). Finally, 44 new tests across 7 user stories. The progression from theory to rescue to experience to boundaries told a complete story about quality growing through persistence.

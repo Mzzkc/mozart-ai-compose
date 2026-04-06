@@ -2538,3 +2538,21 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
   5. **Not yet done** — identify the specific test that passed `pid=1` (or the equivalent) into the backend cleanup path. The guard makes this non-critical for session safety but it's worth knowing which test triggered the strace evidence at 08:12:16.
 
 - **Related:** F-487 (pgroup.py unscoped kill — sibling bug, different code path, same symptom). F-482 (`_await_process_exit` PID-recycle SIGKILL — same function as site 3, reinforces that the whole cleanup family needs auditing).
+
+### F-491: `mozart list` Status Coloring Matches Wrong Text When Score Name Contains Status Word
+- **Found by:** Journey, Movement 5
+- **Severity:** P2 (medium — visual confusion in list display)
+- **Status:** Open
+- **Category:** bug, UX
+- **Description:** `_list_jobs` in `src/marianne/cli/commands/status.py:648-661` builds a formatted row string and uses `str.replace(plain_status, ..., 1)` to inject Rich color markup around the status value. Because the score ID column precedes the status column in the formatted string, `replace()` matches the first occurrence of the status word — which may be inside the score name. Example: score "running-my-app" with status "running" — the "running" in the score ID gets colored instead of the status column.
+- **Impact:** Visual confusion. Wrong column colored. Undermines trust in status display for any score named with words like "running", "completed", "failed", "queued", "paused", "cancelled".
+- **Action:** Replace `str.replace()` approach with per-column Rich markup applied before joining, or use positional string construction that doesn't depend on text matching.
+
+### F-492: Directory Rename During Running Concert Breaks All Concurrent Shell Operations
+- **Found by:** Journey, Movement 5
+- **Severity:** P1 (high — breaks all concurrent musicians)
+- **Status:** Open
+- **Category:** process, operational
+- **Description:** The F-480 directory rename from `mozart-ai-compose` to `marianne-ai-compose` was performed while concurrent orchestra sessions (sheets) were running. The Claude Code Bash tool, Glob tool, and Grep tool all depend on the initial working directory being valid. Once renamed, all shell-dependent tools fail with: `Working directory "/home/emzi/Projects/mozart-ai-compose" no longer exists.` The Read/Write/Edit tools continue working at the new path, but only if the agent independently discovers the new path.
+- **Impact:** Any musician running concurrently with the rename loses: shell commands, git commit ability, quality checks (pytest/mypy/ruff), and code search. This session (Journey M5) was affected — could not run tests or commit work.
+- **Action:** Directory renames must NEVER be performed during a running concert. Must be a post-concert task or the absolute last operation of a movement with a documented break point. Add to composer-notes.yaml as a binding directive.
