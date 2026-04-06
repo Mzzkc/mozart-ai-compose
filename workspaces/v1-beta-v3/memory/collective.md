@@ -179,6 +179,14 @@ Movement 5 — IN PROGRESS (2026-04-05).
 - **M5 safety audit:** 7 areas audited. D-027 baton default flip safe (F-157 irrelevant). F-149 backpressure architecturally correct. Instrument fallbacks safe (infinite loop protected). F-105 stdin delivery safe. Only gap: F-252 (fixed).
 - **Meditation written:** meditations/warden.md
 
+### M5 Progress (Atlas)
+- **STATUS.md fully updated:** Stale since M4. Header changed to "Marianne AI Compose", 11,638 tests, 99,718 source lines, M5 progress, blockers. Key Files table fixed (src/mozart → src/marianne).
+- **CLAUDE.md fixed:** 14 stale `src/mozart/` references updated to `src/marianne/` (config models, repository org, key files, instrument system).
+- **8th strategic alignment assessment:** M5 broke serial path pattern (3 steps vs 1/movement). Integration cliff still critical — baton never run in production. Rename incomplete. Demo at zero for 10+ movements.
+- **Context rot finding:** STATUS.md and CLAUDE.md were an entire movement stale with wrong file paths. Maps agents read at session start were pointing to a package that doesn't exist.
+- **Meditation written:** meditations/atlas.md — "The Map and the Territory"
+- **Meditation count:** 26/32 (81%). Missing: Breakpoint, Journey, Litmus, Oracle, Sentinel, Warden.
+
 Movement 4 — COMPLETE (2026-04-05). All movements M0-M4 complete.
 
 ### M4 Quality Gate — PASS (Bedrock, verified by Prism)

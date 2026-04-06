@@ -68,7 +68,7 @@ Full constraint architecture with IDs (M-001 through M-010, MN-001 through MN-01
 - **Type hints.** Every function signature. `mypy --strict` must pass.
 - **Package structure.** `core/` never imports `execution/`, `daemon/`, `cli/`. See `.mozart/spec/conventions.yaml` for full dependency rules.
 
-Config models go in `src/mozart/core/config/` — `backend.py`, `execution.py`, `job.py`, `learning.py`, `orchestration.py`, `workspace.py`.
+Config models go in `src/marianne/core/config/` — `backend.py`, `execution.py`, `job.py`, `learning.py`, `orchestration.py`, `workspace.py`.
 
 ## Bug Reporting
 
@@ -87,7 +87,7 @@ Nothing goes at the top level without good reason. Every file has a home.
 
 | Directory | Purpose | Tracked? |
 |-----------|---------|----------|
-| `src/mozart/` | Source code | Yes |
+| `src/marianne/` | Source code | Yes |
 | `tests/` | Test files | Yes |
 | `tests/temp/` | Test artifacts, temp scores | No |
 | `examples/` | Public example scores for users | Yes |
@@ -117,17 +117,17 @@ Full directory conventions: `.mozart/spec/conventions.yaml` (Repository Structur
 
 | Purpose | File |
 |---------|------|
-| CLI entry | `src/mozart/cli/` (package) |
-| Conductor commands | `src/mozart/cli/commands/conductor.py` |
-| Config models | `src/mozart/core/config/` (package: 6 modules) |
-| State models | `src/mozart/core/checkpoint.py` |
-| Error handling | `src/mozart/core/errors/` (package) |
-| Execution runner | `src/mozart/execution/runner/` (package: base, sheet, lifecycle, recovery, cost, isolation, patterns, models) |
-| Prompt assembly | `src/mozart/prompts/` (preamble.py, templating.py) |
-| Learning store | `src/mozart/learning/store/` (14 modules) |
-| Claude backend | `src/mozart/backends/claude_cli.py` |
-| Daemon | `src/mozart/daemon/` (package, ~20 modules) |
-| Dashboard | `src/mozart/dashboard/` |
+| CLI entry | `src/marianne/cli/` (package) |
+| Conductor commands | `src/marianne/cli/commands/conductor.py` |
+| Config models | `src/marianne/core/config/` (package: 6 modules) |
+| State models | `src/marianne/core/checkpoint.py` |
+| Error handling | `src/marianne/core/errors/` (package) |
+| Execution runner | `src/marianne/execution/runner/` (package: base, sheet, lifecycle, recovery, cost, isolation, patterns, models) |
+| Prompt assembly | `src/marianne/prompts/` (preamble.py, templating.py) |
+| Learning store | `src/marianne/learning/store/` (14 modules) |
+| Claude backend | `src/marianne/backends/claude_cli.py` |
+| Daemon | `src/marianne/daemon/` (package, ~20 modules) |
+| Dashboard | `src/marianne/dashboard/` |
 | Spec corpus | `.mozart/spec/` (5 YAML files) |
 
 ## Running Mozart
@@ -253,7 +253,7 @@ Flowspec is a structural code analyzer at `/home/emzi/Projects/flowspec/target/r
 
 ## Instrument System
 
-- Profiles: `src/mozart/instruments/builtins/` (6 built-in), `~/.mozart/instruments/` (user), `.mozart/instruments/` (project)
+- Profiles: `src/marianne/instruments/builtins/` (6 built-in), `~/.mozart/instruments/` (user), `.mozart/instruments/` (project)
 - Loading: `InstrumentProfileLoader.load_directory(path)` → validates against `InstrumentProfile` schema
 - Registry: `InstrumentRegistry` — register/get/list_all. `register_native_instruments()` bridges existing 4 backends.
 - `SpecCorpusLoader.load(dir)` loads passages from ANY directory following the passage schema — not just `.mozart/spec/`
