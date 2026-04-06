@@ -366,7 +366,9 @@ class JobManager:
                 max_concurrent_sheets=self._config.max_concurrent_sheets,
                 state_sync_callback=self._on_baton_state_sync,
             )
-            self._baton_adapter.set_backend_pool(BackendPool(registry))
+            self._baton_adapter.set_backend_pool(
+                BackendPool(registry, pgroup=self._pgroup)
+            )
 
             # Start the baton's event loop as a background task
             self._baton_loop_task = asyncio.create_task(

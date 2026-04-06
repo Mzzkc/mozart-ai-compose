@@ -22,6 +22,7 @@ import os
 import re
 import shutil
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -94,6 +95,13 @@ class PluginCliBackend(Backend):
         self._prompt_extensions: list[str] = []
         self._output_log_path: Path | None = None
         self._model: str | None = profile.default_model
+
+        # PID tracking callbacks for orphan detection.
+        # Set by the daemon's ProcessGroupManager (via BackendPool) when
+        # running under the conductor. Standalone CLI mode leaves these
+        # as None — no orphan tracking needed.
+        self._on_process_spawned: Callable[[int], None] | None = None
+        self._on_process_exited: Callable[[int], None] | None = None
 
         # Override tracking — mirrors the pattern in ClaudeCliBackend.
         # _saved_model stores the pre-override value so clear_overrides()
@@ -575,6 +583,7 @@ class PluginCliBackend(Backend):
         stderr_data = ""
         exit_code: int | None = None
         exit_reason = "completed"
+        proc: asyncio.subprocess.Process | None = None
 
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -584,6 +593,10 @@ class PluginCliBackend(Backend):
                 cwd=str(self._working_directory) if self._working_directory else None,
                 env=env,
             )
+
+            # Track PID for orphan detection by the daemon's pgroup manager
+            if self._on_process_spawned and proc.pid is not None:
+                self._on_process_spawned(proc.pid)
 
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
@@ -619,6 +632,10 @@ class PluginCliBackend(Backend):
                 instrument=self._profile.name,
                 error=str(e),
             )
+
+        # Untrack PID — process and children are cleaned up
+        if self._on_process_exited and proc is not None and proc.pid is not None:
+            self._on_process_exited(proc.pid)
 
         duration = time.monotonic() - start_time
 

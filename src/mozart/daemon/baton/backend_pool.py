@@ -35,10 +35,14 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from mozart.backends.base import Backend
 from mozart.core.config.instruments import InstrumentProfile
 from mozart.instruments.registry import InstrumentRegistry
+
+if TYPE_CHECKING:
+    from mozart.daemon.pgroup import ProcessGroupManager
 
 _logger = logging.getLogger(__name__)
 
@@ -109,8 +113,13 @@ class BackendPool:
         await pool.close_all()
     """
 
-    def __init__(self, registry: InstrumentRegistry) -> None:
+    def __init__(
+        self,
+        registry: InstrumentRegistry,
+        pgroup: ProcessGroupManager | None = None,
+    ) -> None:
         self._registry = registry
+        self._pgroup = pgroup
 
         # CLI instruments: free list per instrument name
         self._cli_free: dict[str, list[Backend]] = {}
@@ -308,6 +317,15 @@ class BackendPool:
                     model=model,
                 )
                 self._all_backends.append(backend)
+
+        # Wire PID tracking for orphan detection when running under daemon.
+        # Same pattern as JobService._setup_components — set callbacks on
+        # backends that support them (PluginCliBackend, ClaudeCliBackend).
+        if self._pgroup is not None:
+            if hasattr(backend, "_on_process_spawned"):
+                backend._on_process_spawned = self._pgroup.track_backend_pid
+            if hasattr(backend, "_on_process_exited"):
+                backend._on_process_exited = self._pgroup.untrack_backend_pid
 
         # Track in-flight
         self._in_flight[name] = self._in_flight.get(name, 0) + 1
