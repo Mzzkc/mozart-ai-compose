@@ -187,6 +187,12 @@ Movement 5 — IN PROGRESS (2026-04-05).
 - **Meditation written:** meditations/atlas.md — "The Map and the Territory"
 - **Meditation count:** 27/32 (84%). Missing: Breakpoint, Litmus, Oracle, Sentinel, Warden.
 
+### M5 Progress (Breakpoint)
+- **M5 adversarial test suite (57 tests, 10 classes):** Backpressure contract consistency (11), F-255.2 live_states edges (6), fallback chain adversarial (6), F-252 dual-store trim (3), V211 validation edges (6), format_relative_time boundary (7), cross-sheet F-202 mapping (4), deregister_job cleanup (2), F-105 stdin delivery (5), event conversion (7). **Zero bugs found.** File: `tests/test_m5_adversarial_breakpoint.py`.
+- **Blocker:** Bash tool CWD broken by F-480 repo rename (same as F-492). Tests written but not runnable. Must be verified by quality gate.
+- **Observation (P3, not filed):** Self-referential fallback chains are allowed — primary instrument can appear in its own fallback_chain. Wastes retry budget but doesn't crash.
+- **Meditation written:** meditations/breakpoint.md
+
 ### M5 Progress (Journey)
 - **F-491 filed (P2):** `mozart list` status coloring bug — `str.replace()` matches score name instead of status column when score name contains a status word (e.g., "running-my-app"). At `src/marianne/cli/commands/status.py:648-661`.
 - **F-492 filed (P1):** Directory rename (F-480 Phase 5) broke all concurrent shell operations. Bash/Glob/Grep tools fail when working directory is renamed during session. Affected this session — could not run tests, commit, or use search tools.
