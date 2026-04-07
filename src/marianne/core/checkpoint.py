@@ -145,13 +145,42 @@ class SynthesisResultDict(TypedDict, total=False):
 
 
 class SheetStatus(str, Enum):
-    """Status of a single sheet."""
+    """Status of a single sheet.
+
+    The baton tracks 11 scheduling states. Status display and persistence
+    use all 11. Consumers that only care about terminal/non-terminal can
+    check ``is_terminal``.
+    """
 
     PENDING = "pending"
-    IN_PROGRESS = "in_progress"
+    READY = "ready"              # Dependencies met, eligible for dispatch
+    DISPATCHED = "dispatched"    # Sent to musician, not yet running
+    IN_PROGRESS = "in_progress"  # Musician actively executing (alias: RUNNING)
+    WAITING = "waiting"          # Blocked on rate-limited instrument
+    RETRY_SCHEDULED = "retry_scheduled"  # Failed, awaiting retry timer
+    FERMATA = "fermata"          # Paused for escalation decision
     COMPLETED = "completed"
     FAILED = "failed"
     SKIPPED = "skipped"
+    CANCELLED = "cancelled"
+
+    @property
+    def is_terminal(self) -> bool:
+        """Whether this status represents a final state."""
+        return self in _TERMINAL_SHEET_STATUSES
+
+    @property
+    def is_active(self) -> bool:
+        """Whether this status means the sheet is currently executing."""
+        return self in (SheetStatus.DISPATCHED, SheetStatus.IN_PROGRESS)
+
+
+_TERMINAL_SHEET_STATUSES = frozenset({
+    SheetStatus.COMPLETED,
+    SheetStatus.FAILED,
+    SheetStatus.SKIPPED,
+    SheetStatus.CANCELLED,
+})
 
 
 class OutcomeCategory(str, Enum):
@@ -376,6 +405,35 @@ class SheetState(BaseModel):
         description="Records each instrument fallback event: "
         "{from: str, to: str, reason: str, timestamp: str}. "
         "Persisted for resume support and post-execution analysis.",
+    )
+
+    # Scheduling fields (Phase 3: baton scheduling state, persisted for
+    # crash recovery and observability — users see rate_limited/retry_scheduled
+    # instead of just "in_progress")
+    fire_at: datetime | None = Field(
+        default=None,
+        description="When this sheet should next be dispatched. None = immediately "
+        "eligible. Used for retry backoff, rate limit recovery, and cron-style "
+        "scheduled execution. The baton dispatches when fire_at <= now.",
+    )
+    rate_limit_expires_at: datetime | None = Field(
+        default=None,
+        description="When the rate limit blocking this sheet is expected to clear. "
+        "Shown in status display so operators know when execution will resume.",
+    )
+    healing_attempts: int = Field(
+        default=0,
+        description="Number of self-healing attempts for this sheet.",
+    )
+
+    # Display status — derived from status + scheduling fields for human display.
+    # Computed at serialization time, not stored. Allows status display to show
+    # "retry in 45s" or "rate limited (clears in 12m)" without consumers
+    # needing to interpret the raw enum + scheduling fields.
+    display_status: str | None = Field(
+        default=None,
+        description="Human-readable status string derived from scheduling state. "
+        "Computed by the status renderer, not authoritative.",
     )
 
     # Pattern feedback loop tracking (v9 evolution: Pattern Feedback Loop Closure)
@@ -795,7 +853,7 @@ class CheckpointState(BaseModel):
     ) -> None:
         """Record a circuit breaker state transition.
 
-        Persists circuit breaker state changes so that ``mozart status``
+        Persists circuit breaker state changes so that ``mzt status``
         can display ground-truth CB state instead of inferring it from
         failure patterns.
 

@@ -67,9 +67,9 @@ Each finding should include:
 - **Agent:** Warden
 - **Category:** risk
 - **Finding:** `src/marianne/cli/commands/run.py:90-163` submits jobs without checking `config.cost_limits.enabled` or displaying cost info. `CostLimitConfig.enabled` defaults to `false`. New users spend API credits with zero notice.
-- **Action:** Add cost warning to `marianne run` when cost_limits.enabled is false.
+- **Action:** Add cost warning to `mzt run` when cost_limits.enabled is false.
 - **Status:** Resolved (movement 1, Circuit)
-- **Resolution:** Added cost warning to `marianne run` at `run.py:119-125` that fires when `cost_limits.enabled` is false and output is not JSON/quiet. Shows the warning text and a config suggestion. Also updated config panel to show "Instrument:" instead of "Backend:" to align with the new instrument terminology. 4 tests added to test_cli_run_resume.py.
+- **Resolution:** Added cost warning to `mzt run` at `run.py:119-125` that fires when `cost_limits.enabled` is false and output is not JSON/quiet. Shows the warning text and a config suggestion. Also updated config panel to show "Instrument:" instead of "Backend:" to align with the new instrument terminology. 4 tests added to test_cli_run_resume.py.
 
 ### F-006: No `marianne doctor` Command
 - **Movement:** 0 (carried from cycle 1)
@@ -279,7 +279,7 @@ Each finding should include:
 - **Status:** Resolved (movement 2, Circuit)
 - **Resolution:** Made `job_id` optional in `status()` command. When omitted, shows conductor status (running/uptime), active scores (running/queued/paused), and 5 most recent terminal scores. JSON output supported. 14 tests in test_cli_status_overview.py. Code in cfb7897 (Forge's commit included the working tree changes), tests in ece7382.
 - **Description:** `marianne status` → "Missing argument 'JOB_ID'". Every major CLI tool (git status, docker ps, kubectl get pods) shows an overview when called with no arguments. Marianne forces you to know the exact score ID.
-- **Impact:** Newcomers' natural first action after `marianne run` is `marianne status`. Getting an error instead of a summary is disorienting and makes the tool feel broken.
+- **Impact:** Newcomers' natural first action after `mzt run` is `marianne status`. Getting an error instead of a summary is disorienting and makes the tool feel broken.
 
 ### F-028: Empty Config File Leaks Internal Python Error
 - **Found by:** Newcomer, Movement 1
@@ -1198,7 +1198,7 @@ Each finding should include:
 - **Root cause correctly diagnosed:** The rate limit was NOT stale — it was a legitimate 3600s limit registered at 01:03 with submissions attempted at 01:35 (only 32 minutes in). The coordinator's `active_limits` property correctly filters by `resume_at > now`. A conductor restart cleared it only because the coordinator is in-memory.
 - **Three UX changes needed:**
   1. **Accept jobs in PENDING state during rate limits.** The conductor should queue the work and start it when the limit clears. Pending jobs can be cancelled by the user. This is how a real conductor works — you hand over the score, they decide when to play it.
-  2. **Show time remaining on rejection.** If `marianne run` or `mzt resume` is rejected due to rate limits, show: "Rate limit active on claude-cli — clears in 27m 32s. Job queued as pending." (or if rejecting: "Resubmit after 02:03 UTC").
+  2. **Show time remaining on rejection.** If `mzt run` or `mzt resume` is rejected due to rate limits, show: "Rate limit active on claude-cli — clears in 27m 32s. Job queued as pending." (or if rejecting: "Resubmit after 02:03 UTC").
   3. **Fix the misleading error message.** "Marianne conductor is not running" is wrong — it IS running. The error should say what's actually happening: rate limit backpressure.
 - **Impact:** Users (and self-chaining scores) can't submit work during rate limits. This breaks concert chains — if a score completes and chains to the next, but a rate limit is active from a *different* job, the chain breaks. The conductor should be a reliable place to leave work, not a bouncer that turns you away.
 - **Partial Resolution (Lens, movement 4):** Item 3 (misleading error message) FIXED. `_try_daemon_submit` in `run.py` now raises `typer.Exit(1)` after printing the specific rejection reason, instead of returning False and triggering the fallback "conductor is not running" message. The user now sees the actual rejection reason (e.g., "System under high pressure — try again later") with hints about conductor status. 3 TDD tests in `test_cli_error_ux.py`. Items 1 (PENDING state) and 2 (time remaining) remain open.
@@ -1677,13 +1677,13 @@ Each finding should include:
 - **Description:** Assigning an HTTP-kind instrument (`ollama`) to sheet 5 in the hello score caused an infinite silent retry loop. `_create_backend_for_profile` at `backend_pool.py:82-87` raises `NotImplementedError` for HTTP instruments. The dispatch loop at `dispatch.py:148-163` catches `Exception`, logs `"baton.dispatch.callback_failed"`, but does not mark the sheet as failed — it stays READY. The next dispatch cycle retries, hits the same error, and loops. Meanwhile `marianne status` shows `in_progress`, `mzt errors` shows nothing, and the ollama process is idle (no models loaded, `api/ps` returns `{"models":[]}`). `mzt instruments check ollama` reports "ready" despite the baton being unable to use it.
 - **Impact:** (1) Sheet stuck forever with no error visible to the composer. (2) Dependent sheets never run. (3) Job never completes. (4) `instruments check` gives false confidence — "ready" means the service responds, not that the baton can use it. (5) Wasted compute on all prior sheets if the unsupported instrument is only discovered at the final sheet.
 - **Related:** F-150 (instrument_config not wired at adapter.py:741). F-151 (no instrument visibility in status). Issue #155.
-- **Fix:** Two guards: (1) **At `marianne run`** — when submitting a score, the conductor should check that every sheet's resolved instrument has a supported kind. Reject before any sheets execute. (2) **Dispatch-time guard** — on unrecoverable backend errors mid-run (tool disappeared, auth revoked), mark the sheet FAILED with E505, propagate to dependents, stop retrying. Also: `instruments check` should warn when kind is unsupported by the baton.
+- **Fix:** Two guards: (1) **At `mzt run`** — when submitting a score, the conductor should check that every sheet's resolved instrument has a supported kind. Reject before any sheets execute. (2) **Dispatch-time guard** — on unrecoverable backend errors mid-run (tool disappeared, auth revoked), mark the sheet FAILED with E505, propagate to dependents, stop retrying. Also: `instruments check` should warn when kind is unsupported by the baton.
 
 ### F-153: CLI Help Text Mixes "job" and "score" Terminology
 - **Found by:** Newcomer, Movement 2 (final review)
 - **Severity:** P3 (low — paper cut, not a blocker)
 - **Status:** Open
-- **Description:** The music metaphor says "score" everywhere, but CLI help text is inconsistent. `marianne run` → "Run a **job** from a YAML configuration file". `marianne validate` → "Validate a **job** configuration file". Meanwhile `mzt resume`, `marianne cancel`, and `marianne status` correctly use "score" in their descriptions. The Typer parameter name `JOB_ID` appears in usage lines for all commands (`mzt status [JOB_ID]`, `mzt resume JOB_ID`, etc.) while the descriptions say "Score ID". Commands touched during M3 UX work were updated; untouched ones still say "job".
+- **Description:** The music metaphor says "score" everywhere, but CLI help text is inconsistent. `mzt run` → "Run a **job** from a YAML configuration file". `marianne validate` → "Validate a **job** configuration file". Meanwhile `mzt resume`, `marianne cancel`, and `marianne status` correctly use "score" in their descriptions. The Typer parameter name `JOB_ID` appears in usage lines for all commands (`mzt status [JOB_ID]`, `mzt resume JOB_ID`, etc.) while the descriptions say "Score ID". Commands touched during M3 UX work were updated; untouched ones still say "job".
 - **Impact:** A newcomer reading help text encounters two terms for the same concept. The music metaphor is described as "load-bearing" in the composer's notes.
 - **Files:** `src/marianne/cli/commands/run.py` (docstring), `src/marianne/cli/commands/validate_cmd.py` (docstring), multiple commands (JOB_ID Typer param name)
 
@@ -2478,7 +2478,7 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 
   **Install is outdated:** README install instructions don't reflect current state (marianne rename, dependencies, conductor-first workflow).
 
-  **Architecture description is wrong:** README presents architecture as runner-first with daemon as optional. The conductor IS the execution authority — daemon-first is the only supported mode. `marianne run` routes through the conductor. The architecture section needs to reflect this.
+  **Architecture description is wrong:** README presents architecture as runner-first with daemon as optional. The conductor IS the execution authority — daemon-first is the only supported mode. `mzt run` routes through the conductor. The architecture section needs to reflect this.
 
   **Daemon terminology inconsistent:** Mix of "daemon" and "conductor" across docs. The conductor IS the daemon. Terminology should be consistent.
 
@@ -2653,6 +2653,39 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 
 - **Root Cause:** Phase 2 (baton) focused on multi-instrument dispatch mechanics. Intelligence was deferred to Phase 3. The transition from "dispatch works" to "dispatch is smart" requires signal wiring, not new algorithms — the scheduler and signals already exist.
 - **Action:** Wire Phase 3 scheduler into `dispatch_ready()`. Implementation order: (1) priority heap replaces job iteration, (2) EventBus subscriptions for completion/failure signals, (3) `score_sheet()` with fan-out + fairness + availability, (4) intent profile modulation, (5) proactive escalation prediction, (6) cross-job context. Each step independently valuable and testable.
+
+### F-499: Dual State Model Is Structurally Unsound — Unified State Required
+- **Movement:** 5 (post-movement, TSVS analysis)
+- **Agent:** Composer (Opus session)
+- **Category:** architecture
+- **Severity:** P1 — every baton feature addition creates new sync boundary bugs
+- **Status:** Phase 1 complete, Phase 2 spec'd
+- **Finding:** The baton maintains `SheetExecutionState` (11-state dataclass) alongside the checkpoint's `SheetState` (previously 5-state Pydantic model). A sync callback maps between them on every state transition. Every bug found on 2026-04-07 (F-494 gaps 1-3, F-497 false rate limits) was a boundary failure between these two representations. The mapping was lossy, the sync was incomplete, the persist was missing.
+
+  TSVS cross-domain analysis evaluated 5 architectural options. Conclusion: the dual model maximizes compatibility at the cost of correctness. It will keep producing boundary bugs as the baton evolves.
+
+  **Phase 1 (completed):** Extended `SheetStatus` to 11 states (READY, DISPATCHED, WAITING, RETRY_SCHEDULED, FERMATA, CANCELLED). Added `fire_at` (enables cron-style scheduling), `rate_limit_expires_at` (observability), `healing_attempts`, `display_status` to `SheetState`. Mapping is now 1:1 (lossless). Status display shows all 11 states with proper colors/labels.
+
+  **Phase 2 (spec'd):** Replace `SheetExecutionState` with `SheetState`. Baton reads/writes `SheetState` directly. Remove sync callback, mapping functions, and ~400 lines of boundary code. Migration via type alias (`SheetExecutionState = SheetState`) for incremental adoption. Full spec: `docs/plans/2026-04-07-unified-state-spec.md`
+
+- **Root Cause:** The baton was built alongside the existing checkpoint system, not as a replacement. Expedient dual-state design created O(fields × transitions) sync code that must be correct for every combination.
+- **Action:** Execute Phase 2 per the spec. Key steps: (1) port methods to SheetState, (2) type alias for transition, (3) remove sync layer. ~34 test files need import updates.
+
+### F-500: `mzt list` Never Showed Progress for Baton Jobs
+- **Movement:** 5 (post-movement, production testing)
+- **Agent:** Composer (Opus session)
+- **Category:** bug
+- **Severity:** P2
+- **Status:** Fixed (this session)
+- **Finding:** `list_jobs()` returned `meta.to_dict()` which has no sheet-level data. The PROGRESS column always showed `-` for baton-managed jobs. Fixed by enriching active job entries with `progress_completed`/`progress_total` from `_live_states`.
+
+### F-501: Baton Never Persisted State to Registry
+- **Movement:** 5 (post-movement, production testing)
+- **Agent:** Composer (Opus session)
+- **Category:** bug (data loss risk)
+- **Severity:** P1
+- **Status:** Fixed (this session)
+- **Finding:** The legacy runner persists checkpoint to the daemon registry on every state save via `_on_state_published`. The baton's `_on_baton_state_sync` updated `_live_states` in memory but never called `_registry.save_checkpoint()`. If the daemon crashed, all baton job progress was lost. Fixed by adding async registry persistence on significant transitions (started, completed, failed, skipped).
 
 ### F-454: `list --json` Exposes Internal DB Error to Users
 - **Found by:** Ember, Movement 5

@@ -88,29 +88,34 @@ StateSyncCallback = Callable[[str, int, str, SheetExecutionState | None], None]
 # State mapping — Surface 4
 # =============================================================================
 
-# BatonSheetStatus → CheckpointState status string
-# The baton tracks 11 states; CheckpointState tracks 5.
+# BatonSheetStatus → SheetStatus (1:1 now that SheetStatus has all 11 states)
 _BATON_TO_CHECKPOINT: dict[BatonSheetStatus, str] = {
     BatonSheetStatus.PENDING: "pending",
-    BatonSheetStatus.READY: "pending",
-    BatonSheetStatus.DISPATCHED: "in_progress",
+    BatonSheetStatus.READY: "ready",
+    BatonSheetStatus.DISPATCHED: "dispatched",
     BatonSheetStatus.RUNNING: "in_progress",
     BatonSheetStatus.COMPLETED: "completed",
     BatonSheetStatus.FAILED: "failed",
     BatonSheetStatus.SKIPPED: "skipped",
-    BatonSheetStatus.CANCELLED: "failed",  # No "cancelled" in CheckpointState
-    BatonSheetStatus.WAITING: "in_progress",  # Rate limited
-    BatonSheetStatus.RETRY_SCHEDULED: "pending",  # Awaiting retry
-    BatonSheetStatus.FERMATA: "in_progress",  # Escalation pause
+    BatonSheetStatus.CANCELLED: "cancelled",
+    BatonSheetStatus.WAITING: "waiting",
+    BatonSheetStatus.RETRY_SCHEDULED: "retry_scheduled",
+    BatonSheetStatus.FERMATA: "fermata",
 }
 
-# CheckpointState status string → BatonSheetStatus (for resume)
+# SheetStatus → BatonSheetStatus (for resume from checkpoint)
 _CHECKPOINT_TO_BATON: dict[str, BatonSheetStatus] = {
     "pending": BatonSheetStatus.PENDING,
-    "in_progress": BatonSheetStatus.DISPATCHED,
+    "ready": BatonSheetStatus.READY,
+    "dispatched": BatonSheetStatus.DISPATCHED,
+    "in_progress": BatonSheetStatus.DISPATCHED,  # Running → re-dispatch on resume
+    "waiting": BatonSheetStatus.PENDING,          # Rate limit cleared on restart
+    "retry_scheduled": BatonSheetStatus.PENDING,  # Retry timer lost on restart
+    "fermata": BatonSheetStatus.PENDING,          # Re-evaluate escalation on restart
     "completed": BatonSheetStatus.COMPLETED,
     "failed": BatonSheetStatus.FAILED,
     "skipped": BatonSheetStatus.SKIPPED,
+    "cancelled": BatonSheetStatus.CANCELLED,
 }
 
 

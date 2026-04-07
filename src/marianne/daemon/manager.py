@@ -10,6 +10,7 @@ import asyncio
 import os
 import time
 import traceback
+from datetime import datetime, timedelta, timezone
 from collections import deque
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
@@ -574,15 +575,23 @@ class JobManager:
             has_baton_state=baton_state is not None,
         )
 
-        if status == SheetStatus.IN_PROGRESS:
+        # Ensure sheet entry exists
+        if sheet_num not in live.sheets:
+            live.sheets[sheet_num] = SheetState(sheet_num=sheet_num)
+        sheet_state = live.sheets[sheet_num]
+
+        # Update status for ALL states (the full 11-state enum)
+        sheet_state.status = status
+        live.updated_at = utc_now()
+
+        # State-specific field updates
+        if status in (SheetStatus.DISPATCHED, SheetStatus.IN_PROGRESS):
             live.mark_sheet_started(sheet_num)
         elif status == SheetStatus.COMPLETED:
-            # Extract rich metadata from baton state if available
             validation_passed = True
             duration: float | None = None
             if baton_state is not None:
                 duration = baton_state.total_duration_seconds or None
-                # Check the latest attempt result for validation details
                 if baton_state.attempt_results:
                     last = baton_state.attempt_results[-1]
                     validation_passed = last.validation_pass_rate >= 100.0
@@ -612,19 +621,45 @@ class JobManager:
             )
         elif status == SheetStatus.SKIPPED:
             live.mark_sheet_skipped(sheet_num)
-        else:
-            # Fallback for other statuses (e.g., rate_limited → in_progress)
-            sheet_state = live.sheets.get(sheet_num)
-            if sheet_state is not None:
-                sheet_state.status = status
-                live.updated_at = utc_now()
+        elif status == SheetStatus.CANCELLED:
+            sheet_state.completed_at = utc_now()
 
-        # Persist to registry on terminal sheet transitions so progress
-        # survives daemon restart. Fire-and-forget like the legacy runner's
-        # _on_state_published path. Only persist on completed/failed/skipped
-        # to avoid excessive writes on every dispatch/start transition.
-        if status in (
-            SheetStatus.COMPLETED, SheetStatus.FAILED, SheetStatus.SKIPPED,
+        # Write scheduling fields from baton state
+        if baton_state is not None:
+            # Convert monotonic fire_at to UTC datetime for persistence
+            if baton_state.next_retry_at is not None:
+                delta = baton_state.next_retry_at - time.monotonic()
+                sheet_state.fire_at = (
+                    datetime.now(timezone.utc) + timedelta(seconds=delta)
+                    if delta > 0 else None
+                )
+            else:
+                sheet_state.fire_at = None
+
+            # Rate limit expiry from instrument state
+            rate_inst = baton_state.instrument_name
+            inst_state = (
+                self._baton_adapter._baton.get_instrument_state(rate_inst)
+                if self._baton_adapter else None
+            )
+            if (
+                inst_state
+                and inst_state.rate_limited
+                and inst_state.rate_limit_expires_at is not None
+            ):
+                delta_rl = inst_state.rate_limit_expires_at - time.monotonic()
+                sheet_state.rate_limit_expires_at = (
+                    datetime.now(timezone.utc) + timedelta(seconds=delta_rl)
+                    if delta_rl > 0 else None
+                )
+            else:
+                sheet_state.rate_limit_expires_at = None
+
+            sheet_state.healing_attempts = baton_state.healing_attempts
+
+        # Persist to registry on significant transitions for crash recovery.
+        if status.is_terminal or status in (
+            SheetStatus.DISPATCHED, SheetStatus.IN_PROGRESS,
         ):
             try:
                 checkpoint_json = live.model_dump_json()

@@ -106,9 +106,9 @@ class TestAdapterStateMappingTotality:
         )
 
     def test_all_checkpoint_statuses_have_reverse_mapping(self) -> None:
-        """All 5 checkpoint status strings are in the reverse mapping."""
-        # The checkpoint status domain is fixed
-        expected = {"pending", "in_progress", "completed", "failed", "skipped"}
+        """All checkpoint status strings are in the reverse mapping."""
+        from marianne.core.checkpoint import SheetStatus
+        expected = {s.value for s in SheetStatus}
         mapped = set(_CHECKPOINT_TO_BATON.keys())
         assert expected == mapped
 
@@ -120,7 +120,8 @@ class TestAdapterStateMappingTotality:
         """baton_to_checkpoint_status never raises for any valid input."""
         result = baton_to_checkpoint_status(status)
         assert isinstance(result, str)
-        assert result in {"pending", "in_progress", "completed", "failed", "skipped"}
+        from marianne.core.checkpoint import SheetStatus
+        assert result in {s.value for s in SheetStatus}
 
 
 # =============================================================================
@@ -135,7 +136,7 @@ class TestTerminalStatePreservation:
     must also be a terminal checkpoint status (completed, failed, skipped).
     """
 
-    _TERMINAL_CHECKPOINT = {"completed", "failed", "skipped"}
+    _TERMINAL_CHECKPOINT = {"completed", "failed", "skipped", "cancelled"}
 
     @given(st.sampled_from(list(_TERMINAL_BATON_STATUSES)))
     @settings(max_examples=20)
@@ -596,8 +597,8 @@ class TestPromptAssemblyStructure:
         context = AttemptContext(attempt_number=1, mode=AttemptMode.NORMAL)
         prompt = _build_prompt(sheet, context, total_sheets=10, total_movements=2)
 
-        # Preamble is wrapped in <mozart-preamble> tags
-        assert prompt.startswith("<mozart-preamble>"), (
+        # Preamble is wrapped in <marianne-preamble> tags
+        assert prompt.startswith("<marianne-preamble>"), (
             f"Prompt does not start with preamble. First 100 chars: {prompt[:100]}"
         )
         assert "You are sheet 3 of 10" in prompt

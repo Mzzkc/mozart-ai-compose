@@ -1,4 +1,4 @@
-"""Rich output formatting for Mozart CLI.
+"""Rich output formatting for Marianne CLI.
 
 This module centralizes all Rich-based formatting utilities for the CLI:
 - Color schemes for status values
@@ -79,13 +79,19 @@ class StatusColors:
         JobStatus.CANCELLED: "dim",
     }
 
-    # Sheet-level status colors
+    # Sheet-level status colors (full 11-state scheduling states)
     SHEET_STATUS: dict[SheetStatus, str] = {
-        SheetStatus.PENDING: "yellow",
-        SheetStatus.IN_PROGRESS: "blue",
+        SheetStatus.PENDING: "dim",
+        SheetStatus.READY: "blue",
+        SheetStatus.DISPATCHED: "yellow",
+        SheetStatus.IN_PROGRESS: "green",
+        SheetStatus.WAITING: "yellow",
+        SheetStatus.RETRY_SCHEDULED: "yellow",
+        SheetStatus.FERMATA: "magenta",
         SheetStatus.COMPLETED: "green",
         SheetStatus.FAILED: "red",
         SheetStatus.SKIPPED: "dim",
+        SheetStatus.CANCELLED: "red",
     }
 
     # Synthesis result status colors (v18 evolution)
@@ -411,7 +417,7 @@ def create_jobs_table() -> Table:
         Rich Table configured for job list display.
     """
     table = Table(
-        title="Mozart Scores",
+        title="Marianne Scores",
         show_edge=False,
         pad_edge=False,
         expand=False,

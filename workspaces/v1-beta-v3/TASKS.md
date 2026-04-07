@@ -262,6 +262,26 @@ Source: F-498, TSVS cross-domain analysis, production testing of 3 concurrent mu
 
 ---
 
+## Unified State Model (F-499)
+
+Spec: `docs/plans/2026-04-07-unified-state-spec.md`
+Source: F-499, TSVS analysis of 5 architectural options, Phase 1 complete
+
+Phase 1 (DONE): 11-state SheetStatus, fire_at, rate_limit_expires_at, display colors
+Phase 2: Replace SheetExecutionState with SheetState, remove sync boundary
+
+- [ ] Port SheetExecutionState methods (can_retry, record_attempt, advance_fallback, is_exhausted) to SheetState (priority: P1) [source: F-499 phase 2 step 1]
+- [ ] Add missing baton fields to SheetState with `Field(exclude=True)` for transient data (attempt_results, max_retries, fallback_chain) (priority: P1) [source: F-499 phase 2 step 1]
+- [ ] Type-alias `SheetExecutionState = SheetState` in baton/state.py — full test suite must pass (priority: P1) [source: F-499 phase 2 step 2]
+- [ ] Replace baton imports from `baton.state.SheetExecutionState` to `core.checkpoint.SheetState` across all source files (priority: P1) [source: F-499 phase 2 step 3]
+- [ ] Remove sync callback: delete _on_baton_state_sync, _sync_sheet_status, StateSyncCallback, mapping functions (priority: P1) [source: F-499 phase 2 step 4]
+- [ ] Add persist_checkpoint(job_id) to adapter — replaces sync callback for registry writes (priority: P1) [source: F-499 phase 2 step 4]
+- [ ] Remove SheetExecutionState class and type alias (priority: P1) [source: F-499 phase 2 step 5]
+- [ ] Update ~34 test files: replace SheetExecutionState imports (priority: P1) [source: F-499 phase 2 step 6]
+- [ ] Quality gate: mypy clean, ruff clean, full pytest pass (priority: P0) [source: standard]
+
+---
+
 ## M6: Infrastructure & Platform
 
 - [ ] Unified Schema Management System (priority: P1) [source: composer notes]
@@ -314,7 +334,7 @@ See FINDINGS.md F-097 through F-102 for full context.
 - [x] [Lens] Accept jobs in PENDING state during rate limit backpressure instead of rejecting (priority: P1) [source: F-110] — Mateship pickup of unnamed musician's implementation. BackpressureController.rejection_reason() distinguishes rate-limit vs resource pressure. JobManager._queue_pending_job() registers with PENDING status in JobMeta (visible in list/status). JobResponse model gains "pending" literal. DaemonJobStatus.PENDING added. CLI _handle_pending_response() shows info not error. Lens fixes: wired _start_pending_jobs() into clear_rate_limits() + deferred auto-start timer, added JobMeta tracking for list visibility, fixed mypy lambda inference. 23 TDD tests in test_rate_limit_pending.py. Fixed 3 existing tests in test_clear_rate_limits.py and 6 in test_m3_pass4_adversarial_breakpoint.py. Docs updated (cli-reference, daemon-guide).
 - [x] [Lens] Pending jobs start automatically when rate limit clears (priority: P1) [source: F-110] — _start_pending_jobs() called after clear_rate_limits() (manual) + scheduled via deferred asyncio task with rate limit expiry delay + 2s buffer (automatic). Jobs started in FIFO order, backpressure re-checked between each.
 - [x] [Lens] Pending jobs can be cancelled via `marianne cancel` (priority: P1) [source: F-110] — cancel_job() checks _pending_jobs first, removes from queue, updates JobMeta to CANCELLED, runs cleanup task. Included in mateship pickup implementation.
-- [x] [Dash] `marianne run` / `marianne resume` shows time remaining when rate-limited: "Rate limit on claude-cli — clears in Xm Ys" (priority: P1) [source: F-110] — format_rate_limit_info() in output.py, query_rate_limits() in helpers.py, _show_rate_limits_on_rejection() in run.py, _show_active_rate_limits_sync() in status.py. Also enhanced _rejection_hints() with fresh-aware "clear stale entry" hints and updated pressure hints to suggest clear-rate-limits. 18 TDD tests.
+- [x] [Dash] `mzt run` / `mzt resume` shows time remaining when rate-limited: "Rate limit on claude-cli — clears in Xm Ys" (priority: P1) [source: F-110] — format_rate_limit_info() in output.py, query_rate_limits() in helpers.py, _show_rate_limits_on_rejection() in run.py, _show_active_rate_limits_sync() in status.py. Also enhanced _rejection_hints() with fresh-aware "clear stale entry" hints and updated pressure hints to suggest clear-rate-limits. 18 TDD tests.
 - [x] [Lens] Fix misleading "Marianne conductor is not running" error on backpressure rejection (priority: P1) [source: F-110] — _try_daemon_submit now raises typer.Exit(1) on explicit rejection instead of returning False (which triggered misleading "not running" fallback). Rejection reason shown with hints. 3 TDD tests.
 
 ### Multi-Instrument Support (F-100, F-101, F-103, F-104, F-105)
