@@ -27,37 +27,9 @@ import os
 import signal
 
 from marianne.core.logging import get_logger
+from marianne.utils.process import safe_killpg as _safe_killpg
 
 _logger = get_logger("daemon.pgroup")
-
-
-def _safe_killpg(pgid: int, sig: int, *, context: str = "") -> bool:
-    """Session-safe wrapper around os.killpg (F-490).
-
-    Refuses when pgid would target init, the caller's own process group,
-    or an invalid value. Prevents PID-recycle or mock-object bugs from
-    translating into ``kill(-1, SIGKILL)`` that nukes the user session.
-
-    Returns True if signal was sent, False if blocked.
-    """
-    if pgid <= 1:
-        _logger.warning(
-            "killpg_guard_refused",
-            reason="pgid_le_1", pgid=pgid, signal=sig, context=context,
-        )
-        return False
-    try:
-        own_pgid = os.getpgid(0)
-        if pgid == own_pgid:
-            _logger.warning(
-                "killpg_guard_refused",
-                reason="own_pgroup", pgid=pgid, signal=sig, context=context,
-            )
-            return False
-    except OSError:
-        pass  # getpgid failed — fall through to killpg with validated pgid
-    os.killpg(pgid, sig)
-    return True
 
 # No hardcoded cmdline patterns for orphan detection.
 # Orphans are identified by ancestry: if a tracked backend PID is dead

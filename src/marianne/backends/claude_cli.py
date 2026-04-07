@@ -42,51 +42,7 @@ STREAM_READ_TIMEOUT: float = 1.0  # Seconds between stream read checks
 PROCESS_EXIT_TIMEOUT: float = 5.0  # Seconds to wait for process exit after streams close
 
 
-def _safe_killpg(pgid: int, sig: int, *, context: str = "") -> bool:
-    """Session-safe wrapper around os.killpg.
-
-    Refuses the syscall when pgid would target init, the caller's own process
-    group, or an invalid value. This prevents a PID-recycle or mock-object bug
-    from translating into a kernel-level ``kill(-1, SIGKILL)`` that nukes the
-    entire user session (see F-490). In particular, ``os.killpg(1, sig)``
-    compiles to ``kill(-1, sig)`` in the kernel, which sends the signal to
-    every process the caller owns except init — killing systemd --user, every
-    terminal, pytest, and the daemon.
-
-    Guards:
-    - ``pgid <= 1``: init (1), own pgroup in killpg(0) idiom (0), or invalid
-    - ``pgid == os.getpgid(0)``: our own process group (would kill us plus
-      whatever shell/pytest/terminal shares the group)
-
-    Returns True if the signal was actually sent, False if blocked. Callers
-    should treat False the same as a successful kill for cleanup purposes —
-    the target is either unreachable or would have killed the caller.
-    """
-    if pgid <= 1:
-        _logger.warning(
-            "killpg_guard_refused",
-            reason="pgid_le_1",
-            pgid=pgid,
-            signal=sig,
-            context=context,
-        )
-        return False
-    try:
-        own_pgid = os.getpgid(0)
-    except OSError:
-        own_pgid = None
-    if own_pgid is not None and pgid == own_pgid:
-        _logger.warning(
-            "killpg_guard_refused",
-            reason="pgid_eq_own_pgroup",
-            pgid=pgid,
-            own_pgid=own_pgid,
-            signal=sig,
-            context=context,
-        )
-        return False
-    os.killpg(pgid, sig)
-    return True
+from marianne.utils.process import safe_killpg as _safe_killpg  # noqa: E402
 
 
 class ClaudeCliBackend(Backend):

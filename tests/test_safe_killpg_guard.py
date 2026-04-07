@@ -60,7 +60,7 @@ class TestSafeKillpgGuardBlocks:
     def test_blocked_call_logs_warning(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Guard must log at warning level so refusals are visible in conductor.log.
 
-        Mozart uses structlog which writes to stdout/stderr directly in the
+        Marianne uses structlog which writes to stdout/stderr directly in the
         default configuration, so capsys is the right capture tool.
         """
         with patch("marianne.backends.claude_cli.os.killpg"):
@@ -181,8 +181,8 @@ class TestCallSiteStructuralAudit:
 
         source = inspect.getsource(claude_cli)
 
-        # Count _safe_killpg( occurrences, subtract 1 for the definition
-        call_count = source.count("_safe_killpg(") - 1
+        # Count _safe_killpg( call sites (definition moved to utils.process)
+        call_count = source.count("_safe_killpg(")
         assert call_count == 6, (
             f"Expected 6 _safe_killpg call sites, found {call_count}. "
             f"If you added a call, update this count. If you removed one, "
