@@ -1498,31 +1498,26 @@ class JobManager:
     async def get_job_errors(self, job_id: str, workspace: Path | None = None) -> dict[str, Any]:
         """Get errors for a specific job.
 
-        Loads the full CheckpointState and returns it for the CLI to
-        extract error information from sheet states.
+        Returns the CheckpointState for the CLI to extract error information.
+        Uses the same resolution as get_job_status: live state first, then
+        registry, never workspace files.
         """
-        ws = await self._resolve_job_workspace(job_id, workspace)
-        state = await self._checked_service.get_status(job_id, ws)
-        if state is None:
-            raise JobSubmissionError(f"No state found for job '{job_id}'")
-
-        return {"state": state.model_dump(mode="json")}
+        _ = workspace  # Conductor DB is the sole source of truth
+        state_dict = await self.get_job_status(job_id)
+        return {"state": state_dict}
 
     async def get_diagnostic_report(
         self, job_id: str, workspace: Path | None = None,
     ) -> dict[str, Any]:
         """Get diagnostic data for a specific job.
 
-        Returns the full CheckpointState plus workspace path for the CLI
-        to build the diagnostic report locally.
+        Returns the CheckpointState plus workspace path. Uses the same
+        resolution as get_job_status: live state first, then registry.
         """
         ws = await self._resolve_job_workspace(job_id, workspace)
-        state = await self._checked_service.get_status(job_id, ws)
-        if state is None:
-            raise JobSubmissionError(f"No state found for job '{job_id}'")
-
+        state_dict = await self.get_job_status(job_id)
         return {
-            "state": state.model_dump(mode="json"),
+            "state": state_dict,
             "workspace": str(ws),
         }
 

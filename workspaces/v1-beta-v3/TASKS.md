@@ -115,7 +115,7 @@ This is the highest priority task. You are running inside a live conductor. You 
 - [x] [Axiom] Fix musician-baton validation_pass_rate contract + dependency failure propagation + escalation unpause bug (priority: P1) [source: F-018, invariant analysis]
 - [x] [Breakpoint] Adversarial tests for baton infrastructure (65 tests: retry state machine, circuit breaker, dispatch, serialization, timer, event safety) (priority: P1) [source: adversarial testing]
 - [x] [Breakpoint] M2 adversarial tests (59 tests: exhaustion paths, cost enforcement, completion mode, failure propagation, process crash, concurrent races, serialization) (priority: P1) [source: adversarial testing, dcfaf31]
-- [x] [Ghost] CLI command to clear stale rate limits (priority: P1) [source: F-149 / issue #153] — Mateship pickup of unnamed musician's implementation. Fixed test assertion bug (coordinator+baton sum), fixed SystemExit/click.Exit mismatch. 18 TDD tests. IPC handler `daemon.clear_rate_limits`, `RateLimitCoordinator.clear_limits()`, `BatonAdapter.clear_instrument_rate_limit()`, `JobManager.clear_rate_limits()`, CLI command `marianne clear-rate-limits [--instrument NAME] [--json]`.
+- [x] [Ghost] CLI command to clear stale rate limits (priority: P1) [source: F-149 / issue #153] — Mateship pickup of unnamed musician's implementation. Fixed test assertion bug (coordinator+baton sum), fixed SystemExit/click.Exit mismatch. 18 TDD tests. IPC handler `daemon.clear_rate_limits`, `RateLimitCoordinator.clear_limits()`, `BatonAdapter.clear_instrument_rate_limit()`, `JobManager.clear_rate_limits()`, CLI command `mzt clear-rate-limits [--instrument NAME] [--json]`.
 - [x] [Breakpoint] M4 adversarial tests (64 tests: musician prompt rendering, error classification, clone sanitization, adapter state mapping, F-018 contract, credential redaction, injection resolution, Phase 4.5 F-098/F-097 regression, event conversion, validation formatting, cost estimation) (priority: P1) [source: adversarial testing, movement 1 cycle 2] — Found F-114 (Phase 4.5 quota gap)
 - [x] [Breakpoint] M2C2 adversarial tests (63 tests: step 29 recovery+deps, state sync, credential redaction boundaries, rate limit extraction, failure propagation, cost limits, status mapping, completion signaling, instrument resolution) (priority: P1) [source: adversarial testing, movement 2 cycle 2] — Fixed 2 bugs in untracked test file, extended 47→63 tests. No new code bugs found.
 - [x] [Breakpoint] M3 adversarial tests (62 tests: dispatch guard exception taxonomy, rate limit auto-resume timer scheduling, model override carryover, completed_new_work edge cases, semantic context tags format, PromptRenderer wiring, clear-rate-limits dual-path, stagger delay boundaries, terminal status invariants, dispatch callback integration, wait cap verification, record_attempt edge cases) (priority: P1) [source: adversarial testing, movement 3] — Found and fixed F-200 (clear_instrument_rate_limit fallthrough bug). 12 test classes targeting all major M3 fixes.
@@ -142,7 +142,7 @@ This is the highest priority task. You are running inside a live conductor. You 
 
 ## M3: UX & Polish
 
-- [x] [Circuit] Implement `marianne status` no-args mode (priority: P0) [source: roadmap step 30 / issue #114]
+- [x] [Circuit] Implement `mzt status` no-args mode (priority: P0) [source: roadmap step 30 / issue #114]
 - [x] [Dash] Implement movement-grouped status display (priority: P0) [source: roadmap step 31]
 - [x] [Ghost] Implement `marianne doctor` (priority: P1) [source: roadmap step 32 / F-006]
 - [x] [Harper] Implement `mzt init` + starter score (priority: P1) [source: roadmap step 33] — mateship pickup of Lens's untracked init_cmd.py. Harper added: name validation (path traversal, spaces, dots, null bytes), --json output mode, doctor mention in next steps, instrument terminology in comments. Extracted shared load_all_profiles() from duplicated doctor/instruments code. 35 tests.
@@ -161,7 +161,7 @@ This is the highest priority task. You are running inside a live conductor. You 
 - [x] [Circuit] Fix F-068: "Completed:" timestamp hidden for RUNNING/PAUSED jobs (priority: P2) [source: F-068] — terminal status guard at status.py:1487, 4 TDD tests
 - [x] [Circuit] Fix F-069/F-092: V101 false positive on Jinja2 {% set %}/{% for %} variables (priority: P2) [source: F-069, F-092] — AST walker in jinja.py:250 extracts template-declared vars, 5 TDD tests, hello.yaml now validates clean
 - [x] [Circuit] Fix F-048: cost tracking when cost limits disabled (priority: P2) [source: F-048] — _track_cost() now runs before cost_limits.enabled gate in sheet.py, 2 TDD tests
-- [x] [Dash] Add --json to `marianne list` (F-071) — JSON array output for machine parsing. 5 TDD tests. (priority: P3) [source: F-071]
+- [x] [Dash] Add --json to `mzt list` (F-071) — JSON array output for machine parsing. 5 TDD tests. (priority: P3) [source: F-071]
 - [x] [Dash] Fix F-094: README Configuration Reference — renamed "Backend Options" to "Instrument Configuration", updated all fields to instrument_config syntax, updated architecture diagram, fixed prerequisites. (priority: P2) [source: F-094]
 - [x] [Dash] Fix F-029 (partial): user-facing error messages say "Score ID" instead of "Job ID" in validate_job_id(). 19 test assertions updated. (priority: P2) [source: F-029]
 - [x] [Journey] Fix F-115: cancel not-found uses output_error() + hints + exit 1. 5 TDD tests. (priority: P2) [source: F-115, exploratory testing]
@@ -198,7 +198,7 @@ This is the highest priority task. You are running inside a live conductor. You 
 - [x] [Spark] Update the Rosetta Score's primitives list and proof criteria to reflect current Marianne capabilities (instruments, spec corpus, grounding, new features). (priority: P1) [source: composer notes — Rosetta as capability factory] — Updated scores/the-rosetta-score.yaml: primitives section now includes movements: YAML key, stagger_delay_ms, skip_when, fan-in skipped_upstream, cross_sheet config, grounding hooks, per-sheet instrument assignment, instrument_map, instrument_config.model, spec corpus injection. Existing vocabulary updated with corpus size (56 patterns), recent additions (iteration 4), awaiting primitives, new capabilities list, and 10 practiced patterns (was 6). Validates clean.
 - [x] [Spark, Guide] Audit existing examples/ scores against updated score-authoring skill — upgrade to use new features (fan-out aliases, per-sheet overrides, instrument terminology) where they make better examples. (priority: P2) [source: F-079 / composer notes] — Spark M2: modernized dialectic.yaml and parallel-research-fanout.yaml. Spark M3: modernized 7 more fan-out examples with movements: key, movement/voice terminology in comments and template text, added parallel: enabled where missing. Updated: worldbuilder.yaml, thinking-lab.yaml, dinner-party.yaml, design-review.yaml, skill-builder.yaml, palimpsest.yaml, score-composer.yaml. Fixed V207 warnings (fan-out without parallel) in worldbuilder and palimpsest. Guide M3: completed remaining 10 scores with movements: declarations — hello.yaml, 4 Rosetta proofs (immune-cascade, dead-letter-quarantine, prefabrication, echelon-repair), context-engineering-lab, issue-solver, quality-continuous, quality-continuous-generic, quality-daemon. Total: 19/19 multi-stage examples now have movements: declarations. All 37 scores validate clean.
 - [x] [Spark, Blueprint] Wordware comparison demos (3-4 use cases) (priority: P1) [source: composer notes, D-023] — Blueprint M4: created 3 demos (contract-generator.yaml, candidate-screening.yaml, marketing-content.yaml). Spark M4: created 4th demo (invoice-analysis.yaml — 3-voice parallel analysis: financial accuracy, compliance, anomaly detection; 5 sheets, 7 validations). All 4 validate clean. D-023 COMPLETE.
-- [x] [Blueprint] F-116: Add V210 instrument name validation to `marianne validate` (priority: P2) [source: F-116, Journey M1C3] — InstrumentNameCheck warns on unknown instrument names. Checks score-level, per-sheet, instrument_map, movements. 15 TDD tests. Commit 327e536.
+- [x] [Blueprint] F-116: Add V210 instrument name validation to `mzt validate` (priority: P2) [source: F-116, Journey M1C3] — InstrumentNameCheck warns on unknown instrument names. Checks score-level, per-sheet, instrument_map, movements. 15 TDD tests. Commit 327e536.
 - [x] [Blueprint] F-127: Fix `_classify_success_outcome` to use cumulative `attempt_count` instead of session-local `normal_attempts` (priority: P2) [source: F-127, Ember M1C3] — Uses SheetState.attempt_count (persisted) instead of session-local counter. 7 TDD tests. Commit 327e536.
 - [x] [Blueprint, Maverick] Fix `build_clone_config()` missing `state_db_path` + `log_file` overrides (priority: P1) [source: F-132] — Maverick fixed both branches in b4146a7. Blueprint added 5 clone isolation tests in 327e536.
 
@@ -282,6 +282,19 @@ Phase 2: Replace SheetExecutionState with SheetState, remove sync boundary
 
 ---
 
+## CLI Conductor-Only Enforcement (F-502)
+
+Source: F-502, CLI audit of all mzt commands
+
+- [x] [Composer/Opus] Fix get_job_errors() and get_diagnostic_report() — use get_job_status() not JobService (priority: P1) [source: F-502]
+- [ ] Remove workspace fallback from pause.py CLI layer (priority: P1) [source: F-502]
+- [ ] Remove workspace fallback from resume.py CLI layer (priority: P1) [source: F-502]
+- [ ] Remove workspace fallback from recover.py CLI layer (priority: P1) [source: F-502]
+- [ ] Remove workspace fallback from status.py (already mostly conductor-only, clean up --workspace debug path) (priority: P2) [source: F-502]
+- [ ] Deprecate _find_job_state_direct(), _find_job_state_fs(), _create_pause_signal(), _wait_for_pause_ack() in helpers.py (priority: P2) [source: F-502]
+
+---
+
 ## M6: Infrastructure & Platform
 
 - [ ] Unified Schema Management System (priority: P1) [source: composer notes]
@@ -313,7 +326,7 @@ Phase 2: Replace SheetExecutionState with SheetState, remove sync boundary
 
 ## Composer-Assigned Tasking (Post-Mortem — v3 Failure Investigation)
 
-These tasks were identified by the composer during failure investigation of the v3 job.
+These tasks were identified by the composer durimzt cancelstigation of the v3 job.
 See FINDINGS.md F-097 through F-102 for full context.
 
 ### Timeout & Stale Detection (F-097, F-102)
@@ -359,7 +372,7 @@ See FINDINGS.md F-097 through F-102 for full context.
 ### Cost Accuracy Investigation (D-024)
 - [x] [Circuit] D-024 cost accuracy investigation — trace full pipeline, identify 5 root causes (priority: P1) [source: D-024, North directive] — F-180 filed. Root causes: ClaudeCliBackend zero tokens, baton hardcoded pricing, instrument profile pricing unused, confidence not displayed, text output format default. Commit 4055f0b.
 - [x] [Circuit] Fix ClaudeCliBackend token extraction from JSON output (priority: P1) [source: F-180] — `_extract_tokens_from_json()` parses `usage.input_tokens`/`output_tokens` from Claude Code JSON response. 10 TDD tests. Commit 4055f0b.
-- [x] [Circuit] Add cost confidence display to `marianne status` (priority: P1) [source: F-180] — `_render_cost_summary()` shows `~$X.XX (est.)` with warning for low-confidence costs. JSON output includes `cost_confidence` field. 2 TDD tests. Commit 4055f0b.
+- [x] [Circuit] Add cost confidence display to `mzt status` (priority: P1) [source: F-180] — `_render_cost_summary()` shows `~$X.XX (est.)` with warning for low-confidence costs. JSON output includes `cost_confidence` field. 2 TDD tests. Commit 4055f0b.
 - [x] [Forge] Wire instrument profile model pricing into both cost paths (priority: P2) [source: F-180 root cause 3] — Baton _estimate_cost() now resolves ModelCapacity pricing from BackendPool registry. Legacy runner cost path uses existing CostTracker which already reads from config. 6 TDD tests in test_f180_cost_pricing.py.
 - [x] [Forge] Fix baton `_estimate_cost()` to use instrument profile pricing (priority: P2) [source: F-180 root cause 2] — Adapter resolves cost_per_1k_input/output from InstrumentProfile.ModelCapacity via BackendPool. Falls back to hardcoded Claude Sonnet rates. 6 TDD tests in test_f180_cost_pricing.py.
 
@@ -406,7 +419,7 @@ Spec: `docs/plans/2026-04-04-instrument-fallbacks-spec.md`
 - [x] [Harper] Add BatonSheetState fields: `fallback_chain`, `current_instrument_index`, `fallback_attempts` (priority: P0) [source: instrument fallbacks spec] — Already implemented in state.py:224-280. fallback_chain (list[str]), current_instrument_index (int), fallback_attempts (dict[str,int]), fallback_history (list[dict]). has_fallback_available property. advance_fallback() method with history recording. Serialization roundtrip via to_dict/from_dict. 12+ TDD tests. Verified M5.
 - [x] [Harper] Add `instrument_fallback_history` to SheetState/CheckpointState (priority: P1) [source: instrument fallbacks spec] — Added instrument_fallback_history (list[dict[str, str]], default=[]) to SheetState. Records from/to/reason/timestamp. Survives JSON serialization roundtrip. 4 TDD tests.
 - [x] [Harper] Add V211 validation: warn on unknown fallback instrument names (priority: P1) [source: instrument fallbacks spec] — InstrumentFallbackCheck class in validation/checks/config.py. Checks score-level, movement-level, and per-sheet fallback names against loaded profiles + score aliases. WARNING severity (same as V210). Registered in runner.py. 8 TDD tests.
-- [x] [Harper] Add fallback indicator to `marianne status` display (priority: P1) [source: instrument fallbacks spec] — Already implemented in status.py:90-107. format_instrument_with_fallback() annotates instrument name with "(was X: reason)" when fallback history exists. has_fallbacks detection at status.py:1077-1079. Wired into create_sheet_details_table with has_fallbacks param. Verified M5.
+- [x] [Harper] Add fallback indicator to `mzt status` display (priority: P1) [source: instrument fallbacks spec] — Already implemented in status.py:90-107. format_instrument_with_fallback() annotates instrument name with "(was X: reason)" when fallback history exists. has_fallbacks detection at status.py:1077-1079. Wired into create_sheet_details_table with has_fallbacks param. Verified M5.
 - [x] [Harper] INFO-level logging for all fallback events (priority: P1) [source: instrument fallbacks spec] — Already implemented in core.py:467-476 (exhaustion path) and core.py:545-554, 569-577 (availability path). All log "baton.sheet.instrument_fallback" with job_id, sheet_num, from_instrument, to_instrument, reason. InstrumentFallback event also converts to observer event for dashboard/learning hub. Verified M5.
 - [x] [Harper] TDD tests: config parsing, resolution chain, baton dispatch, fan-out inheritance, checkpoint persistence (priority: P0) [source: instrument fallbacks spec] — 35+ TDD tests in test_instrument_fallbacks.py (config surface, 15 tests), test_instrument_fallback_baton.py (event, state, core dispatch, history, availability, 30 tests), test_dispatch_fallback_wiring.py (dispatch-ready integration, 5 tests). Covers config parsing, resolution chain, baton dispatch, serialization, availability check, exhaustion path. Verified M5.
 - [x] [Circuit] Adversarial tests: empty chain, circular refs, all fallbacks exhausted, rate limit vs unavailable distinction (priority: P1) [source: instrument fallbacks spec] — 15 adversarial tests in test_fallback_adversarial.py covering: empty chain failure, full chain walk, duplicate instruments, rate_limit_exhausted vs unavailable reason distinction, serialization roundtrip, advance_fallback edge cases, observer event format, frozen event immutability. Also: 11 TDD tests in test_fallback_event_emission.py for InstrumentFallback event emission pipeline (core._fallback_events collection, drain_fallback_events, adapter._publish_fallback_events). 5 tests in test_fallback_status_indicator.py for format_instrument_with_fallback status display.
