@@ -2200,6 +2200,12 @@ class JobManager:
         )
         self._live_states[job_id] = initial_state
 
+        # Deregister stale baton state if this job_id was previously
+        # registered (e.g., --fresh resubmit, or cancelled job restarted).
+        # Without this, register_job returns early on duplicate and the
+        # baton uses stale terminal sheets → instant completion with 0 work.
+        adapter.deregister_job(job_id)
+
         # Register job with the baton
         # F-158: Pass prompt_config and parallel_enabled so the adapter
         # creates a PromptRenderer for the full 9-layer prompt assembly.
