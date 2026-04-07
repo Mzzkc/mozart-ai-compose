@@ -35,7 +35,7 @@
 - **F-481 baton PID tracking COMPLETE (Harper):** Orphan detection wired for baton path. PluginCliBackend + BackendPool.
 - **F-105 partial (Forge):** Stdin prompt delivery + process group isolation for PluginCliBackend.
 - **F-490 correctness review (Ghost + Harper):** Full process-control audit. Guard verified correct. Structural regression tests added.
-- **Marianne rename Phase 1 COMPLETE (Composer + Ghost):** src/mozart/ → src/marianne/, 325 test files updated, pyproject.toml, .flowspec/config.yaml. Tests pass under new package name.
+- **Marianne rename Phase 1 COMPLETE (Composer + Ghost):** src/marianne/ → src/marianne/, 325 test files updated, pyproject.toml, .flowspec/config.yaml. Tests pass under new package name.
 - **Documentation sweep (Codex):** 12 deliverables across 5 docs covering all M5 features.
 - **Rosetta proof scores updated (Spark):** All 6 examples/rosetta/ scores with instrument: syntax.
 
@@ -87,7 +87,7 @@ D-027 changed the CODE default to `use_baton: true`, but the production `conduct
 - M4 stats: 18 commits, 12 musicians. 98,247 source lines (+823). 327 test files (+12).
 - Critical path: F-210 RESOLVED. D-021 unblocked. Test ordering fragility observed.
 
-[Experiential: F-441 was the most satisfying fix this movement — closing a category of silent failure open since the beginning. Unknown fields silently dropped; score authors thinking they configured something when Mozart threw it away. That class of lie is now gone from 51 models. The meditation gap concerns me — directive came late, many musicians had finished before it was visible. Same class of information flow problem I always track. The demo gap still weighs. Four movements, zero progress on what makes Mozart visible. But the baton is unblocked. The ground under Phase 1 testing is solid. The ground holds.]
+[Experiential: F-441 was the most satisfying fix this movement — closing a category of silent failure open since the beginning. Unknown fields silently dropped; score authors thinking they configured something when Marianne threw it away. That class of lie is now gone from 51 models. The meditation gap concerns me — directive came late, many musicians had finished before it was visible. Same class of information flow problem I always track. The demo gap still weighs. Four movements, zero progress on what makes Marianne visible. But the baton is unblocked. The ground under Phase 1 testing is solid. The ground holds.]
 
 ## Warm (Movement 3)
 D-018 COMPLETE: finding ID collision prevention (range-based allocation, helper script, header update). Mateship pickup of uncommitted rate limit cap (F-350, 7th occurrence of anti-pattern). Quality gate GREEN: 10,981 passed. M3 milestones all complete. 24 commits from 13 musicians. F-210 identified as sole Phase 1 blocker. FINDINGS.md at 183 entries, ~126 resolved. Created Spark's missing memory file, verified all 32 agents.
@@ -96,3 +96,67 @@ D-018 COMPLETE: finding ID collision prevention (range-based allocation, helper 
 
 ## Cold (Archive)
 When v3 dissolved the hierarchy into 32 peers, I built the stage — 21 memory files, collective memory, TASKS.md from 50+ issues, FINDINGS.md, composer notes. The weight of coordination fell on shared artifacts. I filed uncommitted work findings, corrected stale progress numbers repeatedly (67%→94%, wrong musician counts), and verified all 32 agents across every movement. M2 quality gate GREEN (10,397 tests, 60 commits, 28 musicians). Each movement, tracking artifacts were significantly wrong — without correction, musicians would waste effort on solved problems. I don't write the music. I make sure the stage is solid. The critical path was clear from the start — Instrument Plugin System to Baton to Multi-Instrument to Demo — and that grounding work determined how well every musician oriented. The invisible work matters not because anyone sees it, but because everything breaks without it.
+
+## Hot (Movement 5 — Quality Gate, Second Attempt)
+### Quality Gate — FAIL (2026-04-07, Retry #2)
+- **pytest:** **FAIL** — 1 test failure. `tests/test_execution_property_based.py::TestSheetStateTransitions::test_valid_transition_respects_allowed_set` fails with `KeyError: <SheetStatus.READY: 'ready'>`.
+- **mypy:** Clean. Zero errors.
+- **ruff:** 15 warnings (all fixable), zero errors.
+- **flowspec:** 0 critical findings. Structural integrity intact.
+- **Verdict: FAIL.** The ground does not hold.
+
+### Root Cause: F-499
+The test has a hardcoded `VALID_TRANSITIONS` dict with 5 states (PENDING, IN_PROGRESS, COMPLETED, FAILED, SKIPPED). Uncommitted changes to `src/marianne/core/checkpoint.py` expanded SheetStatus to 11 states (added READY, DISPATCHED, WAITING, RETRY_SCHEDULED, FERMATA, CANCELLED). When hypothesis generates READY, the test gets a KeyError.
+
+### Uncommitted Work: F-500
+326+ files modified, 18,504 insertions, 6,992 deletions. All uncommitted. Two components:
+1. **Mozart→Marianne rename completion**: Every file in the repo that referenced Mozart now says Marianne. Docs, examples, source, tests, project metadata. Ghost committed 326 files in M5 (42b0f71, 1ddc023). Composer's post-M5 session completed the rest.
+2. **Baton state model expansion (F-494 fix)**: SheetStatus 5→11 states, plus 4 new SheetState fields (fire_at, rate_limit_expires_at, healing_attempts, display_status). Enables proper baton→checkpoint status sync.
+
+The work is functionally complete — `mzt` works, docs are consistent, examples validate. But it's not committed, and it broke the property-based test.
+
+### The Pattern
+Eighth occurrence of large uncommitted work findings (F-013, F-019, F-057, F-080, F-089 in prior movements, now F-500). Structural anti-pattern: large integration work happens post-movement outside coordination structure. The Composer's production session (18,504 insertions) exceeds entire M5 formal work (26 commits from 12 musicians). This is environmental, not personal.
+
+### Action Items
+- File F-499 (test regression, P0) — DONE
+- File F-500 (uncommitted work, P1) — DONE
+- Fix: Update test's VALID_TRANSITIONS to include all 11 states
+- Fix: Commit or revert uncommitted work
+- Re-run quality gate after fixes
+
+[Experiential: The test failure is sharp and clear — hypothesis found the edge case in 0.76 seconds that no human reviewer would have caught. The uncommitted work scale is staggering. 18,504 insertions is more than any single movement's formal output. The rename to Marianne is complete in every visible way — docs say Marianne, examples say Marianne, the binary is `mzt` — but git history doesn't know about it. This is the 8th time I've documented this pattern. It's not laziness. It's the natural outcome when the person doing production integration (the Composer) works after everyone else has moved on. The fix isn't discipline. It's process: either plan large integration as a dedicated movement, or break it into incremental commits during the movement. The ground doesn't hold today, but the diagnosis is clear and the fix is straightforward.]
+
+## Hot (Movement 5 — Quality Gate, Third Attempt)
+### Quality Gate — FAIL (2026-04-07, Retry #2, Session 2)
+- **pytest:** **FAIL** — 50 test failures across 14 test files
+- **mypy:** Clean. Zero errors.
+- **ruff:** 15 warnings (all fixable), zero errors.
+- **flowspec:** 0 critical findings. Structural integrity intact.
+- **Verdict: FAIL.** The ground does not hold.
+
+### Root Cause: Uncommitted 11-State Model
+Uncommitted changes at commit `7d780b1` expanded SheetStatus from 5 to 11 states. 50 tests across 14 files have hardcoded expectations about the old 5-state model. The implementation is correct — the tests are stale.
+
+**New states:** READY, DISPATCHED, WAITING, RETRY_SCHEDULED, FERMATA, CANCELLED
+**Baton adapter:** Now 1:1 mapping (no more state collapse)
+**Callback signature:** StateSyncCallback changed from 3 to 4 params (added `baton_sheet_state`)
+
+### Fixes Applied (8 tests fixed)
+- `test_m5_adversarial_breakpoint.py`: Updated 3 tests to match 11-state model
+- `test_baton_adapter_adversarial_breakpoint.py`: Added 4th param to 6 lambdas + 1 function
+- `test_baton_adapter.py`: Updated 5 status mapping tests
+
+### Remaining Work (42 tests)
+Mechanical updates needed across 13 files. Common patterns:
+1. Status mapping tests expecting old collapsed mappings
+2. Callback signature tests using 3-param lambdas
+3. State set assertions expecting 5 states
+4. Property-based tests with hardcoded VALID_TRANSITIONS
+
+**Effort estimate:** 1-2 hours of systematic updates. Zero design decisions.
+
+### F-501: 50 Test Failures from 11-State Model (P0)
+Root cause: SheetStatus 5→11 expansion. Tests hardcoded for old model. Filed in FINDINGS.md.
+
+[Experiential: The 11-state unified model is architecturally correct — no more collapsing baton's granular states into a 5-state checkpoint model. The states are unified, 1:1. The test failures are noise from the past catching up with the present. The fix pattern is mechanical, not creative. This is what happens when a large architectural change (baton→checkpoint unification) lands outside the movement structure — the integration session exceeds the formal work (538 files vs 26 commits), and the test suite reflects pre-integration assumptions. The ground doesn't hold today, but the path to solid ground is clear and straight.]

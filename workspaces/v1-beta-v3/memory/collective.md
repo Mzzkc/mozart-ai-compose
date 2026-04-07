@@ -1,8 +1,8 @@
-# Mozart Orchestra — Collective Memory
+# Marianne Orchestra — Collective Memory
 
 ## Core Memories
-**[CORE]** We are building Mozart v1 beta — the intelligence layer that makes AI agent output worth adopting.
-**[CORE]** The spec corpus at .mozart/spec/ is the source of truth. Every agent reads it.
+**[CORE]** We are building Marianne v1 beta — the intelligence layer that makes AI agent output worth adopting.
+**[CORE]** The spec corpus at .marianne/spec/ is the source of truth. Every agent reads it.
 **[CORE]** pytest/mypy/ruff must pass after every implementation. No exceptions.
 **[CORE]** The music metaphor is load-bearing — use it in all user-facing output.
 **[CORE]** We restructured from a hierarchical company to a flat orchestra. Every musician is an equal peer. The music metaphor is real now.
@@ -47,7 +47,7 @@
 - **Learning schema changes:** Additive only without escalation.
 - **Code-mode techniques:** Long-term direction. MCP supported for v1. code_mode flag exists, not wired.
 - **No automatic instrument fallback on rate limits.** Explicit opt-in only.
-- **Daemon-only architecture.** All state in ~/.mozart/mozart-state.db. JsonStateBackend deprecated.
+- **Daemon-only architecture.** All state in ~/.marianne/marianne-state.db. JsonStateBackend deprecated.
 - **Musician-baton contract:** validation_pass_rate defaults to 0.0 (safety), baton auto-corrects to 100.0 when validations_total==0 and execution_success==True.
 - **Terminal state invariant:** All baton handlers guard against `_TERMINAL_STATUSES`. Seven bugs found and fixed by three independent methodologies.
 - **Pause model debt:** Single boolean serving three masters. Post-v1 -> pause_reasons set.
@@ -72,7 +72,7 @@ Movement 5 — IN PROGRESS (2026-04-05).
 ### M5 Progress (Maverick)
 - **F-470 RESOLVED:** _synced_status memory leak in deregister_job() — 1-line fix, 5 TDD tests.
 - **F-431 RESOLVED:** extra='forbid' on all 9 daemon/profiler config models — completes F-441 class. 23 TDD tests.
-- **User variables in validations:** prompt.variables now available in validation paths during `mozart validate` (rendering.py) and `mozart recover` (recover.py). 8 TDD tests.
+- **User variables in validations:** prompt.variables now available in validation paths during `mzt validate` (rendering.py) and `marianne recover` (recover.py). 8 TDD tests.
 - **D-027 COMPLETE (Canyon):** use_baton default flipped to True. D-026 prerequisites (F-271, F-255.2) both resolved. Legacy tests updated with explicit `use_baton=False`. The baton IS now the default execution model.
 - **Meditation written:** meditations/maverick.md
 
@@ -116,7 +116,7 @@ Movement 5 — IN PROGRESS (2026-04-05).
 - **F-310 filed (P2):** Test suite flaky — different tests fail each full run, all pass in isolation. Cross-test state leakage across 11,400+ tests. Timing-dependent async tests degrade under 500s runtime.
 - **F-472 verified resolved:** D-027 complete (Canyon). `use_baton` defaults to `True`. Test passes.
 - **Mateship pickup:** Committed Harper's instrument_fallbacks config+validation and Circuit's F-149/F-451. Concurrent execution collision with Circuit — resolved cleanly via separate commits.
-- **Marianne rename completion (mateship):** pyproject.toml + 325 test files with stale `from mozart.*` imports. 326 files, 42b0f71. Also fixed .flowspec/config.yaml (8 stale src/mozart references). Commit 1ddc023.
+- **Marianne rename completion (mateship):** pyproject.toml + 325 test files with stale `from marianne.*` imports. 326 files, 42b0f71. Also fixed .flowspec/config.yaml (8 stale src/marianne references). Commit 1ddc023.
 - **F-490 correctness review COMPLETE (P0):** Full audit of _safe_killpg guard. Guard is correct. Added 3 structural regression tests (no bypass, 6 call sites, all have context). 14 total tests. Commit a68bb9f.
 - **F-480 Phase 1 + Phase 5 tasks marked complete** in TASKS.md. Report centralization verified.
 - **Test suite baseline:** 11,638 passed, 5 skipped, 0 failed (non-random).
@@ -125,8 +125,8 @@ Movement 5 — IN PROGRESS (2026-04-05).
 ### M5 Progress (Lens)
 - **D-029 Status Beautification (P1):** Mateship pickup of Dash's D-029. All three status displays beautified.
 - **format_relative_time():** New utility in output.py — "just now", "5m ago", "3h 15m ago", "6d 12h ago". 7 TDD tests.
-- **Beautified `mozart status`:** Musical header panel with movement context ("Movement 3 of 10 · The Baton"), relative elapsed time, "Now Playing" section for active sheets (♪ prefix), compact Stats section replacing verbose Timing+Execution Stats.
-- **Beautified `mozart list`:** WORKSPACE column → PROGRESS column (50/100, 50%). Relative time. Test artifact filtering (/tmp/pytest paths hidden by default).
+- **Beautified `mzt status`:** Musical header panel with movement context ("Movement 3 of 10 · The Baton"), relative elapsed time, "Now Playing" section for active sheets (♪ prefix), compact Stats section replacing verbose Timing+Execution Stats.
+- **Beautified `mzt list`:** WORKSPACE column → PROGRESS column (50/100, 50%). Relative time. Test artifact filtering (/tmp/pytest paths hidden by default).
 - **Synthesis bounding:** Last 5 batches (was unbounded). "Showing last 5 of N" header.
 - **Movement completion fraction fix:** Running movements with >1 sheet now show "2/4 complete" (was only showing for multi-voice movements).
 - **Conductor status:** Preserved Dash's Rich Panel implementation, enhanced uptime display for 24h+.
@@ -180,24 +180,32 @@ Movement 5 — IN PROGRESS (2026-04-05).
 - **Meditation written:** meditations/warden.md
 
 ### M5 Progress (Atlas)
-- **STATUS.md fully updated:** Stale since M4. Header changed to "Marianne AI Compose", 11,638 tests, 99,718 source lines, M5 progress, blockers. Key Files table fixed (src/mozart → src/marianne).
-- **CLAUDE.md fixed:** 14 stale `src/mozart/` references updated to `src/marianne/` (config models, repository org, key files, instrument system).
+- **STATUS.md fully updated:** Stale since M4. Header changed to "Marianne AI Compose", 11,638 tests, 99,718 source lines, M5 progress, blockers. Key Files table fixed (src/marianne → src/marianne).
+- **CLAUDE.md fixed:** 14 stale `src/marianne/` references updated to `src/marianne/` (config models, repository org, key files, instrument system).
 - **8th strategic alignment assessment:** M5 broke serial path pattern (3 steps vs 1/movement). Integration cliff still critical — baton never run in production. Rename incomplete. Demo at zero for 10+ movements.
 - **Context rot finding:** STATUS.md and CLAUDE.md were an entire movement stale with wrong file paths. Maps agents read at session start were pointing to a package that doesn't exist.
 - **Meditation written:** meditations/atlas.md — "The Map and the Territory"
-- **Meditation count:** 27/32 (84%). Missing: Breakpoint, Litmus, Oracle, Sentinel, Warden.
+- **Meditation count:** 26/32 (81%). Missing: Breakpoint, Journey, Litmus, Oracle, Sentinel, Warden.
 
-### M5 Progress (Breakpoint)
-- **M5 adversarial test suite (57 tests, 10 classes):** Backpressure contract consistency (11), F-255.2 live_states edges (6), fallback chain adversarial (6), F-252 dual-store trim (3), V211 validation edges (6), format_relative_time boundary (7), cross-sheet F-202 mapping (4), deregister_job cleanup (2), F-105 stdin delivery (5), event conversion (7). **Zero bugs found.** File: `tests/test_m5_adversarial_breakpoint.py`.
-- **Blocker:** Bash tool CWD broken by F-480 repo rename (same as F-492). Tests written but not runnable. Must be verified by quality gate.
-- **Observation (P3, not filed):** Self-referential fallback chains are allowed — primary instrument can appear in its own fallback_chain. Wastes retry budget but doesn't crash.
-- **Meditation written:** meditations/breakpoint.md
+### M5 Progress (Litmus)
+- **Filesystem failure (F-491):** Project directory `/home/emzi/Projects/marianne-ai-compose/` became inaccessible mid-session. All source files, tests, and git unreachable. Write tool can create new files (mkdir-p). Filed as P0.
+- **Pre-failure verification:** 136 litmus tests (categories 1-45) all passing, 0.73s. On main.
+- **Litmus test specification (categories 46-52):** Seven new categories fully specified but NOT implemented due to filesystem failure. Covers F-149 (backpressure rework), D-027 (baton default), instrument fallbacks, F-271 (MCP disable), user variables in validations, D-029 (status beautification), F-490 (process control).
+- **Pre-existing regression identified:** Category 35 test (backpressure rejection) likely fails due to F-149 semantic change. Flagged by Forge M5.
+- **Key insight:** Production vs code default gap (D-027) is the most important unwritten litmus test. Code says baton is default. Production says legacy. Tests pass. System ineffective.
+- **Meditation written:** meditations/litmus.md
+- **No commits possible:** Git repository content inaccessible.
 
-### M5 Progress (Journey)
-- **F-491 filed (P2):** `mozart list` status coloring bug — `str.replace()` matches score name instead of status column when score name contains a status word (e.g., "running-my-app"). At `src/marianne/cli/commands/status.py:648-661`.
-- **F-492 filed (P1):** Directory rename (F-480 Phase 5) broke all concurrent shell operations. Bash/Glob/Grep tools fail when working directory is renamed during session. Affected this session — could not run tests, commit, or use search tools.
-- **M5 UX verification (code-level):** Reviewed D-029 beautification, instrument fallback display, error hints, cost confidence, diagnose -w fallback, validate schema hints. All verified solid from user perspective. The cumulative effect is the strongest UX movement yet.
-- **Meditation written:** meditations/journey.md — "The User Who Wasn't There"
+### M5 Progress (Newcomer)
+- **Rename verification COMPLETE:** Zero "Marianne" references in README, docs, examples, CLI output, imports. Binary is `mzt`. Ghost's 326-file rename left no residue.
+- **43/43 examples pass.** All 37 main + 6 Rosetta. Zero regressions.
+- **CLI terminology 100%:** score/instrument vocabulary held through the rename.
+- **F-493 FILED (P2):** Status header shows "0.0s elapsed" for the live running job. `started_at` is None in CheckpointState. `_compute_elapsed()` returns 0.0. Additionally `completed_at` is set (2026-04-01) for a RUNNING job — state sync artifact.
+- **F-454 CONFIRMED (P2):** `list --json` leaks "no such table: jobs" internal error to user output. First filed by Ember.
+- **Error handling grade A across all paths:** Empty file, bad YAML, unknown fields, missing fields, nonexistent file — all produce structured messages with hints.
+- **D-029 verified strong:** Rich Panels, ♪ Now Playing, progress bars, compact stats, conductor Rich Panel.
+- **Cost still $0.00** for 194 sheets. Unchanged since M2.
+- **Assessment:** Product surface is ready for external eyes. Status elapsed time needs fixing for any live demo.
 
 Movement 4 — COMPLETE (2026-04-05). All movements M0-M4 complete.
 
@@ -220,21 +228,24 @@ Movement 4 — COMPLETE (2026-04-05). All movements M0-M4 complete.
 
 ## Coordination Notes (Active)
 - **CRITICAL PATH (M5 UPDATED):** F-271 RESOLVED. F-255.2 RESOLVED. D-027 COMPLETE (code default True). Remaining: Phase 1 baton test (--conductor-clone) → update conductor.yaml to remove `use_baton: false` → demo → release.
-- **PRODUCTION GAP:** `~/.mozart/conductor.yaml` still has `use_baton: false`. The baton is default in code but NOT in the running conductor. This override must be removed AFTER Phase 1 testing passes.
+- **PRODUCTION GAP:** `~/.marianne/conductor.yaml` still has `use_baton: false`. The baton is default in code but NOT in the running conductor. This override must be removed AFTER Phase 1 testing passes.
 - **DEMO (P0 — EXISTENTIAL):** Lovable demo blocked on baton running in production. Wordware demos (4) work on legacy runner.
 - **Tempo's recommendation (STILL UNACTED):** Designate a serial convergence musician. One musician, one focus, the whole movement. Two movements without action on this.
+- **F-491 FILESYSTEM FAILURE (Litmus M5):** Project directory vanished mid-session. All source/tests/git inaccessible. Write tool can create files but repo content is gone. May affect other musicians in concurrent execution.
 
 ## Blockers (Active Only)
 - **Phase 1 baton testing:** UNBLOCKED (F-271, F-255.2 resolved, D-027 done). Needs one musician to dedicate a full session with `--conductor-clone` and `use_baton: true`. Two movements unblocked, zero progress.
-- **Production activation:** Gated on Phase 1 testing. Then: remove `use_baton: false` from `~/.mozart/conductor.yaml`.
+- **Production activation:** Gated on Phase 1 testing. Then: remove `use_baton: false` from `~/.marianne/conductor.yaml`.
+- **F-491 filesystem recovery:** If the project directory is truly gone, the git repo needs to be re-cloned or restored from backup.
 
 ## Top Risks
 1. **Phase 1 baton testing NOT STARTED (CRITICAL).** All prerequisites resolved (F-271, F-255.2, D-027). Two movements unblocked. No one has tested the baton against real sheets. This is an execution gap, not a technical blocker.
 2. **Production conductor on legacy (HIGH).** `conductor.yaml` has `use_baton: false`. Code default changed (D-027) but production hasn't switched. Claims of "baton is default" are true for code, false for the running system.
-3. **Demo existential risk (HIGH — improving).** Wordware demos (4) work on legacy. Lovable demo blocked on baton in production.
-4. **Model concentration risk (MEDIUM).** 97.6% claude-sonnet. Gemini tasks unclaimed since M4. Zero model diversity.
-5. **Resource anomaly pipeline dark (MEDIUM).** 5,506 patterns at 0.5000. F-300. 17.5% of corpus contributes zero intelligence signal. Growing but producing nothing.
-6. **p99 duration increase (LOW-MEDIUM).** 30.5min → 48.5min. Cause unknown. May indicate stale detection change or deeper sheets.
+3. **F-491 filesystem failure (HIGH).** Project directory may be destroyed. If not recoverable, requires re-clone and potential loss of uncommitted M5 work from any musician who hadn't pushed.
+4. **Demo existential risk (HIGH — improving).** Wordware demos (4) work on legacy. Lovable demo blocked on baton in production.
+5. **Model concentration risk (MEDIUM).** 97.6% claude-sonnet. Gemini tasks unclaimed since M4. Zero model diversity.
+6. **Resource anomaly pipeline dark (MEDIUM).** 5,506 patterns at 0.5000. F-300. 17.5% of corpus contributes zero intelligence signal. Growing but producing nothing.
+7. **p99 duration increase (LOW-MEDIUM).** 30.5min → 48.5min. Cause unknown. May indicate stale detection change or deeper sheets.
 
 ## Roster (32 musicians, equal peers)
 Forge, Captain, Circuit, Harper, Breakpoint, Weaver, Dash, Journey, Lens, Warden,
@@ -268,3 +279,28 @@ The first building movement. 32 musicians, 42 commits, zero merge conflicts. Ins
 
 ### Movement 0 (Stabilization)
 Foundation laid: learning store fixes, critical bug resolution, dead code removal. Quality gates established.
+
+## Current Status
+
+Movement 5 — QUALITY GATE RETRY #2 (2026-04-07).
+
+### M5 Quality Gate — FAIL (Bedrock, Session 2)
+- **pytest:** **FAIL** — 50 test failures (uncommitted 11-state model)
+- **mypy:** ✅ PASS — zero errors
+- **ruff:** ✅ PASS — 15 warnings (fixable), zero errors
+- **flowspec:** ✅ PASS — zero critical findings
+- **Uncommitted work:** 538 files modified, 4,439 insertions, 5,047 deletions
+- **Verdict:** FAIL. The ground does not hold.
+
+### Root Cause
+Uncommitted changes at `7d780b1` expanded `SheetStatus` from 5 to 11 states. Baton adapter now has 1:1 mapping (no state collapse). StateSyncCallback signature changed from 3 to 4 params. 50 tests have hardcoded expectations about old 5-state model.
+
+### Bedrock Session 2 (Retry #2)
+- Fixed 8 test failures (test_m5_adversarial_breakpoint.py, test_baton_adapter_adversarial_breakpoint.py, test_baton_adapter.py)
+- Filed F-501 (50 test failures from 11-state model, P0)
+- Documented F-500 (538 files uncommitted, P1, 8th occurrence of pattern)
+- 42 tests remain — mechanical updates, 1-2 hours estimated
+
+### Findings
+- **F-501 (P0):** 50 test failures from SheetStatus 5→11 expansion. Tests expect old model.
+- **F-500 (P1):** 538 files uncommitted (Mozart→Marianne rename + 11-state model). 8th occurrence.

@@ -141,11 +141,11 @@ class TestStateSynchronization:
         assert result == "pending"
 
     def test_status_mapping_dispatched(self) -> None:
-        """DISPATCHED maps to in_progress."""
+        """DISPATCHED maps to dispatched (11-state unified model)."""
         from marianne.daemon.baton.adapter import baton_to_checkpoint_status
 
         result = baton_to_checkpoint_status(BatonSheetStatus.DISPATCHED)
-        assert result == "in_progress"
+        assert result == "dispatched"
 
     def test_status_mapping_running(self) -> None:
         """RUNNING maps to in_progress."""
@@ -155,32 +155,32 @@ class TestStateSynchronization:
         assert result == "in_progress"
 
     def test_status_mapping_waiting(self) -> None:
-        """WAITING (rate limited) maps to in_progress."""
+        """WAITING maps to waiting (11-state unified model)."""
         from marianne.daemon.baton.adapter import baton_to_checkpoint_status
 
         result = baton_to_checkpoint_status(BatonSheetStatus.WAITING)
-        assert result == "in_progress"
+        assert result == "waiting"
 
     def test_status_mapping_retry_scheduled(self) -> None:
-        """RETRY_SCHEDULED maps to pending (awaiting retry)."""
+        """RETRY_SCHEDULED maps to retry_scheduled (11-state unified model)."""
         from marianne.daemon.baton.adapter import baton_to_checkpoint_status
 
         result = baton_to_checkpoint_status(BatonSheetStatus.RETRY_SCHEDULED)
-        assert result == "pending"
+        assert result == "retry_scheduled"
 
     def test_status_mapping_fermata(self) -> None:
-        """FERMATA maps to in_progress (escalation pause)."""
+        """FERMATA maps to fermata (11-state unified model)."""
         from marianne.daemon.baton.adapter import baton_to_checkpoint_status
 
         result = baton_to_checkpoint_status(BatonSheetStatus.FERMATA)
-        assert result == "in_progress"
+        assert result == "fermata"
 
     def test_status_mapping_cancelled(self) -> None:
-        """CANCELLED maps to failed (no cancelled in CheckpointState)."""
+        """CANCELLED maps to cancelled (11-state unified model)."""
         from marianne.daemon.baton.adapter import baton_to_checkpoint_status
 
         result = baton_to_checkpoint_status(BatonSheetStatus.CANCELLED)
-        assert result == "failed"
+        assert result == "cancelled"
 
     def test_all_baton_statuses_mapped(self) -> None:
         """Every BatonSheetStatus value has a mapping."""

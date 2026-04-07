@@ -473,7 +473,7 @@ class TestStateSyncFiltering:
         """SheetAttemptResult triggers state sync callback."""
         sync_calls: list[tuple[str, int, str]] = []
         adapter = _make_adapter(
-            state_sync_callback=lambda j, s, st: sync_calls.append((j, s, st))
+            state_sync_callback=lambda j, s, st, bs: sync_calls.append((j, s, st))
         )
         sheets = [_make_sheet(num=1)]
         adapter.register_job("j1", sheets, {1: []})
@@ -492,7 +492,7 @@ class TestStateSyncFiltering:
         """SheetSkipped triggers state sync callback."""
         sync_calls: list[tuple[str, int, str]] = []
         adapter = _make_adapter(
-            state_sync_callback=lambda j, s, st: sync_calls.append((j, s, st))
+            state_sync_callback=lambda j, s, st, bs: sync_calls.append((j, s, st))
         )
         sheets = [_make_sheet(num=1)]
         adapter.register_job("j1", sheets, {1: []})
@@ -507,7 +507,7 @@ class TestStateSyncFiltering:
         """DispatchRetry does not affect sheet status — no sync."""
         sync_calls: list[tuple[str, int, str]] = []
         adapter = _make_adapter(
-            state_sync_callback=lambda j, s, st: sync_calls.append((j, s, st))
+            state_sync_callback=lambda j, s, st, bs: sync_calls.append((j, s, st))
         )
 
         event = DispatchRetry()
@@ -519,7 +519,7 @@ class TestStateSyncFiltering:
         """RateLimitExpired does not directly have job_id/sheet_num — no sync."""
         sync_calls: list[tuple[str, int, str]] = []
         adapter = _make_adapter(
-            state_sync_callback=lambda j, s, st: sync_calls.append((j, s, st))
+            state_sync_callback=lambda j, s, st, bs: sync_calls.append((j, s, st))
         )
 
         event = RateLimitExpired(instrument="claude-code")
@@ -531,7 +531,7 @@ class TestStateSyncFiltering:
         """ShutdownRequested is not a sheet-level event — no sync."""
         sync_calls: list[tuple[str, int, str]] = []
         adapter = _make_adapter(
-            state_sync_callback=lambda j, s, st: sync_calls.append((j, s, st))
+            state_sync_callback=lambda j, s, st, bs: sync_calls.append((j, s, st))
         )
 
         event = ShutdownRequested()
@@ -543,7 +543,7 @@ class TestStateSyncFiltering:
         """If the sync callback raises, it's logged, not propagated."""
         call_count = 0
 
-        def broken_callback(j: str, s: int, st: str) -> None:
+        def broken_callback(j: str, s: int, st: str, bs: object) -> None:
             nonlocal call_count
             call_count += 1
             raise RuntimeError("sync exploded")

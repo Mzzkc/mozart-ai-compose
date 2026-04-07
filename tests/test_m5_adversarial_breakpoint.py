@@ -410,7 +410,7 @@ class TestV211FallbackCheckAdversarial:
         check = InstrumentFallbackCheck()
         config = self._make_config()
         with patch(
-            "marianne.validation.checks.config.load_all_profiles",
+            "marianne.instruments.loader.load_all_profiles",
             return_value={"claude-cli": MagicMock()},
         ):
             issues = check.check(config, Path("."), "")
@@ -423,7 +423,7 @@ class TestV211FallbackCheckAdversarial:
         check = InstrumentFallbackCheck()
         config = self._make_config(instrument_fallbacks=["gemini-cli"])
         with patch(
-            "marianne.validation.checks.config.load_all_profiles",
+            "marianne.instruments.loader.load_all_profiles",
             return_value={"claude-cli": MagicMock(), "gemini-cli": MagicMock()},
         ):
             issues = check.check(config, Path("."), "instrument_fallbacks:\n  - gemini-cli")
@@ -436,7 +436,7 @@ class TestV211FallbackCheckAdversarial:
         check = InstrumentFallbackCheck()
         config = self._make_config(instrument_fallbacks=["nonexistent-backend"])
         with patch(
-            "marianne.validation.checks.config.load_all_profiles",
+            "marianne.instruments.loader.load_all_profiles",
             return_value={"claude-cli": MagicMock()},
         ):
             issues = check.check(
@@ -456,7 +456,7 @@ class TestV211FallbackCheckAdversarial:
             instruments={"my-fast-model": {"profile": "claude-cli"}},
         )
         with patch(
-            "marianne.validation.checks.config.load_all_profiles",
+            "marianne.instruments.loader.load_all_profiles",
             return_value={"claude-cli": MagicMock()},
         ):
             issues = check.check(config, Path("."), "")
@@ -469,7 +469,7 @@ class TestV211FallbackCheckAdversarial:
         check = InstrumentFallbackCheck()
         config = self._make_config(instrument_fallbacks=["anything"])
         with patch(
-            "marianne.validation.checks.config.load_all_profiles",
+            "marianne.instruments.loader.load_all_profiles",
             side_effect=RuntimeError("profiles broken"),
         ):
             issues = check.check(config, Path("."), "")
@@ -484,7 +484,7 @@ class TestV211FallbackCheckAdversarial:
         mov.instrument_fallbacks = ["ghost-backend"]
         config = self._make_config(movements={1: mov})
         with patch(
-            "marianne.validation.checks.config.load_all_profiles",
+            "marianne.instruments.loader.load_all_profiles",
             return_value={"claude-cli": MagicMock()},
         ):
             issues = check.check(config, Path("."), "ghost-backend")
@@ -580,22 +580,34 @@ class TestCrossSheetContextExclusion:
         """Every checkpoint status string has a baton mapping."""
         from marianne.daemon.baton.adapter import _CHECKPOINT_TO_BATON
 
-        expected = {"pending", "in_progress", "completed", "failed", "skipped"}
+        expected = {
+            "pending",
+            "ready",
+            "dispatched",
+            "in_progress",
+            "waiting",
+            "retry_scheduled",
+            "fermata",
+            "completed",
+            "failed",
+            "skipped",
+            "cancelled",
+        }
         assert set(_CHECKPOINT_TO_BATON.keys()) == expected
 
-    def test_cancelled_maps_to_failed(self) -> None:
-        """CANCELLED → 'failed' (no 'cancelled' in CheckpointState)."""
+    def test_cancelled_maps_to_cancelled(self) -> None:
+        """CANCELLED → 'cancelled' (11-state unified model)."""
         from marianne.daemon.baton.adapter import baton_to_checkpoint_status
         from marianne.daemon.baton.state import BatonSheetStatus
 
-        assert baton_to_checkpoint_status(BatonSheetStatus.CANCELLED) == "failed"
+        assert baton_to_checkpoint_status(BatonSheetStatus.CANCELLED) == "cancelled"
 
-    def test_fermata_maps_to_in_progress(self) -> None:
-        """FERMATA → 'in_progress' (escalation pause is still running)."""
+    def test_fermata_maps_to_fermata(self) -> None:
+        """FERMATA → 'fermata' (11-state unified model)."""
         from marianne.daemon.baton.adapter import baton_to_checkpoint_status
         from marianne.daemon.baton.state import BatonSheetStatus
 
-        assert baton_to_checkpoint_status(BatonSheetStatus.FERMATA) == "in_progress"
+        assert baton_to_checkpoint_status(BatonSheetStatus.FERMATA) == "fermata"
 
 
 # =============================================================================
