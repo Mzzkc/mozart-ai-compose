@@ -42,7 +42,9 @@ if TYPE_CHECKING:
     from marianne.core.config.spec import SpecFragment
     from marianne.execution.validation import HistoricalFailure
 
-_logger = logging.getLogger(__name__)
+from marianne.core.logging import get_logger
+
+_logger = get_logger("daemon.baton.prompt")
 
 
 @dataclass(frozen=True)
@@ -241,16 +243,16 @@ class PromptRenderer:
                 path = sheet.workspace / path
 
             if not path.is_file():
-                level = (
-                    logging.WARNING
-                    if item.as_ == InjectionCategory.CONTEXT
-                    else logging.ERROR
-                )
-                _logger.log(
-                    level,
-                    "prompt_renderer.file_not_found",
-                    extra={"file": str(path), "category": item.as_.value},
-                )
+                if item.as_ == InjectionCategory.CONTEXT:
+                    _logger.warning(
+                        "prompt_renderer.file_not_found",
+                        file=str(path), category=item.as_.value,
+                    )
+                else:
+                    _logger.error(
+                        "prompt_renderer.file_not_found",
+                        file=str(path), category=item.as_.value,
+                    )
                 continue
 
             try:

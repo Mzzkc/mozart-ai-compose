@@ -1,4 +1,4 @@
-"""Tests for Mozart execution backends.
+"""Tests for Marianne execution backends.
 
 Tests cover:
 - AnthropicApiBackend: API client, error handling, rate limit detection
@@ -267,17 +267,28 @@ class TestAnthropicApiBackendRateLimitDetection:
                 f"Failed for: {message}"
             )
 
-    def test_exit_code_zero_with_rate_limit_text_detected(
+    def test_exit_code_zero_stdout_not_scanned(
         self, backend: AnthropicApiBackend,
     ) -> None:
-        """Rate limit text detected even when exit_code=0 (F-098).
+        """On exit_code=0, stdout is NOT scanned for rate limits (F-497).
 
-        Backends can handle rate limits internally and exit 0. The detector
-        must check output patterns regardless of exit code.
+        Tools handle rate limits internally and exit 0, leaving rate limit
+        text in stdout. Scanning stdout on success causes false positives
+        that block dispatch for all jobs sharing the instrument profile.
         """
-        assert backend._detect_rate_limit("capacity exceeded", "", exit_code=0) is True
-        assert backend._detect_rate_limit("rate limit exceeded", "", exit_code=0) is True
-        assert backend._detect_rate_limit("429 error", "", exit_code=0) is True
+        assert backend._detect_rate_limit("capacity exceeded", "", exit_code=0) is False
+        assert backend._detect_rate_limit("rate limit exceeded", "", exit_code=0) is False
+        assert backend._detect_rate_limit("429 error", "", exit_code=0) is False
+
+    def test_exit_code_zero_stderr_still_scanned(
+        self, backend: AnthropicApiBackend,
+    ) -> None:
+        """On exit_code=0, stderr IS still scanned for rate limits.
+
+        If the tool writes rate limit warnings to stderr while succeeding,
+        that's a real signal worth capturing.
+        """
+        assert backend._detect_rate_limit("", "rate limit exceeded", exit_code=0) is True
 
     def test_exit_code_one_with_rate_limit_text(self, backend: AnthropicApiBackend) -> None:
         """Failed execution with rate limit text should still be detected."""
@@ -642,19 +653,24 @@ class TestClaudeCliBackendRateLimitDetection:
                 backend._detect_rate_limit(message, "") is False
             ), f"Failed for: {message}"
 
-    def test_exit_code_zero_with_rate_limit_text_detected(
+    def test_exit_code_zero_stdout_not_scanned(
         self, backend: ClaudeCliBackend,
     ) -> None:
-        """Rate limit text in stdout is detected even when exit_code=0 (F-098).
+        """On exit_code=0, stdout is NOT scanned for rate limits (F-497).
 
-        The Claude CLI can handle rate limits internally and exit 0 while
-        printing "API Error: Rate limit reached" to stdout. The backend
-        must detect this so the runner can use rate limit backoff instead
-        of treating the output as valid.
+        Tools handle rate limits internally and exit 0, leaving rate limit
+        text in stdout. Scanning stdout on success causes false positives
+        that block dispatch for all jobs sharing the instrument profile.
         """
-        assert backend._detect_rate_limit("capacity exceeded", "", exit_code=0) is True
-        assert backend._detect_rate_limit("rate limit exceeded", "", exit_code=0) is True
-        assert backend._detect_rate_limit("429 error", "", exit_code=0) is True
+        assert backend._detect_rate_limit("capacity exceeded", "", exit_code=0) is False
+        assert backend._detect_rate_limit("rate limit exceeded", "", exit_code=0) is False
+        assert backend._detect_rate_limit("429 error", "", exit_code=0) is False
+
+    def test_exit_code_zero_stderr_still_scanned(
+        self, backend: ClaudeCliBackend,
+    ) -> None:
+        """On exit_code=0, stderr IS still scanned for rate limits."""
+        assert backend._detect_rate_limit("", "rate limit exceeded", exit_code=0) is True
 
     def test_exit_code_one_with_rate_limit_text(self, backend: ClaudeCliBackend) -> None:
         """Failed execution with rate limit text should still be detected."""
@@ -696,7 +712,7 @@ class TestClaudeCliBackendPreamble:
 
     def test_preamble_injected_when_set(self, backend: ClaudeCliBackend) -> None:
         """Test that set_preamble() content is prepended to prompts."""
-        backend.set_preamble("<mozart-preamble>Test preamble</mozart-preamble>")
+        backend.set_preamble("<marianne-preamble>Test preamble</marianne-preamble>")
         result = backend._inject_preamble_and_extensions("Do something")
 
         assert "Test preamble" in result
@@ -710,7 +726,7 @@ class TestClaudeCliBackendPreamble:
 
     def test_preamble_cleared_with_none(self, backend: ClaudeCliBackend) -> None:
         """set_preamble(None) clears any previous preamble."""
-        backend.set_preamble("<mozart-preamble>First</mozart-preamble>")
+        backend.set_preamble("<marianne-preamble>First</marianne-preamble>")
         backend.set_preamble(None)
         result = backend._inject_preamble_and_extensions("My prompt")
         assert result == "My prompt"
@@ -718,14 +734,14 @@ class TestClaudeCliBackendPreamble:
     def test_build_command_includes_preamble(self, backend: ClaudeCliBackend) -> None:
         """Test that _build_command injects the preamble."""
         backend._claude_path = "/usr/bin/claude"
-        backend.set_preamble("<mozart-preamble>Dynamic</mozart-preamble>")
+        backend.set_preamble("<marianne-preamble>Dynamic</marianne-preamble>")
 
         cmd = backend._build_command("My original prompt")
         p_idx = cmd.index("-p")
 
         # After #108 fix: preamble goes via stdin, not in the command arg
         assert cmd[p_idx + 1] == "-"
-        assert "<mozart-preamble>" not in " ".join(cmd)
+        assert "<marianne-preamble>" not in " ".join(cmd)
         assert "My original prompt" not in " ".join(cmd)
 
 
@@ -766,7 +782,7 @@ class TestClaudeCliBackendPromptExtensions:
 
     def test_preamble_and_extensions_together(self, backend: ClaudeCliBackend) -> None:
         """Preamble + extensions + prompt are all present in correct order."""
-        backend.set_preamble("<mozart-preamble>Context</mozart-preamble>")
+        backend.set_preamble("<marianne-preamble>Context</marianne-preamble>")
         backend.set_prompt_extensions(["Custom directive"])
         result = backend._inject_preamble_and_extensions("My prompt")
         assert result.index("Context") < result.index("My prompt") < result.index("Custom directive")
@@ -1236,11 +1252,11 @@ class TestBuildCommand:
     def test_preamble_not_in_command(self) -> None:
         """Verify preamble is passed via stdin, not embedded in the command (#108)."""
         backend = self._make_backend()
-        backend.set_preamble("<mozart-preamble>Test</mozart-preamble>")
+        backend.set_preamble("<marianne-preamble>Test</marianne-preamble>")
         cmd = backend._build_command("user prompt")
         p_idx = cmd.index("-p")
         assert cmd[p_idx + 1] == "-"
-        assert "mozart-preamble" not in " ".join(cmd)
+        assert "marianne-preamble" not in " ".join(cmd)
         assert "user prompt" not in " ".join(cmd)
 
 

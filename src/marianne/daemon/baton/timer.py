@@ -38,7 +38,9 @@ from typing import Any
 
 from marianne.daemon.baton.events import BatonEvent
 
-_logger = logging.getLogger(__name__)
+from marianne.core.logging import get_logger
+
+_logger = get_logger("daemon.baton.timer")
 
 # Monotonically increasing counter to break ties in heapq when fire_at
 # is identical. Without this, heapq would try to compare BatonEvent

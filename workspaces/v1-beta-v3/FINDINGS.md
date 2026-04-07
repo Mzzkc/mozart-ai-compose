@@ -1,4 +1,4 @@
-# Mozart v1 Beta — Findings Registry
+# Marianne v1 Beta — Findings Registry
 
 This file tracks findings, discoveries, and observations made during the v1 beta build concert.
 Agents append findings here as they work. The registry serves as institutional memory across movements.
@@ -31,7 +31,7 @@ Each finding should include:
 - **Movement:** 0 (carried from cycle 1)
 - **Agent:** Foundation
 - **Category:** risk
-- **Finding:** `estimate_tokens()` in `src/mozart/core/tokens.py:77` uses `_CHARS_PER_TOKEN = 3.5` calibrated for English. CJK characters are underestimated by 3.5-7x (600 CJK chars → 172 estimated tokens, actual 600-1200). This can cause context window overflow.
+- **Finding:** `estimate_tokens()` in `src/marianne/core/tokens.py:77` uses `_CHARS_PER_TOKEN = 3.5` calibrated for English. CJK characters are underestimated by 3.5-7x (600 CJK chars → 172 estimated tokens, actual 600-1200). This can cause context window overflow.
 - **Action:** Document as known limitation. Fix at M1 with InstrumentProfile.ModelCapacity — script-aware estimation or per-model tokenizer.
 - **Status:** open
 
@@ -39,7 +39,7 @@ Each finding should include:
 - **Movement:** 0 (carried from cycle 1)
 - **Agent:** Blueprint
 - **Category:** bug
-- **Finding:** `_load_yaml_fragment()` at `src/mozart/spec/loader.py:201` and `:207` uses `if not name:` / `if not content:`. YAML parses `0` as `int(0)` and `false` as `bool(False)`, which are falsy but not None. The `str()` casts on lines 220-221 would handle coercion, but the guard rejects before reaching there.
+- **Finding:** `_load_yaml_fragment()` at `src/marianne/spec/loader.py:201` and `:207` uses `if not name:` / `if not content:`. YAML parses `0` as `int(0)` and `false` as `bool(False)`, which are falsy but not None. The `str()` casts on lines 220-221 would handle coercion, but the guard rejects before reaching there.
 - **Action:** Change `if not name:` to `if name is None:` and same for content. Add regression tests.
 - **Status:** Resolved (movement 1, Blueprint)
 - **Resolution:** Fixed in 8fce797. Changed guards to `if name is None:` / `if content is None:`. 7 regression tests added in test_spec_loader.py (TestFalsyYamlValues class) covering numeric zero, boolean false, empty string, and None for both name and content fields.
@@ -51,13 +51,13 @@ Each finding should include:
 - **Finding:** Agent stdout_tail and stderr_tail are stored in CheckpointState, LearningOutcome records, learning aggregator, dashboard display, and diagnostic output — all without scanning for API key patterns (`sk-ant-`, `sk-`, `AIza`, `AKIA`). If an agent prints a credential, it persists across 6+ storage locations. Blocks executive DONE criterion S3.
 - **Action:** Implement output scanning before stdout_tail/stderr_tail storage. Target: M1 safety baseline.
 - **Status:** Resolved (movement 1, Maverick)
-- **Resolution:** Created `src/mozart/utils/credential_scanner.py` with `redact_credentials()` and `scan_for_credentials()` functions. Wired into `SheetState.capture_output()` at `checkpoint.py:550` — the single write point for stdout_tail/stderr_tail. All 6 credential patterns (Anthropic, OpenAI, Google, AWS, Bearer tokens) are detected and replaced with [REDACTED_*] labels. 14 tests in `tests/test_credential_scanner.py`.
+- **Resolution:** Created `src/marianne/utils/credential_scanner.py` with `redact_credentials()` and `scan_for_credentials()` functions. Wired into `SheetState.capture_output()` at `checkpoint.py:550` — the single write point for stdout_tail/stderr_tail. All 6 credential patterns (Anthropic, OpenAI, Google, AWS, Bearer tokens) are detected and replaced with [REDACTED_*] labels. 14 tests in `tests/test_credential_scanner.py`.
 
 ### F-004: skip_when_command Uses Shell Without shlex.quote
 - **Movement:** 0 (carried from cycle 1)
 - **Agent:** Warden
 - **Category:** risk
-- **Finding:** `src/mozart/execution/runner/lifecycle.py:878` expands `{workspace}` via bare `.replace()` into a shell command passed to `create_subprocess_shell`. Lacks `shlex.quote()` protection used by the validation engine's `command_succeeds` handler at `engine.py:515`.
+- **Finding:** `src/marianne/execution/runner/lifecycle.py:878` expands `{workspace}` via bare `.replace()` into a shell command passed to `create_subprocess_shell`. Lacks `shlex.quote()` protection used by the validation engine's `command_succeeds` handler at `engine.py:515`.
 - **Action:** Apply shlex.quote() to workspace expansion in skip_when_command.
 - **Status:** Resolved (movement 1, Ghost)
 - **Resolution:** Applied `shlex.quote()` to workspace expansion in `lifecycle.py:879`. Commit 229d55d.
@@ -66,20 +66,20 @@ Each finding should include:
 - **Movement:** 0 (carried from cycle 1)
 - **Agent:** Warden
 - **Category:** risk
-- **Finding:** `src/mozart/cli/commands/run.py:90-163` submits jobs without checking `config.cost_limits.enabled` or displaying cost info. `CostLimitConfig.enabled` defaults to `false`. New users spend API credits with zero notice.
-- **Action:** Add cost warning to `mozart run` when cost_limits.enabled is false.
+- **Finding:** `src/marianne/cli/commands/run.py:90-163` submits jobs without checking `config.cost_limits.enabled` or displaying cost info. `CostLimitConfig.enabled` defaults to `false`. New users spend API credits with zero notice.
+- **Action:** Add cost warning to `marianne run` when cost_limits.enabled is false.
 - **Status:** Resolved (movement 1, Circuit)
-- **Resolution:** Added cost warning to `mozart run` at `run.py:119-125` that fires when `cost_limits.enabled` is false and output is not JSON/quiet. Shows the warning text and a config suggestion. Also updated config panel to show "Instrument:" instead of "Backend:" to align with the new instrument terminology. 4 tests added to test_cli_run_resume.py.
+- **Resolution:** Added cost warning to `marianne run` at `run.py:119-125` that fires when `cost_limits.enabled` is false and output is not JSON/quiet. Shows the warning text and a config suggestion. Also updated config panel to show "Instrument:" instead of "Backend:" to align with the new instrument terminology. 4 tests added to test_cli_run_resume.py.
 
-### F-006: No `mozart doctor` Command
+### F-006: No `marianne doctor` Command
 - **Movement:** 0 (carried from cycle 1)
 - **Agent:** Warden
 - **Category:** risk
-- **Finding:** No `doctor` command exists. Executive brief criterion U2 requires it. `mozart config init` exists but only creates daemon config — not environment validation.
-- **Action:** Implement `mozart doctor` as part of M3 UX.
+- **Finding:** No `doctor` command exists. Executive brief criterion U2 requires it. `mzt config init` exists but only creates daemon config — not environment validation.
+- **Action:** Implement `marianne doctor` as part of M3 UX.
 - **Status:** Resolved (movement 1, Ghost)
 - **Note:** Previously incorrectly recorded as resolved (was F-004 copy-paste). Corrected by Canyon.
-- **Resolution:** Implemented `mozart doctor` at `src/mozart/cli/commands/doctor.py`. Checks Python version, Mozart version, conductor status (PID file + os.kill probe), instrument availability (native + built-in YAML + user profiles, binary detection via shutil.which), and safety warnings (cost limits). Supports `--json` output mode. 12 tests in `tests/test_cli_doctor.py`. Registered in CLI at `src/mozart/cli/__init__.py`.
+- **Resolution:** Implemented `marianne doctor` at `src/marianne/cli/commands/doctor.py`. Checks Python version, Marianne version, conductor status (PID file + os.kill probe), instrument availability (native + built-in YAML + user profiles, binary detection via shutil.which), and safety warnings (cost limits). Supports `--json` output mode. 12 tests in `tests/test_cli_doctor.py`. Registered in CLI at `src/marianne/cli/__init__.py`.
 
 ---
 
@@ -113,14 +113,14 @@ Each finding should include:
 - **Found by:** Oracle, Movement 1
 - **Severity:** P1 (high)
 - **Status:** Partially Resolved (movement 3, Maverick) — tag namespace mismatch fixed, see F-144
-- **Description:** All 25,415 patterns in `~/.mozart/global-learning.db` have `effectiveness_score = 0.5000`. Verified via `SELECT AVG(effectiveness_score), MIN(effectiveness_score), MAX(effectiveness_score) FROM patterns` — all returned 0.5000. The effectiveness calculation either hasn't run, was reset, or produces degenerate output. This means the learning system cannot distinguish effective patterns from ineffective ones.
+- **Description:** All 25,415 patterns in `~/.marianne/global-learning.db` have `effectiveness_score = 0.5000`. Verified via `SELECT AVG(effectiveness_score), MIN(effectiveness_score), MAX(effectiveness_score) FROM patterns` — all returned 0.5000. The effectiveness calculation either hasn't run, was reset, or produces degenerate output. This means the learning system cannot distinguish effective patterns from ineffective ones.
 - **Impact:** Pattern injection into agent prompts has no quality signal. Good and bad patterns are treated identically. The learning store grows in volume (25,415 patterns, 218,790 executions) but not in intelligence. The baton's planned learning integration inherits this — instrument-scoped queries will return patterns with no quality differentiation.
 
 ### F-010: Credential Scanner Double-Call Bug in SheetState.capture_output
 - **Found by:** Canyon, Movement 1
 - **Severity:** P0 (critical — breaks all tests that call capture_output)
 - **Status:** Resolved (movement 1, Maverick) — NOT A BUG
-- **Description:** Canyon assumed `redact_credentials()` returns `tuple[str, list[str]]`, but the actual implementation at `src/mozart/utils/credential_scanner.py` returns `str | None` (same type as input). The API is: `redact_credentials(text) -> text` with credential patterns replaced by `[REDACTED_*]` labels. A separate `scan_for_credentials(text) -> list[str]` function exists for detection-without-redaction. The assignment at checkpoint.py:562-563 is correct as written. 14 tests validate this behavior.
+- **Description:** Canyon assumed `redact_credentials()` returns `tuple[str, list[str]]`, but the actual implementation at `src/marianne/utils/credential_scanner.py` returns `str | None` (same type as input). The API is: `redact_credentials(text) -> text` with credential patterns replaced by `[REDACTED_*]` labels. A separate `scan_for_credentials(text) -> list[str]` function exists for detection-without-redaction. The assignment at checkpoint.py:562-563 is correct as written. 14 tests validate this behavior.
 - **Resolution:** Not a bug. Canyon's analysis was based on an assumption about the API, not the actual implementation.
 
 ### F-011: CONFIG_STATE_MAPPING Missing Entries for New Instrument Fields
@@ -129,15 +129,15 @@ Each finding should include:
 - **Status:** Resolved (movement 1, Harper)
 - **Resolution:** Added `CONFIG_STATE_MAPPING` entries for `instrument` and `instrument_config` in `reconciliation.py`. Commit 85f0b2f.
 - **Description:** `test_reconciliation.py::TestConfigStateMapping::test_mapping_covers_all_config_sections` fails because the new `instrument` and `instrument_config` fields added to `JobConfig` (from Canyon's M1 instrument work) have no `CONFIG_STATE_MAPPING` entry in the reconciliation system. The test asserts that every JobConfig section has a mapping defining what checkpoint state to reset when that section changes.
-- **Impact:** Config reload via `mozart resume -c` won't know what state to reset when instrument settings change. Low immediate impact since the baton spec redesigns this flow, but the test failure blocks full suite pass.
+- **Impact:** Config reload via `mzt resume -c` won't know what state to reset when instrument settings change. Low immediate impact since the baton spec redesigns this flow, but the test failure blocks full suite pass.
 - **Action:** Add `CONFIG_STATE_MAPPING` entries for `instrument` and `instrument_config` with appropriate reset targets. Alternatively, mark as deferred if the baton redesign will supersede this.
 
 ### F-012: test_instrument_loader.py References Non-Existent Module
 - **Found by:** Blueprint, Movement 1
 - **Severity:** P1 (high — test file committed without implementation)
 - **Status:** Resolved (movement 1, Harper)
-- **Resolution:** InstrumentProfileLoader implemented at `src/mozart/instruments/loader.py` and test committed at `tests/test_instrument_loader.py`. Import path corrected to `mozart.instruments.loader`. Commit 85f0b2f.
-- **Description:** `tests/test_instrument_loader.py` (untracked) imports `mozart.core.instruments.loader.InstrumentProfileLoader` which doesn't exist. This is test code for TASKS.md M1 roadmap step 4 ("Implement profile YAML loading"). The test file was created before the implementation, which is correct TDD, but it's untracked and will cause `pytest tests/ -x` to fail if collected.
+- **Resolution:** InstrumentProfileLoader implemented at `src/marianne/instruments/loader.py` and test committed at `tests/test_instrument_loader.py`. Import path corrected to `marianne.instruments.loader`. Commit 85f0b2f.
+- **Description:** `tests/test_instrument_loader.py` (untracked) imports `marianne.core.instruments.loader.InstrumentProfileLoader` which doesn't exist. This is test code for TASKS.md M1 roadmap step 4 ("Implement profile YAML loading"). The test file was created before the implementation, which is correct TDD, but it's untracked and will cause `pytest tests/ -x` to fail if collected.
 - **Impact:** Full test suite fails with `ModuleNotFoundError` when this file is collected. Other agents running the full suite will see a false failure.
 - **Action:** Either (a) commit the file as the TDD spec for step 4, with the understanding the tests will fail until the module is implemented, or (b) leave untracked until the implementation exists. The file should not be committed in a state that breaks `pytest tests/ -x`.
 
@@ -153,8 +153,8 @@ Each finding should include:
 - **Found by:** Canyon, Movement 1
 - **Severity:** P3 (low — findings registry error)
 - **Status:** Resolved (movement 1, Canyon)
-- **Description:** F-006 ("No mozart doctor command") had its resolution field copy-pasted from F-004 ("shlex.quote fix"). The doctor command was never implemented. The TASKS.md still correctly lists it as unclaimed in M3.
-- **Impact:** Anyone reading FINDINGS.md would believe `mozart doctor` was implemented. It is not.
+- **Description:** F-006 ("No marianne doctor command") had its resolution field copy-pasted from F-004 ("shlex.quote fix"). The doctor command was never implemented. The TASKS.md still correctly lists it as unclaimed in M3.
+- **Impact:** Anyone reading FINDINGS.md would believe `marianne doctor` was implemented. It is not.
 - **Resolution:** Corrected F-006 status back to Open with a note explaining the error.
 
 ### F-015: Unwired Code Cluster Analysis (F-007 Disposition)
@@ -165,7 +165,7 @@ Each finding should include:
   1. **SchedulerStats** (scheduler.py:98) — KEEP. Required for scheduler/baton integration.
   2. **ErrorLearningHooks** (error_hooks.py:95) — KEEP. Movement III feature, design complete.
   3. **OutcomeMigrator** (migration.py:94) — ALREADY WIRED. Called from `learning-stats` CLI.
-  4. **ErrorChain** (errors/models.py:190) — KEEP. Infrastructure for `mozart diagnose`.
+  4. **ErrorChain** (errors/models.py:190) — KEEP. Infrastructure for `marianne diagnose`.
   5. **TableMapping/StateRegistry** (schema/registry.py:154) — REMOVE. Premature abstraction, never adopted. Registry exports removed from `schema/__init__.py`. File itself kept for now.
   6. **RunSummary.to_dict()** (runner/models.py:109) — NOT TOUCHED. File has concurrent edits. Dead method, can be removed when runner stabilizes.
   7. **DelayOutcome** (retry_strategy.py:61) — KEEP. Infrastructure for adaptive retry learning.
@@ -188,7 +188,7 @@ Each finding should include:
 - **Severity:** P2 (medium — needs reconciliation before baton ships)
 - **Status:** Resolved (movement 2, Circuit) — see F-054 for details
 - **Description:** Two `SheetExecutionState` classes exist in the baton package. `core.py:67` has a simple dataclass with string `status` field and no methods. `state.py:161` has a richer version with `BatonSheetStatus` enum, `record_attempt()`, `can_retry`/`can_complete`/`is_exhausted` properties, cost tracking, `to_dict()`/`from_dict()` serialization, and total_duration tracking. Both were built concurrently by different musicians.
-- **Impact:** The `__init__.py` exports `SheetExecutionState` from `core.py`. The `state.py` version is importable via `from mozart.daemon.baton.state import SheetExecutionState`. No runtime error today — the two classes are independent. But the baton needs ONE authoritative type. The `state.py` version is designed for the full baton lifecycle (persistence, failure evaluation, cost tracking). The `core.py` version is designed for the immediate event loop.
+- **Impact:** The `__init__.py` exports `SheetExecutionState` from `core.py`. The `state.py` version is importable via `from marianne.daemon.baton.state import SheetExecutionState`. No runtime error today — the two classes are independent. But the baton needs ONE authoritative type. The `state.py` version is designed for the full baton lifecycle (persistence, failure evaluation, cost tracking). The `core.py` version is designed for the immediate event loop.
 - **Action:** When the baton's retry state machine (step 23) and failure evaluation (step 26) are built, reconcile by adopting `state.py`'s richer types in `core.py`. The enum-based status prevents string typos, the serialization enables restart recovery, and the attempt tracking enables the conductor's decision tree.
 
 ### F-018: Musician-Baton Contract for validation_pass_rate Is Implicit
@@ -218,15 +218,15 @@ Each finding should include:
 - **Severity:** P1 (high — same class as fixed F-004)
 - **Status:** Resolved (movement 2, Maverick)
 - **Resolution:** Added `for_shell` parameter to `expand_hook_variables()`. Shell execution paths apply `shlex.quote()` to variable values. Both hooks.py and manager.py callsites updated. 13 regression tests. Commit 5525076.
-- **Description:** `expand_hook_variables()` at `src/mozart/execution/hooks.py:182-184` performs bare `.replace("{workspace}", str(workspace))` without `shlex.quote()`. The expanded result is then passed directly to `create_subprocess_shell` at `hooks.py:626` (run_command hook) and `manager.py:1869` (daemon-side hook command). A workspace path containing shell metacharacters would be interpreted as shell commands. Compare to code that IS protected: `lifecycle.py:888` (shlex.quote for skip_when_command, fixed by Ghost as F-004) and `engine.py:515` (shlex.quote for validation commands). The hooks system was never patched when Ghost fixed F-004.
-- **Impact:** Shell injection via crafted workspace paths or job IDs in score YAML `on_success` hooks. Currently mitigated by the fact that workspace paths are typically set by the score author (who controls the execution environment), but becomes a real risk if Mozart processes untrusted scores.
+- **Description:** `expand_hook_variables()` at `src/marianne/execution/hooks.py:182-184` performs bare `.replace("{workspace}", str(workspace))` without `shlex.quote()`. The expanded result is then passed directly to `create_subprocess_shell` at `hooks.py:626` (run_command hook) and `manager.py:1869` (daemon-side hook command). A workspace path containing shell metacharacters would be interpreted as shell commands. Compare to code that IS protected: `lifecycle.py:888` (shlex.quote for skip_when_command, fixed by Ghost as F-004) and `engine.py:515` (shlex.quote for validation commands). The hooks system was never patched when Ghost fixed F-004.
+- **Impact:** Shell injection via crafted workspace paths or job IDs in score YAML `on_success` hooks. Currently mitigated by the fact that workspace paths are typically set by the score author (who controls the execution environment), but becomes a real risk if Marianne processes untrusted scores.
 - **Action:** Apply `shlex.quote()` to all variable expansions in `expand_hook_variables()` when used for shell commands. Since the function is also used for path expansion (run_job hooks) where quoting would break path resolution, either split into two functions or apply quoting only at the shell execution callsite.
 
 ### F-021: Python Expression Sandbox in skip_when Is Bypassable via Attribute Access
 - **Found by:** Sentinel, Movement 1
 - **Severity:** P2 (medium — operator-controlled config today, but exploitable if untrusted scores are ever run)
 - **Status:** Open
-- **Description:** `src/mozart/execution/runner/lifecycle.py:862` uses Python expression evaluation with a restricted `__builtins__` dict and passes `state.sheets` and `state` (CheckpointState) as locals. The sandbox blocks direct builtin access but cannot prevent attribute traversal on the passed objects. A crafted `skip_when` condition could access `state.__class__.__mro__[1].__subclasses__()` to reach arbitrary Python types, potentially enabling code execution. The noqa comment correctly notes this is "operator-controlled config, not user input" — which is true today.
+- **Description:** `src/marianne/execution/runner/lifecycle.py:862` uses Python expression evaluation with a restricted `__builtins__` dict and passes `state.sheets` and `state` (CheckpointState) as locals. The sandbox blocks direct builtin access but cannot prevent attribute traversal on the passed objects. A crafted `skip_when` condition could access `state.__class__.__mro__[1].__subclasses__()` to reach arbitrary Python types, potentially enabling code execution. The noqa comment correctly notes this is "operator-controlled config, not user input" — which is true today.
 - **Impact:** Currently low — score authors control their own execution environment. Future high — if untrusted scores are supported (Lovable demo, community-shared scores), this becomes arbitrary code execution.
 - **Action:** For v1, document as known limitation in the score writing guide ("skip_when conditions execute as Python expressions — only run trusted scores"). For v2, replace with a safe expression parser (compile to AST, whitelist only comparison/boolean/attribute nodes, reject dunder access).
 
@@ -234,7 +234,7 @@ Each finding should include:
 - **Found by:** Sentinel, Movement 1
 - **Severity:** P2 (medium — weakens XSS protection)
 - **Status:** Open
-- **Description:** `src/mozart/dashboard/auth/security.py:60-63` sets Content-Security-Policy with `'unsafe-inline' 'unsafe-eval'` for script-src and `'unsafe-inline'` for style-src. This effectively disables CSP's XSS protection for inline scripts. While understandable for a local dashboard using CDN-loaded frameworks (Tailwind, Alpine.js), it means any XSS vector in the dashboard templates would not be blocked by CSP.
+- **Description:** `src/marianne/dashboard/auth/security.py:60-63` sets Content-Security-Policy with `'unsafe-inline' 'unsafe-eval'` for script-src and `'unsafe-inline'` for style-src. This effectively disables CSP's XSS protection for inline scripts. While understandable for a local dashboard using CDN-loaded frameworks (Tailwind, Alpine.js), it means any XSS vector in the dashboard templates would not be blocked by CSP.
 - **Impact:** If any dashboard endpoint reflects user input (job names, error messages) without proper HTML escaping, CSP will not provide a safety net. The LOCALHOST_ONLY auth default partially mitigates this.
 - **Action:** For v1, document that the dashboard should not be exposed to untrusted networks. For v2, consider using CSP nonces for inline scripts and migrating away from unsafe-eval.
 
@@ -243,9 +243,9 @@ Each finding should include:
 - **Severity:** P3 (low — scanner covers the most critical patterns)
 - **Status:** Resolved (movement 2, Warden)
 - **Note:** This entry was corrupted in movement 1 — F-019's resolution (PreflightConfig/Tempo) was accidentally pasted under F-023. The credential patterns were NOT added until movement 2.
-- **Description:** `src/mozart/utils/credential_scanner.py` detected 6 credential patterns (Anthropic, OpenAI, Google, AWS, Bearer tokens). Missing patterns for GitHub PAT tokens (`ghp_`, `gho_`, `github_pat_`), Slack tokens (`xoxb-`, `xoxp-`, `xapp-`), and Hugging Face tokens (`hf_`).
+- **Description:** `src/marianne/utils/credential_scanner.py` detected 6 credential patterns (Anthropic, OpenAI, Google, AWS, Bearer tokens). Missing patterns for GitHub PAT tokens (`ghp_`, `gho_`, `github_pat_`), Slack tokens (`xoxb-`, `xoxp-`, `xapp-`), and Hugging Face tokens (`hf_`).
 - **Impact:** Agents interacting with GitHub/Slack/HF APIs could leak tokens into stdout_tail, propagating to 6+ storage locations.
-- **Resolution:** Added 7 new patterns to `src/mozart/utils/credential_scanner.py`: GitHub classic PAT (ghp_), GitHub OAuth (gho_), GitHub fine-grained PAT (github_pat_), Slack bot (xoxb-), Slack user (xoxp-), Slack app (xapp-), and Hugging Face (hf_). 10 TDD tests in `tests/test_credential_scanner.py` across 3 new test classes plus 3 scan_for_credentials detection tests. Scanner now detects 13 credential patterns (up from 6).
+- **Resolution:** Added 7 new patterns to `src/marianne/utils/credential_scanner.py`: GitHub classic PAT (ghp_), GitHub OAuth (gho_), GitHub fine-grained PAT (github_pat_), Slack bot (xoxb-), Slack user (xoxp-), Slack app (xapp-), and Hugging Face (hf_). 10 TDD tests in `tests/test_credential_scanner.py` across 3 new test classes plus 3 scan_for_credentials detection tests. Scanner now detects 13 credential patterns (up from 6).
 
 ### F-024: Baton Retry State Machine Has No Cost Enforcement
 - **Found by:** Warden, Movement 1
@@ -259,41 +259,41 @@ Each finding should include:
 - **Found by:** Warden, Movement 1
 - **Severity:** P2 (medium — acceptable for v1 trusted instruments, needs fixing for v1.1)
 - **Status:** Resolved (movement 1 current cycle, Warden)
-- **Description:** `src/mozart/execution/instruments/cli_backend.py:193` builds subprocess environment with `dict(os.environ)` — the full parent environment. The safety hardening design spec explicitly requires: "The PluginCliBackend passes only explicitly declared env vars to subprocesses." Current implementation does the opposite: every credential in the parent environment (ANTHROPIC_API_KEY, OPENAI_API_KEY, AWS_SECRET_ACCESS_KEY, etc.) is passed to every plugin instrument subprocess.
+- **Description:** `src/marianne/execution/instruments/cli_backend.py:193` builds subprocess environment with `dict(os.environ)` — the full parent environment. The safety hardening design spec explicitly requires: "The PluginCliBackend passes only explicitly declared env vars to subprocesses." Current implementation does the opposite: every credential in the parent environment (ANTHROPIC_API_KEY, OPENAI_API_KEY, AWS_SECRET_ACCESS_KEY, etc.) is passed to every plugin instrument subprocess.
 - **Impact:** For trusted built-in instruments (gemini-cli, codex-cli), this is acceptable — they need API keys. For user-authored or third-party instrument profiles, this is a credential exposure vector. A malicious CLI binary disguised as an instrument would receive every secret.
 - **Action:** Implement env filtering per the safety hardening spec. This is M5 roadmap step 47 — already tracked. For v1, document the risk in the instrument authoring guide.
-- **Resolution:** Added `required_env: list[str] | None` field to `CliCommand` (`src/mozart/core/config/instruments.py`). When set, `PluginCliBackend._build_env()` filters the parent environment to only include declared vars + system essentials (PATH, HOME, TERM, LANG, etc. — defined in `SYSTEM_ENV_VARS` frozenset). Updated 3 built-in profiles: `gemini-cli.yaml` (GOOGLE_API_KEY, GOOGLE_APPLICATION_CREDENTIALS), `claude-code.yaml` (ANTHROPIC_API_KEY + Bedrock/Vertex vars), `codex-cli.yaml` (OPENAI_API_KEY, CODEX_API_KEY). Multi-provider instruments (aider, goose, cline) left without required_env — they genuinely need multiple provider credentials. 19 TDD tests in `tests/test_credential_env_filtering.py`. Backward compatible: `required_env: null` (default) inherits full parent environment.
+- **Resolution:** Added `required_env: list[str] | None` field to `CliCommand` (`src/marianne/core/config/instruments.py`). When set, `PluginCliBackend._build_env()` filters the parent environment to only include declared vars + system essentials (PATH, HOME, TERM, LANG, etc. — defined in `SYSTEM_ENV_VARS` frozenset). Updated 3 built-in profiles: `gemini-cli.yaml` (GOOGLE_API_KEY, GOOGLE_APPLICATION_CREDENTIALS), `claude-code.yaml` (ANTHROPIC_API_KEY + Bedrock/Vertex vars), `codex-cli.yaml` (OPENAI_API_KEY, CODEX_API_KEY). Multi-provider instruments (aider, goose, cline) left without required_env — they genuinely need multiple provider credentials. 19 TDD tests in `tests/test_credential_env_filtering.py`. Backward compatible: `required_env: null` (default) inherits full parent environment.
 
 ### F-026: README Quick Start References Removed --workspace Flag on status
 - **Found by:** Newcomer, Movement 1
 - **Severity:** P0 (critical — tutorial breaks at step 5)
 - **Status:** Resolved (movement 1, Compass)
-- **Resolution:** Removed `--workspace` from README status/resume examples. Updated Common Options table to scope `--workspace` to `run`, `resume` only. Also updated backend→instrument terminology, added `mozart doctor` and `mozart instruments` commands to CLI reference, fixed recover command "(hidden)" label (F-034), and updated instrument description (F-036).
-- **Description:** `README.md:169` says `mozart status hello-world --workspace ./workspace/hello-world`. The `status` command no longer has a `-w/--workspace` flag. Verified via `mozart status --help` — only `--json`, `--watch`, `--interval` exist.
+- **Resolution:** Removed `--workspace` from README status/resume examples. Updated Common Options table to scope `--workspace` to `run`, `resume` only. Also updated backend→instrument terminology, added `marianne doctor` and `mzt instruments` commands to CLI reference, fixed recover command "(hidden)" label (F-034), and updated instrument description (F-036).
+- **Description:** `README.md:169` says `mzt status hello-world --workspace ./workspace/hello-world`. The `status` command no longer has a `-w/--workspace` flag. Verified via `mzt status --help` — only `--json`, `--watch`, `--interval` exist.
 - **Impact:** A newcomer following the Quick Start guide hits a CLI error at "check your results." The tutorial fails at the worst possible moment — when the user is trying to verify their first job worked.
 - **Action:** Remove `--workspace` from the README status example. The status command resolves workspaces from the conductor's job registry, so no flag is needed.
 
-### F-027: mozart status With No Arguments Gives Error Instead of Overview
+### F-027: mzt status With No Arguments Gives Error Instead of Overview
 - **Found by:** Newcomer, Movement 1
 - **Severity:** P1 (high — violates universal CLI convention)
 - **Status:** Resolved (movement 2, Circuit)
 - **Resolution:** Made `job_id` optional in `status()` command. When omitted, shows conductor status (running/uptime), active scores (running/queued/paused), and 5 most recent terminal scores. JSON output supported. 14 tests in test_cli_status_overview.py. Code in cfb7897 (Forge's commit included the working tree changes), tests in ece7382.
-- **Description:** `mozart status` → "Missing argument 'JOB_ID'". Every major CLI tool (git status, docker ps, kubectl get pods) shows an overview when called with no arguments. Mozart forces you to know the exact score ID.
-- **Impact:** Newcomers' natural first action after `mozart run` is `mozart status`. Getting an error instead of a summary is disorienting and makes the tool feel broken.
+- **Description:** `marianne status` → "Missing argument 'JOB_ID'". Every major CLI tool (git status, docker ps, kubectl get pods) shows an overview when called with no arguments. Marianne forces you to know the exact score ID.
+- **Impact:** Newcomers' natural first action after `marianne run` is `marianne status`. Getting an error instead of a summary is disorienting and makes the tool feel broken.
 
 ### F-028: Empty Config File Leaks Internal Python Error
 - **Found by:** Newcomer, Movement 1
 - **Severity:** P1 (high — terrible first impression)
 - **Status:** Resolved (movement 1, Compass)
-- **Description:** `mozart run /dev/null` → "Error loading config: argument of type 'NoneType' is not iterable". YAML parses an empty file as `None`, then the config loading code tries to iterate over it.
+- **Description:** `mzt run /dev/null` → "Error loading config: argument of type 'NoneType' is not iterable". YAML parses an empty file as `None`, then the config loading code tries to iterate over it.
 - **Impact:** A newcomer who creates an empty YAML file and tries to run it sees a Python internal error. This makes them feel stupid. The error message is the bug, not them.
-- **Resolution:** Added `isinstance(data, dict)` guard in `JobConfig.from_yaml()` and `from_yaml_string()` at `job.py:655-660`. Empty files, None YAML, and non-dict YAML (lists, scalars) now produce: "The score file is empty or invalid. A Mozart score requires at minimum: name, sheet, and prompt sections." Verified with empty file, list YAML, and empty string inputs.
+- **Resolution:** Added `isinstance(data, dict)` guard in `JobConfig.from_yaml()` and `from_yaml_string()` at `job.py:655-660`. Empty files, None YAML, and non-dict YAML (lists, scalars) now produce: "The score file is empty or invalid. A Marianne score requires at minimum: name, sheet, and prompt sections." Verified with empty file, list YAML, and empty string inputs.
 
 ### F-029: CLI Uses "JOB_ID" Arguments but "Score" in Output
 - **Found by:** Newcomer, Movement 1
 - **Severity:** P1 (high — violates composer directive on music metaphor)
 - **Status:** Open
-- **Description:** Every command that takes a score identifier uses `JOB_ID` as the argument name: status, errors, diagnose, recover, resume, pause, cancel, history. But output uses "Score not found", `mozart list` shows "SCORE ID", and help text says "Show detailed status of a specific score." The composer's directive: "The music metaphor is load-bearing."
+- **Description:** Every command that takes a score identifier uses `JOB_ID` as the argument name: status, errors, diagnose, recover, resume, pause, cancel, history. But output uses "Score not found", `marianne list` shows "SCORE ID", and help text says "Show detailed status of a specific score." The composer's directive: "The music metaphor is load-bearing."
 - **Impact:** Terminology inconsistency confuses newcomers and undermines the musical identity. The score is the central concept — calling it a "job" in the most user-visible place (CLI arguments) sends mixed signals.
 - **Action:** Rename `JOB_ID` arguments to `SCORE_ID` across all commands. This is an E-002 escalation trigger (changing CLI command interface) — requires composer approval.
 
@@ -301,32 +301,32 @@ Each finding should include:
 - **Found by:** Newcomer, Movement 1
 - **Severity:** P2 (medium — easy fix, big UX improvement)
 - **Status:** Resolved (movement 1, Compass)
-- **Description:** `mozart status nonexistent`, `mozart diagnose nonexistent`, `mozart errors nonexistent` all produce "Score not found: nonexistent" with no guidance. Compare to `git` which suggests "did you mean...?" or shows similar branch names.
+- **Description:** `mzt status nonexistent`, `marianne diagnose nonexistent`, `mzt errors nonexistent` all produce "Score not found: nonexistent" with no guidance. Compare to `git` which suggests "did you mean...?" or shows similar branch names.
 - **Impact:** The user is stuck. They know their score doesn't exist but don't know what to do about it.
-- **Resolution:** Migrated 9 "Score not found" error outputs across `status.py` (2), `diagnose.py` (5), and `recover.py` (2) from raw `console.print` to `output_error()` with hints: "Run 'mozart list' to see available scores." The diagnose command also suggests "Run 'mozart doctor' to check your environment." JSON output mode also receives hints in structured format.
+- **Resolution:** Migrated 9 "Score not found" error outputs across `status.py` (2), `diagnose.py` (5), and `recover.py` (2) from raw `console.print` to `output_error()` with hints: "Run 'marianne list' to see available scores." The diagnose command also suggests "Run 'marianne doctor' to check your environment." JSON output mode also receives hints in structured format.
 
 ### F-031: Malformed YAML Produces Misleading Pydantic Error
 - **Found by:** Newcomer, Movement 1
 - **Severity:** P2 (medium — error misdirects troubleshooting)
 - **Status:** Resolved (movement 4, Lens)
-- **Description:** `echo "this is not yaml {{{" > /tmp/bad.yaml && mozart validate /tmp/bad.yaml` → "Schema validation failed: Input should be a valid dictionary or instance of JobConfig". The actual problem is invalid YAML syntax, but the error implies the YAML was parsed successfully and the schema doesn't match.
+- **Description:** `echo "this is not yaml {{{" > /tmp/bad.yaml && mzt validate /tmp/bad.yaml` → "Schema validation failed: Input should be a valid dictionary or instance of JobConfig". The actual problem is invalid YAML syntax, but the error implies the YAML was parsed successfully and the schema doesn't match.
 - **Impact:** User thinks they need to fix their config structure when they actually have a YAML syntax error. Misdirected troubleshooting.
-- **Resolution:** Added `yaml.YAMLError` catch in `run.py:97` before the generic Exception handler. YAML syntax errors now show "YAML syntax error: ..." with hints about indentation and a pointer to `mozart validate`. The `validate` command already handled this correctly (lines 87-95). Also fixed `hint=` (singular) misuse in run.py — `output_error()` only accepts `hints=` (list), so `hint=` went to `**json_extras` and was invisible in terminal mode. 8 TDD tests in `test_cli_error_ux.py`.
+- **Resolution:** Added `yaml.YAMLError` catch in `run.py:97` before the generic Exception handler. YAML syntax errors now show "YAML syntax error: ..." with hints about indentation and a pointer to `marianne validate`. The `validate` command already handled this correctly (lines 87-95). Also fixed `hint=` (singular) misuse in run.py — `output_error()` only accepts `hints=` (list), so `hint=` went to `**json_extras` and was invisible in terminal mode. 8 TDD tests in `test_cli_error_ux.py`.
 
 ### F-032: JSON Output Contains Invalid Control Characters
 - **Found by:** Newcomer, Movement 1
 - **Severity:** P2 (medium — breaks machine-readable output contract)
 - **Status:** Resolved (movement 2, Dash)
-- **Description:** `mozart status <job> --json` produces JSON that fails to parse due to unescaped control characters in stdout_tail/stderr_tail fields. Verified with `mozart status mozart-orchestra-v3 --json | python3 -c "import json,sys; json.load(sys.stdin)"` → JSONDecodeError.
+- **Description:** `mzt status <job> --json` produces JSON that fails to parse due to unescaped control characters in stdout_tail/stderr_tail fields. Verified with `mzt status marianne-orchestra-v3 --json | python3 -c "import json,sys; json.load(sys.stdin)"` → JSONDecodeError.
 - **Impact:** Any script, dashboard, or CI pipeline consuming `--json` output will crash. The `--json` flag exists specifically for machine parsing — producing invalid JSON defeats its purpose.
-- **Resolution:** Added `_sanitize_for_json()` in `src/mozart/cli/output.py` that recursively strips C0/C1 control characters and ANSI escape sequences from string values. Called by `output_json()` before serialization. Preserves safe whitespace (\t, \n, \r). Also applied to `output_error()` JSON mode.
+- **Resolution:** Added `_sanitize_for_json()` in `src/marianne/cli/output.py` that recursively strips C0/C1 control characters and ANSI escape sequences from string values. Called by `output_json()` before serialization. Preserves safe whitespace (\t, \n, \r). Also applied to `output_error()` JSON mode.
 
 ### F-033: Architecture Spec Lists Wrong Validation Type Names
 - **Found by:** Newcomer, Movement 1
 - **Severity:** P3 (low — internal doc inconsistency)
 - **Status:** Resolved (movement 1, Captain)
-- **Resolution:** Updated `.mozart/spec/architecture.yaml` validation table and `validation_types` list. Old: content_match, file_count, command, composite. New: file_modified, content_contains, content_regex, command_succeeds (matches `src/mozart/core/config/execution.py:415-420`).
-- **Description:** `.mozart/spec/architecture.yaml` data.validation_types lists: file_exists, content_match, file_count, command, composite. Actual types in code (`src/mozart/core/config/execution.py:473-486`): file_exists, file_modified, content_contains, content_regex, command_succeeds.
+- **Resolution:** Updated `.marianne/spec/architecture.yaml` validation table and `validation_types` list. Old: content_match, file_count, command, composite. New: file_modified, content_contains, content_regex, command_succeeds (matches `src/marianne/core/config/execution.py:415-420`).
+- **Description:** `.marianne/spec/architecture.yaml` data.validation_types lists: file_exists, content_match, file_count, command, composite. Actual types in code (`src/marianne/core/config/execution.py:473-486`): file_exists, file_modified, content_contains, content_regex, command_succeeds.
 - **Impact:** An agent reading only the architecture spec would use wrong validation type names in score configs.
 - **Action:** Update architecture.yaml validation_types to match the actual code.
 
@@ -335,7 +335,7 @@ Each finding should include:
 - **Severity:** P3 (low)
 - **Status:** Resolved (movement 1, Compass)
 - **Resolution:** Removed "(hidden)" label from README recover command row.
-- **Description:** `README.md:230` describes `recover` as "(hidden)" but it appears in `mozart --help` under the Diagnostics panel.
+- **Description:** `README.md:230` describes `recover` as "(hidden)" but it appears in `marianne --help` under the Diagnostics panel.
 - **Impact:** Minor inconsistency. Either remove the "(hidden)" label from the README or actually hide the command.
 
 ### F-035: getting-started.md Shows Old Validate Output Format
@@ -344,15 +344,15 @@ Each finding should include:
 - **Status:** Resolved (movement 1, Compass)
 - **Description:** `docs/getting-started.md:112-116` says validate shows "Valid configuration: my-first-job / Sheets: 3 (10 items each) / Validations: 1". Actual format is richer: "Validating... / ✓ YAML syntax valid / ✓ Schema validation passed / Running extended validation checks / ..."
 - **Impact:** Newcomers might think something is wrong when they see a different format than documented.
-- **Resolution:** Updated expected output in getting-started.md to show the current validate output format with checkmarks. Also updated prerequisites to mention `mozart doctor` and troubleshooting to use `mozart instruments list` instead of `claude --version`.
+- **Resolution:** Updated expected output in getting-started.md to show the current validate output format with checkmarks. Also updated prerequisites to mention `marianne doctor` and troubleshooting to use `mzt instruments list` instead of `claude --version`.
 
 ### F-036: README Backend List Outdated — Doesn't Mention New Instruments
 - **Found by:** Newcomer, Movement 1
 - **Severity:** P3 (low — README undersells capabilities)
 - **Status:** Resolved (movement 1, Compass)
-- **Resolution:** Updated README "Multiple backends" line to "Multiple instruments" with full instrument list. Added `mozart instruments list|check` and `mozart doctor` to CLI reference tables. Updated "Backend" key concept to "Instrument". Updated backend type option to include named instruments.
-- **Description:** `README.md:32` lists 4 backends (Claude CLI, Anthropic API, Ollama, Recursive Light). The instrument plugin system (M1) added 6 more: gemini-cli, codex-cli, cline-cli, aider, goose, claude-code. `mozart instruments list` shows 10 instruments.
-- **Impact:** Newcomers with non-Claude tools may not realize Mozart supports them.
+- **Resolution:** Updated README "Multiple backends" line to "Multiple instruments" with full instrument list. Added `mzt instruments list|check` and `marianne doctor` to CLI reference tables. Updated "Backend" key concept to "Instrument". Updated backend type option to include named instruments.
+- **Description:** `README.md:32` lists 4 backends (Claude CLI, Anthropic API, Ollama, Recursive Light). The instrument plugin system (M1) added 6 more: gemini-cli, codex-cli, cline-cli, aider, goose, claude-code. `mzt instruments list` shows 10 instruments.
+- **Impact:** Newcomers with non-Claude tools may not realize Marianne supports them.
 - **Action:** Update README to mention the instrument plugin system and list all supported instruments.
 
 ### F-037: Score Writing Guide Workspace Path Doesn't Match Example
@@ -367,9 +367,9 @@ Each finding should include:
 - **Found by:** Ember, Movement 1
 - **Severity:** P0 (critical — demo-blocking, daily-use blocker)
 - **Status:** Resolved (movement 2, Circuit)
-- **Resolution:** Scores with 50+ sheets now show a compact summary: counts-by-status, then only interesting sheets (running, failed, validation-failed) capped at 20. Validation failures capped at 10 with pointer to `mozart errors`. Small scores (<50 sheets) keep full detail table. Commit 41f2be4. 4 tests.
-- **Description:** `mozart status mozart-orchestra-v3` outputs 797 lines. Hundreds of identical "pending" rows (sheets 27-706) bury the useful information (validation failures at line 770+). Even with `--watch`, the volume makes the output useless for any score larger than ~20 sheets. Related to but distinct from F-027 (no-args overview) — this is about the per-job view being unusable at scale even when you provide the correct job ID.
-- **Impact:** Users of any substantial score learn to avoid `mozart status`. The feature becomes anti-useful. Pipe to `tail` is the workaround, but validation failures in the middle of the output are invisible to both `head` and `tail`.
+- **Resolution:** Scores with 50+ sheets now show a compact summary: counts-by-status, then only interesting sheets (running, failed, validation-failed) capped at 20. Validation failures capped at 10 with pointer to `mzt errors`. Small scores (<50 sheets) keep full detail table. Commit 41f2be4. 4 tests.
+- **Description:** `mzt status marianne-orchestra-v3` outputs 797 lines. Hundreds of identical "pending" rows (sheets 27-706) bury the useful information (validation failures at line 770+). Even with `--watch`, the volume makes the output useless for any score larger than ~20 sheets. Related to but distinct from F-027 (no-args overview) — this is about the per-job view being unusable at scale even when you provide the correct job ID.
+- **Impact:** Users of any substantial score learn to avoid `marianne status`. The feature becomes anti-useful. Pipe to `tail` is the workaround, but validation failures in the middle of the output are invisible to both `head` and `tail`.
 
 ### F-039: Dependency Failure Creates Zombie Jobs (No Failure Propagation)
 - **Found by:** Axiom, Movement 1
@@ -383,7 +383,7 @@ Each finding should include:
 - **Found by:** Axiom, Movement 1
 - **Severity:** P1 (high — violates user expectations)
 - **Status:** Resolved (movement 1, Axiom)
-- **Description:** `_handle_escalation_resolved` at `core.py:579` and `_handle_escalation_timeout` at `core.py:598` both unconditionally set `job.paused = False`. If a user runs `mozart pause <job>` AND an escalation occurs simultaneously, resolving the escalation would silently unpause the user's manual pause. The user expects their pause to persist until they explicitly resume.
+- **Description:** `_handle_escalation_resolved` at `core.py:579` and `_handle_escalation_timeout` at `core.py:598` both unconditionally set `job.paused = False`. If a user runs `mzt pause <job>` AND an escalation occurs simultaneously, resolving the escalation would silently unpause the user's manual pause. The user expects their pause to persist until they explicitly resume.
 - **Impact:** User-initiated pauses can be overridden by internal events. The user's pause command has no guarantee of durability.
 - **Resolution:** Added `user_paused: bool` field to `_JobRecord`. `_handle_pause_job` sets both `paused=True` and `user_paused=True`. `_handle_resume_job` clears both. `_handle_escalation_resolved` and `_handle_escalation_timeout` only unpause if `user_paused` is False. 2 tests prove the fix.
 
@@ -423,7 +423,7 @@ Each finding should include:
 - **Found by:** Ember, Movement 1 (renumbered from F-040 by Captain — collision with Axiom's F-040)
 - **Severity:** P2 (medium)
 - **Status:** Resolved (movement 2, Harper — HTTP instruments now show "? unchecked" instead of "http")
-- **Description:** `mozart instruments list` shows `http` in the STATUS column for all HTTP instruments (anthropic_api, ollama, recursive_light). "http" is the kind (already shown in the KIND column), not a status. The code at `src/mozart/cli/commands/instruments.py:154-156` hard-codes `status_str = "[dim]http[/dim]"` and counts HTTP instruments as ready without any connectivity check. Compare to `mozart doctor` which shows the endpoint URL: `✓ anthropic_api — Anthropic API (https://api.anthropic.com)`.
+- **Description:** `mzt instruments list` shows `http` in the STATUS column for all HTTP instruments (anthropic_api, ollama, recursive_light). "http" is the kind (already shown in the KIND column), not a status. The code at `src/marianne/cli/commands/instruments.py:154-156` hard-codes `status_str = "[dim]http[/dim]"` and counts HTTP instruments as ready without any connectivity check. Compare to `marianne doctor` which shows the endpoint URL: `✓ anthropic_api — Anthropic API (https://api.anthropic.com)`.
 - **Impact:** Users can't tell if HTTP instruments are actually reachable. The "6 ready" count includes unchecked instruments.
 - **Action:** Show `✓ available` (or `? unchecked`) instead of `http` in the STATUS column. Optionally, add a basic HTTP HEAD check.
 
@@ -431,7 +431,7 @@ Each finding should include:
 - **Found by:** Ember, Movement 1 (renumbered from F-041 by Captain — collision with Axiom's F-041)
 - **Severity:** P2 (medium — systematic error consistency gap)
 - **Status:** Resolved (movement 2, multiple musicians + Spark mateship — commits e6d6753, d242046)
-- **Description:** `src/mozart/cli/output.py:557` defines `output_error()` — a centralized error formatter with error codes, hints, severity, and JSON support. But 55 raw `console.print("[red]Error:...")` calls exist across 14 CLI files vs only 11 `output_error()` calls in 4 files (output.py, helpers.py, pause.py, instruments.py). The infrastructure for consistent errors exists and isn't adopted.
+- **Description:** `src/marianne/cli/output.py:557` defines `output_error()` — a centralized error formatter with error codes, hints, severity, and JSON support. But 55 raw `console.print("[red]Error:...")` calls exist across 14 CLI files vs only 11 `output_error()` calls in 4 files (output.py, helpers.py, pause.py, instruments.py). The infrastructure for consistent errors exists and isn't adopted.
 - **Impact:** Error messages are inconsistent. Some have hints, most don't. Some support `--json`, most just print colored text. Users get different quality of error guidance depending on which command they use.
 - **Resolution:** M3 step 35 is COMPLETE. 71+ `output_error()` calls across 15+ files. The last holdout (top.py, 5 raw console.print calls) was committed as mateship pickup by Spark (d242046). Only display labels like "Recent Errors" remain as rich console output (correctly so — they are UI labels, not error handling).
 
@@ -440,7 +440,7 @@ Each finding should include:
 - **Severity:** P2 (medium — cost visibility gap)
 - **Status:** Resolved (movement 3, Circuit)
 - **Resolution:** Root cause found: `_enforce_cost_limits()` at `sheet.py:2432` returned early when `cost_limits.enabled=False`, skipping `_track_cost()` entirely. Cost tracking and limit enforcement were bundled — disabling limits disabled all cost visibility. Fix: moved `await self._track_cost()` BEFORE the `cost_limits.enabled` check so costs are always recorded for observability. 2 TDD tests: structural (track before gate) + integration (state populated with limits off).
-- **Description:** `mozart status mozart-orchestra-v3` shows "Cost: $0.00 (no limit set)" despite 21 completed sheets, some taking 30+ minutes. Either the instrument (claude-code CLI) doesn't report token counts in a format Mozart can parse, or cost tracking isn't wired for this execution path. The cost warning on submission ("Cost tracking is disabled") is good, but seeing $0.00 after real execution teaches users that cost tracking doesn't work.
+- **Description:** `mzt status marianne-orchestra-v3` shows "Cost: $0.00 (no limit set)" despite 21 completed sheets, some taking 30+ minutes. Either the instrument (claude-code CLI) doesn't report token counts in a format Marianne can parse, or cost tracking isn't wired for this execution path. The cost warning on submission ("Cost tracking is disabled") is good, but seeing $0.00 after real execution teaches users that cost tracking doesn't work.
 - **Impact:** Users can't learn about actual costs from status. The cost warning on run loses credibility when the tracked cost is always $0.00.
 - **Action:** Investigate whether claude-code CLI backend is extracting tokens from the JSON output. If the data isn't available, show "Cost: unknown" instead of "$0.00" — honesty over false precision.
 
@@ -448,7 +448,7 @@ Each finding should include:
 - **Found by:** Adversary, Movement 1
 - **Severity:** P1 (high — breaks cardinal invariant, same class as F-044)
 - **Status:** Resolved (movement 1, Adversary)
-- **Description:** `_handle_sheet_skipped()` at `src/mozart/daemon/baton/core.py:503` did NOT check `if sheet.status in _TERMINAL_STATUSES` before setting `sheet.status = "skipped"`. A completed, failed, or cancelled sheet could be re-marked as skipped by a late SheetSkipped event. This violates the terminal-state-absorbing invariant. Theorem's fix (F-044) added terminal guards to `_handle_escalation_needed` and hypothesis proved all OTHER handlers were safe — but `_handle_sheet_skipped` was not covered because it wasn't part of the event types tested by `test_terminal_sheets_resist_all_non_terminal_events` (which only tests events that flow through `_handle_attempt_result`).
+- **Description:** `_handle_sheet_skipped()` at `src/marianne/daemon/baton/core.py:503` did NOT check `if sheet.status in _TERMINAL_STATUSES` before setting `sheet.status = "skipped"`. A completed, failed, or cancelled sheet could be re-marked as skipped by a late SheetSkipped event. This violates the terminal-state-absorbing invariant. Theorem's fix (F-044) added terminal guards to `_handle_escalation_needed` and hypothesis proved all OTHER handlers were safe — but `_handle_sheet_skipped` was not covered because it wasn't part of the event types tested by `test_terminal_sheets_resist_all_non_terminal_events` (which only tests events that flow through `_handle_attempt_result`).
 - **Impact:** In production, a skip decision made after a sheet had already completed (e.g., a skip_when evaluated against stale state, or a concurrent event ordering) would silently change the sheet from completed to skipped, potentially causing downstream sheets to miss their dependency data.
 - **Resolution:** Added terminal guard with debug logging at `core.py:513-522`. 3 regression tests prove the fix (test_baton_adversary.py: TestSheetSkippedTerminalGuard). mypy/ruff clean.
 
@@ -464,7 +464,7 @@ Each finding should include:
 - **Found by:** Theorem, Movement 1
 - **Severity:** P1 (high — breaks cardinal invariant)
 - **Status:** Resolved (movement 1, Theorem)
-- **Description:** `_handle_escalation_needed()` at `src/mozart/daemon/baton/core.py:572` checked `if sheet is not None` but did NOT check `if sheet.status not in _TERMINAL_STATUSES` before setting `sheet.status = "fermata"`. A completed/failed/skipped sheet could be moved to fermata state, violating the terminal-state-absorbing invariant. All other handlers that transition sheet status (`_handle_attempt_result`, `_handle_rate_limit_hit`, `_handle_process_exited`, `_handle_escalation_resolved`, `_handle_escalation_timeout`) correctly guard against terminal states. This one was missed.
+- **Description:** `_handle_escalation_needed()` at `src/marianne/daemon/baton/core.py:572` checked `if sheet is not None` but did NOT check `if sheet.status not in _TERMINAL_STATUSES` before setting `sheet.status = "fermata"`. A completed/failed/skipped sheet could be moved to fermata state, violating the terminal-state-absorbing invariant. All other handlers that transition sheet status (`_handle_attempt_result`, `_handle_rate_limit_hit`, `_handle_process_exited`, `_handle_escalation_resolved`, `_handle_escalation_timeout`) correctly guard against terminal states. This one was missed.
 - **Impact:** In production, a late-arriving EscalationNeeded event for an already-completed sheet would reopen it, causing the baton to re-dispatch finished work. The fermata state would also incorrectly pause the job.
 - **Resolution:** Added terminal guard: `if sheet is not None and sheet.status not in _TERMINAL_STATUSES:`. Found by property-based testing with hypothesis — `test_terminal_sheets_resist_all_non_terminal_events` generates random event sequences against terminal sheets. Commit ab3d277.
 
@@ -480,7 +480,7 @@ Each finding should include:
 - **Found by:** Blueprint, Movement 2
 - **Severity:** P2 (medium — templates can't use new terminology until fixed)
 - **Status:** Resolved (movement 2, Forge) — see updated entry below
-- **Description:** `src/mozart/prompts/templating.py:100-117` `SheetContext.to_dict()` exposes `stage`, `instance`, `fan_count`, `total_stages` but does NOT include the new terminology aliases `movement`, `voice`, `voice_count`, `total_movements`. Canyon's Sheet entity model (`core/sheet.py`) has a `template_variables()` method that provides these aliases, but the PromptBuilder's SheetContext (which is what actually gets rendered into templates) doesn't include them. Score templates using `{{ movement }}` will get Jinja2 UndefinedError unless they fall back to `{{ stage }}`.
+- **Description:** `src/marianne/prompts/templating.py:100-117` `SheetContext.to_dict()` exposes `stage`, `instance`, `fan_count`, `total_stages` but does NOT include the new terminology aliases `movement`, `voice`, `voice_count`, `total_movements`. Canyon's Sheet entity model (`core/sheet.py`) has a `template_variables()` method that provides these aliases, but the PromptBuilder's SheetContext (which is what actually gets rendered into templates) doesn't include them. Score templates using `{{ movement }}` will get Jinja2 UndefinedError unless they fall back to `{{ stage }}`.
 - **Impact:** Templates written with new terminology (`{{ movement }}`, `{{ voice }}`) fail. The template variable aliases (TASKS.md M1 step 10) are defined on Sheet but not propagated through the prompt assembly pipeline. When the baton (step 28) wires into the conductor, this gap must be bridged: either SheetContext gains the aliases, or the baton passes Sheet.template_variables() to the PromptBuilder.
 - **Action:** Add `movement`, `voice`, `voice_count`, `total_movements` to SheetContext.to_dict() as aliases for `stage`, `instance`, `fan_count`, `total_stages`. This is additive and backward compatible.
 
@@ -520,13 +520,13 @@ Each finding should include:
 - **Found by:** Ember, Movement 1
 - **Severity:** P1 (high — misleading terminology)
 - **Status:** Resolved (movement 2, Forge)
-- **Resolution:** Added `format_sheet_display_status()` in `src/mozart/cli/output.py:131-156`. When `status == COMPLETED` and `validation_passed is False`, returns `("failed", "red")` instead of `("completed", "green")`. Wired into `_render_sheet_details()` in `status.py:619-622` (rich output) and `_output_status_json()` in `status.py:518-522` (JSON output adds `display_status` field). 7 tests in `test_cli_output_rendering.py::TestFormatSheetDisplayStatus`. Internal state model unchanged — this is purely a presentation fix. Commit cfb7897.
+- **Resolution:** Added `format_sheet_display_status()` in `src/marianne/cli/output.py:131-156`. When `status == COMPLETED` and `validation_passed is False`, returns `("failed", "red")` instead of `("completed", "green")`. Wired into `_render_sheet_details()` in `status.py:619-622` (rich output) and `_output_status_json()` in `status.py:518-522` (JSON output adds `display_status` field). 7 tests in `test_cli_output_rendering.py::TestFormatSheetDisplayStatus`. Internal state model unchanged — this is purely a presentation fix. Commit cfb7897.
 
 ### F-052: SheetContext.to_dict() Missing movement/voice/voice_count Aliases — RESOLVED
 - **Found by:** Blueprint, Movement 2
 - **Severity:** P2 (medium)
 - **Status:** Resolved (movement 2, Forge)
-- **Resolution:** Added `movement`, `voice`, `voice_count`, `total_movements` to `SheetContext.to_dict()` in `src/mozart/prompts/templating.py:100-130`. These are aliases for `stage`, `instance`, `fan_count`, `total_stages` respectively. Uses the same fallback logic (0 → sheet_num/total_sheets). Templates can now use `{{ movement }}` or `{{ stage }}` interchangeably. 2 tests in `test_templating.py::TestSheetContext`. Backward compatible. Commit cfb7897.
+- **Resolution:** Added `movement`, `voice`, `voice_count`, `total_movements` to `SheetContext.to_dict()` in `src/marianne/prompts/templating.py:100-130`. These are aliases for `stage`, `instance`, `fan_count`, `total_stages` respectively. Uses the same fallback logic (0 → sheet_num/total_sheets). Templates can now use `{{ movement }}` or `{{ stage }}` interchangeably. 2 tests in `test_templating.py::TestSheetContext`. Backward compatible. Commit cfb7897.
 
 ### F-037: Score Writing Guide Workspace Path Mismatch — RESOLVED
 - **Found by:** Newcomer, Movement 1
@@ -574,7 +574,7 @@ Each finding should include:
 - **Severity:** P3 (low — cosmetic, JSON is valid)
 - **Status:** Resolved (movement 2, Sentinel)
 - **Resolution:** Reordered regex alternation in `output.py:657` — ANSI sequence match now comes before individual control character match. Verified with 7 test cases: all ANSI sequences fully stripped, safe whitespace preserved.
-- **Description:** `src/mozart/cli/output.py:657` regex `[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]|\x1b\[[0-9;]*[a-zA-Z]` matches ESC byte (0x1b) in the first alternative before the second alternative can match the full ANSI sequence. Result: `\x1b[31m` becomes `[31m` instead of empty string. The bracket remnant is valid JSON but looks like garbage to humans. Verified with Python test: all standard ANSI escape sequences leave bracket remnants.
+- **Description:** `src/marianne/cli/output.py:657` regex `[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]|\x1b\[[0-9;]*[a-zA-Z]` matches ESC byte (0x1b) in the first alternative before the second alternative can match the full ANSI sequence. Result: `\x1b[31m` becomes `[31m` instead of empty string. The bracket remnant is valid JSON but looks like garbage to humans. Verified with Python test: all standard ANSI escape sequences leave bracket remnants.
 - **Impact:** JSON output from `output_json()` and `output_error(json_output=True)` may contain `[31m`, `[0m`, etc. remnants from ANSI-colored subprocess output. Valid JSON, cosmetic issue only.
 - **Fix:** Reorder the regex to match full ANSI sequences first: `\x1b\[[0-9;]*[a-zA-Z]|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]`
 
@@ -582,7 +582,7 @@ Each finding should include:
 - **Found by:** Sentinel, Movement 2
 - **Severity:** P1 (high — known vulnerabilities in auth/crypto paths)
 - **Status:** Resolved (movement 2, Warden) — see updated F-061 entry below
-- **Description:** pip-audit found 8 CVEs in 7 packages. Three are in security-critical paths used by Mozart:
+- **Description:** pip-audit found 8 CVEs in 7 packages. Three are in security-critical paths used by Marianne:
   - `cryptography` 46.0.5 — CVE-2026-34073 (fix: 46.0.6) — used by dashboard auth
   - `pyjwt` 2.11.0 — CVE-2026-32597 (fix: 2.12.0) — used by dashboard JWT auth
   - `requests` 2.32.5 — CVE-2026-25645 (fix: 2.33.0) — used for webhook notifications
@@ -648,23 +648,23 @@ Each finding should include:
 - **Found by:** Ember, Movement 2
 - **Severity:** P2 (medium — commands disagree on sheet status)
 - **Status:** Resolved (movement 2, Spark — mateship pickup, commit 3269eb2)
-- **Description:** `src/mozart/cli/commands/diagnose.py:1046` uses raw `sheet.status.value` in the Execution Timeline table. Forge's F-045 fix added `format_sheet_display_status()` in `output.py:131-156` that maps `COMPLETED + validation_passed=False` to `"failed"`, but this function is only used in `status.py`. The `diagnose` command still shows retry-exhausted sheets as "completed." Verified: `mozart diagnose mozart-orchestra-v3` shows sheets 11-14 as `completed` with 4-5 attempts, while `mozart status` correctly shows them as `failed`.
+- **Description:** `src/marianne/cli/commands/diagnose.py:1046` uses raw `sheet.status.value` in the Execution Timeline table. Forge's F-045 fix added `format_sheet_display_status()` in `output.py:131-156` that maps `COMPLETED + validation_passed=False` to `"failed"`, but this function is only used in `status.py`. The `diagnose` command still shows retry-exhausted sheets as "completed." Verified: `marianne diagnose marianne-orchestra-v3` shows sheets 11-14 as `completed` with 4-5 attempts, while `marianne status` correctly shows them as `failed`.
 - **Impact:** A user running `diagnose` after seeing "8 failed" in `status` sees those sheets as "completed" in the diagnostic. The two commands disagree about sheet status.
-- **Resolution:** Both the progress count (line 989) and the execution timeline (line 1059) in `_build_diagnostic_report()` now use `format_sheet_display_status()`. COMPLETED+validation_passed=False shows as "failed" in both places, matching `mozart status` output. 6 TDD tests in `test_diagnose_display_status.py`.
+- **Resolution:** Both the progress count (line 989) and the execution timeline (line 1059) in `_build_diagnostic_report()` now use `format_sheet_display_status()`. COMPLETED+validation_passed=False shows as "failed" in both places, matching `marianne status` output. 6 TDD tests in `test_diagnose_display_status.py`.
 
 ### F-066: `instruments list` Summary Has Unmatched Parenthesis
 - **Found by:** Ember, Movement 2
 - **Severity:** P3 (low — cosmetic)
 - **Status:** Resolved (movement 2, Journey — c7a2ba8)
-- **Description:** `src/mozart/cli/commands/instruments.py:139-144` uses `' ('.join(parts)` to format the summary line, producing `10 instruments configured (3 ready (3 unchecked)` — two opening parens but only one closing paren. The `join` separator inserts `" ("` between each element, but only one `)` is appended at the end.
+- **Description:** `src/marianne/cli/commands/instruments.py:139-144` uses `' ('.join(parts)` to format the summary line, producing `10 instruments configured (3 ready (3 unchecked)` — two opening parens but only one closing paren. The `join` separator inserts `" ("` between each element, but only one `)` is appended at the end.
 - **Impact:** Minor cosmetic bug. Users may notice the formatting is off.
 - **Action:** Replace join logic with comma separator: `f"\n{parts[0]} ({', '.join(parts[1:])})"`.
 
-### F-067: `mozart init <name>` Fails — Positional Argument Convention Broken
+### F-067: `mzt init <name>` Fails — Positional Argument Convention Broken
 - **Found by:** Ember, Movement 2
 - **Severity:** P2 (medium — breaks universal CLI convention)
 - **Status:** Resolved (movement 2, Spark — mateship pickup, commit 3269eb2)
-- **Description:** `mozart init test-project` → `Got unexpected extra argument (test-project)`. Every major CLI tool accepts positional args for init: `git init my-project`, `npm init my-project`, `cargo init my-project`. Mozart's `init_cmd.py` only accepts `--path` and `--name` as options. The error message gives no hint that `--name` exists.
+- **Description:** `mzt init test-project` → `Got unexpected extra argument (test-project)`. Every major CLI tool accepts positional args for init: `git init my-project`, `npm init my-project`, `cargo init my-project`. Marianne's `init_cmd.py` only accepts `--path` and `--name` as options. The error message gives no hint that `--name` exists.
 - **Impact:** First command after install fails. First impression: "this tool doesn't work like other tools."
 - **Resolution:** Added optional positional `score_name` argument to `init()`. Sets `--name` when provided (convenience shorthand). `--name` flag takes precedence when both given. Name validation applies to positional arg. 7 TDD tests in `test_cli_init.py::TestInitPositionalArgument`.
 
@@ -673,7 +673,7 @@ Each finding should include:
 - **Severity:** P2 (medium — confusing timestamp)
 - **Status:** Resolved (movement 3, Circuit)
 - **Resolution:** Added terminal status guard at `status.py:1487`: `Completed:` only shows when `job.status in {COMPLETED, FAILED, CANCELLED}`. 4 TDD tests prove: RUNNING hides, COMPLETED shows, FAILED shows, PAUSED hides.
-- **Description:** `mozart status mozart-orchestra-v3` shows `Completed: 2026-03-29 18:28:10 UTC` while the score is RUNNING. Code at `status.py:1484-1485` unconditionally prints `Completed:` when `job.completed_at` is set. The `completed_at` field is set when any sheet completes, not when the job finishes. A user monitoring a running score sees "Completed" and momentarily thinks the score finished.
+- **Description:** `mzt status marianne-orchestra-v3` shows `Completed: 2026-03-29 18:28:10 UTC` while the score is RUNNING. Code at `status.py:1484-1485` unconditionally prints `Completed:` when `job.completed_at` is set. The `completed_at` field is set when any sheet completes, not when the job finishes. A user monitoring a running score sees "Completed" and momentarily thinks the score finished.
 - **Impact:** Cognitive dissonance between RUNNING status and "Completed:" timestamp. User must figure out internal data model to understand.
 - **Action:** Only show `Completed:` when `job.status` is terminal (COMPLETED, FAILED, CANCELLED). The `Updated:` timestamp already covers the info need for running jobs.
 
@@ -682,7 +682,7 @@ Each finding should include:
 - **Severity:** P2 (medium — misleads about score correctness)
 - **Status:** Resolved (movement 3, Circuit)
 - **Resolution:** Added `_extract_template_declared_vars()` to `JinjaUndefinedVariableCheck` at `jinja.py:250`. Walks the Jinja2 AST for `Assign` and `For` nodes, extracts variable names (including tuple unpacking targets), and excludes them from the undeclared set. Root cause: `jinja2_meta.find_undeclared_variables` doesn't track variables declared in conditional branches (`{% if %}/{% elif %}`). 5 TDD tests: for-loop vars, set vars, conditional branches, truly-undefined still flagged, hello.yaml produces zero warnings.
-- **Description:** `mozart validate examples/hello.yaml` warns: `[V101] Undefined variable 'char' in prompt.template`. The variable `char` is defined within the template via `{% for id, char in characters.items() %}` (line 92) and `{% set char = characters[instance] %}` (line 114). The V101 validator checks for `{{ }}` references but doesn't recognize Jinja2 `{% for %}` and `{% set %}` as variable definitions.
+- **Description:** `mzt validate examples/hello.yaml` warns: `[V101] Undefined variable 'char' in prompt.template`. The variable `char` is defined within the template via `{% for id, char in characters.items() %}` (line 92) and `{% set char = characters[instance] %}` (line 114). The V101 validator checks for `{{ }}` references but doesn't recognize Jinja2 `{% for %}` and `{% set %}` as variable definitions.
 - **Impact:** The official example score produces a validation warning. Users either think the example is broken, or learn to ignore warnings. Both outcomes are bad.
 - **Action:** Either (a) enhance V101 to detect `{% set %}` and `{% for %}` assignments, or (b) lower to INFO with wording acknowledging Jinja2-local variables aren't detected.
 
@@ -698,29 +698,29 @@ Each finding should include:
 - **Impact:** Ambiguous references. Any citation of "F-065" could mean either finding.
 - **Action:** Renumber Ember's colliding entries to F-071, F-072, F-073 in a future movement. The append-only rule means we can't rewrite — just renumber.
 
-### F-071: `mozart list --json` Not Supported (CLI Consistency Gap)
+### F-071: `mzt list --json` Not Supported (CLI Consistency Gap)
 - **Found by:** Journey, Movement 2
 - **Severity:** P3 (low — minor inconsistency)
 - **Status:** Open
-- **Description:** `mozart list --json` → `No such option: --json`. Commands that support `--json`: validate, init, doctor, instruments list, instruments check, status. Commands that don't: list, errors, logs, history. The `list` command outputs a table that would benefit most from JSON — scripts need to parse running job IDs to feed to other commands.
+- **Description:** `mzt list --json` → `No such option: --json`. Commands that support `--json`: validate, init, doctor, instruments list, instruments check, status. Commands that don't: list, errors, logs, history. The `list` command outputs a table that would benefit most from JSON — scripts need to parse running job IDs to feed to other commands.
 - **Impact:** Scripters who use `--json` consistently across commands discover it's missing on `list`. They fall back to parsing table output (fragile) or piping `status --json` through jq.
-- **Action:** Add `--json` option to `mozart list` that outputs a JSON array of job objects with id, status, workspace, submitted fields.
+- **Action:** Add `--json` option to `marianne list` that outputs a JSON array of job objects with id, status, workspace, submitted fields.
 
-### F-072: `mozart resume` Says "Job" Instead of "Score" (F-029 Still Present)
+### F-072: `mzt resume` Says "Job" Instead of "Score" (F-029 Still Present)
 - **Found by:** Journey, Movement 2
 - **Severity:** P2 (medium — terminology inconsistency violates composer directive)
 - **Status:** Open
-- **Description:** `mozart resume nonexistent-job` → `Error: Job 'nonexistent-job' not found`. Other commands say "Score not found: nonexistent-job". The music metaphor directive requires "score" in all user-facing output. Resume is the only observed command still using "Job" in error messages after the error standardization sweep.
+- **Description:** `mzt resume nonexistent-job` → `Error: Job 'nonexistent-job' not found`. Other commands say "Score not found: nonexistent-job". The music metaphor directive requires "score" in all user-facing output. Resume is the only observed command still using "Job" in error messages after the error standardization sweep.
 - **Impact:** Users see different terminology depending on which command they use. Undermines the musical identity.
 - **Action:** Update resume.py error messages from "Job" to "Score". Related to F-029 (JOB_ID argument name across all commands).
 
-### F-073: `mozart resume` Suggests `diagnose` for Nonexistent Score (Unhelpful Hint)
+### F-073: `mzt resume` Suggests `diagnose` for Nonexistent Score (Unhelpful Hint)
 - **Found by:** Journey, Movement 2
 - **Severity:** P3 (low — hint leads to another error)
 - **Status:** Resolved (already fixed in resume.py — verified by Lens, movement 4)
-- **Description:** `mozart resume nonexistent-job` suggests `Run: mozart diagnose nonexistent-job`. But `diagnose` will also say "Score not found: nonexistent-job". The hint sends the user to another error instead of a solution. Compare to `status` and `diagnose` which correctly suggest `Run 'mozart list' to see available scores.`
+- **Description:** `mzt resume nonexistent-job` suggests `Run: marianne diagnose nonexistent-job`. But `diagnose` will also say "Score not found: nonexistent-job". The hint sends the user to another error instead of a solution. Compare to `status` and `diagnose` which correctly suggest `Run 'marianne list' to see available scores.`
 - **Impact:** User follows the hint, hits another error, feels more lost than before.
-- **Action:** Change resume's hint to suggest `mozart list` instead of `mozart diagnose`. The `diagnose` hint makes sense for known-but-failed scores, not unknown scores.
+- **Action:** Change resume's hint to suggest `marianne list` instead of `marianne diagnose`. The `diagnose` hint makes sense for known-but-failed scores, not unknown scores.
 
 ### F-074: Quality Gate Baseline Drift (F-050 Continuation) — 103 → 106
 - **Found by:** Journey, Movement 2
@@ -737,12 +737,12 @@ Each finding should include:
 - **Resolution:** Fix in `lifecycle.py:495-500`: GH#42 loop now defines `_terminal = (COMPLETED, FAILED, SKIPPED)` and only marks sheets as COMPLETED if their status is not already terminal. 3 TDD tests in `test_production_bug_fixes.py` (TestF075ResumeFanOutCorruption). Fix + tests were found uncommitted in the working tree — 5th occurrence of this pattern.
 - **Description:** When a parallel fan-out batch has mixed results (some sheets complete, some fail), resuming the job silently overwrites the failed sheet's status to COMPLETED and skips retrying it. Downstream dependent sheets then execute against incomplete inputs.
 - **Root Cause:** Three interacting bugs in the runner's resume path:
-  1. **High-water mark misrepresents progress** (`src/mozart/core/checkpoint.py:892`): `last_completed_sheet` only advances, never retreats. In a fan-out where sheets 3-7 complete but sheet 2 fails, `last_completed_sheet=7` — hiding the failure below the watermark.
-  2. **Resume skips failed sheets** (`src/mozart/daemon/job_service.py:345`): `resume_sheet = last_completed_sheet + 1 = 8`. Failed sheet 2 is below the watermark and never reconsidered.
-  3. **Resume force-marks prior sheets COMPLETED** (`src/mozart/execution/runner/lifecycle.py:492-495`): The GH#42 fix loops `for skipped in range(1, start_sheet)` and sets `status = SheetStatus.COMPLETED` unconditionally — overwriting sheet 2's FAILED status in SQLite. This is the state corruption.
-  4. **`_permanently_failed` is ephemeral** (`src/mozart/execution/parallel.py:238`): In-memory set, lost on resume. The DAG has no record of which sheets previously failed.
+  1. **High-water mark misrepresents progress** (`src/marianne/core/checkpoint.py:892`): `last_completed_sheet` only advances, never retreats. In a fan-out where sheets 3-7 complete but sheet 2 fails, `last_completed_sheet=7` — hiding the failure below the watermark.
+  2. **Resume skips failed sheets** (`src/marianne/daemon/job_service.py:345`): `resume_sheet = last_completed_sheet + 1 = 8`. Failed sheet 2 is below the watermark and never reconsidered.
+  3. **Resume force-marks prior sheets COMPLETED** (`src/marianne/execution/runner/lifecycle.py:492-495`): The GH#42 fix loops `for skipped in range(1, start_sheet)` and sets `status = SheetStatus.COMPLETED` unconditionally — overwriting sheet 2's FAILED status in SQLite. This is the state corruption.
+  4. **`_permanently_failed` is ephemeral** (`src/marianne/execution/parallel.py:238`): In-memory set, lost on resume. The DAG has no record of which sheets previously failed.
 - **Observed In:** the-rosetta-score (2026-03-30). Sheet 2 (expedition-1) failed after 49 attempts (rate limit exhaustion). On resume, sheet 2 was silently marked COMPLETED in SQLite (`status=completed, attempt_count=49, exit_code=NULL`). Sheet 8 (the collision, which depends on all of stage 2 including sheet 2) executed and passed. Sheet 9+ proceeded with incomplete inputs.
-- **Evidence:** `sqlite3 rosetta-workspace/.mozart-state.db "SELECT sheet_num, status, attempt_count, exit_code FROM sheets"` shows sheet 2 as `completed|49|NULL`. Conductor log confirms `resume_sheet: 8` and `parallel.batch_executing: [8]` with no retry of sheet 2.
+- **Evidence:** `sqlite3 rosetta-workspace/.marianne-state.db "SELECT sheet_num, status, attempt_count, exit_code FROM sheets"` shows sheet 2 as `completed|49|NULL`. Conductor log confirms `resume_sheet: 8` and `parallel.batch_executing: [8]` with no retry of sheet 2.
 - **Impact:** Dependency enforcement is broken for any job that resumes after a fan-out failure. Failed sheets are silently erased. Downstream sheets run against incomplete/missing inputs. Violates M-009 (CheckpointState is source of truth) and architectural invariant #2 (CheckpointState is sole state authority).
 - **Fix Direction:**
   - The GH#42 loop (lifecycle.py:492-495) must preserve existing FAILED status — only mark sheets COMPLETED if they don't already have a terminal status.
@@ -757,12 +757,12 @@ Each finding should include:
 - **Severity:** P1 (debuggability — violates goal #3, masks rate limit errors as validation failures)
 - **Status:** Resolved (movement 3, Maverick — mateship pickup of unnamed musician's fix)
 - **Resolution:** Fix in `sheet.py:1607-1620`: rate limit check (`result.rate_limited`) now runs BEFORE validations. When rate limited, validations are skipped entirely, `_handle_rate_limit` is called directly, and the loop continues. Validations only run against output from non-rate-limited attempts. 1 test updated in `test_sheet_execution.py` (TestRateLimitHandling) to verify only 1 validation call occurs (not 2). Commit f58fc89.
-- **Description:** In the sheet execution loop (`src/mozart/execution/runner/sheet.py:1607-1687`), validations run **unconditionally** after every backend execution, before the rate limit check. When a rate-limited backend returns partial or empty output, validations fail against that garbage, and the failure is recorded in state. The rate limit is only checked after validations fail (line 1675). This creates three problems:
+- **Description:** In the sheet execution loop (`src/marianne/execution/runner/sheet.py:1607-1687`), validations run **unconditionally** after every backend execution, before the rate limit check. When a rate-limited backend returns partial or empty output, validations fail against that garbage, and the failure is recorded in state. The rate limit is only checked after validations fail (line 1675). This creates three problems:
   1. **Spurious validation failures recorded in state** (line 1613): Every rate-limited iteration writes a validation failure to `sheet_state`, even though the real cause is rate limiting. The `error_message` is set to the validation failure description (line 1670-1671), not the rate limit.
-  2. **Rate limit exhaustion is misreported as validation failure**: When `_handle_rate_limit` raises `RateLimitExhaustedError` after max waits, `sheet_state.error_message` already contains the validation error (e.g., `[MALFORMED] File doesn't match pattern`). `mozart errors` shows `type: permanent, code: validation` — the real cause (48 quota waits exhausted) is hidden.
+  2. **Rate limit exhaustion is misreported as validation failure**: When `_handle_rate_limit` raises `RateLimitExhaustedError` after max waits, `sheet_state.error_message` already contains the validation error (e.g., `[MALFORMED] File doesn't match pattern`). `mzt errors` shows `type: permanent, code: validation` — the real cause (48 quota waits exhausted) is hidden.
   3. **Validation pass on rate-limited execution marks sheet COMPLETED** (line 1632-1650): If `result.rate_limited=True` but validations happen to pass (e.g., `file_exists` satisfied by a previous attempt's output), the sheet is marked COMPLETED via the success path. The rate limit check at line 1675 is never reached because the success path returned early. The sheet is "completed" with zero useful work from this attempt.
-- **Additional concern:** `_detect_rate_limit` (`src/mozart/backends/base.py:229`) returns `False` when `exit_code == 0`. If the Claude CLI handles a rate limit internally and exits 0 with partial output, `result.rate_limited` is `False` and the rate limit is invisible to Mozart.
-- **Observed In:** the-rosetta-score sheet 2 — `mozart errors` reported `[MALFORMED] File '02-expedition-1.md' doesn't match pattern: (?i)THE SCORE:` with `type: permanent, code: validation`. Actual cause was rate limit exhaustion after 48 quota waits. The validation error was from running content_regex against output produced under rate limiting.
+- **Additional concern:** `_detect_rate_limit` (`src/marianne/backends/base.py:229`) returns `False` when `exit_code == 0`. If the Claude CLI handles a rate limit internally and exits 0 with partial output, `result.rate_limited` is `False` and the rate limit is invisible to Marianne.
+- **Observed In:** the-rosetta-score sheet 2 — `mzt errors` reported `[MALFORMED] File '02-expedition-1.md' doesn't match pattern: (?i)THE SCORE:` with `type: permanent, code: validation`. Actual cause was rate limit exhaustion after 48 quota waits. The validation error was from running content_regex against output produced under rate limiting.
 - **Fix Direction:**
   - Check `result.rate_limited` BEFORE running validations. If rate limited, skip validations entirely, call `_handle_rate_limit`, and `continue` the loop. Validations against rate-limited output are meaningless.
   - On rate limit exhaustion, ensure `sheet_state.error_message` reflects the rate limit cause, not the last spurious validation failure.
@@ -777,8 +777,8 @@ Each finding should include:
 - **Resolution:** Added `registry.get_hook_config()` call to the restoration loop in `manager.py:225-231`. hook_config JSON is loaded, parsed, and set on `JobMeta` during startup. 2 TDD tests in test_daemon_manager.py (TestHookConfigRestoration). Note: `concert_config` and `chain_depth` are NOT persisted in the registry — a future sibling fix is needed (see error class below).
 - **Description:** When the conductor restarts, it restores `JobMeta` from the registry DB for all known jobs (`manager.py:221-229`). However, the restoration code does not load `hook_config_json` from the DB, leaving `meta.hook_config = None`. When a resumed job later completes, the hook dispatch condition at `manager.py:2004` (`meta.hook_config`) evaluates to `None` and hooks are silently skipped. No log entry is produced because the `None` check comes before both the execution branch and the `hooks.skipped_zero_work` branch.
 - **Root Cause:** `manager.py:221-229` constructs `JobMeta` with only 7 fields from the registry record. It never calls `registry.get_hook_config(job_id)` to populate `hook_config`. The `store_hook_config` method (`registry.py:330`) correctly persists hook config at submission time, and the `get_hook_config` method (`registry.py:338`) exists to read it back, but the restoration loop never uses it.
-- **Observed In:** the-rosetta-score (2026-03-30). The score has `on_success: [{type: run_job, ...}]` for self-chaining. The job was submitted, failed (sheet 2 rate limit), the conductor was restarted, the job was resumed, completed all remaining sheets, but never chained. `mozart status` shows: `WARNING: 1 on_success hook(s) configured but no results recorded`. The conductor log shows `hooks.skipped_daemon_managed` (runner deferred to daemon) but no daemon hook execution or skip log — the hook dispatch code was never reached because `meta.hook_config` was `None`.
-- **Evidence:** `sqlite3 ~/.mozart/daemon-state.db "SELECT hook_config_json IS NOT NULL, length(hook_config_json) FROM jobs WHERE job_id='the-rosetta-score'"` → `1|358`. The config is in the DB but was never loaded into memory.
+- **Observed In:** the-rosetta-score (2026-03-30). The score has `on_success: [{type: run_job, ...}]` for self-chaining. The job was submitted, failed (sheet 2 rate limit), the conductor was restarted, the job was resumed, completed all remaining sheets, but never chained. `marianne status` shows: `WARNING: 1 on_success hook(s) configured but no results recorded`. The conductor log shows `hooks.skipped_daemon_managed` (runner deferred to daemon) but no daemon hook execution or skip log — the hook dispatch code was never reached because `meta.hook_config` was `None`.
+- **Evidence:** `sqlite3 ~/.marianne/daemon-state.db "SELECT hook_config_json IS NOT NULL, length(hook_config_json) FROM jobs WHERE job_id='the-rosetta-score'"` → `1|358`. The config is in the DB but was never loaded into memory.
 - **Impact:** Any self-chaining score (evolution cycles, the rosetta score, quality continuous runs) silently stops chaining after a conductor restart. No error, no warning. The job shows COMPLETED but the chain is broken. This defeats the purpose of `on_success` hooks for iterative scores.
 - **Error Class:** This is an instance of a broader pattern: **in-memory state not fully reconstructed from persistent storage after restart.** The same class of error could affect `concert_config`, `completed_new_work`, or any other `JobMeta` field that is set during submission but not restored. All `JobMeta` fields that are persisted to the registry should be loaded during restoration.
 - **Fix Direction:**
@@ -793,7 +793,7 @@ Each finding should include:
 - **Severity:** P2 (documentation — skill guides musicians and external users writing scores)
 - **Status:** Resolved (movement 2, Guide)
 - **Resolution:** Fixed 4 incorrect values in essentials.md (max_output_capture_bytes 10KB→50KB, recursive_light added to backend types, instrument_name added to core vars). Added fan-out aliases to patterns.md. Added Instrument (Recommended) section and Per-Sheet Instruments section. Commit 3fc7fcd (plugins submodule e5facf2). Remaining 31 missing features are internal engine knobs — per F-078 framing guidance, these belong in a reference doc, not the authoring skill.
-- **Description:** Cross-referenced the `mozart:score-authoring` skill against actual Pydantic config models. The skill covers the core 80% well but has significant gaps and a few errors.
+- **Description:** Cross-referenced the `marianne:score-authoring` skill against actual Pydantic config models. The skill covers the core 80% well but has significant gaps and a few errors.
 - **Incorrect values (fix immediately):**
   1. `backend.max_output_capture_bytes` — skill says 10240 (10KB), actual default is 51200 (50KB)
   2. `stale_detection.idle_timeout_seconds` — skill says 300s in config ref but 1800s in checklist. Code default is 300s.
@@ -812,7 +812,7 @@ Each finding should include:
 - **Found by:** Composer, Movement 2
 - **Severity:** N/A (opportunity — pattern discovery, not a bug)
 - **Status:** open
-- **Description:** The Rosetta Score's first iteration produced a corpus of 18 named orchestration patterns, all marked `[BUILD TODAY]`, plus 1 proof score (`rosetta-proof-immune-cascade.yaml`). The score and corpus now live in the Mozart repo: `scores/the-rosetta-score.yaml` and `scores/rosetta-corpus.md` (both tracked). Workspace at `workspaces/rosetta-workspace/` (transient). All 18 patterns survived adversarial review (practitioner, skeptic, newcomer) — 5 were cut, 11 were strengthened, 1 was added.
+- **Description:** The Rosetta Score's first iteration produced a corpus of 18 named orchestration patterns, all marked `[BUILD TODAY]`, plus 1 proof score (`rosetta-proof-immune-cascade.yaml`). The score and corpus now live in the Marianne repo: `scores/the-rosetta-score.yaml` and `scores/rosetta-corpus.md` (both tracked). Workspace at `workspaces/rosetta-workspace/` (transient). All 18 patterns survived adversarial review (practitioner, skeptic, newcomer) — 5 were cut, 11 were strengthened, 1 was added.
 - **Patterns discovered (18):**
   - **Foundational:** Fan-out + Synthesis
   - **Score-level:** Immune Cascade, Kill Chain F2T2EA, Mission Command, Shipyard Sequence, Succession Pipeline, Fugal Exposition
@@ -829,7 +829,7 @@ Each finding should include:
 - **Severity:** P1 (high — recurring pattern, correctness fixes at risk)
 - **Status:** Resolved (movement 2, mateship pipeline — committed across multiple commits by various musicians)
 - **Description:** Fourth occurrence of the uncommitted work pattern. Working tree contains:
-  - `src/mozart/daemon/baton/core.py`: Axiom's F-062 (memory leak fix), F-065 (infinite retry fix), F-066 (FERMATA check), F-067 (cost re-check). +70/-10 lines.
+  - `src/marianne/daemon/baton/core.py`: Axiom's F-062 (memory leak fix), F-065 (infinite retry fix), F-066 (FERMATA check), F-067 (cost re-check). +70/-10 lines.
   - `tests/test_baton_invariants_m2.py`: Axiom's 10 TDD tests proving F-065/F-066/F-067. 368 lines (untracked).
   - `tests/test_baton_user_journeys_m2.py`: Journey's 24 CLI user journey tests. 658 lines (untracked).
   - `tests/test_quality_gate.py`: Baseline drift 106→107. +1/-1 lines.
@@ -862,7 +862,7 @@ Each finding should include:
 - **Severity:** P2 (medium — same class as F-026, not propagated to examples/)
 - **Status:** Resolved (movement 2, Compass)
 - **Resolution:** Removed `--workspace`/`-w` from 6 CLI examples in `examples/README.md` (Running Examples, Running Long Jobs, Pausing and Modifying sections). Commands now match the daemon-mode pattern used in the main README and getting-started.md. Note: two example score headers (`parallel-research.yaml:29`, `parallel-research-fanout.yaml:27`) still reference `-w` — these are in-file comments, not docs, and may need a separate sweep.
-- **Description:** F-026 (P0) fixed the main README's use of `--workspace` with `mozart status`. But `examples/README.md` still uses `--workspace` / `-w` with `status`, `resume`, `pause`, and `modify` in 9 locations (lines 159, 162, 174, 183, 186, 189, 191). Two example score headers also reference it: `parallel-research.yaml:29` (`mozart status parallel-research -w ./parallel-workspace`) and `parallel-research-fanout.yaml:27` (`mozart status fanout-research -w ./fanout-workspace`).
+- **Description:** F-026 (P0) fixed the main README's use of `--workspace` with `marianne status`. But `examples/README.md` still uses `--workspace` / `-w` with `status`, `resume`, `pause`, and `modify` in 9 locations (lines 159, 162, 174, 183, 186, 189, 191). Two example score headers also reference it: `parallel-research.yaml:29` (`mzt status parallel-research -w ./parallel-workspace`) and `parallel-research-fanout.yaml:27` (`mzt status fanout-research -w ./fanout-workspace`).
 - **Impact:** A newcomer browsing examples hits the same dead-end that F-026 fixed in the main README. The `--workspace` flag on `status` is hidden/debug-only — showing it in public-facing usage examples teaches a wrong workflow. The fix was applied to one file but not swept across the public corpus.
 - **Error class:** Same as F-026 — fix applied to one file but not swept across all docs. This is the "fix the instance, not the pattern" anti-pattern the composer warned about.
 - **Action:** Update `examples/README.md` usage examples and both example score headers to remove `-w` from `status` commands. Keep `-w` only on commands where it's a public option (`run`, `resume`).
@@ -879,10 +879,10 @@ Each finding should include:
 - **Found by:** Newcomer, Movement 2
 - **Severity:** P3 (low — user-facing doc exposes implementation detail)
 - **Status:** Resolved (movement 2, Compass)
-- **Resolution:** Replaced all 3 occurrences of `src/mozart/instruments/builtins/` in `docs/instrument-guide.md` with user-facing descriptions: "ship as YAML profiles bundled with Mozart" (line 47), "shipped with Mozart" (line 130), "Mozart's bundled instruments directory" (line 285). User-visible directories (`~/.mozart/instruments/`, `.mozart/instruments/`) preserved as-is.
-- **Description:** `docs/instrument-guide.md:48` says profiles are "defined as YAML files in `src/mozart/instruments/builtins/`" and line 131 says "Built-in — `src/mozart/instruments/builtins/` (shipped with Mozart, lowest precedence)". This is an internal source code path. Users installing from pip or running from a virtual environment don't interact with the source tree. The loading order section (line 131) is worse — it implies users need to understand the source tree to understand profile precedence.
+- **Resolution:** Replaced all 3 occurrences of `src/marianne/instruments/builtins/` in `docs/instrument-guide.md` with user-facing descriptions: "ship as YAML profiles bundled with Marianne" (line 47), "shipped with Marianne" (line 130), "Marianne's bundled instruments directory" (line 285). User-visible directories (`~/.marianne/instruments/`, `.marianne/instruments/`) preserved as-is.
+- **Description:** `docs/instrument-guide.md:48` says profiles are "defined as YAML files in `src/marianne/instruments/builtins/`" and line 131 says "Built-in — `src/marianne/instruments/builtins/` (shipped with Marianne, lowest precedence)". This is an internal source code path. Users installing from pip or running from a virtual environment don't interact with the source tree. The loading order section (line 131) is worse — it implies users need to understand the source tree to understand profile precedence.
 - **Impact:** Minor confusion. A newcomer might look for this directory and not find it if they installed from a package. The path is accurate but it's implementation detail that doesn't belong in a user guide.
-- **Action:** Replace `src/mozart/instruments/builtins/` with "Shipped with Mozart" or "Built-in profiles (installed with Mozart)" in both locations. Keep the two user-visible directories (`~/.mozart/instruments/` and `.mozart/instruments/`) as they are.
+- **Action:** Replace `src/marianne/instruments/builtins/` with "Shipped with Marianne" or "Built-in profiles (installed with Marianne)" in both locations. Keep the two user-visible directories (`~/.marianne/instruments/` and `.marianne/instruments/`) as they are.
 
 ### F-085: F-062 Test Asserted Old Buggy Behavior — Broken After Fix
 - **Found by:** Newcomer, Movement 2
@@ -903,7 +903,7 @@ Each finding should include:
 - **Found by:** Guide, Movement 2
 - **Severity:** P2 (medium — internal dev scores in public examples/)
 - **Status:** Open
-- **Description:** Four examples in `examples/` contain hardcoded absolute paths to `/home/emzi/Projects/mozart-ai-compose`: `fix-deferred-issues.yaml` (8 occurrences in working_directory and validation commands), `fix-observability.yaml` (6 occurrences), `quality-continuous-daemon.yaml` (9 occurrences), `phase3-wiring.yaml` (1 in header comment). Additionally, `sheet-review.yaml` references `/home/emzi/.claude/skills/` and `context-engineering-lab.yaml` references `/home/emzi/Projects/mozart-ai-compose`. These are internal development scores that were placed in `examples/` rather than `scores-internal/`. They work on the author's machine but would fail for any other user.
+- **Description:** Four examples in `examples/` contain hardcoded absolute paths to `/home/emzi/Projects/marianne-ai-compose`: `fix-deferred-issues.yaml` (8 occurrences in working_directory and validation commands), `fix-observability.yaml` (6 occurrences), `quality-continuous-daemon.yaml` (9 occurrences), `phase3-wiring.yaml` (1 in header comment). Additionally, `sheet-review.yaml` references `/home/emzi/.claude/skills/` and `context-engineering-lab.yaml` references `/home/emzi/Projects/marianne-ai-compose`. These are internal development scores that were placed in `examples/` rather than `scores-internal/`. They work on the author's machine but would fail for any other user.
 - **Impact:** A newcomer cloning the repo and running these scores will get failures from non-existent paths. The scores teach incorrect patterns (hardcoded absolute paths instead of relative workspace references). The examples/ directory should contain portable, user-ready scores.
 - **Action:** Either (a) clean these scores for public use by replacing hardcoded paths with relative references and generic project paths, or (b) move them to `scores-internal/` and update `examples/README.md` to remove references. This is part of the M4 "Audit and clean examples/" task.
 
@@ -916,22 +916,22 @@ Each finding should include:
 - **Error class:** Same as F-013 (1,699 lines), F-019 (136 lines), F-057 (2,262 lines), F-080 (1,100 lines). Fifth occurrence. The mateship pipeline catches these reliably, but prevention isn't happening. The commit step is consistently treated as deferrable rather than continuous.
 - **Action:** Commit the 32 files immediately. Consider structural changes to the commit protocol: commit after each logical task, not at the end of the session.
 
-### F-090: `mozart doctor` and `conductor-status` Disagree with `mozart status` About Conductor State
+### F-090: `marianne doctor` and `conductor-status` Disagree with `marianne status` About Conductor State
 - **Found by:** Ember, Movement 2
 - **Severity:** P2 (medium — three commands disagree about the same fact)
 - **Status:** Partially resolved (movement 1 cycle 2, Ghost — doctor.py fixed, conductor-status not yet)
 - **Resolution (doctor.py):** Added two-phase conductor detection: PID file check first, then IPC socket probe as fallback. When PID file is missing but the socket responds, doctor now correctly reports "running". 4 TDD tests. Commit 42d3d1a. `conductor-status` still uses PID-only via `process.py:get_conductor_status()` — needs the same socket fallback treatment.
-- **Description:** `mozart status` shows conductor RUNNING (15h 56m uptime) via IPC socket at `/tmp/mozart.sock`. `mozart doctor` shows "! Conductor not running" via PID file check. `conductor-status` shows "not running." The PID file (`~/.mozart/mozart.pid`) is absent. The process IS running (PID 1120, visible in `ps aux`). The socket exists. The IPC works. But the PID-based check returns false.
+- **Description:** `marianne status` shows conductor RUNNING (15h 56m uptime) via IPC socket at `/tmp/marianne.sock`. `marianne doctor` shows "! Conductor not running" via PID file check. `conductor-status` shows "not running." The PID file (`~/.marianne/marianne.pid`) is absent. The process IS running (PID 1120, visible in `ps aux`). The socket exists. The IPC works. But the PID-based check returns false.
 - **Impact:** Users who run `doctor` to check health get the wrong answer. A user who trusts `doctor` over `status` might try to start a second conductor, potentially conflicting with the running one. The discrepancy between three commands (status=RUNNING, doctor=not running, conductor-status=not running) erodes trust in diagnostic tooling.
 - **Error class:** State check uses different detection methods across commands. `status` checks IPC socket (reliable). `doctor` and `conductor-status` check PID file (fragile — can be deleted, stale, or never created). The PID file is a proxy, not the truth. The socket IS the truth.
 - **Action:** Unify conductor detection across all commands. Either: (a) all commands use IPC socket probe as primary detection, PID file as fallback, or (b) ensure the PID file is always created and maintained correctly. The socket-based check is more reliable.
 
-### F-091: `mozart validate` Configuration Summary Shows "Backend:" for Scores Using `instrument:`
+### F-091: `marianne validate` Configuration Summary Shows "Backend:" for Scores Using `instrument:`
 - **Found by:** Ember, Movement 2
 - **Severity:** P3 (low — terminology mismatch in display)
 - **Status:** Resolved (movement 3, Blueprint)
 - **Resolution:** validate.py now checks `config.instrument` and shows "Instrument: {name}" when set, falls back to "Backend: {type}" for legacy scores.
-- **Description:** `mozart validate examples/hello.yaml` (working tree version with `instrument: claude-code`) shows `Backend: claude_cli` in the Configuration summary. The user writes `instrument:` and the system reports `Backend:`. The display code at the validate summary section doesn't check whether the score used `instrument:` or `backend:` and always displays the backend terminology.
+- **Description:** `mzt validate examples/hello.yaml` (working tree version with `instrument: claude-code`) shows `Backend: claude_cli` in the Configuration summary. The user writes `instrument:` and the system reports `Backend:`. The display code at the validate summary section doesn't check whether the score used `instrument:` or `backend:` and always displays the backend terminology.
 - **Impact:** Minor but counteracts the instrument migration effort. Reinforces the impression that `instrument:` is just an alias. The configuration summary should reflect what the user wrote.
 - **Action:** Show `Instrument: claude-code` when the score uses `instrument:` field. Show `Backend: claude_cli` when the score uses the legacy `backend:` field. The display should match the user's chosen syntax.
 
@@ -939,7 +939,7 @@ Each finding should include:
 - **Found by:** Newcomer, Movement 2
 - **Severity:** P3 (low — cosmetic warning on flagship example)
 - **Status:** Resolved (movement 3, Circuit — same fix as F-069)
-- **Description:** `mozart validate examples/hello.yaml` warns: `[V101] Undefined variable 'char' in prompt.template`. But `char` is a Jinja2 loop variable set via `{% for id, char in characters.items() %}` (hello.yaml:91) and `{% set char = characters[instance] %}` (hello.yaml:113). The V101 checker doesn't understand Jinja2 loop variables or `{% set %}` assignments — it only checks against top-level template variables.
+- **Description:** `mzt validate examples/hello.yaml` warns: `[V101] Undefined variable 'char' in prompt.template`. But `char` is a Jinja2 loop variable set via `{% for id, char in characters.items() %}` (hello.yaml:91) and `{% set char = characters[instance] %}` (hello.yaml:113). The V101 checker doesn't understand Jinja2 loop variables or `{% set %}` assignments — it only checks against top-level template variables.
 - **Impact:** The first command a newcomer runs on the flagship example produces a warning. Introduces doubt about whether the example is broken. A false positive on the best example is worse than no check at all.
 - **Action:** Either suppress V101 for variables that appear as Jinja2 loop/set targets, or document this as a known limitation of the validator.
 
@@ -948,7 +948,7 @@ Each finding should include:
 - **Severity:** P0 (critical — examples are the product's teaching corpus)
 - **Status:** Resolved (movement 3, Blueprint)
 - **Resolution:** Changed all 35 examples from `./workspaces/` to `../workspaces/` (consistent with hello.yaml and simple-sheet.yaml). Also fixed `iterative-dev-loop.yaml` invalid `max_output_chars: 0` (removed, since `auto_capture_stdout: false` already disables capture).
-- **Description:** 34 of 37 example scores in `examples/` fail `mozart validate` with `[V002] Workspace parent directory does not exist`. The cause: these scores use `workspace: "./workspaces/[name]"` which resolves relative to the score file's directory (`examples/`). The `examples/workspaces/` directory does not exist. Only two scores pass: `hello.yaml` and `simple-sheet.yaml`, which use `workspace: "../workspaces/[name]"` (navigating up to the repo root where `workspaces/` exists). Additionally, `iterative-dev-loop.yaml` fails with a Pydantic schema error (`cross_sheet.max_output_chars: 0` violates `gt=0` constraint at line 3077), and `iterative-dev-loop-config.yaml` fails because it's a generator config, not a Mozart score.
+- **Description:** 34 of 37 example scores in `examples/` fail `marianne validate` with `[V002] Workspace parent directory does not exist`. The cause: these scores use `workspace: "./workspaces/[name]"` which resolves relative to the score file's directory (`examples/`). The `examples/workspaces/` directory does not exist. Only two scores pass: `hello.yaml` and `simple-sheet.yaml`, which use `workspace: "../workspaces/[name]"` (navigating up to the repo root where `workspaces/` exists). Additionally, `iterative-dev-loop.yaml` fails with a Pydantic schema error (`cross_sheet.max_output_chars: 0` violates `gt=0` constraint at line 3077), and `iterative-dev-loop-config.yaml` fails because it's a generator config, not a Marianne score.
 - **Impact:** A newcomer who finishes the hello.yaml quickstart and tries ANY other example immediately hits a validation error. The examples corpus — 37 scores spanning software dev, research, writing, and planning — is effectively unusable beyond the two that use `../workspaces/`. This undermines the "Beyond Coding" positioning and the entire learning path from hello.yaml to real-world scores.
 - **Error class:** The V002 error message is helpful (suggests `mkdir -p`) but the suggested fix is wrong — creating `examples/workspaces/` would put workspaces in the wrong location. The root cause is inconsistent workspace path conventions between scores.
 - **Action:** Change all 34 scores from `./workspaces/` to `../workspaces/` (consistent with hello.yaml and simple-sheet.yaml). Fix `iterative-dev-loop.yaml` `max_output_chars: 0`. Either move `iterative-dev-loop-config.yaml` out of examples/ or mark it clearly as a generator config, not a runnable score.
@@ -961,13 +961,13 @@ Each finding should include:
 - **Impact:** A newcomer reading the README sees `instrument:` in the example, then `Backend Options` with `type: claude_cli` in the reference table 10 lines below. This teaches contradictory patterns. The migration of examples (F-083) without migrating the README reference creates a split personality.
 - **Action:** Rename "Backend Options" to "Instrument Configuration". Update the table to document `instrument_config:` fields. Change "claude_cli backend" in prerequisites. Update architecture diagram label. Decide whether `backend:` needs legacy documentation or should be removed from the README entirely.
 
-### F-095: `mozart init` Generates Deprecated `backend:` Syntax — Contradicts F-083 Migration
+### F-095: `mzt init` Generates Deprecated `backend:` Syntax — Contradicts F-083 Migration
 - **Found by:** Adversary, Movement 2
 - **Severity:** P1 (high — first thing every new user sees)
 - **Status:** Resolved (movement 3, Blueprint)
-- **Resolution:** Changed `init_cmd.py` starter score template from `backend: type: claude_cli` to `instrument: claude-code` with `instrument_config: timeout_seconds: 300`. Updated comments to list available instruments and reference `mozart instruments list`.
-- **Description:** `mozart init` generates a starter score using the deprecated `backend:` syntax (`init_cmd.py:74`). The template contains `backend: type: claude_cli` with a comment on the line above (line 73) saying "use `instrument: claude-code` instead of backend:". The entire orchestra spent movement 2 migrating 37 examples from `backend:` to `instrument:` (F-083), but the command that generates NEW scores still uses the old syntax. Every new user's first score teaches the wrong pattern.
-- **Impact:** New users who run `mozart init` → edit → run get a working score using deprecated syntax. When they later read the docs or examples (which now use `instrument:`), the inconsistency creates confusion. The init command contradicts the migration it should support.
+- **Resolution:** Changed `init_cmd.py` starter score template from `backend: type: claude_cli` to `instrument: claude-code` with `instrument_config: timeout_seconds: 300`. Updated comments to list available instruments and reference `mzt instruments list`.
+- **Description:** `mzt init` generates a starter score using the deprecated `backend:` syntax (`init_cmd.py:74`). The template contains `backend: type: claude_cli` with a comment on the line above (line 73) saying "use `instrument: claude-code` instead of backend:". The entire orchestra spent movement 2 migrating 37 examples from `backend:` to `instrument:` (F-083), but the command that generates NEW scores still uses the old syntax. Every new user's first score teaches the wrong pattern.
+- **Impact:** New users who run `mzt init` → edit → run get a working score using deprecated syntax. When they later read the docs or examples (which now use `instrument:`), the inconsistency creates confusion. The init command contradicts the migration it should support.
 - **Fix:** Change `init_cmd.py` starter score template from `backend: type: claude_cli` to `instrument: claude-code` with `instrument_config: timeout_seconds: 300`. Also update the comments to remove the "use instrument: instead of backend:" hint (since it would already be using `instrument:`). 5-minute fix.
 - **Error class:** Same pattern as F-094 (README Configuration Reference teaches old syntax) and F-089 (uncommitted migration files). The migration changed old files but didn't update code that generates new files.
 
@@ -979,7 +979,7 @@ Each finding should include:
 - **Found by:** Foundation, Movement 3
 - **Severity:** P1 (high — blocks CI-clean main)
 - **Status:** Resolved (movement 3, Blueprint — committed as 75bebed)
-- **Description:** Uncommitted changes in `src/mozart/core/config/job.py`, `src/mozart/core/config/__init__.py`, and `src/mozart/core/sheet.py` add M4 features (`movements`, `instruments`, `per_sheet_instruments`, `instrument_map`). These changes introduce: (1) a mypy error at `sheet.py:229` where `config.movements[movement].instrument` is `str | None` but is assigned to `instrument_name: str`, and (2) a failing reconciliation test (`test_mapping_covers_all_config_sections`) because `movements` and `instruments` are new JobConfig fields without CONFIG_STATE_MAPPING entries. This is the 5th occurrence of uncommitted work in the orchestra.
+- **Description:** Uncommitted changes in `src/marianne/core/config/job.py`, `src/marianne/core/config/__init__.py`, and `src/marianne/core/sheet.py` add M4 features (`movements`, `instruments`, `per_sheet_instruments`, `instrument_map`). These changes introduce: (1) a mypy error at `sheet.py:229` where `config.movements[movement].instrument` is `str | None` but is assigned to `instrument_name: str`, and (2) a failing reconciliation test (`test_mapping_covers_all_config_sections`) because `movements` and `instruments` are new JobConfig fields without CONFIG_STATE_MAPPING entries. This is the 5th occurrence of uncommitted work in the orchestra.
 - **Impact:** Any musician who runs the full test suite sees failures. mypy is not clean. This blocks the quality gate for main.
 - **Fix:** The musician who added these fields needs to: (1) add a `None` guard at `sheet.py:229`, (2) add `movements` and `instruments` entries to `CONFIG_STATE_MAPPING` in `reconciliation.py`, and (3) commit the work.
 - **Error class:** Same as F-013, F-019, F-057, F-080, F-089 — uncommitted work. 5th occurrence across 3 movements.
@@ -992,11 +992,11 @@ Each finding should include:
 - **Found by:** Composer investigation
 - **Severity:** P0 (critical — caused job failure, misdiagnosed as backend timeout)
 - **Status:** Resolved (movement 4, Bedrock verification). E006 error code (Blueprint M4), error display fix (Spark M1), idle_timeout raised to 7200 (composer, verified by Bedrock M4). All sub-tasks complete.
-- **Description:** The v3 job (mozart-orchestra-v3) failed at sheet 95 after running for ~42 hours. Sheets 66 (journey, M2) and 95 (forge, M3) were killed by stale detection at 30 minutes despite `backend.timeout_seconds: 10800` (3 hours). The stale detection `idle_timeout_seconds: 1800` fires when no stdout is produced for 30 minutes. For code-heavy work (running tests, reading large codebases, complex reasoning), agents routinely go silent for >30 minutes.
-- **Root cause:** `_idle_watchdog()` at `src/mozart/execution/runner/sheet.py:290-320` cancels the execution task after `idle_timeout_seconds` of no progress callbacks. The resulting `_StaleExecutionError` is converted to `ExecutionResult(exit_reason="timeout", error_type="stale")` at `sheet.py:367-377`. The error classifier at `classifier.py:338` maps `exit_reason="timeout"` to `ErrorCode.EXECUTION_TIMEOUT` (E001), but the error display shows `Code: timeout` rather than `E001` — the error code string is not being surfaced properly in the status/errors commands.
+- **Description:** The v3 job (marianne-orchestra-v3) failed at sheet 95 after running for ~42 hours. Sheets 66 (journey, M2) and 95 (forge, M3) were killed by stale detection at 30 minutes despite `backend.timeout_seconds: 10800` (3 hours). The stale detection `idle_timeout_seconds: 1800` fires when no stdout is produced for 30 minutes. For code-heavy work (running tests, reading large codebases, complex reasoning), agents routinely go silent for >30 minutes.
+- **Root cause:** `_idle_watchdog()` at `src/marianne/execution/runner/sheet.py:290-320` cancels the execution task after `idle_timeout_seconds` of no progress callbacks. The resulting `_StaleExecutionError` is converted to `ExecutionResult(exit_reason="timeout", error_type="stale")` at `sheet.py:367-377`. The error classifier at `classifier.py:338` maps `exit_reason="timeout"` to `ErrorCode.EXECUTION_TIMEOUT` (E001), but the error display shows `Code: timeout` rather than `E001` — the error code string is not being surfaced properly in the status/errors commands.
 - **Impact:** (1) Agents killed prematurely. (2) Error displayed as `Code: timeout` instead of `E001`, making diagnosis harder. (3) Stale detection is indistinguishable from backend timeout in error output.
 - **Fix:** Increase `idle_timeout_seconds` to at least 3600 (1 hour) for work stages. Fix error code display to show E001. Consider adding a distinct error code for stale detection (E006?) to differentiate from backend timeout.
-- **Evidence:** `mozart status mozart-orchestra-v3` shows Sheet 66 "failed (30m 0s)" and Sheet 95 "failed (30m 30s)". Both have `exit_reason=timeout` in error context. Score config has `timeout_seconds: 10800` but `stale_detection.idle_timeout_seconds: 1800`.
+- **Evidence:** `mzt status marianne-orchestra-v3` shows Sheet 66 "failed (30m 0s)" and Sheet 95 "failed (30m 30s)". Both have `exit_reason=timeout` in error context. Score config has `timeout_seconds: 10800` but `stale_detection.idle_timeout_seconds: 1800`.
 
 ### F-098: Rate Limit Errors Classified as E999 (Permanent) — Should Be E101/E102
 - **Found by:** Composer investigation
@@ -1028,7 +1028,7 @@ Each finding should include:
 - **Found by:** Composer investigation
 - **Severity:** P2 (medium — blocks correct error classification for gemini-cli agents)
 - **Status:** open
-- **Description:** The error classifier (`src/mozart/core/errors/classifier.py`) and parsers (`parsers.py`) are Claude-specific. Rate limit patterns match Claude CLI output ("Overloaded", "rate limit", "capacity"). The gemini-cli instrument profile at `instruments/builtins/gemini-cli.yaml` defines `rate_limit_patterns` and `auth_error_patterns`, but the `PluginCliBackend` at `execution/instruments/cli_backend.py` must use these profile-defined patterns instead of the hardcoded Claude patterns.
+- **Description:** The error classifier (`src/marianne/core/errors/classifier.py`) and parsers (`parsers.py`) are Claude-specific. Rate limit patterns match Claude CLI output ("Overloaded", "rate limit", "capacity"). The gemini-cli instrument profile at `instruments/builtins/gemini-cli.yaml` defines `rate_limit_patterns` and `auth_error_patterns`, but the `PluginCliBackend` at `execution/instruments/cli_backend.py` must use these profile-defined patterns instead of the hardcoded Claude patterns.
 - **Impact:** When a gemini-cli agent hits a rate limit, the error will be classified as E999 (same as F-098 for Claude). The instrument profile defines the correct patterns but they may not be wired through to the classifier.
 - **Fix:** Verify `PluginCliBackend._classify_error()` uses the profile's error patterns. If the old runner is used (without baton), the existing classifier is called instead — it needs an instrument-aware code path.
 
@@ -1086,7 +1086,7 @@ Each finding should include:
 - **Status:** open (process not yet standardized)
 - **Description:** Every instrument profile MUST be verified against the actual CLI tool before shipping. Speculative profiles (based on documentation or assumptions) will have errors — F-106 proved this with gemini-cli (wrong flag, missing model, undercounting tokens). The verification process must be standardized into a repeatable skill so that:
   1. **Any CLI tool can be adapted into an instrument** by running the verification protocol.
-  2. **Verification is automatable** — a Mozart score can mass-produce and mass-test instruments by running the protocol against each CLI tool.
+  2. **Verification is automatable** — a Marianne score can mass-produce and mass-test instruments by running the protocol against each CLI tool.
   3. **Profiles carry verification metadata** — date, CLI version, what was tested, what wasn't (e.g., rate limits are hard to trigger on demand).
 - **The verification protocol must cover:**
   - Success path: clean prompt → output → extract result, tokens, exit code
@@ -1096,8 +1096,8 @@ Each finding should include:
   - Preamble separation: what goes to stdout vs stderr
   - Output format flags: exact flag syntax and variations
   - Edge cases: empty prompt, very long prompt, binary output
-- **End state:** A skill (`instrument-verification.md`) that takes a CLI tool and produces a verified instrument profile YAML. A Mozart score (`instrument-factory.yaml`) that runs this skill against N CLI tools in parallel and produces N verified profiles. Every instrument we ship — including claude-code — goes through this pipeline. No exceptions.
-- **Impact:** Without this, every new instrument ships with speculative errors. With this, instrument onboarding becomes a production pipeline — mass produce, mass test, mass ship. This is how Mozart scales to every AI CLI tool that exists or will exist.
+- **End state:** A skill (`instrument-verification.md`) that takes a CLI tool and produces a verified instrument profile YAML. A Marianne score (`instrument-factory.yaml`) that runs this skill against N CLI tools in parallel and produces N verified profiles. Every instrument we ship — including claude-code — goes through this pipeline. No exceptions.
+- **Impact:** Without this, every new instrument ships with speculative errors. With this, instrument onboarding becomes a production pipeline — mass produce, mass test, mass ship. This is how Marianne scales to every AI CLI tool that exists or will exist.
 
 
 ---
@@ -1139,8 +1139,8 @@ Each finding should include:
 - **Found by:** Composer investigation (original), Blueprint (E006 fix), Spark (error display fix), Composer (timeout increase), Bedrock (M4 verification)
 - **Severity:** P0 → Resolved
 - **Status:** Resolved (movement 4, Bedrock verification)
-- **Resolution (E006):** Added `EXECUTION_STALE` (E006) to `ErrorCode` enum in `src/mozart/core/errors/codes.py`. Classifier (`classify()` at line 338 and `classify_execution()` at line 990) now differentiates stale detection from backend timeout by checking for "stale execution" in combined stdout+stderr. Stale → E006 (WARNING, 120s retry delay). Regular timeout → E001 (ERROR, 60s delay). 10 TDD tests in `test_error_taxonomy_extensions.py`.
-- **Resolution (timeout):** `idle_timeout_seconds` raised from 1800 to 7200 in `generate-v3.py:443`. Score regenerated — `mozart-orchestra-v3.yaml:3963` confirms 7200. Done by composer, verified by Bedrock M4.
+- **Resolution (E006):** Added `EXECUTION_STALE` (E006) to `ErrorCode` enum in `src/marianne/core/errors/codes.py`. Classifier (`classify()` at line 338 and `classify_execution()` at line 990) now differentiates stale detection from backend timeout by checking for "stale execution" in combined stdout+stderr. Stale → E006 (WARNING, 120s retry delay). Regular timeout → E001 (ERROR, 60s delay). 10 TDD tests in `test_error_taxonomy_extensions.py`.
+- **Resolution (timeout):** `idle_timeout_seconds` raised from 1800 to 7200 in `generate-v3.py:443`. Score regenerated — `marianne-orchestra-v3.yaml:3963` confirms 7200. Done by composer, verified by Bedrock M4.
 - **Resolution (error display):** Spark M1 added `error_code` field to SheetState, wired through `mark_sheet_failed()`. `format_error_code_for_display()` in output.py. 26 TDD tests.
 
 ### F-098: Rate Limit Classification — RESOLVED
@@ -1148,15 +1148,15 @@ Each finding should include:
 - **Severity:** P1 → Resolved
 - **Status:** Resolved (movement 4, Blueprint)
 - **Root cause:** `classify_execution()` Phase 4 (regex fallback) only runs when `not all_errors`. When Phase 1 (JSON parsing) found structured errors, Phase 4 was skipped entirely. Rate limit patterns in stdout — "rate.?limit", "hit.{0,10}limit", "limit.{0,10}resets?" — were already in `_DEFAULT_RATE_LIMIT_PATTERNS` but unreachable when Phase 1 produced any result.
-- **Resolution:** Added "Phase 4.5: Rate Limit Override" to `classify_execution()` at `src/mozart/core/errors/classifier.py`. This phase always runs after Phase 4, regardless of what prior phases found. It scans combined stdout+stderr for rate limit patterns and adds a rate limit error if none exists. Handles quota exhaustion, capacity, and generic rate limit cases. 6 TDD tests including the core F-098 regression case (JSON errors + rate limit text → rate limit detected).
+- **Resolution:** Added "Phase 4.5: Rate Limit Override" to `classify_execution()` at `src/marianne/core/errors/classifier.py`. This phase always runs after Phase 4, regardless of what prior phases found. It scans combined stdout+stderr for rate limit patterns and adds a rate limit error if none exists. Handles quota exhaustion, capacity, and generic rate limit cases. 6 TDD tests including the core F-098 regression case (JSON errors + rate limit text → rate limit detected).
 - **Evidence:** `test_rate_limit_in_stdout_with_json_errors` passes — a response with both JSON error structure AND "API Error: Rate limit reached" in stdout now correctly classifies as rate_limit category.
 
 ### F-109: CliErrorConfig Schema Expanded — crash_patterns and stale_patterns Added
 - **Found by:** Blueprint, Movement 4
 - **Severity:** N/A (enhancement)
 - **Status:** Resolved (movement 4, Blueprint)
-- **Description:** `CliErrorConfig` at `src/mozart/core/config/instruments.py` gained two new fields: `crash_patterns: list[str]` (regex patterns for process crash detection) and `stale_patterns: list[str]` (regex patterns for stale execution detection). `timeout_patterns` and `capacity_patterns` already existed. All fields default to empty lists (backward compatible). 6 TDD tests.
-- **Impact:** Instrument profiles can now declare instrument-specific patterns for crash and stale detection. The `PluginCliBackend` can use these patterns in its error classification, supplementing Mozart's default classifier.
+- **Description:** `CliErrorConfig` at `src/marianne/core/config/instruments.py` gained two new fields: `crash_patterns: list[str]` (regex patterns for process crash detection) and `stale_patterns: list[str]` (regex patterns for stale execution detection). `timeout_patterns` and `capacity_patterns` already existed. All fields default to empty lists (backward compatible). 6 TDD tests.
+- **Impact:** Instrument profiles can now declare instrument-specific patterns for crash and stale detection. The `PluginCliBackend` can use these patterns in its error classification, supplementing Marianne's default classifier.
 
 ### F-104: Baton Musician Prompt Rendering — RESOLVED
 - **Found by:** Composer investigation (original)
@@ -1170,7 +1170,7 @@ Each finding should include:
 - **Found by:** Composer observation (v3 job status showing 4,144 input / 2,072 output tokens after 7 completed sheets)
 - **Severity:** P1 (high — cost tracking is blind, budget controls non-functional)
 - **Status:** open
-- **Description:** The v3 score uses `output_format: text` which means the native `ClaudeCliBackend` gets raw text on stdout with no structured metadata. The backend has zero token tracking — `grep -n "token" claude_cli.py` returns no matches. The cost summary in `mozart status` shows implausibly low numbers (4K input tokens for 7 sheets that each inject ~50KB of cadenzas). These numbers likely come from `estimate_tokens()` applied to captured stdout (the agent's output), not the actual prompt input. Real token usage across 7 sheets with the full spec corpus, CLAUDE.md, meditation, compose overview, workspace files, and v3 template is likely 500K-1M+ input tokens.
+- **Description:** The v3 score uses `output_format: text` which means the native `ClaudeCliBackend` gets raw text on stdout with no structured metadata. The backend has zero token tracking — `grep -n "token" claude_cli.py` returns no matches. The cost summary in `marianne status` shows implausibly low numbers (4K input tokens for 7 sheets that each inject ~50KB of cadenzas). These numbers likely come from `estimate_tokens()` applied to captured stdout (the agent's output), not the actual prompt input. Real token usage across 7 sheets with the full spec corpus, CLAUDE.md, meditation, compose overview, workspace files, and v3 template is likely 500K-1M+ input tokens.
 - **Impact:** (1) Cost tracking is non-functional — the score reports $0.04 when actual spend is likely $5-15+. (2) `cost_limits` budget controls can't enforce limits they can't measure. (3) No visibility into which agents/sheets are expensive. (4) The `PluginCliBackend` with `output_format: json` DOES track tokens via `usage.input_tokens` / `usage.output_tokens` in Claude's JSON output — this is another reason to route all execution through the instrument path.
 - **Fix:** Route all execution through `PluginCliBackend` (F-105). The instrument path already handles token extraction correctly for any instrument via profile-defined `input_tokens_path` / `output_tokens_path`. The native `ClaudeCliBackend` is the problem — it should not exist as a separate code path.
 
@@ -1178,7 +1178,7 @@ Each finding should include:
 - **Found by:** Maverick, Movement 1 (current cycle)
 - **Severity:** P2 (medium — blocks full test suite collection)
 - **Status:** Resolved (movement 1, Maverick — deleted orphaned files)
-- **Description:** Two untracked test files were left by a musician who planned a class-based `PromptRenderer` approach (never implemented): `test_baton_prompt_renderer.py` (552 lines, imports `mozart.daemon.baton.prompt` which doesn't exist) and `test_baton_prompt_rendering.py` (494 lines, imports `_configure_backend` which doesn't exist). Both caused `ImportError` during pytest collection, blocking `pytest tests/ -x` with `-x` flag.
+- **Description:** Two untracked test files were left by a musician who planned a class-based `PromptRenderer` approach (never implemented): `test_baton_prompt_renderer.py` (552 lines, imports `marianne.daemon.baton.prompt` which doesn't exist) and `test_baton_prompt_rendering.py` (494 lines, imports `_configure_backend` which doesn't exist). Both caused `ImportError` during pytest collection, blocking `pytest tests/ -x` with `-x` flag.
 - **Root cause:** Two musicians independently started TDD for F-104 with different architectures (class-based PromptRenderer vs function-based _build_prompt). The function-based approach won (simpler, no state). The class-based test files were never cleaned up.
 - **Resolution:** Deleted both orphaned files. The working tests are in `test_musician_prompt_rendering.py` (17 tests, committed in 3deb436). Also reverted a broken `__init__.py` change that imported the non-existent `PromptRenderer`.
 
@@ -1194,12 +1194,12 @@ Each finding should include:
 - **Found by:** Composer (attempting to launch rosetta alongside rate-limited v3)
 - **Severity:** P1 (high — UX is hostile, blocks legitimate concurrent work)
 - **Status:** open
-- **Description:** When any backend has an active rate limit, `BackpressureController.current_level()` at `backpressure.py:121` escalates to `PressureLevel.HIGH` via `self._rate_coordinator.active_limits`. At HIGH, `should_accept_job()` returns False, and the CLI shows "Conductor rejected score: System under high pressure — try again later" followed by the misleading "Mozart conductor is not running." The user has no information about *why* the rejection happened, *when* it will clear, or any way to leave the job with the conductor for later execution.
+- **Description:** When any backend has an active rate limit, `BackpressureController.current_level()` at `backpressure.py:121` escalates to `PressureLevel.HIGH` via `self._rate_coordinator.active_limits`. At HIGH, `should_accept_job()` returns False, and the CLI shows "Conductor rejected score: System under high pressure — try again later" followed by the misleading "Marianne conductor is not running." The user has no information about *why* the rejection happened, *when* it will clear, or any way to leave the job with the conductor for later execution.
 - **Root cause correctly diagnosed:** The rate limit was NOT stale — it was a legitimate 3600s limit registered at 01:03 with submissions attempted at 01:35 (only 32 minutes in). The coordinator's `active_limits` property correctly filters by `resume_at > now`. A conductor restart cleared it only because the coordinator is in-memory.
 - **Three UX changes needed:**
   1. **Accept jobs in PENDING state during rate limits.** The conductor should queue the work and start it when the limit clears. Pending jobs can be cancelled by the user. This is how a real conductor works — you hand over the score, they decide when to play it.
-  2. **Show time remaining on rejection.** If `mozart run` or `mozart resume` is rejected due to rate limits, show: "Rate limit active on claude-cli — clears in 27m 32s. Job queued as pending." (or if rejecting: "Resubmit after 02:03 UTC").
-  3. **Fix the misleading error message.** "Mozart conductor is not running" is wrong — it IS running. The error should say what's actually happening: rate limit backpressure.
+  2. **Show time remaining on rejection.** If `marianne run` or `mzt resume` is rejected due to rate limits, show: "Rate limit active on claude-cli — clears in 27m 32s. Job queued as pending." (or if rejecting: "Resubmit after 02:03 UTC").
+  3. **Fix the misleading error message.** "Marianne conductor is not running" is wrong — it IS running. The error should say what's actually happening: rate limit backpressure.
 - **Impact:** Users (and self-chaining scores) can't submit work during rate limits. This breaks concert chains — if a score completes and chains to the next, but a rate limit is active from a *different* job, the chain breaks. The conductor should be a reliable place to leave work, not a bouncer that turns you away.
 - **Partial Resolution (Lens, movement 4):** Item 3 (misleading error message) FIXED. `_try_daemon_submit` in `run.py` now raises `typer.Exit(1)` after printing the specific rejection reason, instead of returning False and triggering the fallback "conductor is not running" message. The user now sees the actual rejection reason (e.g., "System under high pressure — try again later") with hints about conductor status. 3 TDD tests in `test_cli_error_ux.py`. Items 1 (PENDING state) and 2 (time remaining) remain open.
 
@@ -1224,9 +1224,9 @@ Each finding should include:
 - **Severity:** P1 (high — the conductor's whole job is to manage execution timing)
 - **Status:** Resolved (movement 3, Circuit)
 - **Resolution:** Added timer scheduling in `_handle_rate_limit_hit()` at `core.py:958-967`. When a rate limit hits, a `RateLimitExpired` timer event is now scheduled. The event type, handler, and timer wheel all existed — only the 8-line trigger was missing. 10 TDD tests in `test_rate_limit_auto_resume.py`. Commit 25ba278.
-- **Description:** Even if F-111 is fixed and jobs correctly PAUSE on rate limit exhaustion, nobody schedules an auto-resume. The `resume_after` timestamp flows through: `RateLimitExhaustedError.resume_after` → `state.resume_at` (lifecycle.py:989) → `job_event("paused", {"resume_at": ...})` (job_service.py:688). But `JobManager` has no code that reads `resume_at` and schedules a resume. `grep "resume_after\|auto_resume\|schedule.*resume" manager.py` returns nothing. The job sits in PAUSED state until a human runs `mozart resume`.
+- **Description:** Even if F-111 is fixed and jobs correctly PAUSE on rate limit exhaustion, nobody schedules an auto-resume. The `resume_after` timestamp flows through: `RateLimitExhaustedError.resume_after` → `state.resume_at` (lifecycle.py:989) → `job_event("paused", {"resume_at": ...})` (job_service.py:688). But `JobManager` has no code that reads `resume_at` and schedules a resume. `grep "resume_after\|auto_resume\|schedule.*resume" manager.py` returns nothing. The job sits in PAUSED state until a human runs `mzt resume`.
 - **Impact:** The conductor knows EXACTLY when to resume (the timestamp is computed from the API's rate limit reset time) but does nothing with it. This is the core behavior gap — the conductor should be a scheduler, not a message board.
-- **Fix:** When a job pauses with `resume_at`, the manager should schedule a timer (or use the baton's timer wheel) to fire `mozart resume <job-id>` at that time. This is what makes the conductor a conductor.
+- **Fix:** When a job pauses with `resume_at`, the manager should schedule a timer (or use the baton's timer wheel) to fire `mzt resume <job-id>` at that time. This is what makes the conductor a conductor.
 
 ### F-113: Permanently Failed Sheets Treated as "Done" for Dependencies — Downstream Runs on Incomplete Input
 - **Found by:** Composer observation (rosetta sheet 2 failed, but sheets 5-6 ran anyway)
@@ -1238,7 +1238,7 @@ Each finding should include:
 - **Root cause:** The comment at line 439 explains the intent: "so downstream sheets aren't blocked forever waiting for them." This prevents deadlock when `fail_fast=False`, but it violates the dependency contract. A failed dependency is not a completed dependency.
 - **Fix:** Failed dependencies should propagate failure to downstream sheets, not silently pass. Options: (1) Mark downstream sheets as FAILED with "dependency failed" reason, (2) Add a `dependency_policy` config: `block` (wait/fail), `skip` (mark downstream as skipped), `proceed` (current behavior, for fault-tolerant pipelines). Default should be `block`. The current behavior should only be available as an explicit opt-in for pipelines where partial input is acceptable.
 
-### F-071: `mozart list --json` Not Supported — RESOLVED
+### F-071: `mzt list --json` Not Supported — RESOLVED
 - **Found by:** Journey, Movement 2
 - **Severity:** P3 (low)
 - **Status:** Resolved (movement 1 current cycle, Dash)
@@ -1270,31 +1270,31 @@ Each finding should include:
 
 ## New Findings (Movement 1, Cycle 3 — Journey)
 
-### F-115: `mozart cancel` Exits 0 on Not-Found + Uses Raw console.print Instead of output_error()
+### F-115: `marianne cancel` Exits 0 on Not-Found + Uses Raw console.print Instead of output_error()
 - **Found by:** Journey, Movement 1 (Cycle 3)
 - **Severity:** P2 (medium — inconsistent error handling, wrong exit code)
 - **Status:** Resolved (movement 1 cycle 3, Journey)
-- **Description:** `cancel.py:72` used `console.print(f"[yellow]Score '{job_id}' not found or already stopped.[/yellow]")` for the not-found case. Three problems: (1) Exit code 0 — the operation failed but the process reports success. Scripts checking `$?` would think the cancel worked. (2) No `output_error()` — inconsistent with status, diagnose, resume, which all use `output_error()` with hints for not-found. (3) No hint — user gets a dead end. Status/diagnose say "Run 'mozart list' to see available scores." Cancel said nothing.
+- **Description:** `cancel.py:72` used `console.print(f"[yellow]Score '{job_id}' not found or already stopped.[/yellow]")` for the not-found case. Three problems: (1) Exit code 0 — the operation failed but the process reports success. Scripts checking `$?` would think the cancel worked. (2) No `output_error()` — inconsistent with status, diagnose, resume, which all use `output_error()` with hints for not-found. (3) No hint — user gets a dead end. Status/diagnose say "Run 'marianne list' to see available scores." Cancel said nothing.
 - **Impact:** CI/CD scripts checking exit codes see success when cancel fails. Users hit dead ends without guidance. JSON mode gets a `{"success": false}` but no error details for the not-found case.
-- **Resolution:** Changed cancel not-found to use `output_error()` with hint "Run 'mozart list' to see available scores." and `raise typer.Exit(1)`. JSON mode now gets structured error. Successful cancel moved inside the `if cancelled:` branch with proper JSON handling. 5 TDD tests in `tests/test_cli_cancel_ux.py`.
+- **Resolution:** Changed cancel not-found to use `output_error()` with hint "Run 'marianne list' to see available scores." and `raise typer.Exit(1)`. JSON mode now gets structured error. Successful cancel moved inside the `if cancelled:` branch with proper JSON handling. 5 TDD tests in `tests/test_cli_cancel_ux.py`.
 - **Error class:** Same as F-047 (output_error() underadoption). The cancel command was missed during the M3 error standardization sweep.
 
-### F-116: `mozart validate` Does Not Check Instrument Name Against Registry
+### F-116: `marianne validate` Does Not Check Instrument Name Against Registry
 - **Found by:** Journey, Movement 1 (Cycle 3)
 - **Severity:** P2 (medium — user discovers typo only at runtime, not at validation)
 - **Status:** Resolved (movement 2, Blueprint — commit 327e536)
 - **Resolution:** Added V210 InstrumentNameCheck to validation system. Loads instrument profiles via `load_all_profiles()` and warns on unknown instrument names. Checks score-level, per-sheet, instrument_map, and movement instruments. WARNING severity (conductor may have instruments validator doesn't know about). Graceful degradation on profile load failure. 15 TDD tests.
-- **Description:** A score with `instrument: nonexistent-instrument-12345` passes both schema validation (Pydantic accepts any string) and extended validation (no V-check for instrument name). The user discovers the error only at runtime when the conductor tries to resolve the instrument. Verified: `mozart validate /tmp/bad-instrument.yaml` shows "Schema validation passed" with zero instrument-related warnings.
-- **Impact:** A typo in the instrument name (`instrument: clause-code` instead of `claude-code`) silently passes validation. The user submits the job, waits for the conductor, and gets a runtime error. This is exactly the class of mistake that validation should catch early. The gap exists because `mozart validate` is stateless — it doesn't query the instrument registry.
+- **Description:** A score with `instrument: nonexistent-instrument-12345` passes both schema validation (Pydantic accepts any string) and extended validation (no V-check for instrument name). The user discovers the error only at runtime when the conductor tries to resolve the instrument. Verified: `mzt validate /tmp/bad-instrument.yaml` shows "Schema validation passed" with zero instrument-related warnings.
+- **Impact:** A typo in the instrument name (`instrument: clause-code` instead of `claude-code`) silently passes validation. The user submits the job, waits for the conductor, and gets a runtime error. This is exactly the class of mistake that validation should catch early. The gap exists because `marianne validate` is stateless — it doesn't query the instrument registry.
 - **Action:** Add a V-check (e.g., V210) that loads available instrument profiles (built-in + user + project) and warns when the instrument name doesn't match any known profile. This should be a WARNING, not an error — the conductor may have instruments the validator doesn't know about. The check can use `load_all_profiles()` from `instruments.py` which already scans all profile directories.
 
-### F-117: `mozart list` Intermittent Failure During Conductor Restart — Misleading Error
+### F-117: `marianne list` Intermittent Failure During Conductor Restart — Misleading Error
 - **Found by:** Journey, Movement 1 (Cycle 3)
 - **Severity:** P3 (low — transient, self-resolving)
 - **Status:** Open
-- **Description:** During a conductor restart (uptime went from 4h28m to 1m49s between two invocations), `mozart list` returned "Mozart conductor is not running" with exit code 1. The conductor WAS running — it was briefly unresponsive during startup. `mozart list --json` and `mozart list --all` succeeded seconds later. The error message is misleading: "not running" is the wrong diagnosis when the conductor is starting/restarting.
-- **Impact:** Low — the condition is transient and self-resolves within seconds. But the error message teaches the wrong mental model: the user thinks the conductor crashed when it's actually restarting. A user who trusts this message might run `mozart start` and get a "already running" conflict.
-- **Action:** Change the error message from "Mozart conductor is not running" to "Could not connect to the Mozart conductor. It may be starting up — try again in a few seconds." Add a retry hint. Alternatively, add a 1-retry with 2s delay before declaring the conductor unreachable.
+- **Description:** During a conductor restart (uptime went from 4h28m to 1m49s between two invocations), `marianne list` returned "Marianne conductor is not running" with exit code 1. The conductor WAS running — it was briefly unresponsive during startup. `mzt list --json` and `mzt list --all` succeeded seconds later. The error message is misleading: "not running" is the wrong diagnosis when the conductor is starting/restarting.
+- **Impact:** Low — the condition is transient and self-resolves within seconds. But the error message teaches the wrong mental model: the user thinks the conductor crashed when it's actually restarting. A user who trusts this message might run `marianne start` and get a "already running" conflict.
+- **Action:** Change the error message from "Marianne conductor is not running" to "Could not connect to the Marianne conductor. It may be starting up — try again in a few seconds." Add a retry hint. Alternatively, add a 1-retry with 2s delay before declaring the conductor unreachable.
 
 ### F-118: ValidationEngine Context Gap Between Runner and Baton Musician
 - **Found by:** Prism, Movement 1 (Cycle 2)
@@ -1333,10 +1333,10 @@ Each finding should include:
 - **Severity:** P1 (high — breaks clone test isolation for hooks, MCP, and dashboard)
 - **Status:** Resolved (movement 2, Harper)
 - **Description:** Four IPC callsites create `DaemonClient` with hardcoded production socket paths, bypassing the `_resolve_socket_path()` clone-aware resolution that all CLI commands use:
-  1. `src/mozart/execution/hooks.py:129` — `DaemonClient(SocketConfig().path)`. On_success hook chaining submits to production conductor even when `--conductor-clone` is active.
-  2. `src/mozart/mcp/tools.py:52` — `DaemonClient(DaemonConfig().socket.path)`. MCP tools query/control production during clone testing.
-  3. `src/mozart/dashboard/routes/jobs.py:362` — `DaemonClient(DaemonConfig().socket.path)`. Dashboard targets production.
-  4. `src/mozart/dashboard/services/job_control.py:76` — `DaemonClient(DaemonConfig().socket.path)`. Dashboard job control targets production.
+  1. `src/marianne/execution/hooks.py:129` — `DaemonClient(SocketConfig().path)`. On_success hook chaining submits to production conductor even when `--conductor-clone` is active.
+  2. `src/marianne/mcp/tools.py:52` — `DaemonClient(DaemonConfig().socket.path)`. MCP tools query/control production during clone testing.
+  3. `src/marianne/dashboard/routes/jobs.py:362` — `DaemonClient(DaemonConfig().socket.path)`. Dashboard targets production.
+  4. `src/marianne/dashboard/services/job_control.py:76` — `DaemonClient(DaemonConfig().socket.path)`. Dashboard job control targets production.
 - **Impact:** Clone test isolation is incomplete. The hooks.py bypass is most critical — self-chaining scores tested with `--conductor-clone` will silently submit chained jobs to the production conductor. Same error class as F-090 (config_cmd.py bypass, fixed by Ghost in 42d3d1a).
 - **Error class:** No centralized DaemonClient factory. Developers use the obvious `DaemonClient(DaemonConfig().socket.path)` pattern. The correct pattern (`_resolve_socket_path()` from detect.py) requires knowing it exists.
 - **Resolution:** Replaced all 5 callsites (4 original + dashboard/app.py factory) with `_resolve_socket_path(None)`. For hooks.py, the clone_name persists via os.fork() from the CLI process into the conductor process — no RunnerContext change needed. 14 TDD tests in test_f122_clone_socket_bypass.py. Zero `DaemonConfig().socket.path` or `SocketConfig().path` bypasses remain in the codebase (verified by grep).
@@ -1358,11 +1358,11 @@ Each finding should include:
 - **Impact:** A user reading the score writing guide and looking for the code automation example finds nothing. The pattern description becomes abstract with no concrete example to learn from.
 - **Resolution:** Replaced with `examples/issue-solver.yaml` which demonstrates the same class of pattern (multi-stage code automation with fan-out reviewers).
 
-### F-125: iterative-dev-loop-config.yaml in examples/ Is Not a Mozart Score
+### F-125: iterative-dev-loop-config.yaml in examples/ Is Not a Marianne Score
 - **Found by:** Newcomer, Movement 1 (Cycle 3)
 - **Severity:** P3 (low — misleading file placement)
 - **Status:** Open
-- **Description:** `examples/iterative-dev-loop-config.yaml` is a generator config for `scripts/generate-iterative-dev-loop.py`, not a runnable Mozart score. It fails `mozart validate` with schema errors (missing `sheet` and `prompt` fields). It sits alongside 36 valid scores in `examples/` with no distinguishing marker. The examples/README.md lists it as "Configurable variant of the iterative development loop" at High complexity — implying it's a runnable score. The Validation Summary table also lists it with a ✓ checkmark, which is false.
+- **Description:** `examples/iterative-dev-loop-config.yaml` is a generator config for `scripts/generate-iterative-dev-loop.py`, not a runnable Marianne score. It fails `marianne validate` with schema errors (missing `sheet` and `prompt` fields). It sits alongside 36 valid scores in `examples/` with no distinguishing marker. The examples/README.md lists it as "Configurable variant of the iterative development loop" at High complexity — implying it's a runnable score. The Validation Summary table also lists it with a ✓ checkmark, which is false.
 - **Impact:** A newcomer browsing examples tries to validate or run this file and gets a confusing schema error. The file has a useful purpose (generator config) but its placement in examples/ is misleading.
 - **Action:** Either move to `scripts/` (where the generator script lives) or rename to `iterative-dev-loop-config.generator.yaml` and add a clear note in examples/README.md that this is a generator config, not a runnable score.
 
@@ -1370,8 +1370,8 @@ Each finding should include:
 - **Found by:** Newcomer, Movement 1 (Cycle 3)
 - **Severity:** P3 (low — README undersells creative capabilities)
 - **Status:** Open
-- **Description:** The README's "Beyond Coding" table (line 405-416) lists only 6 examples and says "For creative and experimental scores...see the Mozart Score Playspace" (external repo). But 7 creative scores that ARE in `examples/` are not listed: `dialectic.yaml`, `thinking-lab.yaml`, `dinner-party.yaml`, `worldbuilder.yaml`, `palimpsest.yaml`, `skill-builder.yaml`, `context-engineering-lab.yaml`. These ARE documented in `examples/README.md` but NOT in the main README. The README sends users to an external repo for scores that are already present locally.
-- **Impact:** A newcomer reading the README sees 6 "Beyond Coding" examples and is told to go elsewhere for more. The 7 additional creative examples — which demonstrate Mozart's versatility — are hidden. The main README undersells the project's capabilities.
+- **Description:** The README's "Beyond Coding" table (line 405-416) lists only 6 examples and says "For creative and experimental scores...see the Marianne Score Playspace" (external repo). But 7 creative scores that ARE in `examples/` are not listed: `dialectic.yaml`, `thinking-lab.yaml`, `dinner-party.yaml`, `worldbuilder.yaml`, `palimpsest.yaml`, `skill-builder.yaml`, `context-engineering-lab.yaml`. These ARE documented in `examples/README.md` but NOT in the main README. The README sends users to an external repo for scores that are already present locally.
+- **Impact:** A newcomer reading the README sees 6 "Beyond Coding" examples and is told to go elsewhere for more. The 7 additional creative examples — which demonstrate Marianne's versatility — are hidden. The main README undersells the project's capabilities.
 - **Action:** Add the 7 missing creative examples to the README's "Beyond Coding" table. Remove or soften the redirect to the external Playspace repo (it can remain as an additional resource, not the primary destination).
 
 ### F-127: Diagnose Shows "success_first_try" for Sheets With 18 Attempts
@@ -1379,8 +1379,8 @@ Each finding should include:
 - **Severity:** P2 (medium — diagnostic tool misleads)
 - **Status:** Resolved (movement 2, Blueprint — commit 327e536)
 - **Resolution:** Changed `_classify_success_outcome()` to use persisted `sheet_state.attempt_count` (cumulative) instead of session-local `normal_attempts`. Also uses persisted `sheet_state.completion_attempts`. After restart+resume, a sheet with 18 cumulative attempts is correctly classified as SUCCESS_RETRY. 7 TDD tests including the F-127 regression case (18 attempts → SUCCESS_RETRY, not SUCCESS_FIRST_TRY).
-- **Description:** `mozart diagnose mozart-orchestra-v3` shows `success_first_try` in the Outcome column for sheets that required 18, 17, 10, 6, and 4 attempts respectively. The cause: `_classify_success_outcome()` at `src/mozart/execution/runner/sheet.py:2480` checks `normal_attempts <= 1` where `normal_attempts` is a session-local counter that resets when the conductor restarts and the job is resumed. Meanwhile, the Attempts column shows `attempt_count` from SheetState, which is the cumulative lifetime count. After a restart+resume, `normal_attempts` is 1 (current session) but `attempt_count` is 18 (cumulative) — the same table row contains contradictory information.
-- **Evidence:** `mozart diagnose mozart-orchestra-v3` output:
+- **Description:** `marianne diagnose marianne-orchestra-v3` shows `success_first_try` in the Outcome column for sheets that required 18, 17, 10, 6, and 4 attempts respectively. The cause: `_classify_success_outcome()` at `src/marianne/execution/runner/sheet.py:2480` checks `normal_attempts <= 1` where `normal_attempts` is a session-local counter that resets when the conductor restarts and the job is resumed. Meanwhile, the Attempts column shows `attempt_count` from SheetState, which is the cumulative lifetime count. After a restart+resume, `normal_attempts` is 1 (current session) but `attempt_count` is 18 (cumulative) — the same table row contains contradictory information.
+- **Evidence:** `marianne diagnose marianne-orchestra-v3` output:
   ```
   │    9 │ completed   │    1800.7s │      18 │ normal       │ success_first_try │
   │   12 │ completed   │    1530.6s │      17 │ normal       │ success_first_try │
@@ -1436,7 +1436,7 @@ Each finding should include:
 - **Found by:** Newcomer, Movement 1 (Cycle 7)
 - **Severity:** P3 (low — UX documentation)
 - **Status:** Resolved (movement 2, Harper)
-- **Description:** `--conductor-clone` help says "Pass without value for default clone" but the option is a TEXT type in Typer/Click that consumes the next positional argument. `mozart --conductor-clone start` parses `start` as the clone name (not the subcommand), producing confusing errors. Users must use `=` syntax: `mozart --conductor-clone= start` or `mozart --conductor-clone=name start`.
+- **Description:** `--conductor-clone` help says "Pass without value for default clone" but the option is a TEXT type in Typer/Click that consumes the next positional argument. `marianne --conductor-clone start` parses `start` as the clone name (not the subcommand), producing confusing errors. Users must use `=` syntax: `marianne --conductor-clone= start` or `marianne --conductor-clone=name start`.
 - **Impact:** Users following the help text literally get behavior where the command disappears. The workaround (= syntax) is not documented.
 - **Resolution:** Updated help text and docstring to explicitly require `=` syntax: "Use --conductor-clone= (with equals sign) for default clone, or --conductor-clone=NAME for a named clone."
 
@@ -1444,8 +1444,8 @@ Each finding should include:
 - **Found by:** Newcomer, Movement 1 (Cycle 7). Severity upgraded by Adversary (Cycle 7).
 - **Severity:** P1 (high — P0 conductor-clone directive depends on state isolation that doesn't exist)
 - **Status:** Resolved (movement 2, Maverick)
-- **Description:** Clone conductor started via `mozart --conductor-clone= start -f` logged `registry.opened path=/home/emzi/.mozart/daemon-state.db` (the production path) and `manager.registry_restored loaded=5` (5 production jobs restored into the clone). Code at `clone.py:112` defines a separate `state_db=mozart_dir / f"clone{tag}-state.db"` but the running clone opened the production DB. Socket isolation (`/tmp/mozart-clone.sock`) works. PID isolation works. State/registry isolation does not appear to work based on the observed log output.
-- **Impact:** If the clone shares the production registry, test jobs submitted to the clone may appear in `mozart list` against the production conductor. Clone testing is not fully safe for state-mutating operations (job submission, status changes). The P0 composer directive to use `--conductor-clone` for all testing may not provide the isolation it promises.
+- **Description:** Clone conductor started via `marianne --conductor-clone= start -f` logged `registry.opened path=/home/emzi/.marianne/daemon-state.db` (the production path) and `manager.registry_restored loaded=5` (5 production jobs restored into the clone). Code at `clone.py:112` defines a separate `state_db=marianne_dir / f"clone{tag}-state.db"` but the running clone opened the production DB. Socket isolation (`/tmp/marianne-clone.sock`) works. PID isolation works. State/registry isolation does not appear to work based on the observed log output.
+- **Impact:** If the clone shares the production registry, test jobs submitted to the clone may appear in `marianne list` against the production conductor. Clone testing is not fully safe for state-mutating operations (job submission, status changes). The P0 composer directive to use `--conductor-clone` for all testing may not provide the isolation it promises.
 - **Root Cause:** The Adversary's analysis was close but imprecise. `build_clone_config()` at `clone.py:144` DOES set `state_db_path`. The real bug was in `process.py:start_conductor()` which duplicates the clone path override logic INLINE instead of calling `build_clone_config()`. The inline version at process.py:72-73 overrode `socket` and `pid_file` but missed `state_db_path`. This DRY violation meant the two code paths diverged — one correct (clone.py), one broken (process.py). The fix adds `config_dict["state_db_path"] = str(clone_paths.state_db)` at process.py:74. 2 TDD tests verify isolation.
 - **Resolution:** Partially fixed in commit b4146a7 (Maverick: process.py only). Canyon (movement 2) discovered the SAME bug in `clone.py:build_clone_config()` — a second code path that builds clone configs but also missed `state_db_path`. 1-line fix at clone.py:144 + 3 TDD tests (config differs from base, matches resolved paths, named clones differ). Both paths now set `state_db_path`. Error class: DRY violation — two independent clone path builders, both missed the same field.
 
@@ -1477,7 +1477,7 @@ Each finding should include:
 - **Found by:** Warden, Movement 2
 - **Severity:** P1 (high — credentials propagate to 6+ storage locations)
 - **Status:** Resolved (movement 2, Warden)
-- **Description:** `src/mozart/daemon/baton/musician.py:156` constructed `error_msg = f"{type(exc).__name__}: {exc}"` from caught exceptions WITHOUT calling `redact_credentials()`. This error_msg was: (1) logged at ERROR level with `exc_info=True`, (2) stored in `SheetAttemptResult.error_message` (persists to state DB), (3) visible in `mozart diagnose` and `mozart errors` output, (4) indexed by the learning store for pattern matching. Meanwhile, the same function DID redact `stdout_tail` and `stderr_tail` at line 573. The gap: output was sanitized, but exception messages were not.
+- **Description:** `src/marianne/daemon/baton/musician.py:156` constructed `error_msg = f"{type(exc).__name__}: {exc}"` from caught exceptions WITHOUT calling `redact_credentials()`. This error_msg was: (1) logged at ERROR level with `exc_info=True`, (2) stored in `SheetAttemptResult.error_message` (persists to state DB), (3) visible in `marianne diagnose` and `mzt errors` output, (4) indexed by the learning store for pattern matching. Meanwhile, the same function DID redact `stdout_tail` and `stderr_tail` at line 573. The gap: output was sanitized, but exception messages were not.
 - **Impact:** If a backend raised an exception containing an API key (e.g., `ConnectionError: Auth failed with key sk-ant-api03-...`), the credential would persist in logs, state DB, dashboard, diagnostic output, and learning store. The musician's `_capture_output()` correctly redacted credentials from stdout/stderr, but the exception handler's `error_msg` bypassed this protection entirely.
 - **Error class:** Same pattern as F-003/F-020 — safety applied to one data path but not an adjacent parallel path. The credential scanner existed, the import existed, but the call was missing at this specific location.
 - **Resolution:** Applied `redact_credentials()` to `error_msg` at musician.py:156 (exception handler) and to validation error text at musician.py:552 (validation engine exception). Both paths now sanitize exception messages before logging and storing. 26 TDD tests in `tests/test_musician_error_redaction.py` across 3 test classes: unit tests proving each credential type is redacted, integration tests exercising the actual `sheet_task()` function with credential-leaking mock backends, and adversarial edge cases (multi-pattern, unicode, JSON-embedded, traceback-embedded).
@@ -1497,7 +1497,7 @@ Each finding should include:
 - **Found by:** Sentinel, Movement 2
 - **Severity:** P1 (high — credential leak path, same class as F-135)
 - **Status:** Resolved (movement 2, Sentinel)
-- **Description:** `_classify_error()` at `src/mozart/daemon/baton/musician.py:587-628` returns `exec_result.error_message` directly at three exit points (lines 608, 622, 627) without calling `redact_credentials()`. A backend that sets `error_message` to a string containing an API key (e.g., auth failure echoing the key, config error with key in URL) stores that key in `SheetAttemptResult.error_message` → state DB → dashboard → diagnostic output → learning store. Meanwhile, `stdout_tail` and `stderr_tail` ARE redacted 5 lines earlier (line 581-582), and the exception path at line 162 IS redacted. Only the `_classify_error` return path was unprotected.
+- **Description:** `_classify_error()` at `src/marianne/daemon/baton/musician.py:587-628` returns `exec_result.error_message` directly at three exit points (lines 608, 622, 627) without calling `redact_credentials()`. A backend that sets `error_message` to a string containing an API key (e.g., auth failure echoing the key, config error with key in URL) stores that key in `SheetAttemptResult.error_message` → state DB → dashboard → diagnostic output → learning store. Meanwhile, `stdout_tail` and `stderr_tail` ARE redacted 5 lines earlier (line 581-582), and the exception path at line 162 IS redacted. Only the `_classify_error` return path was unprotected.
 - **Impact:** Backend error messages containing API keys persist across 6+ storage locations. The credential scanner exists, the import exists, the call was missing at this specific site. Same error class as F-135 (exception handler) and F-003 (stdout/stderr) — safety applied to adjacent data paths but not this one.
 - **Error class:** Piecemeal credential redaction — the pattern that F-020 and F-135 already demonstrated. Three independent data paths (stdout/stderr, exceptions, error_message) all flow through the same musician, each needs redaction independently.
 - **Resolution:** Applied `redact_credentials()` to the `error_msg` returned by `_classify_error()` at `musician.py:129`. The redaction happens at the call site (where the value is consumed) rather than inside `_classify_error` (which is a pure classifier). This matches the exception path pattern at line 162. 5 TDD regression tests in `test_musician_error_redaction.py::TestClassifyErrorPathRedaction` covering TRANSIENT (exit_code=None), AUTH_FAILURE (401/403), EXECUTION_ERROR (generic), None message passthrough, and clean message preservation.
@@ -1506,9 +1506,9 @@ Each finding should include:
 - **Found by:** Sentinel, Movement 2
 - **Severity:** P3 (low — ReDoS in unused ADL lexer, but fix available)
 - **Status:** Resolved (movement 4, Sentinel)
-- **Resolution:** Added `"pygments>=2.20.0"` to security minimum versions in `pyproject.toml:49`. Upgraded from 2.19.2 to 2.20.0. Verified with `python -c "import pygments; print(pygments.__version__)"` → 2.20.0. Public release hygiene — `pip-audit` on fresh Mozart install now shows zero known CVEs in transitive dependencies.
-- **Description:** `pygments` 2.19.2 has CVE-2026-4539 (ReDoS in AdlLexer). Pygments is a transitive dependency of Mozart through `rich` (CLI output), `pytest` (test framework), and `mkdocs-material` (documentation). The fix version is 2.20.0. The CVE triggers only when highlighting ADL (Archetype Definition Language) syntax, which Mozart does not do — the risk is near zero.
-- **Impact:** Negligible for Mozart. The only theoretical path is if agent stdout contained ADL syntax and Rich tried to highlight it — which it wouldn't, since Mozart uses plain text output capture. However, the fix is available and trivial to apply.
+- **Resolution:** Added `"pygments>=2.20.0"` to security minimum versions in `pyproject.toml:49`. Upgraded from 2.19.2 to 2.20.0. Verified with `python -c "import pygments; print(pygments.__version__)"` → 2.20.0. Public release hygiene — `pip-audit` on fresh Marianne install now shows zero known CVEs in transitive dependencies.
+- **Description:** `pygments` 2.19.2 has CVE-2026-4539 (ReDoS in AdlLexer). Pygments is a transitive dependency of Marianne through `rich` (CLI output), `pytest` (test framework), and `mkdocs-material` (documentation). The fix version is 2.20.0. The CVE triggers only when highlighting ADL (Archetype Definition Language) syntax, which Marianne does not do — the risk is near zero.
+- **Impact:** Negligible for Marianne. The only theoretical path is if agent stdout contained ADL syntax and Rich tried to highlight it — which it wouldn't, since Marianne uses plain text output capture. However, the fix is available and trivial to apply.
 
 ### F-138: Untracked test_baton_m2c2_adversarial.py Has Broken ParallelExecutor Construction
 - **Found by:** Theorem, Movement 2
@@ -1522,7 +1522,7 @@ Each finding should include:
 - **Found by:** Automated monitor (coordination-workspace cron), 2026-04-01
 - **Severity:** P2 (medium — causes automated tooling to believe resume failed when it succeeded)
 - **Status:** Open (manifestation of issue #139)
-- **Description:** `mozart-orchestra-v3` failed at sheet 64 with "Parallel batch failed: Sheet 64 - Task cancelled" after 48 quota exhaustion waits. Running `mozart resume mozart-orchestra-v3` returned exit code 1 with the same error message: "Score failed after resume: mozart-orchestra-v3 — Parallel batch failed: Sheet 64 - Task cancelled". However, the job actually resumed successfully — `mozart status` showed RUNNING with new sheets in_progress, and `mozart resume --force` confirmed "score is running". The CLI reported the *previous* batch's error during the transition, not a current failure.
+- **Description:** `marianne-orchestra-v3` failed at sheet 64 with "Parallel batch failed: Sheet 64 - Task cancelled" after 48 quota exhaustion waits. Running `mzt resume marianne-orchestra-v3` returned exit code 1 with the same error message: "Score failed after resume: marianne-orchestra-v3 — Parallel batch failed: Sheet 64 - Task cancelled". However, the job actually resumed successfully — `marianne status` showed RUNNING with new sheets in_progress, and `mzt resume --force` confirmed "score is running". The CLI reported the *previous* batch's error during the transition, not a current failure.
 - **Impact:** (1) Automated monitoring that checks exit codes will incorrectly conclude the resume failed. (2) Human operators see "failed" and escalate unnecessarily. (3) Retry loops will attempt redundant resumes against an already-running job.
 - **Related:** Issue #139 (stale state error feedback on run/resume). Issue #100 / #141 (rate limits killing jobs instead of pausing). F-112 (auto-resume gap — conductor should schedule resume on rate limit pause).
 - **Action:** Fix is tracked in issue #139. The resume command should check post-submission status before reporting success/failure. Exit code should reflect actual outcome, not stale state.
@@ -1532,8 +1532,8 @@ Each finding should include:
 - **Severity:** P2 (medium — actively misleading cost display)
 - **Status:** Open (related to F-108)
 - **Description:** The v3 score (67 completed sheets, 46+ hours of Opus execution) shows `Cost: $0.01` with `Input tokens: 880, Output tokens: 440`. The Rosetta score (14 completed sheets, ~2 hours) shows `Cost: $0.02` with `Input tokens: 2,206, Output tokens: 1,103`. These numbers are fiction — 880 input tokens for 67 sheets of Opus execution is 13 tokens per sheet. A single prompt is thousands of tokens. The actual spend is likely $50-200+.
-- **Evidence:** `mozart status mozart-orchestra-v3` output (2026-04-02). `mozart status the-rosetta-score -w workspaces/rosetta-workspace/` output (2026-04-02).
-- **Impact:** In M1C7, cost showed $0.00 — obviously broken. Now $0.01 LOOKS real. A user sees "$0.01 for 67 sheets" and concludes Mozart is cheap, not that the tracking is broken. The cost display has gone from "obviously wrong" to "plausibly wrong" — which is worse for trust. Cost limits (`max_cost_per_job`) built on this data protect nothing.
+- **Evidence:** `mzt status marianne-orchestra-v3` output (2026-04-02). `mzt status the-rosetta-score -w workspaces/rosetta-workspace/` output (2026-04-02).
+- **Impact:** In M1C7, cost showed $0.00 — obviously broken. Now $0.01 LOOKS real. A user sees "$0.01 for 67 sheets" and concludes Marianne is cheap, not that the tracking is broken. The cost display has gone from "obviously wrong" to "plausibly wrong" — which is worse for trust. Cost limits (`max_cost_per_job`) built on this data protect nothing.
 - **Root cause:** Same as F-108 — native ClaudeCliBackend doesn't extract tokens from text output. The non-zero values likely come from preflight checks or early JSON-mode interactions.
 - **Action:** Same as F-108 — route all execution through PluginCliBackend (F-105). Additionally, consider showing "Cost: unknown (no token data)" when `input_tokens + output_tokens < expected_minimum` rather than displaying a fictional small number.
 
@@ -1542,7 +1542,7 @@ Each finding should include:
 - **Severity:** P3 (low — only affects pre-fix data)
 - **Status:** Open
 - **Description:** F-127 was fixed in Blueprint 327e536 — `_classify_success_outcome()` now uses persisted `attempt_count`. But `diagnose.py:1077,1222` reads `outcome_category` directly from the persisted `SheetState` field. All 67 v3 sheets completed before the fix display the old wrong classification (`success_first_try` for 18-attempt sheets). The fix prevents future lies but doesn't correct past ones.
-- **Evidence:** `mozart diagnose mozart-orchestra-v3` output (2026-04-02): Sheet 9 shows `18` attempts, `success_first_try` outcome. Confirmed by reading `diagnose.py:1077` — it reads `sheet.outcome_category` not recomputing from `sheet.attempt_count`.
+- **Evidence:** `marianne diagnose marianne-orchestra-v3` output (2026-04-02): Sheet 9 shows `18` attempts, `success_first_try` outcome. Confirmed by reading `diagnose.py:1077` — it reads `sheet.outcome_category` not recomputing from `sheet.attempt_count`.
 - **Impact:** Any score that completed sheets before the fix has incorrect outcome data forever. The v3 score (67 sheets, many multi-attempt) is the primary case.
 - **Action:** Either: (a) have `diagnose.py` recompute outcome from `attempt_count` at render time (ignore persisted `outcome_category`), (b) detect the contradiction (`attempt_count > 1 && outcome == success_first_try`) and display honestly, or (c) add a one-time migration that recomputes `outcome_category` from `attempt_count` for all completed sheets. Option (a) is simplest and most correct.
 
@@ -1550,7 +1550,7 @@ Each finding should include:
 - **Found by:** Ember, Movement 2 (Cycle 2) — mateship pickup of Dash's incomplete fix
 - **Severity:** P3 (low — user-facing inconsistency)
 - **Status:** Resolved (movement 2, Ember — mateship fix)
-- **Description:** Dash renamed the `top.py` flag from `--job` to `--score` (62fc205) but left 4 user-facing strings unchanged: help example `mozart top --job my-review` (line 96), TUI note `Note: --job filter` (line 141), history note `Note: --job filter` (line 318), docstring `job-centric process tree` (line 89). The flag and its help were inconsistent.
+- **Description:** Dash renamed the `top.py` flag from `--job` to `--score` (62fc205) but left 4 user-facing strings unchanged: help example `mzt top --job my-review` (line 96), TUI note `Note: --job filter` (line 141), history note `Note: --job filter` (line 318), docstring `job-centric process tree` (line 89). The flag and its help were inconsistent.
 - **Resolution:** Updated all 4 strings: help example → `--score my-review`, notes → `--score filter`, docstring → `score-centric process tree`.
 
 ### F-143: _handle_resume_job Doesn't Re-Check Cost Limits After Unpausing
@@ -1573,7 +1573,7 @@ Each finding should include:
   - The fallback at `patterns.py:254-267` catches the empty-result case and queries without tags — but it always returns the SAME 5 highest-priority patterns, ignoring the other 28K+.
   - Oracle's diagnosis (M1) confirmed: 91% of patterns never applied, only 3 patterns have instrument tags.
   - The epsilon-greedy exploration (line 192-210) lowers the priority threshold but still hits the tag mismatch — same 5 patterns in a slightly different order.
-- **Impact:** The learning store accumulates 28K+ patterns but cannot differentiate or apply them contextually. The intelligence layer doesn't learn. This is the product thesis — without it, Mozart is an orchestrator, not an intelligence platform.
+- **Impact:** The learning store accumulates 28K+ patterns but cannot differentiate or apply them contextually. The intelligence layer doesn't learn. This is the product thesis — without it, Marianne is an orchestrator, not an intelligence platform.
 - **Action:** Fix the tag matching strategy. Options:
   1. **Generate semantic query tags** from the current sheet context (validation types used, instrument, movement number, error history) that match the stored tag format.
   2. **Remove tag filtering** in the primary query path and use priority + recency + effectiveness for ranking.
@@ -1593,15 +1593,15 @@ Each finding should include:
 - **Found by:** Newcomer, Movement 2 Cycle 2
 - **Severity:** P3 (low — consistency gap between docs and CLI help)
 - **Status:** Open
-- **Description:** The README "Diagnostic Commands" table (line 210) lists `mozart recover` as a standard command. But `src/mozart/cli/__init__.py:295` registers it as `hidden=True` with the comment "Hidden - recovery is advanced operation". The command exists, works, has `--help`, but `mozart --help` doesn't show it.
-- **Impact:** Users reading the README try `mozart --help` and can't find `recover`. Users browsing `--help` never discover a useful diagnostic tool. Neither audience gets a complete picture.
-- **Action:** Either unhide the command (add to Diagnostics panel) or add a note in the README that it's an advanced command accessible via `mozart recover --help`.
+- **Description:** The README "Diagnostic Commands" table (line 210) lists `marianne recover` as a standard command. But `src/marianne/cli/__init__.py:295` registers it as `hidden=True` with the comment "Hidden - recovery is advanced operation". The command exists, works, has `--help`, but `marianne --help` doesn't show it.
+- **Impact:** Users reading the README try `marianne --help` and can't find `recover`. Users browsing `--help` never discover a useful diagnostic tool. Neither audience gets a complete picture.
+- **Action:** Either unhide the command (add to Diagnostics panel) or add a note in the README that it's an advanced command accessible via `marianne recover --help`.
 
 ### F-142: Two Learning Commands Undocumented in README
 - **Found by:** Newcomer, Movement 2 Cycle 2
 - **Severity:** P3 (low — documentation gap)
 - **Status:** Open
-- **Description:** `learning-export` and `learning-record-evolution` appear in `mozart --help` under the Learning panel but are not listed in the README's "Learning Commands" table. These commands were presumably added after the README was last updated.
+- **Description:** `learning-export` and `learning-record-evolution` appear in `marianne --help` under the Learning panel but are not listed in the README's "Learning Commands" table. These commands were presumably added after the README was last updated.
 - **Impact:** README doesn't match `--help` output. A newcomer comparing the two will notice the gap.
 - **Action:** Add both commands to the README Learning Commands table.
 
@@ -1663,7 +1663,7 @@ Each finding should include:
 - **Found by:** Composer investigation, 2026-04-02
 - **Severity:** P1 (high — multi-instrument is a key feature with no observability)
 - **Status:** Resolved (movement 3, Circuit)
-- **Description:** `mozart status` (table and JSON) does not show which instrument or model is executing each sheet. The JSON per-sheet object contains only `status`, `attempt_count`, `validation_passed`, `error_*`, and `elapsed_seconds`. The `Sheet` model carries `instrument_name` and `instrument_config` (including model), but `SheetState` / `CheckpointState` does not persist or expose this. During a multi-instrument run (claude-code sheet 1, gemini-cli sheets 2-4, ollama sheet 5), the only way to determine what's running is to infer from process lists or log output patterns.
+- **Description:** `marianne status` (table and JSON) does not show which instrument or model is executing each sheet. The JSON per-sheet object contains only `status`, `attempt_count`, `validation_passed`, `error_*`, and `elapsed_seconds`. The `Sheet` model carries `instrument_name` and `instrument_config` (including model), but `SheetState` / `CheckpointState` does not persist or expose this. During a multi-instrument run (claude-code sheet 1, gemini-cli sheets 2-4, ollama sheet 5), the only way to determine what's running is to infer from process lists or log output patterns.
 - **Impact:** (1) Composers cannot verify instrument assignment is correct during execution. (2) Debugging instrument-specific failures requires guessing which instrument ran. (3) Cost attribution per instrument is impossible. (4) The musical metaphor breaks — you can hear the orchestra but can't see who's playing.
 - **Requirements:** (1) Show the actual instrument being used per sheet, keyed off what CLI tool / backend is actually running — not just the configured name if it differs. (2) Show the model being used alongside the instrument (e.g., "gemini-cli / gemini-2.5-pro", "ollama / qwen3:14b"). (3) When a musician name is known, show musician + instrument (e.g., "Forge → claude-code / opus-4"). When musician is unknown, show instrument + model only. (4) Persist instrument_name and model in SheetState for post-mortem analysis.
 - **Related:** F-150 (instrument_config.model not wired). M4 multi-instrument feature set.
@@ -1674,24 +1674,24 @@ Each finding should include:
 - **Severity:** P0 (critical — sheet stuck forever, no error surfaced, compute wasted)
 - **Status:** Resolved (movement 3, Canyon mateship pickup — dispatch-time guard)
 - **Resolution:** Added `_send_dispatch_failure()` to BatonAdapter. All three early-return paths in `_dispatch_callback` now post a `SheetAttemptResult(execution_success=False, error_classification="E505")` to the baton inbox, routing the failure through the normal retry/exhaustion state machine instead of leaving the sheet stuck. Exception catch broadened from `(ValueError, RuntimeError)` to `Exception` to catch `NotImplementedError`. Attempt number derived from state (not hardcoded). 5 TDD tests. Pre-run guard (reject at submission time) remains open as enhancement.
-- **Description:** Assigning an HTTP-kind instrument (`ollama`) to sheet 5 in the hello score caused an infinite silent retry loop. `_create_backend_for_profile` at `backend_pool.py:82-87` raises `NotImplementedError` for HTTP instruments. The dispatch loop at `dispatch.py:148-163` catches `Exception`, logs `"baton.dispatch.callback_failed"`, but does not mark the sheet as failed — it stays READY. The next dispatch cycle retries, hits the same error, and loops. Meanwhile `mozart status` shows `in_progress`, `mozart errors` shows nothing, and the ollama process is idle (no models loaded, `api/ps` returns `{"models":[]}`). `mozart instruments check ollama` reports "ready" despite the baton being unable to use it.
+- **Description:** Assigning an HTTP-kind instrument (`ollama`) to sheet 5 in the hello score caused an infinite silent retry loop. `_create_backend_for_profile` at `backend_pool.py:82-87` raises `NotImplementedError` for HTTP instruments. The dispatch loop at `dispatch.py:148-163` catches `Exception`, logs `"baton.dispatch.callback_failed"`, but does not mark the sheet as failed — it stays READY. The next dispatch cycle retries, hits the same error, and loops. Meanwhile `marianne status` shows `in_progress`, `mzt errors` shows nothing, and the ollama process is idle (no models loaded, `api/ps` returns `{"models":[]}`). `mzt instruments check ollama` reports "ready" despite the baton being unable to use it.
 - **Impact:** (1) Sheet stuck forever with no error visible to the composer. (2) Dependent sheets never run. (3) Job never completes. (4) `instruments check` gives false confidence — "ready" means the service responds, not that the baton can use it. (5) Wasted compute on all prior sheets if the unsupported instrument is only discovered at the final sheet.
 - **Related:** F-150 (instrument_config not wired at adapter.py:741). F-151 (no instrument visibility in status). Issue #155.
-- **Fix:** Two guards: (1) **At `mozart run`** — when submitting a score, the conductor should check that every sheet's resolved instrument has a supported kind. Reject before any sheets execute. (2) **Dispatch-time guard** — on unrecoverable backend errors mid-run (tool disappeared, auth revoked), mark the sheet FAILED with E505, propagate to dependents, stop retrying. Also: `instruments check` should warn when kind is unsupported by the baton.
+- **Fix:** Two guards: (1) **At `marianne run`** — when submitting a score, the conductor should check that every sheet's resolved instrument has a supported kind. Reject before any sheets execute. (2) **Dispatch-time guard** — on unrecoverable backend errors mid-run (tool disappeared, auth revoked), mark the sheet FAILED with E505, propagate to dependents, stop retrying. Also: `instruments check` should warn when kind is unsupported by the baton.
 
 ### F-153: CLI Help Text Mixes "job" and "score" Terminology
 - **Found by:** Newcomer, Movement 2 (final review)
 - **Severity:** P3 (low — paper cut, not a blocker)
 - **Status:** Open
-- **Description:** The music metaphor says "score" everywhere, but CLI help text is inconsistent. `mozart run` → "Run a **job** from a YAML configuration file". `mozart validate` → "Validate a **job** configuration file". Meanwhile `mozart resume`, `mozart cancel`, and `mozart status` correctly use "score" in their descriptions. The Typer parameter name `JOB_ID` appears in usage lines for all commands (`mozart status [JOB_ID]`, `mozart resume JOB_ID`, etc.) while the descriptions say "Score ID". Commands touched during M3 UX work were updated; untouched ones still say "job".
+- **Description:** The music metaphor says "score" everywhere, but CLI help text is inconsistent. `marianne run` → "Run a **job** from a YAML configuration file". `marianne validate` → "Validate a **job** configuration file". Meanwhile `mzt resume`, `marianne cancel`, and `marianne status` correctly use "score" in their descriptions. The Typer parameter name `JOB_ID` appears in usage lines for all commands (`mzt status [JOB_ID]`, `mzt resume JOB_ID`, etc.) while the descriptions say "Score ID". Commands touched during M3 UX work were updated; untouched ones still say "job".
 - **Impact:** A newcomer reading help text encounters two terms for the same concept. The music metaphor is described as "load-bearing" in the composer's notes.
-- **Files:** `src/mozart/cli/commands/run.py` (docstring), `src/mozart/cli/commands/validate_cmd.py` (docstring), multiple commands (JOB_ID Typer param name)
+- **Files:** `src/marianne/cli/commands/run.py` (docstring), `src/marianne/cli/commands/validate_cmd.py` (docstring), multiple commands (JOB_ID Typer param name)
 
 ### F-154: hello.yaml Working Tree Has Composer Testing Artifacts — Accidental Commit Risk
 - **Found by:** Newcomer, Movement 2 (final review) — also flagged by Adversary, Prism, Ember, quality gate
 - **Severity:** P1 (high — breaks newcomer experience if committed)
 - **Status:** Open
-- **Description:** Working tree diff at `examples/hello.yaml`: `instrument: claude-code` → `instrument: gemini-cli` (line 34), added `per_sheet_instruments:` with `1: claude-code` and `5: ollama` (lines 46-51), added `per_sheet_instrument_config:` with `5: { model: qwen3:14b }` (lines 49-51). Every reviewer has flagged this. It persists across multiple movement cycles. `mozart validate examples/hello.yaml` shows "Instrument: gemini-cli" which contradicts the README.
+- **Description:** Working tree diff at `examples/hello.yaml`: `instrument: claude-code` → `instrument: gemini-cli` (line 34), added `per_sheet_instruments:` with `1: claude-code` and `5: ollama` (lines 46-51), added `per_sheet_instrument_config:` with `5: { model: qwen3:14b }` (lines 49-51). Every reviewer has flagged this. It persists across multiple movement cycles. `mzt validate examples/hello.yaml` shows "Instrument: gemini-cli" which contradicts the README.
 - **Impact:** If committed: anyone without Gemini CLI gets a broken flagship example. Anyone without Ollama gets a broken sheet 5. The "Your First Score" experience requires three instruments instead of one.
 - **Action:** Revert working tree changes, or create a separate `examples/hello-multi-instrument.yaml` that showcases multi-instrument while keeping hello.yaml single-instrument.
 
@@ -1699,9 +1699,9 @@ Each finding should include:
 - **Found by:** Newcomer, Movement 2 (final review)
 - **Severity:** P3 (low — organizational, not functional)
 - **Status:** Open
-- **Description:** The Learning section in `mozart --help` contains 12 commands (patterns-list, patterns-why, patterns-entropy, patterns-budget, learning-stats, learning-insights, learning-drift, learning-epistemic-drift, learning-activity, learning-export, learning-record-evolution, entropy-status). This is 46% of all CLI commands, but the learning system is a supporting feature, not the core workflow. Dash's CLI UX audit (`movement-2/cli-ux-audit.md`) also flagged this, noting it requires E-002 escalation for a subcommand refactor.
-- **Impact:** Dilutes the signal of core commands (run, validate, status) in help output. Creates misleading impression of what Mozart is primarily for.
-- **Action:** Consider `mozart learning <subcommand>` grouping (like `mozart instruments <subcommand>` and `mozart config <subcommand>`).
+- **Description:** The Learning section in `marianne --help` contains 12 commands (patterns-list, patterns-why, patterns-entropy, patterns-budget, learning-stats, learning-insights, learning-drift, learning-epistemic-drift, learning-activity, learning-export, learning-record-evolution, entropy-status). This is 46% of all CLI commands, but the learning system is a supporting feature, not the core workflow. Dash's CLI UX audit (`movement-2/cli-ux-audit.md`) also flagged this, noting it requires E-002 escalation for a subcommand refactor.
+- **Impact:** Dilutes the signal of core commands (run, validate, status) in help output. Creates misleading impression of what Marianne is primarily for.
+- **Action:** Consider `marianne learning <subcommand>` grouping (like `mzt instruments <subcommand>` and `mzt config <subcommand>`).
 
 ### F-156: Silent Re-Pause After Resume When Cost Limit Exceeded
 - **Found by:** Axiom, Movement 2 (final review)
@@ -1715,7 +1715,7 @@ Each finding should include:
 - **Found by:** Adversary, Movement 2 (final review)
 - **Severity:** P1 (high — credential leak risk in production execution path)
 - **Status:** Open
-- **Description:** `src/mozart/execution/runner/sheet.py` has 20+ locations where `str(e)` is passed to structured loggers without `redact_credentials()`. The baton musician (`musician.py`) has 6 redaction points. The checkpoint's `capture_output()` at `checkpoint.py:567-568` redacts stdout/stderr. But the runner's exception-to-log pathway bypasses both — exceptions go directly to structured logging. If a backend raises an exception containing credentials (e.g., auth failure with API key in message), the credential flows unredacted to `~/.mozart/mozart.log`, diagnostic output, and any downstream consumer. The legacy runner runs ALL current production workloads since the baton has not been activated.
+- **Description:** `src/marianne/execution/runner/sheet.py` has 20+ locations where `str(e)` is passed to structured loggers without `redact_credentials()`. The baton musician (`musician.py`) has 6 redaction points. The checkpoint's `capture_output()` at `checkpoint.py:567-568` redacts stdout/stderr. But the runner's exception-to-log pathway bypasses both — exceptions go directly to structured logging. If a backend raises an exception containing credentials (e.g., auth failure with API key in message), the credential flows unredacted to `~/.marianne/marianne.log`, diagnostic output, and any downstream consumer. The legacy runner runs ALL current production workloads since the baton has not been activated.
 - **Impact:** Credential exposure risk in the production execution path. The baton's redaction is irrelevant until activated.
 - **Error class:** Defense-in-depth gap — redaction applied at some layers (checkpoint, baton musician) but not others (legacy runner error logging).
 - **Action:** Add `redact_credentials()` to the exception logging paths in `sheet.py`, especially lines where `error=str(e)` is passed to loggers with `exc_info=True`. Alternatively, redact at the log handler level to catch all paths.
@@ -1741,7 +1741,7 @@ Each finding should include:
 - **Found by:** Warden, Movement 3
 - **Severity:** P2 (medium — robustness/DoS, not credential exposure)
 - **Status:** Resolved (movement 3, Warden)
-- **Description:** `ErrorClassifier.parse_reset_time()` at `classifier.py:217` parses rate limit reset times from API error messages. It has a 300s minimum floor (`RESET_TIME_MINIMUM_WAIT_SECONDS`) but NO maximum ceiling. An adversarial or malformed API response like "resets in 999999 hours" produces `wait_seconds = 3,599,996,400` (~114 years). This value flows to `RateLimitHit.wait_seconds` → `_handle_rate_limit_hit()` → `timer.schedule()` → instrument blocked indefinitely. Recovery exists via `mozart clear-rate-limits`, but users shouldn't need manual intervention for a parsed value.
+- **Description:** `ErrorClassifier.parse_reset_time()` at `classifier.py:217` parses rate limit reset times from API error messages. It has a 300s minimum floor (`RESET_TIME_MINIMUM_WAIT_SECONDS`) but NO maximum ceiling. An adversarial or malformed API response like "resets in 999999 hours" produces `wait_seconds = 3,599,996,400` (~114 years). This value flows to `RateLimitHit.wait_seconds` → `_handle_rate_limit_hit()` → `timer.schedule()` → instrument blocked indefinitely. Recovery exists via `marianne clear-rate-limits`, but users shouldn't need manual intervention for a parsed value.
 - **Impact:** A single malformed rate limit message from any API provider could effectively disable an instrument for the lifetime of the conductor process. While the API provider could DOS the instrument anyway by not responding, the parsed timer creates a persistent block that survives individual sheet failures.
 - **Resolution:** Added `RESET_TIME_MAXIMUM_WAIT_SECONDS = 86400.0` (24h) to `constants.py`. Added `_clamp_wait()` static method to `ErrorClassifier` that clamps to `[300, 86400]`. All three parse_reset_time return paths now use `_clamp_wait()` instead of bare `max()`. 10 TDD tests in `test_rate_limit_wait_cap.py`: extreme hours, large hours, large minutes, normal hours/minutes unchanged, boundary cases, minimum still enforced, absolute time format.
 - **Error class:** Unbounded parsed value from external input. Same class as F-081 (asymmetric enforcement) — safety measure exists but doesn't cover all paths.
@@ -1752,8 +1752,8 @@ Each finding should include:
 - **Status:** Resolved (movement 3, Warden)
 - **Category:** pattern
 - **Description:** Working tree has 4 uncommitted files implementing a rate limit wait time safety cap:
-  1. `src/mozart/core/constants.py` — `RESET_TIME_MAXIMUM_WAIT_SECONDS = 86400.0` (24h cap)
-  2. `src/mozart/core/errors/classifier.py` — `_clamp_wait()` static method replacing 3 bare `max()` calls
+  1. `src/marianne/core/constants.py` — `RESET_TIME_MAXIMUM_WAIT_SECONDS = 86400.0` (24h cap)
+  2. `src/marianne/core/errors/classifier.py` — `_clamp_wait()` static method replacing 3 bare `max()` calls
   3. `tests/test_quality_gate.py` — BARE_MAGICMOCK baseline bump 1230→1234
   4. `tests/test_rate_limit_wait_cap.py` (untracked) — 10 TDD tests proving the cap works
   The change is well-designed: prevents adversarial/malformed API responses like "resets in 999999 hours" from blocking instruments forever. TDD was followed (tests exist). But it was never committed.
@@ -1766,7 +1766,7 @@ Each finding should include:
 - **Severity:** P2 (medium — operational correctness)
 - **Status:** Resolved (movement 3, Breakpoint)
 - **Category:** bug
-- **Description:** `BatonCore.clear_instrument_rate_limit()` at `core.py:271-275` used the conditional `[self._instruments[instrument]] if instrument and instrument in self._instruments else list(self._instruments.values())`. When `instrument` is a truthy string NOT in `self._instruments` (e.g., `"nonexistent"`), the condition evaluates False, falling through to the else branch which clears ALL instruments. A user running `mozart clear-rate-limits -i typo-in-name` would silently clear rate limits on every instrument instead of doing nothing.
+- **Description:** `BatonCore.clear_instrument_rate_limit()` at `core.py:271-275` used the conditional `[self._instruments[instrument]] if instrument and instrument in self._instruments else list(self._instruments.values())`. When `instrument` is a truthy string NOT in `self._instruments` (e.g., `"nonexistent"`), the condition evaluates False, falling through to the else branch which clears ALL instruments. A user running `marianne clear-rate-limits -i typo-in-name` would silently clear rate limits on every instrument instead of doing nothing.
 - **Impact:** Operational: a typo in the instrument name silently clears all rate limits instead of reporting "not found." Could cause rate limit storms if limits were legitimately in place.
 - **Resolution:** Replaced ternary with explicit if/else using `self._instruments.get(instrument)`. Non-existent instrument now returns empty target list → 0 cleared. Regression test in `test_m3_adversarial_breakpoint.py::TestClearRateLimits::test_clear_nonexistent_instrument_returns_zero`.
 - **Error class:** Fallthrough-to-default on failed lookup. Same pattern as "if X and X in dict" where the "else" branch has unintended side effects.
@@ -1799,9 +1799,9 @@ Each finding should include:
 - **Severity:** P2 (medium — misleading error for every new IPC method added to a stale conductor)
 - **Status:** Resolved (movement 4, Harper)
 - **Category:** bug
-- **Description:** `try_daemon_route()` at `src/mozart/daemon/detect.py:170-174` catches `DaemonError` (which includes "Method not found: daemon.clear_rate_limits") and returns `(False, None)` — the same signal as "daemon not reachable." The function already tracks `daemon_confirmed_running` at line 110 and uses it to differentiate TimeoutError (lines 113-122). But the DaemonError handler at line 170 ignores this flag, treating "method not found on a running daemon" identically to "daemon not reachable."
-- **Reproducer:** Start conductor from M2 code. Upgrade CLI to M3 code (with clear-rate-limits). Run `mozart clear-rate-limits`. Get: "Error: Mozart conductor is not running" while `mozart conductor-status` confirms it IS running.
-- **Impact:** Trust-destroying inconsistency. User is told to start the conductor when it is already running. Broader: any CLI command added after a long-running conductor (or after a CLI upgrade without daemon restart) will give the same misleading error. Users upgrading Mozart without restarting their conductor will hit this for every new IPC method.
+- **Description:** `try_daemon_route()` at `src/marianne/daemon/detect.py:170-174` catches `DaemonError` (which includes "Method not found: daemon.clear_rate_limits") and returns `(False, None)` — the same signal as "daemon not reachable." The function already tracks `daemon_confirmed_running` at line 110 and uses it to differentiate TimeoutError (lines 113-122). But the DaemonError handler at line 170 ignores this flag, treating "method not found on a running daemon" identically to "daemon not reachable."
+- **Reproducer:** Start conductor from M2 code. Upgrade CLI to M3 code (with clear-rate-limits). Run `marianne clear-rate-limits`. Get: "Error: Marianne conductor is not running" while `marianne conductor-status` confirms it IS running.
+- **Impact:** Trust-destroying inconsistency. User is told to start the conductor when it is already running. Broader: any CLI command added after a long-running conductor (or after a CLI upgrade without daemon restart) will give the same misleading error. Users upgrading Marianne without restarting their conductor will hit this for every new IPC method.
 - **Action:** In the DaemonError catch at detect.py:170-174, check `daemon_confirmed_running`. If True, raise a descriptive DaemonError ("Conductor is running but does not support method X — restart the conductor to load new features") instead of returning `(False, None)`.
 - **Error class:** Signal collapse — two distinct error states (not reachable vs. unsupported method) mapped to the same return value. Same pattern as the TimeoutError handler, which was already fixed.
 - **Resolution:** Added `MethodNotFoundError(DaemonError)` to exception hierarchy. Mapped METHOD_NOT_FOUND (-32601) in `_CODE_EXCEPTION_MAP`. `try_daemon_route()` now re-raises MethodNotFoundError with user-friendly message including restart guidance. `run.py` catches DaemonError to prevent raw propagation. 15 TDD tests in `test_f450_method_not_found.py`. Updated 2 existing tests (`test_daemon_cli_detection.py`, `test_daemon_ipc_client.py`).
@@ -1811,7 +1811,7 @@ Each finding should include:
 - **Severity:** P1 (high — blocks baton activation for any score with sequential dependencies)
 - **Status:** Resolved (movement 4, Canyon + Foundation)
 - **Category:** architecture
-- **Description:** The legacy runner populates `SheetContext.previous_outputs` and `SheetContext.previous_files` via `_populate_cross_sheet_context()` in `src/mozart/execution/runner/context.py:171-221`. This gives each sheet access to previous sheets' stdout output and captured files. The baton's PromptRenderer (`src/mozart/daemon/baton/prompt.py`) and musician `_build_prompt()` (`src/mozart/daemon/baton/musician.py:208-288`) have zero awareness of cross-sheet context. The `SheetExecutionState` at `src/mozart/daemon/baton/state.py:161-163` declares `previous_outputs: dict[int, str]` but it is never populated by the adapter or any dispatch code.
+- **Description:** The legacy runner populates `SheetContext.previous_outputs` and `SheetContext.previous_files` via `_populate_cross_sheet_context()` in `src/marianne/execution/runner/context.py:171-221`. This gives each sheet access to previous sheets' stdout output and captured files. The baton's PromptRenderer (`src/marianne/daemon/baton/prompt.py`) and musician `_build_prompt()` (`src/marianne/daemon/baton/musician.py:208-288`) have zero awareness of cross-sheet context. The `SheetExecutionState` at `src/marianne/daemon/baton/state.py:161-163` declares `previous_outputs: dict[int, str]` but it is never populated by the adapter or any dispatch code.
 - **Impact:** 24 of 34 example scores use `cross_sheet: auto_capture_stdout: true`. Any score where sheet N references `{{ previous_outputs }}` or depends on seeing what sheet N-1 produced will render templates with empty cross-sheet context under the baton. This produces functionally different (worse) prompts compared to the legacy runner. **This is the most significant functional gap between baton and legacy paths.**
 - **Resolution:** Wired cross-sheet context through the full baton dispatch pipeline:
   1. Added `previous_files` field to `AttemptContext` (state.py) — captures workspace file patterns
@@ -1829,7 +1829,7 @@ Each finding should include:
 - **Status:** Resolved (movement 4, Canyon + Foundation)
 - **Resolution:** Canyon M4: duck-typed _sync_sheet_status for all single-sheet events, pre-event capture for CancelJob, direct state scan for ShutdownRequested. 16+18 TDD tests. Foundation M4: state-diff dedup cache (_synced_status dict), explicit JobTimeout handler (_sync_all_sheets_for_job), RateLimitExpired handler (_sync_all_sheets_for_instrument), fixed _sync_cancelled_sheets_from_state to use dedup, fixed pre-existing test failure in test_baton_restart_recovery.py. Total: 6 event types covered (was 2).
 - **Category:** architecture
-- **Description:** `_sync_sheet_status()` in `src/mozart/daemon/baton/adapter.py:1109-1148` only syncs checkpoint for `SheetAttemptResult` and `SheetSkipped` events. Axiom identified (F-440 notes) and Weaver confirmed: EscalationResolved (core.py:1081-1090, 4 terminal paths), EscalationTimeout (core.py:1104-1132, FAILED + propagation), CancelJob (core.py:1159-1170, all sheets → CANCELLED), and ShutdownRequested (core.py:1172-1184, all → CANCELLED) are NOT synced. On restart after any of these events, checkpoint shows stale state and sheets are resurrected.
+- **Description:** `_sync_sheet_status()` in `src/marianne/daemon/baton/adapter.py:1109-1148` only syncs checkpoint for `SheetAttemptResult` and `SheetSkipped` events. Axiom identified (F-440 notes) and Weaver confirmed: EscalationResolved (core.py:1081-1090, 4 terminal paths), EscalationTimeout (core.py:1104-1132, FAILED + propagation), CancelJob (core.py:1159-1170, all sheets → CANCELLED), and ShutdownRequested (core.py:1172-1184, all → CANCELLED) are NOT synced. On restart after any of these events, checkpoint shows stale state and sheets are resurrected.
 - **Impact:** Escalation decisions lost on restart (sheet re-escalates). Cancel commands reversed on restart (sheets resume). Shutdown cancellations reversed (work re-executed). F-440's register_job re-propagation covers the failure cascade gap but not these 4 event types.
 - **Action:** Either expand `_sync_sheet_status()` to handle all terminal-transition events, or redesign to sync after every event that modifies sheet status. The simplest fix: add `isinstance(event, (EscalationResolved, EscalationTimeout, CancelJob, ShutdownRequested))` to the sync callback and iterate affected sheets.
 - **Error class:** Incomplete bridge — same architectural pattern as F-440. The sync bridge only covers the common execution path, not the exception paths.
@@ -1839,7 +1839,7 @@ Each finding should include:
 - **Severity:** P3 (low — spec corpus is lightly used in current scores)
 - **Status:** Open
 - **Category:** architecture
-- **Description:** The legacy runner applies `_apply_spec_budget_gating()` at `src/mozart/execution/runner/sheet.py` to limit spec fragment injection based on context window budget. The baton's PromptRenderer at `src/mozart/daemon/baton/prompt.py` passes spec fragments directly to PromptBuilder without budget gating. For scores with large spec corpora, this could produce prompts that exceed the instrument's context window.
+- **Description:** The legacy runner applies `_apply_spec_budget_gating()` at `src/marianne/execution/runner/sheet.py` to limit spec fragment injection based on context window budget. The baton's PromptRenderer at `src/marianne/daemon/baton/prompt.py` passes spec fragments directly to PromptBuilder without budget gating. For scores with large spec corpora, this could produce prompts that exceed the instrument's context window.
 - **Action:** Add spec budget gating to PromptRenderer. Low priority because spec corpus is lightly used and current instruments have large context windows (1M+ for Opus).
 - **Error class:** Feature gap — same class as F-210.
 
@@ -1867,7 +1867,7 @@ Each finding should include:
 - **Severity:** P2 (medium — new IPC methods fail misleadingly on stale conductors)
 - **Status:** Resolved (movement 4, Harper — see F-450)
 - **Category:** bug
-- **Description:** Ran `mozart clear-rate-limits` while conductor is confirmed running (PID 1277279, `conductor-status` shows RUNNING, `status` shows active scores). Got: "Error: Mozart conductor is not running." Root cause at `detect.py:170-174`: `try_daemon_route()` conflates "IPC method not found" with "conductor not reachable." The production conductor predates the `clear-rate-limits` IPC method — it runs older code. Any new IPC method added by M3 musicians will hit this pattern on stale conductors.
+- **Description:** Ran `marianne clear-rate-limits` while conductor is confirmed running (PID 1277279, `conductor-status` shows RUNNING, `status` shows active scores). Got: "Error: Marianne conductor is not running." Root cause at `detect.py:170-174`: `try_daemon_route()` conflates "IPC method not found" with "conductor not reachable." The production conductor predates the `clear-rate-limits` IPC method — it runs older code. Any new IPC method added by M3 musicians will hit this pattern on stale conductors.
 - **Action:** Already tracked as F-450. Cross-referencing for independent confirmation.
 
 ### F-330: README CLI Reference Significantly Stale — 13 Commands Missing
@@ -1892,15 +1892,15 @@ Each finding should include:
 - **Severity:** P3 (low)
 - **Status:** Resolved (movement 3, Compass)
 - **Category:** risk
-- **Description:** docs/index.md stated "35+ working Mozart score configurations" when actual count is 38.
-- **Resolution:** Updated to "38 working Mozart score configurations."
+- **Description:** docs/index.md stated "35+ working Marianne score configurations" when actual count is 38.
+- **Resolution:** Updated to "38 working Marianne score configurations."
 
 ### F-333: README Manual Installation Missing [daemon] Extra
 - **Found by:** Compass, Movement 3 (second pass)
 - **Severity:** P1 (high — newcomer UX blocker)
 - **Status:** Resolved (movement 3, Compass)
 - **Category:** bug
-- **Description:** `README.md` line 90, Manual Installation section: `pip install -e "."` omits the `[daemon]` extra. The Quick Start at line 117 requires `mozart start`, which depends on `psutil` (a daemon-only dependency). A newcomer who follows the manual path instead of `./setup.sh --daemon` hits an import error or unclear failure at Quick Start step 3. The recommended setup path (`./setup.sh --daemon`) handles this correctly, but the manual alternative doesn't.
+- **Description:** `README.md` line 90, Manual Installation section: `pip install -e "."` omits the `[daemon]` extra. The Quick Start at line 117 requires `marianne start`, which depends on `psutil` (a daemon-only dependency). A newcomer who follows the manual path instead of `./setup.sh --daemon` hits an import error or unclear failure at Quick Start step 3. The recommended setup path (`./setup.sh --daemon`) handles this correctly, but the manual alternative doesn't.
 - **Impact:** Any newcomer who prefers manual install over the setup script gets a broken first experience. The exact user we most need to impress — the one who wants to understand what they're installing — is the one who gets burned.
 - **Error class:** Same class as F-026 (broken Quick Start), F-095 (init teaches wrong patterns). Setup paths that produce broken first experiences.
 - **Resolution:** Changed to `pip install -e ".[daemon]"` with a note explaining the daemon extra is required for score execution. Guide independently fixed the same issue in commit f8245fa — convergent discovery.
@@ -1911,7 +1911,7 @@ Each finding should include:
 - **Status:** Resolved (movement 3, Compass)
 - **Category:** risk
 - **Description:** `examples/hello.yaml` line 27 stated "Cost: ~$0.50" for 5 sheets of Claude Code Opus. Actual cost for 5 agent sessions of ~5 minutes each is closer to $5-15 depending on context size and output length. This is the same class as F-461 (cost tracking fiction) but in a user-facing comment rather than the status display.
-- **Impact:** A newcomer running hello.yaml expects $0.50 and spends $5-15. The first encounter with Mozart involves a cost surprise. Trust erosion before the product even demonstrates its value.
+- **Impact:** A newcomer running hello.yaml expects $0.50 and spends $5-15. The first encounter with Marianne involves a cost surprise. Trust erosion before the product even demonstrates its value.
 - **Error class:** F-461 (cost fiction). Cost information is consistently wrong across the product surface.
 - **Resolution:** Changed to "Cost: varies by instrument and model" — honest rather than wrong.
 
@@ -1920,8 +1920,8 @@ Each finding should include:
 - **Severity:** P3 (low — internal metrics, not core UX)
 - **Status:** Open
 - **Category:** risk
-- **Description:** `mozart learning-stats` reports 12.0% first-attempt success rate, 0.51 avg effectiveness (barely above random), and 0.0% recovery success rate. These numbers are visible to any user who discovers the command. Without context (e.g., "exploration-heavy workloads have low first-attempt rates by design"), these stats would alarm any engineer evaluating Mozart for adoption. The 0.51 effectiveness is related to F-009 (all patterns had 0.5000) — the semantic tag fix may improve this over time, but current data reflects pre-fix patterns.
-- **Impact:** A potential adopter who runs `mozart learning-stats` might conclude the system doesn't learn effectively. The numbers need either contextual explanation in the output or clear documentation about what they mean.
+- **Description:** `marianne learning-stats` reports 12.0% first-attempt success rate, 0.51 avg effectiveness (barely above random), and 0.0% recovery success rate. These numbers are visible to any user who discovers the command. Without context (e.g., "exploration-heavy workloads have low first-attempt rates by design"), these stats would alarm any engineer evaluating Marianne for adoption. The 0.51 effectiveness is related to F-009 (all patterns had 0.5000) — the semantic tag fix may improve this over time, but current data reflects pre-fix patterns.
+- **Impact:** A potential adopter who runs `marianne learning-stats` might conclude the system doesn't learn effectively. The numbers need either contextual explanation in the output or clear documentation about what they mean.
 - **Action:** Add brief context to `learning-stats` output explaining what the numbers mean, or document expected ranges in the CLI reference.
 
 ### F-464: `history` Command Placement Inconsistency (README vs CLI)
@@ -1929,7 +1929,7 @@ Each finding should include:
 - **Severity:** P3 (low — minor doc inconsistency)
 - **Status:** Resolved (movement 4, Guide)
 - **Category:** risk
-- **Description:** README.md lists `mozart history` under the "Monitoring" section (line ~216). The actual CLI (`mozart --help`) lists `history` under "Diagnostics." A newcomer reading the README builds a mental model where history is a monitoring tool, then finds it categorized differently in the CLI. Minor inconsistency but breaks the otherwise-clean mapping between README and CLI.
+- **Description:** README.md lists `marianne history` under the "Monitoring" section (line ~216). The actual CLI (`marianne --help`) lists `history` under "Diagnostics." A newcomer reading the README builds a mental model where history is a monitoring tool, then finds it categorized differently in the CLI. Minor inconsistency but breaks the otherwise-clean mapping between README and CLI.
 - **Impact:** Low — most users won't notice. But the README was carefully restructured this movement (Compass, F-330) to match CLI groups exactly. This one slipped through.
 - **Action:** Move `history` to the Diagnostics section in README, consistent with the CLI grouping.
 
@@ -1938,17 +1938,17 @@ Each finding should include:
 **Severity:** P1 (high — every newcomer hits this on the main path)
 **Status:** Resolved (movement 4, Guide)
 **Category:** bug
-**Description:** README.md (line 141) says `mozart status hello-mozart`. Getting-started.md (line 60) says the same. **Additionally, `examples/hello.yaml:16` — the example file's own header comment — says `#   mozart status hello-mozart`. And README.md:158 says `mozart resume hello-mozart`.** Four locations, not two, all teaching the wrong command. The hello score's `name:` field is `hello-mozart`. But the conductor registers the score under the ID `hello` (derived from the filename, not the name field). Running `mozart status hello-mozart` produces: "Error: Score not found: hello-mozart / Hints: Run 'mozart list' to see available scores." The hint saves the user but the docs broke them.
+**Description:** README.md (line 141) says `mzt status hello-marianne`. Getting-started.md (line 60) says the same. **Additionally, `examples/hello.yaml:16` — the example file's own header comment — says `#   mzt status hello-marianne`. And README.md:158 says `mzt resume hello-marianne`.** Four locations, not two, all teaching the wrong command. The hello score's `name:` field is `hello-marianne`. But the conductor registers the score under the ID `hello` (derived from the filename, not the name field). Running `mzt status hello-marianne` produces: "Error: Score not found: hello-marianne / Hints: Run 'marianne list' to see available scores." The hint saves the user but the docs broke them.
 **Impact:** Every single newcomer who follows the README or getting-started guide will hit this error at the monitoring step.
 **Error class:** Same class as F-026, F-095 — setup paths that produce broken first experiences.
-**Resolution:** Renamed `examples/hello.yaml` → `examples/hello-mozart.yaml` so filename stem matches the `name:` field. Now the conductor-derived ID (`hello-mozart`) matches what all docs teach. Updated 8 files: README.md (4 refs), getting-started.md (3 refs), examples/hello-mozart.yaml (3 refs: header, usage comment, colophon), examples/README.md (2 refs), tests/test_cli_user_journeys.py (1 ref), tests/test_status_display_bugs.py (1 ref). Also fixed F-464 (history command moved from Monitoring to Diagnostics in README).
+**Resolution:** Renamed `examples/hello.yaml` → `examples/hello-marianne.yaml` so filename stem matches the `name:` field. Now the conductor-derived ID (`hello-marianne`) matches what all docs teach. Updated 8 files: README.md (4 refs), getting-started.md (3 refs), examples/hello-marianne.yaml (3 refs: header, usage comment, colophon), examples/README.md (2 refs), tests/test_cli_user_journeys.py (1 ref), tests/test_status_display_bugs.py (1 ref). Also fixed F-464 (history command moved from Monitoring to Diagnostics in README).
 
 ### F-466: JOB_ID Persists in Every CLI Usage Line Despite F-460 Terminology Fix
 **Found by:** Newcomer, Movement 3 (second reviewer pass)
 **Severity:** P2 (medium — visible in every `--help` output)
 **Status:** Open
 **Category:** bug
-**Description:** F-460 (M3) fixed command descriptions from "job" to "score" but did not rename the Typer argument parameter from `job_id` to `score_id`. The Typer argument name controls the usage line display. Result: every command shows `Usage: mozart <cmd> [OPTIONS] JOB_ID` in the first line, then says "Score ID to..." in the help text below it. The inconsistency is in the same help output. Affected commands: `resume`, `pause`, `cancel`, `status`, `errors`, `diagnose`, `history`, `recover`, `modify` (9 commands). Internal variables (`_JOB_ID_PATTERN`, `_JOB_ID_MAX_LENGTH`, `validate_job_id`) at `_shared.py:421-450` also use the old terminology.
+**Description:** F-460 (M3) fixed command descriptions from "job" to "score" but did not rename the Typer argument parameter from `job_id` to `score_id`. The Typer argument name controls the usage line display. Result: every command shows `Usage: marianne <cmd> [OPTIONS] JOB_ID` in the first line, then says "Score ID to..." in the help text below it. The inconsistency is in the same help output. Affected commands: `resume`, `pause`, `cancel`, `status`, `errors`, `diagnose`, `history`, `recover`, `modify` (9 commands). Internal variables (`_JOB_ID_PATTERN`, `_JOB_ID_MAX_LENGTH`, `validate_job_id`) at `_shared.py:421-450` also use the old terminology.
 **Impact:** A newcomer who reads the usage line sees "JOB_ID" and thinks "jobs." Then the help text says "Score ID." The music metaphor — which is load-bearing per composer directive — leaks in the most visible place. Note: this is an E-002 escalation trigger (changing CLI command interface) per the constraint spec.
 **Action:** Rename `job_id` parameter to `score_id` across all 9 command files, plus `validate_job_id()` → `validate_score_id()`, `_JOB_ID_PATTERN` → `_SCORE_ID_PATTERN`, etc. in `_shared.py`. Requires composer approval per E-002.
 
@@ -2083,20 +2083,20 @@ Each finding should include:
 - **Severity:** P0 (critical — data loss, silently destroys hours of in-progress work)
 - **Status:** Open
 - **Category:** architecture / baton transition
-- **Description:** When the conductor starts with `use_baton: true`, it attempts to resume all registered jobs through the baton path. The baton's resume logic looks for its own checkpoint format but the jobs were created by the legacy runner using `CheckpointState` in `.mozart-state.db`. The baton emits `"baton.resume.no_checkpoint"` error and immediately marks the job as `"job.completed"` (stored as FAILED in the registry). This happened to ALL 5 registered jobs on conductor startup — including `mozart-orchestra-v3` at 150/706 sheets (21% complete, ~2 days of work). The workspace's `.mozart-state.db` still contains the full CheckpointState showing 150 completed sheets, but the conductor considers the job finished.
+- **Description:** When the conductor starts with `use_baton: true`, it attempts to resume all registered jobs through the baton path. The baton's resume logic looks for its own checkpoint format but the jobs were created by the legacy runner using `CheckpointState` in `.marianne-state.db`. The baton emits `"baton.resume.no_checkpoint"` error and immediately marks the job as `"job.completed"` (stored as FAILED in the registry). This happened to ALL 5 registered jobs on conductor startup — including `marianne-orchestra-v3` at 150/706 sheets (21% complete, ~2 days of work). The workspace's `.marianne-state.db` still contains the full CheckpointState showing 150 completed sheets, but the conductor considers the job finished.
 - **Evidence:** Conductor log shows the sequence for every job: `job.resuming` → `baton.resume.no_checkpoint` (error) → `snapshot.captured` → `job.completed` — all within 100ms. No sheets were dispatched.
-- **Dual state disagreement:** `mozart list` (registry) says FAILED. `mozart status <job>` (workspace state) says RUNNING with 4 in_progress sheets. Conductor memory says 0 running jobs. Three sources, three answers.
-- **Impact:** (1) Flipping `use_baton: true` silently destroys all in-progress legacy work. (2) The "no checkpoint" error doesn't distinguish "never started" from "150 sheets completed via legacy runner." (3) The baton transition (composer directive, Phase 2) cannot safely flip the default without solving this. (4) `mozart status` shows stale RUNNING state that will never progress — the job is dead but looks alive.
+- **Dual state disagreement:** `marianne list` (registry) says FAILED. `mzt status <job>` (workspace state) says RUNNING with 4 in_progress sheets. Conductor memory says 0 running jobs. Three sources, three answers.
+- **Impact:** (1) Flipping `use_baton: true` silently destroys all in-progress legacy work. (2) The "no checkpoint" error doesn't distinguish "never started" from "150 sheets completed via legacy runner." (3) The baton transition (composer directive, Phase 2) cannot safely flip the default without solving this. (4) `marianne status` shows stale RUNNING state that will never progress — the job is dead but looks alive.
 - **Related:** Issue #111 (conductor state desync). F-139 (misleading resume error). Composer directive: baton transition Phase 1 must solve this before Phase 2.
-- **Architectural principle:** The daemon is the ONLY source of truth for job state. Workspace files are artifacts, not state. The legacy runner's pattern of writing CheckpointState to `.mozart-state.db` in the workspace creates a dual-state problem — two sources of truth that can disagree. The baton should NOT learn to read legacy workspace state. That's perpetuating the wrong architecture.
-- **Fix:** (1) The baton's state lives in the daemon's own DB (daemon-state.db / registry.db), not in workspace files. On restart, the daemon recovers from its own persisted state. (2) If the daemon has no record of a job, the job doesn't exist — period. No falling back to workspace files. (3) Legacy workspace state files (.mozart-state.db) should be treated as read-only artifacts for debugging, not as authoritative state. (4) The transition path: migrate any essential state from legacy workspace DBs into the daemon's DB as a one-time migration, then stop writing workspace state entirely.
+- **Architectural principle:** The daemon is the ONLY source of truth for job state. Workspace files are artifacts, not state. The legacy runner's pattern of writing CheckpointState to `.marianne-state.db` in the workspace creates a dual-state problem — two sources of truth that can disagree. The baton should NOT learn to read legacy workspace state. That's perpetuating the wrong architecture.
+- **Fix:** (1) The baton's state lives in the daemon's own DB (daemon-state.db / registry.db), not in workspace files. On restart, the daemon recovers from its own persisted state. (2) If the daemon has no record of a job, the job doesn't exist — period. No falling back to workspace files. (3) Legacy workspace state files (.marianne-state.db) should be treated as read-only artifacts for debugging, not as authoritative state. (4) The transition path: migrate any essential state from legacy workspace DBs into the daemon's DB as a one-time migration, then stop writing workspace state entirely.
 
 ### F-253: Cost Tracking Tip Says "Use JSON Output" But Doesn't Say How — And JSON Should Be Default
 - **Found by:** Composer, 2026-04-04
 - **Severity:** P2 (medium — UX gap, accurate cost tracking is a core feature)
 - **Status:** Open
 - **Category:** UX
-- **Description:** `mozart status` displays a tip: "Set cost_limits.enabled: true in your score to prevent unexpected charges" and cost tracking shows near-zero values ($0.00-$0.03) for scores that have run hundreds of sheets. Accurate token/cost tracking requires the instrument to output in JSON format (so Mozart can parse `input_tokens_path` / `output_tokens_path` from structured output), but there is no guidance in the status output, score-writing guide, or CLI help on how to configure this. The instrument profiles define `output_format_flag` and `output_format_value` (e.g., `-o json` for claude-code), but whether this is applied depends on the profile config, not explicit user action. If JSON output is required for accurate cost tracking, it should be the default output format for all instruments — not something the user has to discover and configure.
+- **Description:** `marianne status` displays a tip: "Set cost_limits.enabled: true in your score to prevent unexpected charges" and cost tracking shows near-zero values ($0.00-$0.03) for scores that have run hundreds of sheets. Accurate token/cost tracking requires the instrument to output in JSON format (so Marianne can parse `input_tokens_path` / `output_tokens_path` from structured output), but there is no guidance in the status output, score-writing guide, or CLI help on how to configure this. The instrument profiles define `output_format_flag` and `output_format_value` (e.g., `-o json` for claude-code), but whether this is applied depends on the profile config, not explicit user action. If JSON output is required for accurate cost tracking, it should be the default output format for all instruments — not something the user has to discover and configure.
 - **Impact:** (1) Composers see $0.00 costs and assume the score is free or cost tracking is broken. (2) No actionable path from the tip to accurate tracking. (3) Cost limits (`max_cost_per_job`) can't function if costs aren't tracked. (4) The v3 orchestra has run 150+ sheets with reported cost of $0.03 — clearly wrong.
 - **Action:** (1) Make JSON output format the default for all CLI instruments (instrument profiles should set it, not require user config). (2) If an instrument is running in text mode, warn that cost tracking is degraded. (3) The status tip should explain HOW to enable accurate tracking, not just that it exists.
 
@@ -2108,10 +2108,10 @@ Each finding should include:
 - **Description:** First production run of the baton (enabling `use_baton: true` on the conductor) revealed a cascade of gaps that prevent production use. These were discovered by running the v3 orchestra (150/706 completed sheets) through the baton after manual state migration. The task at TASKS.md line 282 ("Enable use_baton after F-210 fixed") was unblocked when F-210 was resolved in movement 4, but nobody tested end-to-end with real production data.
 - **Gaps found (in order of discovery):**
   1. **`_load_checkpoint` reads workspace JSON, not daemon DB** (manager.py:2211-2244). The daemon's registry already has `checkpoint_json` with full state. The baton's resume path looks for `{workspace}/{job_id}.json` — a flat file that doesn't exist. The registry has `load_checkpoint()` ready to use. **Partial fix applied this session:** changed `_load_checkpoint` to read from `self._registry.load_checkpoint()`. Needs review.
-  2. **Baton adapter doesn't publish to `_live_states`** — the legacy runner calls `_on_state_published()` on every checkpoint save, populating `_live_states` dict which `get_job_status()` reads. The baton adapter has no equivalent callback. Result: `mozart status <job>` shows "Full status unavailable" for baton-managed jobs. **FIXED (Foundation, M5):** `_run_via_baton` now creates initial CheckpointState in `_live_states` before `register_job()`. `_resume_via_baton` populates `_live_states` with recovered checkpoint. `_on_baton_state_sync` callback can now update sheet statuses. 7 TDD tests in `test_foundation_m5_f255_live_states.py`.
+  2. **Baton adapter doesn't publish to `_live_states`** — the legacy runner calls `_on_state_published()` on every checkpoint save, populating `_live_states` dict which `get_job_status()` reads. The baton adapter has no equivalent callback. Result: `mzt status <job>` shows "Full status unavailable" for baton-managed jobs. **FIXED (Foundation, M5):** `_run_via_baton` now creates initial CheckpointState in `_live_states` before `register_job()`. `_resume_via_baton` populates `_live_states` with recovered checkpoint. `_on_baton_state_sync` callback can now update sheet statuses. 7 TDD tests in `test_foundation_m5_f255_live_states.py`.
   3. **PluginCliBackend doesn't disable MCP** — the legacy `ClaudeCLIBackend` has `disable_mcp: True` default, passing `--strict-mcp-config --mcp-config '{"mcpServers":{}}'`. The `PluginCliBackend` (used by baton via instrument profiles) has zero MCP handling. Result: 4 musicians spawn ~80 child processes (MCP servers, docker containers) instead of ~8. Potential deadlocks per legacy backend comments. **FIXED (Foundation, M5):** See F-271. Profile-driven `mcp_disable_args` on CliCommand.
   4. **Three state stores disagree** — daemon registry (FAILED), workspace SQLite (RUNNING), workspace JSON (doesn't exist). The daemon DB should be the ONLY source of truth. Workspace files are artifacts, not state.
-  5. **`mozart list` and `mozart status` read different sources** — list reads registry (FAILED), status reads workspace or live_states (RUNNING). Three answers from three sources.
+  5. **`marianne list` and `marianne status` read different sources** — list reads registry (FAILED), status reads workspace or live_states (RUNNING). Three answers from three sources.
 - **What was done this session:**
   - Changed `_load_checkpoint` to read from daemon DB registry (needs code review)
   - Manually migrated checkpoint state from daemon DB → workspace JSON to unblock the current run (workaround, not fix)
@@ -2130,7 +2130,7 @@ Each finding should include:
 - **Severity:** P1 (high — correct direction, incomplete implementation)
 - **Status:** Open
 - **Category:** architecture
-- **Description:** `src/mozart/daemon/manager.py` `_load_checkpoint()` method (lines 2213-2247) switched from file-based to daemon-registry-based loading in the working tree. This change is architecturally correct (daemon as single source of truth, aligns with F-254 principle) but uncommitted and incomplete. The method now calls `await self._registry.load_checkpoint(job_id)` instead of reading `workspace / f"{safe_id}.json"`. No migration path exists for legacy jobs that have checkpoints in workspace files but not in the daemon registry. No tests exist for the new code path.
+- **Description:** `src/marianne/daemon/manager.py` `_load_checkpoint()` method (lines 2213-2247) switched from file-based to daemon-registry-based loading in the working tree. This change is architecturally correct (daemon as single source of truth, aligns with F-254 principle) but uncommitted and incomplete. The method now calls `await self._registry.load_checkpoint(job_id)` instead of reading `workspace / f"{safe_id}.json"`. No migration path exists for legacy jobs that have checkpoints in workspace files but not in the daemon registry. No tests exist for the new code path.
 - **Evidence:** Working tree diff shows 25-line change at `manager.py:2213-2247`. HEAD version reads from workspace file. Working tree version reads from daemon registry (`registry.py:316-329` provides `load_checkpoint()` method). No corresponding test file changes in working tree.
 - **Impact:** The change aligns with the right architecture (daemon as single source of truth) but doesn't solve the transition problem. Legacy jobs will fail to resume because they have no registry checkpoint. This makes F-254 (enabling use_baton kills jobs) worse, not better. Uncommitted code creates drift between what's tested and what exists.
 - **Action:** (1) Commit this work WITH migration logic: on registry miss, try workspace file, migrate to registry, delete workspace file. (2) Add TDD tests for: registry hit, workspace migration fallback, both miss (error path). (3) Document as part of F-254 resolution strategy. (4) Consider: is this change a response to F-254? If so, coordinate with whoever made this change to understand the full plan.
@@ -2142,11 +2142,11 @@ Each finding should include:
 - **Resolution:** `extra='forbid'` added to all 51 config models. Journey committed job.py (7d86035) + backward compat for total_sheets (6452f6c) + schema error hints (7d86035). Axiom mateship: remaining 45 models + test fixes. Sentinel verified (a39704a). Theorem property-tested (all models reject unknown fields). Dashboard E2E tests fixed for compatibility.
 - **Category:** bug / configuration validation
 - **Error class:** Configuration validation gap (same class as F-002 falsy YAML values)
-- **Description:** All 37 config models in `src/mozart/core/config/` lack `model_config = ConfigDict(extra='forbid')`. Pydantic v2 defaults to `extra='ignore'` (silently drop unknown fields). Unknown YAML fields in score configs are accepted without error, then silently dropped. `mozart validate` reports "✓ Configuration valid" for configs with typos, non-existent features, or future unimplemented features.
-- **Impact:** (1) Score authors think features work when Mozart drops them on the floor. Example: `instrument_fallbacks: [gemini-cli]` validates successfully but is ignored (field doesn't exist). (2) Typos in field names produce zero feedback (`instument:` accepted, feature ignored). (3) Future features appear to work before implementation (`loops:`, `conditionals:` accepted, ignored). (4) Debugging is impossible — user reports "feature doesn't work" when the actual problem is "I mistyped the field name."
+- **Description:** All 37 config models in `src/marianne/core/config/` lack `model_config = ConfigDict(extra='forbid')`. Pydantic v2 defaults to `extra='ignore'` (silently drop unknown fields). Unknown YAML fields in score configs are accepted without error, then silently dropped. `marianne validate` reports "✓ Configuration valid" for configs with typos, non-existent features, or future unimplemented features.
+- **Impact:** (1) Score authors think features work when Marianne drops them on the floor. Example: `instrument_fallbacks: [gemini-cli]` validates successfully but is ignored (field doesn't exist). (2) Typos in field names produce zero feedback (`instument:` accepted, feature ignored). (3) Future features appear to work before implementation (`loops:`, `conditionals:` accepted, ignored). (4) Debugging is impossible — user reports "feature doesn't work" when the actual problem is "I mistyped the field name."
 - **Reproducer:**
 ```python
-from mozart.core.config import JobConfig
+from marianne.core.config import JobConfig
 import yaml
 data = yaml.safe_load("""
 name: test
@@ -2161,8 +2161,8 @@ config = JobConfig(**data)  # SUCCEEDS
 print(hasattr(config, 'instrument_fallbacks'))  # False — field dropped
 print(hasattr(config, 'this_is_fake'))          # False — field dropped
 ```
-- **Affected models:** All 37 — JobConfig, SheetConfig, PromptConfig, BackendConfig, InstrumentConfig, ExecutionConfig, LearningConfig, OrchestrationConfig, WorkspaceConfig, SpecCorpusConfig, etc. (full list: `grep "^class.*Config.*BaseModel" src/mozart/core/config/*.py`)
-- **Root cause:** Mozart migrated from Pydantic v1 (default `extra='forbid'`) to v2 (default `extra='ignore'`) without adding explicit `extra='forbid'` to preserve strict validation.
+- **Affected models:** All 37 — JobConfig, SheetConfig, PromptConfig, BackendConfig, InstrumentConfig, ExecutionConfig, LearningConfig, OrchestrationConfig, WorkspaceConfig, SpecCorpusConfig, etc. (full list: `grep "^class.*Config.*BaseModel" src/marianne/core/config/*.py`)
+- **Root cause:** Marianne migrated from Pydantic v1 (default `extra='forbid'`) to v2 (default `extra='ignore'`) without adding explicit `extra='forbid'` to preserve strict validation.
 - **Fix:** Add to ALL 37 config models:
 ```python
 from pydantic import BaseModel, ConfigDict
@@ -2195,7 +2195,7 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 - **Severity:** P1 (high — production impact: 80 child processes instead of 8)
 - **Status:** Resolved (movement 5, Foundation)
 - **Category:** bug
-- **Finding:** `PluginCliBackend._build_command()` at `src/mozart/execution/instruments/cli_backend.py:169-232` does NOT reference `mcp_config_flag` from the instrument profile. The field EXISTS on `CliCommand` (`instruments.py:161-164`), is SET in the claude-code profile (`builtins/claude-code.yaml:78`), but is NEVER USED in command construction. The legacy `ClaudeCliBackend` has `disable_mcp=True` which adds `--strict-mcp-config --mcp-config '{"mcpServers":{}}'`. The baton uses `PluginCliBackend`, so baton-managed sheets spawn MCP servers (docker containers, child processes) that the legacy runner prevents. F-255.3 documented this in production: 80 child processes instead of 8.
+- **Finding:** `PluginCliBackend._build_command()` at `src/marianne/execution/instruments/cli_backend.py:169-232` does NOT reference `mcp_config_flag` from the instrument profile. The field EXISTS on `CliCommand` (`instruments.py:161-164`), is SET in the claude-code profile (`builtins/claude-code.yaml:78`), but is NEVER USED in command construction. The legacy `ClaudeCliBackend` has `disable_mcp=True` which adds `--strict-mcp-config --mcp-config '{"mcpServers":{}}'`. The baton uses `PluginCliBackend`, so baton-managed sheets spawn MCP servers (docker containers, child processes) that the legacy runner prevents. F-255.3 documented this in production: 80 child processes instead of 8.
 - **Impact:** Production MCP process explosion. Potential deadlocks per legacy backend comments. Affects ALL baton-managed sheets using claude-code instrument.
 - **Action:** Add MCP disabling to `_build_command()`: when `mcp_config_flag` is set and no MCP servers are requested, add `--strict-mcp-config --mcp-config '{"mcpServers":{}}'`. Litmus test 39 documents the gap — when fixed, the test assertion should be inverted.
 - **Evidence:** Litmus test `TestPluginCliBackendMcpGap::test_build_command_ignores_mcp_config_flag` proves the gap exists. Legacy backend inspection via `TestPluginCliBackendMcpGap::test_legacy_backend_disables_mcp_by_default` confirms the protection exists in the old path but not the new.
@@ -2208,18 +2208,18 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 - **Status:** Resolved (movement 5, Circuit)
 - **Resolution:** When conductor returns JobSubmissionError (job not in registry) and -w workspace is provided, diagnose now falls back to filesystem search instead of immediately exiting. The -w flag is now visible (not hidden). Error hints mention -w when workspace not provided. 4 TDD tests in `test_f451_diagnose_workspace_fallback.py`.
 - **Category:** UX
-- **Description:** `mozart diagnose hello` returns "Score not found" even though `mozart status hello -w <workspace>` successfully shows full COMPLETED status. `diagnose` doesn't support `-w` (workspace) flag and only queries the conductor's registry. After a conductor restart, completed jobs may not be in the registry.
+- **Description:** `marianne diagnose hello` returns "Score not found" even though `mzt status hello -w <workspace>` successfully shows full COMPLETED status. `diagnose` doesn't support `-w` (workspace) flag and only queries the conductor's registry. After a conductor restart, completed jobs may not be in the registry.
 - **Impact:** Users can see a score's status (with -w) but can't diagnose it. The natural debugging path (`status` → see problem → `diagnose`) breaks when the conductor doesn't know about the job.
-- **Reproducer:** `mozart status hello -w workspaces/hello-mozart` (PASS) then `mozart diagnose hello` (FAIL: "Score not found")
+- **Reproducer:** `mzt status hello -w workspaces/hello-marianne` (PASS) then `marianne diagnose hello` (FAIL: "Score not found")
 - **Action:** Add `-w` workspace fallback to diagnose, or ensure completed jobs persist in registry across restarts.
 
-### F-452: `mozart list --json` Returns Null Cost, `status --json` Returns Structured Cost
+### F-452: `mzt list --json` Returns Null Cost, `status --json` Returns Structured Cost
 - **Found by:** Ember, Movement 4
 - **Severity:** P3 (low — machine consumer inconsistency)
 - **Status:** Open
 - **Category:** UX
-- **Description:** `mozart list --json` returns `cost_usd: null` for all entries. `mozart status <job> --json` returns structured cost data (`total_estimated_cost`, `cost_confidence`, token counts). Machine consumers get inconsistent cost data depending on which command they use.
-- **Reproducer:** `mozart list --json | jq '.[0].cost_usd'` returns `null`. `mozart status mozart-orchestra-v3 --json | jq '.cost'` returns `{total_estimated_cost: 0.004872, cost_confidence: 0.7, ...}`.
+- **Description:** `mzt list --json` returns `cost_usd: null` for all entries. `mzt status <job> --json` returns structured cost data (`total_estimated_cost`, `cost_confidence`, token counts). Machine consumers get inconsistent cost data depending on which command they use.
+- **Reproducer:** `mzt list --json | jq '.[0].cost_usd'` returns `null`. `mzt status marianne-orchestra-v3 --json | jq '.cost'` returns `{total_estimated_cost: 0.004872, cost_confidence: 0.7, ...}`.
 - **Action:** Add cost summary fields to `list --json` output.
 
 ### F-453: Dashboard E2E Test Cross-Test State Leakage
@@ -2236,7 +2236,7 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 - **Severity:** P3 (low — edge case, misleading documentation)
 - **Status:** Resolved (movement 5, Blueprint)
 - **Category:** bug
-- **Description:** `src/mozart/core/config/execution.py:494-500` — The `sheet` field docstring says "If both sheet and condition are set, the sheet filter takes precedence." But `_sheet_to_condition()` at line 506 only sets condition when `self.condition is None`, meaning the existing `condition` takes precedence over `sheet`. The docstring and code disagree.
+- **Description:** `src/marianne/core/config/execution.py:494-500` — The `sheet` field docstring says "If both sheet and condition are set, the sheet filter takes precedence." But `_sheet_to_condition()` at line 506 only sets condition when `self.condition is None`, meaning the existing `condition` takes precedence over `sheet`. The docstring and code disagree.
 - **Impact:** A score author who sets both `sheet: 3` and `condition: "sheet_num >= 5"` expects sheet to win (per docstring) but condition wins (per code). Low impact because this is an unusual combination, but the contract is wrong.
 - **Action:** Either change the code to `if self.sheet is not None:` (overwrite condition always) to match the docstring, or fix the docstring to say "the condition takes precedence." Recommend fixing the docstring — the current behavior (condition overrides) is safer.
 - **Resolution:** Fixed docstring to match code. New description: "Shorthand for condition: 'sheet_num == N'. If both sheet and condition are set, condition takes precedence (sheet is only applied when condition is absent)." 4 TDD tests in test_f430_validation_sheet_precedence.py pin the behavior.
@@ -2247,7 +2247,7 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 - **Status:** Resolved (movement 5, Maverick)
 - **Resolution:** Added `model_config = ConfigDict(extra="forbid")` to all 9 daemon/profiler config models: ResourceLimitConfig, SocketConfig, ObserverConfig, SemanticLearningConfig, DaemonConfig (daemon/config.py), RetentionConfig, AnomalyConfig, CorrelationConfig, ProfilerConfig (profiler/models.py). 23 TDD tests in test_f431_daemon_config_strictness.py. Production conductor.yaml validated clean.
 - **Category:** architecture
-- **Description:** The F-441 fix (`extra="forbid"` on all config models) was comprehensive for `src/mozart/core/config/` (49 models) but did not cover `src/mozart/daemon/config.py` (5 models: DaemonConfig, ResourceLimitConfig, SocketConfig, ObserverConfig, SemanticLearningConfig) or `src/mozart/daemon/profiler/models.py` (4 models: ProfilerConfig, RetentionConfig, AnomalyConfig, CorrelationConfig). These models back `~/.mozart/conductor.yaml`, which is user-edited. Unknown fields in conductor config are silently dropped — same bug class.
+- **Description:** The F-441 fix (`extra="forbid"` on all config models) was comprehensive for `src/marianne/core/config/` (49 models) but did not cover `src/marianne/daemon/config.py` (5 models: DaemonConfig, ResourceLimitConfig, SocketConfig, ObserverConfig, SemanticLearningConfig) or `src/marianne/daemon/profiler/models.py` (4 models: ProfilerConfig, RetentionConfig, AnomalyConfig, CorrelationConfig). These models back `~/.marianne/conductor.yaml`, which is user-edited. Unknown fields in conductor config are silently dropped — same bug class.
 - **Impact:** A user who typos a field in their `conductor.yaml` (e.g., `resource_limits:` instead of `resources:`, or `profiler.enbled:` instead of `profiler.enabled:`) gets no error. The same trust erosion that F-441 identified for score YAML applies to daemon config.
 - **Action:** Add `model_config = ConfigDict(extra="forbid")` to all 9 daemon config models. Test against existing conductor.yaml files.
 
@@ -2257,7 +2257,7 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 - **Status:** Resolved (movement 4, Compass)
 - **Category:** UX
 - **Description:** `examples/iterative-dev-loop-config.yaml` is a generator config (consumed by `scripts/generate-iterative-dev-loop.py`), NOT a score. It has custom fields (`spec_dir`, `cycles`) that fail `extra="forbid"` on `JobConfig`. With the F-441 fix, any automated validation of `examples/*.yaml` will report this file as broken.
-- **Impact:** Automated example validation (Journey M4 ran `find examples/ -name "*.yaml" -exec mozart validate {} \;`) will flag this file. New users exploring examples/ will find a broken file. The file header explains it's a generator config, but the filename pattern matches score expectations.
+- **Impact:** Automated example validation (Journey M4 ran `find examples/ -name "*.yaml" -exec mzt validate {} \;`) will flag this file. New users exploring examples/ will find a broken file. The file header explains it's a generator config, but the filename pattern matches score expectations.
 - **Resolution:** Moved to `scripts/iterative-dev-loop-config.yaml` (next to its generator script). Updated usage comments. Removed from both tables in `examples/README.md`. All 38 remaining examples validate clean.
 
 ### F-470: BatonAdapter._synced_status Memory Leak on Job Deregister
@@ -2266,7 +2266,7 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 - **Status:** Resolved (movement 5, Maverick)
 - **Resolution:** Added `_synced_status` cleanup to `deregister_job()` at adapter.py:519. Dict comprehension filters out all entries matching the deregistered job_id. 5 TDD tests in test_f470_synced_status_leak.py. Updated adversary's bug-proof test to regression test.
 - **Category:** bug
-- **Description:** `BatonAdapter.deregister_job()` at `src/mozart/daemon/baton/adapter.py:492-518` cleans up `_job_sheets`, `_job_renderers`, `_job_cross_sheet`, `_completion_events`, `_completion_results`, and `_active_tasks` — but does NOT clean up `_synced_status` (the F-211 state-diff dedup cache at line 344). The `_synced_status` dict is keyed by `(job_id, sheet_num)` tuples and grows proportionally to the total number of sheets across ALL jobs ever processed. For a long-running daemon processing thousands of jobs (e.g., the v3 orchestra at 706 sheets), the cache accumulates ~706 entries per run and never shrinks.
+- **Description:** `BatonAdapter.deregister_job()` at `src/marianne/daemon/baton/adapter.py:492-518` cleans up `_job_sheets`, `_job_renderers`, `_job_cross_sheet`, `_completion_events`, `_completion_results`, and `_active_tasks` — but does NOT clean up `_synced_status` (the F-211 state-diff dedup cache at line 344). The `_synced_status` dict is keyed by `(job_id, sheet_num)` tuples and grows proportionally to the total number of sheets across ALL jobs ever processed. For a long-running daemon processing thousands of jobs (e.g., the v3 orchestra at 706 sheets), the cache accumulates ~706 entries per run and never shrinks.
 - **Evidence:** Test `test_synced_status_not_cleaned_on_deregister` in `tests/test_m4_adversarial_adversary.py` proves the leak: after deregistering all 100 simulated jobs (1000 entries), the cache still contains all 1000 entries.
 - **Impact:** Memory growth O(total_sheets_ever) for the daemon process. For the orchestra's scale (706 sheets per run, multiple runs per day), this could reach tens of thousands of stale entries per day. Not critical for v1 beta but will compound in production.
 - **Action:** Add cleanup of `_synced_status` entries to `deregister_job()`. Pattern: `self._synced_status = {k: v for k, v in self._synced_status.items() if k[0] != job_id}` or iterate and pop matching keys.
@@ -2278,8 +2278,8 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 - **Status:** Mitigated (movement 5, Circuit — via F-149)
 - **Resolution note:** F-149 fix removed the rate-limit→PENDING path from `submit_job()`. Rate limits no longer cause PENDING queueing — jobs go straight through and per-instrument rate limiting is handled at the sheet dispatch level. The PENDING infrastructure still exists for future use (resource-pressure queueing) but the primary trigger (rate limits) is gone.
 - **Category:** architecture
-- **Description:** `JobManager._pending_jobs` at `src/mozart/daemon/manager.py:156` is a plain `dict[str, JobRequest]` stored only in memory. Jobs queued as PENDING during rate limit backpressure (via `_queue_pending_job` at line ~815) have their `JobRequest` objects stored here. If the daemon restarts while jobs are PENDING, the `_pending_jobs` dict is lost (starts empty in `__init__`). The persistent `JobRegistry` records the job as `DaemonJobStatus.PENDING`, but the recovery path (`_recover_baton_orphans` at line ~519) only processes PAUSED jobs, not PENDING ones. The `_start_pending_jobs` method only processes the in-memory dict.
-- **Impact:** After daemon restart, PENDING jobs appear in `mozart list` as PENDING but will never start. The user must manually `mozart cancel` and resubmit. This gap is more severe during rate limit storms where multiple jobs could be queued.
+- **Description:** `JobManager._pending_jobs` at `src/marianne/daemon/manager.py:156` is a plain `dict[str, JobRequest]` stored only in memory. Jobs queued as PENDING during rate limit backpressure (via `_queue_pending_job` at line ~815) have their `JobRequest` objects stored here. If the daemon restarts while jobs are PENDING, the `_pending_jobs` dict is lost (starts empty in `__init__`). The persistent `JobRegistry` records the job as `DaemonJobStatus.PENDING`, but the recovery path (`_recover_baton_orphans` at line ~519) only processes PAUSED jobs, not PENDING ones. The `_start_pending_jobs` method only processes the in-memory dict.
+- **Impact:** After daemon restart, PENDING jobs appear in `marianne list` as PENDING but will never start. The user must manually `marianne cancel` and resubmit. This gap is more severe during rate limit storms where multiple jobs could be queued.
 - **Action:** Either (a) persist the JobRequest alongside the registry entry and recover PENDING jobs in `start()`, or (b) document PENDING as ephemeral state that does not survive restart, with clear user guidance on resubmission.
 
 ### F-467: Validate Hint References Non-Configurable Field `total_sheets`
@@ -2287,7 +2287,7 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 - **Severity:** P3 (low — misleading hint, not a crash)
 - **Status:** Resolved (movement 4, Newcomer)
 - **Category:** bug
-- **Description:** Error hint at `src/mozart/cli/commands/validate.py:295` told users "Add a 'sheet' section with total_sheets, total_items, and size." But `total_sheets` is a computed property derived from `total_items` and `size` — it is NOT a configurable field. After F-441 (`extra='forbid'`), a user following this hint would get a secondary validation error: "Extra inputs are not permitted" for `total_sheets`.
+- **Description:** Error hint at `src/marianne/cli/commands/validate.py:295` told users "Add a 'sheet' section with total_sheets, total_items, and size." But `total_sheets` is a computed property derived from `total_items` and `size` — it is NOT a configurable field. After F-441 (`extra='forbid'`), a user following this hint would get a secondary validation error: "Extra inputs are not permitted" for `total_sheets`.
 - **Impact:** Misleading error guidance that compounds confusion for newcomers. The user tries to fix one error by following the hint, and gets a new error from the "fix."
 - **Resolution:** Changed hint to "Add a 'sheet' section with total_items and size." — references only actual configurable fields.
 
@@ -2319,18 +2319,18 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 - **Severity:** P2 (medium — deterministic test failure)
 - **Status:** Resolved (movement 5, Ghost)
 - **Category:** bug
-- **Finding:** `test_instrument_fallbacks_not_silently_ignored` expected `JobConfig(**score)` to raise for unknown field `instrument_fallbacks`, but `instrument_fallbacks` was added as a real field on `JobConfig` at `src/mozart/core/config/job.py:684`. Test failed deterministically.
+- **Finding:** `test_instrument_fallbacks_not_silently_ignored` expected `JobConfig(**score)` to raise for unknown field `instrument_fallbacks`, but `instrument_fallbacks` was added as a real field on `JobConfig` at `src/marianne/core/config/job.py:684`. Test failed deterministically.
 - **Impact:** Full test suite fails on every run.
 - **Resolution:** Updated test to use `instrument_priorities` (genuinely non-existent field). Test renamed to `test_instrument_priorities_not_silently_ignored`. All 21 tests pass.
 
-### F-480: Trademark Collision — "Mozart" Name Blocked by Two Active Products
+### F-480: Trademark Collision — "Marianne" Name Blocked by Two Active Products
 - **Found by:** Composer + monitor, Movement 5
 - **Severity:** P0 (blocks v1 release under current name)
-- **Status:** Open — rename to Marianne initiated
+- **Status:** Open — rename to mzt initiated
 - **Category:** legal / identity
-- **Description:** Two entities hold active claims on "Mozart" in the AI orchestration space. (1) Mozart AI (London) — AI music production startup, $6M seed from Balderton Capital, 100K users. (2) Automation Anywhere — $2.8B company with "Mozart Orchestrator" product doing AI agent orchestration, USPTO trademark serial 99680702. The second is a direct product-category collision: same name, same domain (AI agent orchestration), backed by enterprise legal resources.
-- **Impact:** Continuing under "Mozart" exposes the project to trademark enforcement the moment it gains public visibility. The v1 beta cannot ship under this name.
-- **Resolution plan:** Rename to "Marianne AI Compose" (CLI: `mzt`). Named for Maria Anna "Marianne" Mozart — Wolfgang's older sister, the prodigy history forgot. The orchestral metaphor and all musical vocabulary (scores, sheets, conductors, musicians, concerts, baton, libretto, fermata) are retained. Only the product name and package name change. Package: `marianne`. Config path: `~/.mzt/`. Full scope in composer-notes.yaml P0 directive.
+- **Description:** Two entities hold active claims on "Marianne" in the AI orchestration space. (1) Marianne AI (London) — AI music production startup, $6M seed from Balderton Capital, 100K users. (2) Automation Anywhere — $2.8B company with "Marianne Orchestrator" product doing AI agent orchestration, USPTO trademark serial 99680702. The second is a direct product-category collision: same name, same domain (AI agent orchestration), backed by enterprise legal resources.
+- **Impact:** Continuing under "Marianne" exposes the project to trademark enforcement the moment it gains public visibility. The v1 beta cannot ship under this name.
+- **Resolution plan:** Rename to "Marianne AI Compose" (CLI: `mzt`). Named for Maria Anna "Marianne" Marianne — Wolfgang's older sister, the prodigy history forgot. The orchestral metaphor and all musical vocabulary (scores, sheets, conductors, musicians, concerts, baton, libretto, fermata) are retained. Only the product name and package name change. Package: `marianne`. Config path: `~/.mzt/`. Full scope in composer-notes.yaml P0 directive.
 
 ### F-481: Orphan Detection Relies on Hardcoded Cmdline Patterns — Environment-Specific, Silent Failure on Other Systems
 - **Found by:** Composer, post-Movement 5
@@ -2366,13 +2366,13 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 - **Status:** Open
 - **Category:** bug
 
-- **Finding:** When an agent uses Claude Code's Bash tool to spawn a background process (e.g., `python3 -m http.server 8800 &`), that process ends up in its own PGID — NOT in the agent's PGID. Mozart's cleanup kills the agent's PGID on sheet completion, but the Bash-spawned process survives indefinitely.
+- **Finding:** When an agent uses Claude Code's Bash tool to spawn a background process (e.g., `python3 -m http.server 8800 &`), that process ends up in its own PGID — NOT in the agent's PGID. Marianne's cleanup kills the agent's PGID on sheet completion, but the Bash-spawned process survives indefinitely.
 
   **Mechanism:**
   1. `claude_cli.py:648` uses `start_new_session=True` → agent gets PGID X
   2. Agent's Bash tool spawns `bash -c '...'` → Claude Code gives it PGID Y (not X)
   3. Background process (`http.server &`) inherits PGID Y
-  4. Sheet ends → Mozart kills PGID X → agent + MCP children die
+  4. Sheet ends → Marianne kills PGID X → agent + MCP children die
   5. PGID Y survives — not in agent's group, not reparented to init
 
   **Observed:** Sheet 6 of mzt-site spawned `python3 -m http.server 8800` (PID 3353, PGID 3352). It survived 45+ minutes past sheet completion, through 9 subsequent sheet transitions, and persisted after the entire 15-sheet score completed. Port 8800 remained bound — any future sheet trying to start a server on 8800 would fail with `Address already in use`.
@@ -2385,7 +2385,7 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
   **Process tree evidence:**
   ```
   Conductor PGID 2420:
-    PID 2420 (mozart start)
+    PID 2420 (marianne start)
 
   Agent PGID 2435 (sheet 6):          ← killed on sheet end ✓
     PID 2435 (claude)
@@ -2404,7 +2404,7 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 - **Action:**
   1. **Short-term:** Score authors should avoid prompts that cause agents to spawn persistent background processes, OR include cleanup instructions in downstream sheets.
   2. **Medium-term:** Track ALL PIDs spawned during a sheet's execution window (not just the agent PID). On sheet completion, kill any processes spawned after the agent started that are still alive and not in the agent's PGID.
-  3. **Long-term:** The Bash tool PGID escape is a Claude Code architectural issue (#1935 area). Mozart could work around it by recording the full process tree snapshot before/after each sheet and killing the delta.
+  3. **Long-term:** The Bash tool PGID escape is a Claude Code architectural issue (#1935 area). Marianne could work around it by recording the full process tree snapshot before/after each sheet and killing the delta.
 
 ### F-485: Conductor RSS Step Function After Playwright-Heavy Sheets
 - **Found by:** Composer, mzt-site monitoring session (2026-04-06)
@@ -2444,9 +2444,9 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
   - Sheet 8 → Check 8: Chrome PGID 5964 (10 processes, ~878 MB) fully cleaned up
   - Sheet 12-14: No Chrome spawned (agent didn't use Playwright)
 
-  The cleanup chain: Mozart kills agent PGID → playwright-mcp (node) dies → Playwright exit handler kills Chrome → all Chrome children terminate. This works because Playwright registers its own cleanup, not because Mozart manages Chrome's PGID.
+  The cleanup chain: Marianne kills agent PGID → playwright-mcp (node) dies → Playwright exit handler kills Chrome → all Chrome children terminate. This works because Playwright registers its own cleanup, not because Marianne manages Chrome's PGID.
 
-- **Implication:** No Mozart-side fix needed for Chrome cleanup. However, any MCP server that spawns child processes WITHOUT registering an exit handler would leak in the same way as F-484.
+- **Implication:** No Marianne-side fix needed for Chrome cleanup. However, any MCP server that spawns child processes WITHOUT registering an exit handler would leak in the same way as F-484.
 
 ### F-487: `reap_orphaned_backends()` Kills All User Processes — WSL2 VM Crash
 - **Found by:** Composer, crash investigation (2026-04-06)
@@ -2465,7 +2465,7 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 - **Status:** Open
 - **Category:** operations
 
-- **Finding:** `~/.mozart/monitor.db` has grown to 551 MB containing 518,017 snapshots and 1,720,196 process metric rows spanning 42 days (2026-02-23 to 2026-04-06). `MonitorStorage.cleanup()` exists and accepts a `RetentionConfig`, but it is never called on a schedule. The profiler collector writes snapshots every 5 seconds but has no cleanup loop. At ~1,200 snapshots/hour with ~3 process metrics per snapshot, the database grows by ~13 MB/day indefinitely.
+- **Finding:** `~/.marianne/monitor.db` has grown to 551 MB containing 518,017 snapshots and 1,720,196 process metric rows spanning 42 days (2026-02-23 to 2026-04-06). `MonitorStorage.cleanup()` exists and accepts a `RetentionConfig`, but it is never called on a schedule. The profiler collector writes snapshots every 5 seconds but has no cleanup loop. At ~1,200 snapshots/hour with ~3 process metrics per snapshot, the database grows by ~13 MB/day indefinitely.
 - **Action:** Wire `cleanup()` into the profiler collector's periodic loop (e.g., once per hour). Default retention: 24h full resolution snapshots, 7d events. Also consider `VACUUM` after large deletes to reclaim space.
 
 ### F-489: README and Docs Outdated, Misaligned with Project Identity
@@ -2478,7 +2478,7 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 
   **Install is outdated:** README install instructions don't reflect current state (marianne rename, dependencies, conductor-first workflow).
 
-  **Architecture description is wrong:** README presents architecture as runner-first with daemon as optional. The conductor IS the execution authority — daemon-first is the only supported mode. `mozart run` routes through the conductor. The architecture section needs to reflect this.
+  **Architecture description is wrong:** README presents architecture as runner-first with daemon as optional. The conductor IS the execution authority — daemon-first is the only supported mode. `marianne run` routes through the conductor. The architecture section needs to reflect this.
 
   **Daemon terminology inconsistent:** Mix of "daemon" and "conductor" across docs. The conductor IS the daemon. Terminology should be consistent.
 
@@ -2488,7 +2488,7 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
   1. A minimal baton-testing version that uses fewer tokens (internal, for development)
   2. A clean user-facing version that demonstrates replacing non-creative work (what new users see in examples/)
 
-  **Docs don't match the site:** The live site at mozart-orchestra-live has a specific voice and identity (dark, punk, "fear of god into capitalists"). The docs are generic technical writing that doesn't match. After the rename to Marianne and before public push, docs need to carry the same energy.
+  **Docs don't match the site:** The live site at marianne-orchestra-live has a specific voice and identity (dark, punk, "fear of god into capitalists"). The docs are generic technical writing that doesn't match. After the rename to Marianne and before public push, docs need to carry the same energy.
 
 - **Action:**
   1. Overhaul README.md — daemon-first architecture, correct install, consistent terminology, identity-aligned examples
@@ -2500,18 +2500,18 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 ### F-490: `os.killpg()` in `claude_cli.py` Can Nuke Entire User Session — WSL2 VM Crash (Real Cause)
 - **Found by:** Composer, crash investigation session 3 (2026-04-06)
 - **Severity:** P0 (critical — kills user's entire WSL2 session; supersedes F-487 as the actual root cause of the "exit code 00000009" crashes)
-- **Status:** Guard in place (patch landed in marianne + mozart trees, three-agent review pending — see TASKS.md "Defensive Process-Cleanup Review")
+- **Status:** Guard in place (patch landed in marianne + marianne trees, three-agent review pending — see TASKS.md "Defensive Process-Cleanup Review")
 - **Category:** bug, defensive-coding
 
-- **⚠️ TAKEAWAY — Defensive coding around process control is NECESSARY AND CRITICAL. This pattern MUST be extended to other code.** The fix is a five-line guard function. The lesson is much larger: Mozart has been shipping unguarded `os.killpg()`, `os.kill()`, and related syscalls throughout the codebase, trusting that the pgid/pid argument is valid at the moment of the syscall. That assumption is wrong in at least four ways — PID recycling after reap, mocks in tests, getpgid race windows, and direct pid=1 sentinels. Any of those four routes through `os.killpg(pgid, SIGKILL)` compiles kernel-side to `kill(-1, SIGKILL)` and kills the entire user session. There are almost certainly other places in the codebase that have the same blast-radius vulnerability in other syscall families. Every `os.kill*`, `os.killpg*`, `os.getpgid*`, `process.kill*`, every raw signal delivery, every file-descriptor close on a recycled fd, every `unshare`/`mount`/`setuid` call — any code that hands a value to the kernel without validating its blast radius — is a future F-490 waiting to reproduce. **The guard pattern used here (refuse if target <= 1, refuse if target == own, log on refusal, return bool) is the baseline. Apply it everywhere this class of risk exists.**
+- **⚠️ TAKEAWAY — Defensive coding around process control is NECESSARY AND CRITICAL. This pattern MUST be extended to other code.** The fix is a five-line guard function. The lesson is much larger: Marianne has been shipping unguarded `os.killpg()`, `os.kill()`, and related syscalls throughout the codebase, trusting that the pgid/pid argument is valid at the moment of the syscall. That assumption is wrong in at least four ways — PID recycling after reap, mocks in tests, getpgid race windows, and direct pid=1 sentinels. Any of those four routes through `os.killpg(pgid, SIGKILL)` compiles kernel-side to `kill(-1, SIGKILL)` and kills the entire user session. There are almost certainly other places in the codebase that have the same blast-radius vulnerability in other syscall families. Every `os.kill*`, `os.killpg*`, `os.getpgid*`, `process.kill*`, every raw signal delivery, every file-descriptor close on a recycled fd, every `unshare`/`mount`/`setuid` call — any code that hands a value to the kernel without validating its blast radius — is a future F-490 waiting to reproduce. **The guard pattern used here (refuse if target <= 1, refuse if target == own, log on refusal, return bool) is the baseline. Apply it everywhere this class of risk exists.**
 
-- **Finding:** F-487 disabled `reap_orphaned_backends()` in `pgroup.py` but the WSL2 "all terminals killed with code 9" crashes kept happening. A fresh instrumented trace run under `strace -f -e trace=process,signal,%network,desc` captured the actual mechanism. Final syscall in `/home/emzi/mozart-strace.log` before system teardown:
+- **Finding:** F-487 disabled `reap_orphaned_backends()` in `pgroup.py` but the WSL2 "all terminals killed with code 9" crashes kept happening. A fresh instrumented trace run under `strace -f -e trace=process,signal,%network,desc` captured the actual mechanism. Final syscall in `/home/emzi/marianne-strace.log` before system teardown:
 
   ```
   16776 08:12:16.570659 kill(-1, SIGKILL <unfinished ...>
   ```
 
-  PID 16776 is `python -m pytest tests/ -q --tb=line --ignore=tests/test_check_instrument_available.py`. The log line immediately before the kill is `executing_command args_count=8 command=/usr/bin/claude component=backend.claude_cli prompt_length=11` — a test invoking Mozart's real `claude_cli` backend with a minimal prompt.
+  PID 16776 is `python -m pytest tests/ -q --tb=line --ignore=tests/test_check_instrument_available.py`. The log line immediately before the kill is `executing_command args_count=8 command=/usr/bin/claude component=backend.claude_cli prompt_length=11` — a test invoking Marianne's real `claude_cli` backend with a minimal prompt.
 
   `kill(-1, SIGKILL)` is the kernel-level translation of `os.killpg(1, signal.SIGKILL)`. `claude_cli.py` has **four** `os.killpg(pgid, SIGKILL)` sites — lines 355, 560, 884, 962 — all of which compute `pgid = os.getpgid(process.pid)` or similar. If `process.pid == 1` (mock, stub, reaped-and-recycled PID, or any other edge case), then `os.getpgid(1) == 1` → `os.killpg(1, SIGKILL)` → kernel `kill(-1, SIGKILL)` → "send SIGKILL to every process this UID can signal except init." That kills `systemd --user`, every bash shell in every WSL terminal, and cascades into `user@1000.service: Main process exited, code=killed, status=9/KILL` — the exact signature of the user-reported crashes.
 
@@ -2528,18 +2528,18 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 - **Trigger:** Any code path that reaches a `killpg` site with a `process` object whose `.pid` is 0, 1, or a PID whose process group happens to equal 1 or the daemon's own process group. Observed trigger: pytest running backend tests while the live daemon is running in the same user session.
 
 - **Action:**
-  1. ✅ **Done** — `_safe_killpg(pgid, sig, *, context)` helper added to `src/marianne/backends/claude_cli.py` (live runtime) and `src/mozart/backends/claude_cli.py` (tracked dual tree). Refuses when `pgid <= 1` or `pgid == os.getpgid(0)`, logs `killpg_guard_refused` at warning level with `reason`, `pgid`, `signal`, `context`, returns bool.
+  1. ✅ **Done** — `_safe_killpg(pgid, sig, *, context)` helper added to `src/marianne/backends/claude_cli.py` (live runtime) and `src/marianne/backends/claude_cli.py` (tracked dual tree). Refuses when `pgid <= 1` or `pgid == os.getpgid(0)`, logs `killpg_guard_refused` at warning level with `reason`, `pgid`, `signal`, `context`, returns bool.
   2. ✅ **Done** — all six `os.killpg` sites in `claude_cli.py` routed through `_safe_killpg` in both trees (sites at 355 timeout_escalation, 560 kill_orphaned_process, 875/884 await_exit_graceful/force, 954/962 cancel_graceful/force).
   3. ✅ **Verified** — runtime smoke test confirmed all four guard conditions block correctly (`pgid=1`, `pgid=0`, `pgid=-1`, `pgid=own_pgid`).
   4. **Pending — three-agent review** (see TASKS.md "Defensive Process-Cleanup Review"):
      - Agent 1: Correctness review of the guard itself + write regression test `tests/test_safe_killpg_guard.py`.
      - Agent 2: Coverage review — grep the entire codebase for sibling bugs in `os.kill*`, `os.killpg*`, `os.getpgid*`, `process.kill*`, other backends (`anthropic_api.py`, `plugin_cli.py`, `ollama.py`, `json_backend.py`), and `pgroup.py:154/339` (verify `_is_leader` guard is sufficient under inline/pytest execution).
-     - Agent 3: Pattern-extension review — codify defensive process-control patterns as a project-wide convention at `workspaces/v1-beta-v3/movement-5/process-control-defensive-patterns.md`, feed into `.mozart/spec/constraints.yaml` as a new MUST, and identify other syscall families where "trust the value, call the syscall" has the same blast radius.
+     - Agent 3: Pattern-extension review — codify defensive process-control patterns as a project-wide convention at `workspaces/v1-beta-v3/movement-5/process-control-defensive-patterns.md`, feed into `.marianne/spec/constraints.yaml` as a new MUST, and identify other syscall families where "trust the value, call the syscall" has the same blast radius.
   5. **Not yet done** — identify the specific test that passed `pid=1` (or the equivalent) into the backend cleanup path. The guard makes this non-critical for session safety but it's worth knowing which test triggered the strace evidence at 08:12:16.
 
 - **Related:** F-487 (pgroup.py unscoped kill — sibling bug, different code path, same symptom). F-482 (`_await_process_exit` PID-recycle SIGKILL — same function as site 3, reinforces that the whole cleanup family needs auditing).
 
-### F-491: `mozart list` Status Coloring Matches Wrong Text When Score Name Contains Status Word
+### F-491: `marianne list` Status Coloring Matches Wrong Text When Score Name Contains Status Word
 - **Found by:** Journey, Movement 5
 - **Severity:** P2 (medium — visual confusion in list display)
 - **Status:** Open
@@ -2553,6 +2553,113 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 - **Severity:** P1 (high — breaks all concurrent musicians)
 - **Status:** Open
 - **Category:** process, operational
-- **Description:** The F-480 directory rename from `mozart-ai-compose` to `marianne-ai-compose` was performed while concurrent orchestra sessions (sheets) were running. The Claude Code Bash tool, Glob tool, and Grep tool all depend on the initial working directory being valid. Once renamed, all shell-dependent tools fail with: `Working directory "/home/emzi/Projects/mozart-ai-compose" no longer exists.` The Read/Write/Edit tools continue working at the new path, but only if the agent independently discovers the new path.
+- **Description:** The F-480 directory rename from `marianne-ai-compose` to `marianne-ai-compose` was performed while concurrent orchestra sessions (sheets) were running. The Claude Code Bash tool, Glob tool, and Grep tool all depend on the initial working directory being valid. Once renamed, all shell-dependent tools fail with: `Working directory "/home/emzi/Projects/marianne-ai-compose" no longer exists.` The Read/Write/Edit tools continue working at the new path, but only if the agent independently discovers the new path.
 - **Impact:** Any musician running concurrently with the rename loses: shell commands, git commit ability, quality checks (pytest/mypy/ruff), and code search. This session (Journey M5) was affected — could not run tests or commit work.
 - **Action:** Directory renames must NEVER be performed during a running concert. Must be a post-concert task or the absolute last operation of a movement with a documented break point. Add to composer-notes.yaml as a binding directive.
+
+### F-442: Instrument Fallback History Never Syncs from Baton to Checkpoint
+- **Movement:** 5
+- **Agent:** Axiom
+- **Category:** bug (persistence gap)
+- **Severity:** P2
+- **Status:** Open
+- **Finding:** `SheetState.add_fallback_to_history()` exists at `checkpoint.py:595` but is never called anywhere in the codebase. The baton maintains its own `SheetExecutionState.fallback_history` (state.py:247) which correctly accumulates records during execution, but `_on_baton_state_sync` (manager.py:508-538) only syncs the `status` field — no fallback history is transferred to the checkpoint's `instrument_fallback_history`. On conductor restart or job resume, all fallback transition history is lost.
+- **Impact:** Post-mortem analysis after restart cannot reconstruct which instruments were tried and why they failed. The `add_fallback_to_history()` helper and `MAX_INSTRUMENT_FALLBACK_HISTORY` constant are dead code. Same architectural class as F-039, F-065, F-440 — two correct subsystems composing incorrectly at their boundary.
+- **Action:** Add fallback history sync to `_on_baton_state_sync` or the checkpoint save path in the baton adapter. The sync callback signature may need extension to include optional fallback records alongside status.
+
+### F-493: Status Truncated View Hides Active Sheets After Prior Validation Failures
+- **Movement:** 5
+- **Agent:** Composer (manual observation)
+- **Category:** UX, architecture
+- **Severity:** P2
+- **Status:** Open
+- **Finding:** After a resume on a large score (706 sheets), `mzt status` shows only the validation failures from the *previous* failed run and does not show the currently executing sheets. The "Now Playing" section and sheet progress are absent — the operator sees only stale errors and has no indication that work is actively happening. This was observed on `marianne-orchestra-v3` after resume from sheet 211.
+- **Root Cause:** The status display uses a truncated view for large scores. When prior validation failures exist, they consume the truncated output and crowd out the "Now Playing" and "Active Sheets" sections. The truncation logic prioritizes errors over liveness signals.
+- **Design Gap:** The truncated view is scoped too narrowly — it shows only the immediately relevant sheets (active + failed). For decision-making, an operator needs a *window* around the current execution point: the sheets just completed (confirming momentum), the sheets currently running (confirming liveness), and the sheets coming next (confirming what's ahead). Status is not a snapshot of the present moment — it is a signal that imparts either concern or confidence about the trajectory. An operator looking at status is deciding whether to intervene or let it run. Stale errors with no liveness signal always trigger concern, even when the system is healthy.
+- **Action:** Redesign the truncated status view to show a sliding window around current execution: N sheets before (recent completions/failures), active sheets, and N sheets ahead (upcoming). Validation failures from prior runs should be demoted or separated from the current run's liveness display. The view should answer three questions: "What just happened?", "What's happening now?", and "What's next?"
+
+### F-494: Baton Status Display Broken — Three Gaps
+- **Movement:** 5 (post-movement, production testing)
+- **Agent:** Composer (manual investigation with Opus)
+- **Category:** bug (integration boundary)
+- **Severity:** P0 — status display showed zero progress for baton-managed jobs
+- **Status:** Fixed (this session, pending commit)
+- **Finding:** Three gaps in the baton→status display pipeline caused `mzt status` to show 0% progress and "103 pending" even while sheets were actively executing:
+
+  **Gap 1: Dispatch sync missing.** `dispatch_ready()` transitions sheets to DISPATCHED in baton state, but `_sync_sheet_status()` only runs for the *event* that triggered the loop iteration, not for state changes made by `dispatch_ready()`. Sheets dispatched to musicians never appeared as `in_progress` in the live state.
+
+  **Gap 2: Completion metadata missing.** `_on_baton_state_sync()` only set `sheet_state.status` — it never called `mark_sheet_completed()` / `mark_sheet_started()` / `mark_sheet_failed()`. As a result, `last_completed_sheet` (the progress watermark), `completed_at`, `validation_passed`, job completion detection, and all derived fields were never updated. Progress stayed at 0/N forever.
+
+  **Gap 3: Resume ghost sheets.** `_resume_via_baton()` set `_live_states[job_id] = checkpoint` (with stale `in_progress` sheets from the old run), then called `recover_job()` which internally resets those to PENDING in baton state. But the live CheckpointState was never reconciled — sheets appeared as "in_progress" for hours with no actual process.
+
+- **Root Cause:** The baton adapter and daemon manager were developed in parallel. The `StateSyncCallback` was a minimal bridge (`job_id, sheet_num, status_string`) that carried no rich metadata. The legacy runner updates CheckpointState directly through its own save path; the baton relied on this thin callback that was never expanded to match.
+- **Fix:**
+  1. Added dispatch sync loop after `dispatch_ready()` returns — iterates `dispatched_sheets` and syncs each.
+  2. Rewrote `_on_baton_state_sync()` to call `mark_sheet_started/completed/failed/skipped` with full metadata from `SheetExecutionState`. Expanded callback signature to `(job_id, sheet_num, status, baton_state)`.
+  3. Added live state reconciliation after `recover_job()` — resets `in_progress` sheets to `pending` with cleared `started_at`.
+- **Architectural Note:** Same class as F-039, F-065, F-440, F-442 — two correct subsystems composing incorrectly at their boundary. The baton tracks 11 states; the checkpoint tracks 5. The mapping exists but the sync was never wired to carry the full payload. This is the cost of the transition from legacy runner to baton — every integration surface needs explicit verification.
+
+### F-495: Baton Structured Logging Emits Bare Strings
+- **Movement:** 5 (post-movement, production testing)
+- **Agent:** Composer (manual observation)
+- **Category:** bug (observability)
+- **Severity:** P2
+- **Status:** Open
+- **Finding:** Several baton log events (`adapter.dispatch.spawned`, `baton.dispatch.cycle_complete`, `adapter.job_recovered`, `adapter.started`, `baton.job_registered`) emit bare strings to the conductor log instead of structured JSON. These appear as unformatted lines interleaved with proper JSON log entries, breaking `jq`-based log analysis and making it impossible to filter baton events by job_id or sheet_num.
+- **Root Cause:** Likely using `print()` or a logger call without the structured `extra={}` dict that the JSON formatter requires.
+- **Action:** Audit all `_logger.*` calls in `src/marianne/daemon/baton/` and ensure they use the structured logging pattern.
+
+### F-496: `instrument_model` Never Populated — Status Shows Profile Not Model
+- **Movement:** 5 (post-movement, production testing)
+- **Agent:** Composer (manual observation)
+- **Category:** bug (observability)
+- **Severity:** P3
+- **Status:** Fixed (this session, pending commit) — baton path only
+- **Finding:** `SheetState.instrument_model` (checkpoint.py:253) was defined but never populated anywhere. The status display showed `claude-code` (the profile name) for all sheets regardless of which model they were actually using. For multi-instrument scores, the operator had no way to see which model was executing.
+- **Fix:** Populated `instrument_model` from `sheet.instrument_config.get("model")` during initial live state creation in `_run_via_baton()`. Updated "Now Playing" display to show `claude-code (claude-haiku-4-5-20251001)` when model is available.
+
+### F-497: False Rate Limit Detection on Successful Completions Starves Multi-Job Dispatch
+- **Movement:** 5 (post-movement, production testing)
+- **Agent:** Composer (manual investigation with Opus)
+- **Category:** bug (rate limit detection + dispatch starvation)
+- **Severity:** P1 — resumed jobs never dispatch when sharing an instrument profile with an active job
+- **Status:** Open
+- **Finding:** Every haiku sheet completes successfully (`exit_code: 0`, `success: true`) but is flagged `rate_limited: true`. Claude Code handles rate limits internally (retries within the session) and exits 0, but `_detect_rate_limit` (base.py:213) scans stdout/stderr for rate limit text patterns and flags the result. This is the F-098 behavior: rate limit messages appear in output even when the CLI handled them and succeeded.
+
+  The baton then marks the `claude-code` instrument as rate limited globally (core.py:1096). Since all score-level instruments (`haiku`, `sonnet`, `opus`) resolve to profile `claude-code`, ALL dispatch for ALL jobs using that profile is blocked. `dispatch_ready` (dispatch.py:138-140) skips every sheet.
+
+  When the rate limit timer expires, `dispatch_ready` iterates jobs in registration order. Score 2 (registered first) gets the dispatch slot, its sheet completes successfully but with rate limit text again, and the cycle repeats. A2/B2 never get a dispatch slot.
+
+  Evidence: conductor log shows every `plugin_cli_execute_complete` has `rate_limited: true` despite `success: true` and `exit_code: 0`. No actual API rate limiting is occurring — the sheets complete their work, just with historical rate limit text in output from Claude Code's internal retry handling.
+
+- **Root Cause (compound):**
+  1. **False positive detection (F-098):** `_detect_rate_limit` flags successful completions because rate limit text from Claude Code's internal retries appears in output. A sheet that succeeded should not be treated as rate limited.
+  2. **Profile-level rate limiting:** All models on the same profile share one rate limit flag. Haiku rate limits block sonnet/opus dispatch.
+  3. **Registration-order dispatch:** `dispatch_ready` iterates `baton._jobs.keys()` in insertion order. The first-registered job monopolizes dispatch windows.
+
+- **Action:** Fix the detection: when `exit_code == 0` and the sheet produced valid output, `rate_limited` should be `false` regardless of rate limit text in output. The CLI already handled the rate limit. Separately, rate limits should eventually be per-model or per-logical-instrument, and dispatch should round-robin across jobs.
+
+### F-498: Conductor Dispatches Without Intelligence — Phase 3 Scheduler Unwired
+- **Movement:** 5 (post-movement, production testing + TSVS analysis)
+- **Agent:** Composer (Opus session, cross-domain analysis)
+- **Category:** architecture, opportunity
+- **Severity:** P1 — the conductor is a deaf metronome, not an adaptive system
+- **Status:** Spec complete, ready for implementation
+- **Finding:** The baton dispatch (`dispatch_ready`) iterates jobs in registration order and dispatches ready sheets through binary gate checks (global cap, model cap, rate limit, circuit breaker). No priority scoring, no fairness, no signal integration. First-registered job monopolizes dispatch windows within shared model caps. The Phase 3 scheduler (`scheduler.py`) has a priority heap with scoring — it's built but not wired.
+
+  The conductor has access to: cost data, learning patterns, execution history, instrument health, sheet complexity, intent hierarchy, cross-job relationships, entropy signals. It uses none of this for scheduling decisions.
+
+  Full spec with implementation plan, architecture, testing strategy, and TSVS cross-domain analysis: `docs/plans/2026-04-07-intelligent-conductor-spec.md`
+
+- **Root Cause:** Phase 2 (baton) focused on multi-instrument dispatch mechanics. Intelligence was deferred to Phase 3. The transition from "dispatch works" to "dispatch is smart" requires signal wiring, not new algorithms — the scheduler and signals already exist.
+- **Action:** Wire Phase 3 scheduler into `dispatch_ready()`. Implementation order: (1) priority heap replaces job iteration, (2) EventBus subscriptions for completion/failure signals, (3) `score_sheet()` with fan-out + fairness + availability, (4) intent profile modulation, (5) proactive escalation prediction, (6) cross-job context. Each step independently valuable and testable.
+
+### F-454: `list --json` Exposes Internal DB Error to Users
+- **Found by:** Ember, Movement 5
+- **Severity:** P2 (medium — internal implementation details leaked to users)
+- **Status:** Open
+- **Category:** bug, UX
+- **Description:** `mzt list --json` returns `error_message: "Unexpected internal error: no such table: jobs"` for the running orchestra job. The `jobs` table doesn't exist in the state DB, and the error propagates unfiltered into user-facing JSON output. The score IS running (status shows it, conductor shows it), so the error is confusing — the system works but the list endpoint leaks an internal DB schema error.
+- **Reproducer:** `mzt list --json | python -m json.tool` — the `error_message` field contains the raw SQLite error.
+- **Impact:** Machine consumers parsing `list --json` see an implementation detail (SQLite table name) they can't act on. Undermines confidence in the API surface.
+- **Action:** Either suppress internal DB errors in user-facing JSON, or ensure the state DB schema is created before first query, or return a meaningful error ("Status data unavailable — use `status <job>` for details").

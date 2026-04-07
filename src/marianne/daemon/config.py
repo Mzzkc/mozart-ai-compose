@@ -1,4 +1,4 @@
-"""Configuration models for the Mozart conductor (daemon).
+"""Configuration models for the Marianne conductor (daemon).
 
 Defines Pydantic v2 models for daemon-specific settings: socket configuration,
 resource limits, concurrency controls, and state backend selection.
@@ -69,7 +69,7 @@ class SocketConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     path: Path = Field(
-        default=Path("/tmp/mozart.sock"),
+        default=Path("/tmp/marianne.sock"),
         description="Unix domain socket path for client-daemon communication",
     )
     permissions: int = Field(
@@ -223,11 +223,11 @@ class SemanticLearningConfig(BaseModel):
 
 
 class DaemonConfig(BaseModel):
-    """Top-level configuration for the Mozart conductor.
+    """Top-level configuration for the Marianne conductor.
 
     Controls socket binding, PID file location, concurrency limits,
     resource constraints, and state backend selection. Follows the
-    same Field() conventions as mozart.core.config.
+    same Field() conventions as marianne.core.config.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -237,7 +237,7 @@ class DaemonConfig(BaseModel):
         description="Unix domain socket configuration for IPC",
     )
     pid_file: Path = Field(
-        default=Path("/tmp/mozart.pid"),
+        default=Path("/tmp/marianne.pid"),
         description="PID file for daemon process management. "
         "Used to detect already-running daemons and for signal delivery.",
     )
@@ -249,12 +249,14 @@ class DaemonConfig(BaseModel):
         "Each job runs as an asyncio.Task in the daemon event loop.",
     )
     max_concurrent_sheets: int = Field(
-        default=10,
+        default=25,
         ge=1,
         le=100,
-        description="Reserved for Phase 3 scheduler — NOT YET ENFORCED. "
-        "Will set the global limit on parallel sheet executions across all jobs. "
-        "Setting a non-default value will log a warning at startup.",
+        description="Global ceiling on concurrent sheet executions across all jobs. "
+        "Bounds the total number of instrument processes the conductor runs "
+        "simultaneously, regardless of per-model or per-instrument limits. "
+        "Per-model limits (from instrument profiles) control distribution "
+        "within this ceiling.",
     )
     resource_limits: ResourceLimitConfig = Field(
         default_factory=ResourceLimitConfig,
@@ -267,7 +269,7 @@ class DaemonConfig(BaseModel):
         "Setting a non-default value will log a warning at startup.",
     )
     state_db_path: Path = Field(
-        default=Path("~/.mozart/daemon-state.db"),
+        default=Path("~/.marianne/daemon-state.db"),
         description="Reserved for future use; not yet implemented. "
         "Will be the path for daemon state database. "
         "Tilde is expanded at runtime. Stores job registry and metrics.",
@@ -346,11 +348,4 @@ class DaemonConfig(BaseModel):
     @model_validator(mode="after")
     def _warn_reserved_fields(self) -> DaemonConfig:
         """Warn when reserved/unimplemented fields are set to non-default values."""
-        if self.max_concurrent_sheets != 10:
-            _logger.warning(
-                "reserved_field_set",
-                field="max_concurrent_sheets",
-                value=self.max_concurrent_sheets,
-                message="reserved for Phase 3 scheduler — not yet enforced",
-            )
         return self

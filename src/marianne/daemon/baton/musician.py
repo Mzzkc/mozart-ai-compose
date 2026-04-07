@@ -51,7 +51,9 @@ from marianne.daemon.baton.state import AttemptContext
 from marianne.prompts.preamble import build_preamble
 from marianne.utils.credential_scanner import redact_credentials
 
-_logger = logging.getLogger(__name__)
+from marianne.core.logging import get_logger
+
+_logger = get_logger("daemon.baton.musician")
 
 
 async def sheet_task(

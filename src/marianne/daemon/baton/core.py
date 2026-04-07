@@ -64,7 +64,9 @@ from marianne.daemon.baton.state import (
     SheetExecutionState,
 )
 
-_logger = logging.getLogger(__name__)
+from marianne.core.logging import get_logger
+
+_logger = get_logger("daemon.baton.core")
 
 
 @dataclass
@@ -136,6 +138,11 @@ class BatonCore:
         # them to the EventBus for observability (dashboard, learning hub).
         self._fallback_events: list[InstrumentFallback] = []
 
+        # Per-model concurrency limits from instrument profiles.
+        # Keys: "instrument:model", values: max_concurrent.
+        # Populated by set_model_concurrency() from instrument profiles.
+        self._model_concurrency: dict[str, int] = {}
+
         # Retry backoff configuration (from RetryConfig defaults)
         self._base_retry_delay: float = 10.0
         self._retry_exponential_base: float = 2.0
@@ -205,6 +212,16 @@ class BatonCore:
         )
         return state
 
+    def set_model_concurrency(
+        self, instrument: str, model: str, max_concurrent: int,
+    ) -> None:
+        """Set per-model concurrency limit from instrument profile data.
+
+        Called during adapter initialization from loaded InstrumentProfiles.
+        """
+        key = f"{instrument}:{model}"
+        self._model_concurrency[key] = max_concurrent
+
     def get_instrument_state(self, name: str) -> InstrumentState | None:
         """Get the tracking state for a specific instrument."""
         return self._instruments.get(name)
@@ -244,6 +261,7 @@ class BatonCore:
         return DispatchConfig(
             max_concurrent_sheets=max_concurrent_sheets,
             instrument_concurrency=concurrency,
+            model_concurrency=dict(self._model_concurrency),
             rate_limited_instruments=rate_limited,
             open_circuit_breakers=open_breakers,
         )
@@ -1098,7 +1116,7 @@ class BatonCore:
 
         # Schedule a timer to auto-clear the rate limit when it expires.
         # Without this, WAITING sheets stay blocked forever unless manually
-        # cleared via `mozart clear-rate-limits`. (F-112)
+        # cleared via `mzt clear-rate-limits`. (F-112)
         if self._timer is not None:
             expiry_event = RateLimitExpired(instrument=event.instrument)
             self._timer.schedule(event.wait_seconds, expiry_event)

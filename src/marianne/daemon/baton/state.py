@@ -6,7 +6,7 @@ are healthy, how many attempts have been made, what the cost budget
 looks like. This is the conductor's working memory — separate from
 the persistent CheckpointState, which is the sheet's record of outcomes.
 
-The baton state persists to SQLite (in ``~/.mozart/mozart-state.db``)
+The baton state persists to SQLite (in ``~/.marianne/marianne-state.db``)
 for restart recovery. All models support ``to_dict()``/``from_dict()``
 serialization for this purpose.
 
@@ -192,7 +192,15 @@ class SheetExecutionState:
     """The sheet number within the job (1-based)."""
 
     instrument_name: str
-    """The instrument assigned to this sheet."""
+    """The instrument profile assigned to this sheet (e.g., 'claude-code')."""
+
+    model: str | None = None
+    """The model used by this sheet's instrument (e.g., 'claude-haiku-4-5-20251001').
+
+    Populated from Sheet.instrument_config.get('model') at registration.
+    When set, concurrency and rate limits are tracked per (instrument, model)
+    instead of per instrument alone.
+    """
 
     status: BatonSheetStatus = BatonSheetStatus.PENDING
     """Current scheduling status."""

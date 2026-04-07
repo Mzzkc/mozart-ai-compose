@@ -36,16 +36,19 @@ models:
     cost_per_1k_input: 0.00125
     cost_per_1k_output: 0.005
     max_output_tokens: 65536
+    max_concurrent: 4
   - name: gemini-2.5-flash
     context_window: 1000000
     cost_per_1k_input: 0.00015
     cost_per_1k_output: 0.0006
     max_output_tokens: 65536
+    max_concurrent: 8
   - name: gemini-3-flash-preview
     context_window: 1000000
     cost_per_1k_input: 0.00015
     cost_per_1k_output: 0.0006
     max_output_tokens: 65536
+    max_concurrent: 8
 
 cli:
   command:
@@ -78,7 +81,7 @@ cli:
     rate_limit_patterns:
       - "rate.?limit"
       - "quota.?exceeded"
-      - "429"
+      - "(?:error|status|code)[^\\w]*429"
       - "RESOURCE_EXHAUSTED"
       - "Too Many Requests"
     # Auth/permission errors

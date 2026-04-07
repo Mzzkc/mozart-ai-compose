@@ -38,7 +38,7 @@ See: ``workspaces/v1-beta-v3/movement-2/step-28-wiring-analysis.md``
 from __future__ import annotations
 
 import asyncio
-import logging
+
 import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
@@ -72,12 +72,16 @@ if TYPE_CHECKING:
     from marianne.daemon.event_bus import EventBus
     from marianne.daemon.types import ObserverEvent
 
-_logger = logging.getLogger(__name__)
+from marianne.core.logging import get_logger
+
+_logger = get_logger("daemon.baton.adapter")
 
 # Type alias for the state sync callback.
 # Called after each baton event that changes sheet status:
-#   (job_id, sheet_num, checkpoint_status_string) → None
-StateSyncCallback = Callable[[str, int, str], None]
+#   (job_id, sheet_num, checkpoint_status_string, baton_sheet_state) → None
+# The baton_sheet_state carries rich metadata (duration, validation, attempts)
+# so the manager can update the live CheckpointState fully.
+StateSyncCallback = Callable[[str, int, str, SheetExecutionState | None], None]
 
 
 # =============================================================================
@@ -237,6 +241,7 @@ def sheets_to_execution_states(
         states[sheet.num] = SheetExecutionState(
             sheet_num=sheet.num,
             instrument_name=sheet.instrument_name,
+            model=sheet.instrument_config.get("model"),
             max_retries=max_retries,
             max_completion=max_completion,
             fallback_chain=list(sheet.instrument_fallbacks),
@@ -619,6 +624,7 @@ class BatonAdapter:
             state = SheetExecutionState(
                 sheet_num=sheet.num,
                 instrument_name=sheet.instrument_name,
+                model=sheet.instrument_config.get("model"),
                 max_retries=max_retries,
                 max_completion=max_completion,
             )
@@ -1471,14 +1477,27 @@ class BatonAdapter:
         """
         state = self._baton.get_sheet_state(job_id, sheet_num)
         if state is None:
+            _logger.info(
+                "adapter.sync.no_baton_state",
+                job_id=job_id, sheet_num=sheet_num,
+            )
             return
 
         checkpoint_status = baton_to_checkpoint_status(state.status)
         key = (job_id, sheet_num)
-        if self._synced_status.get(key) == checkpoint_status:
+        prev = self._synced_status.get(key)
+        if prev == checkpoint_status:
             return  # No change — skip duplicate sync
+        _logger.info(
+            "adapter.sync.status_changed",
+            job_id=job_id,
+            sheet_num=sheet_num,
+            prev=prev,
+            new=checkpoint_status,
+            baton_status=state.status.value,
+        )
         self._synced_status[key] = checkpoint_status
-        self._invoke_sync_callback(job_id, sheet_num, checkpoint_status)
+        self._invoke_sync_callback(job_id, sheet_num, checkpoint_status, state)
 
     def _sync_all_sheets_for_job(self, job_id: str) -> None:
         """Sync all sheets of a job using state-diff dedup.
@@ -1518,11 +1537,18 @@ class BatonAdapter:
             self._sync_single_sheet(job_id, sheet_num)
 
     def _invoke_sync_callback(
-        self, job_id: str, sheet_num: int, checkpoint_status: str
+        self,
+        job_id: str,
+        sheet_num: int,
+        checkpoint_status: str,
+        baton_state: SheetExecutionState | None = None,
     ) -> None:
         """Invoke the state sync callback with error handling."""
+        if self._state_sync_callback is None:
+            _logger.warning("adapter.sync.no_callback_set")
+            return
         try:
-            self._state_sync_callback(job_id, sheet_num, checkpoint_status)  # type: ignore[misc]
+            self._state_sync_callback(job_id, sheet_num, checkpoint_status, baton_state)
         except Exception:
             _logger.warning(
                 "adapter.state_sync_failed",
@@ -1550,6 +1576,12 @@ class BatonAdapter:
             while not self._baton._shutting_down:
                 event = await self._baton.inbox.get()
 
+                _logger.debug(
+                    "adapter.event_loop.received",
+                    event_type=type(event).__name__,
+                    queue_size=self._baton.inbox.qsize(),
+                )
+
                 # F-211: Capture pre-event state for events that
                 # deregister jobs (CancelJob removes state)
                 pre_capture = self._capture_pre_event_state(event)
@@ -1563,9 +1595,22 @@ class BatonAdapter:
                 config = self._baton.build_dispatch_config(
                     max_concurrent_sheets=self._max_concurrent_sheets,
                 )
-                await dispatch_ready(
+                dispatch_result = await dispatch_ready(
                     self._baton, config, self._dispatch_callback
                 )
+
+                # Sync dispatched sheets so status display shows in_progress
+                if dispatch_result.dispatched_sheets:
+                    _logger.info(
+                        "adapter.dispatch_sync",
+                        count=len(dispatch_result.dispatched_sheets),
+                        sheets=[
+                            f"{jid}:{sn}"
+                            for jid, sn in dispatch_result.dispatched_sheets
+                        ],
+                    )
+                for d_job_id, d_sheet_num in dispatch_result.dispatched_sheets:
+                    self._sync_single_sheet(d_job_id, d_sheet_num)
 
                 # Publish any fallback events to EventBus
                 await self._publish_fallback_events()

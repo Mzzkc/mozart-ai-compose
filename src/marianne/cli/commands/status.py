@@ -1,8 +1,8 @@
-"""Status commands for Mozart CLI.
+"""Status commands for Marianne CLI.
 
 This module implements job status display commands:
-- `mozart status <job-id>` - Show detailed status for a specific job
-- `mozart list` (list_jobs) - List all jobs in the workspace
+- `mzt status <job-id>` - Show detailed status for a specific job
+- `mzt list` (list_jobs) - List all jobs in the workspace
 
 ★ Insight ─────────────────────────────────────
 1. **Dual output modes**: Both JSON and Rich output are supported for all
@@ -150,10 +150,10 @@ def status(
     With a score ID: shows detailed status for that specific score.
 
     Examples:
-        mozart status
-        mozart status my-job
-        mozart status my-job --json
-        mozart status my-job --watch
+        mzt status
+        mzt status my-job
+        mzt status my-job --json
+        mzt status my-job --watch
     """
     if job_id is None:
         asyncio.run(_status_overview(json_output))
@@ -236,7 +236,7 @@ async def _status_job(
         # Conductor confirmed: job not found.
         output_error(
             f"Score not found: {job_id}",
-            hints=["Run 'mozart list' to see available scores."],
+            hints=["Run 'mzt list' to see available scores."],
             json_output=json_output,
         )
         raise typer.Exit(1) from None
@@ -246,7 +246,7 @@ async def _status_job(
         _logger.error("status_conductor_error", error=error_detail, exc_info=True)
         output_error(
             f"Conductor error: {error_detail}",
-            hints=["Check conductor logs: tail -f ~/.mozart/mozart.log"],
+            hints=["Check conductor logs: tail -f ~/.marianne/marianne.log"],
             json_output=json_output,
         )
         raise typer.Exit(1) from None
@@ -265,7 +265,7 @@ async def _status_job(
         # but handle gracefully.
         output_error(
             f"Score not found: {job_id}",
-            hints=["Run 'mozart list' to see available scores."],
+            hints=["Run 'mzt list' to see available scores."],
             json_output=json_output,
         )
         raise typer.Exit(1)
@@ -330,8 +330,8 @@ async def _status_job_watch(
                 output_error(
                     f"Conductor error: {error_detail}",
                     hints=[
-                        "Check conductor health: mozart conductor-status",
-                        "Restart if needed: mozart restart",
+                        "Check conductor health: mzt conductor-status",
+                        "Restart if needed: mzt restart",
                     ],
                 )
                 await asyncio.sleep(interval)
@@ -363,7 +363,7 @@ async def _status_job_watch(
                 else:
                     output_error(
                         f"{ErrorMessages.JOB_NOT_FOUND}: {job_id}",
-                        hints=["Run 'mozart list' to see available scores."],
+                        hints=["Run 'mzt list' to see available scores."],
                     )
             else:
                 if json_output:
@@ -405,7 +405,7 @@ _RECENT_TERMINAL = {"completed", "failed", "cancelled"}
 
 
 async def _status_overview(json_output: bool) -> None:
-    """Show overview of all scores — like 'git status' for Mozart.
+    """Show overview of all scores — like 'git status' for Marianne.
 
     Displays conductor status, active scores, and recent completions.
     """
@@ -420,8 +420,8 @@ async def _status_overview(json_output: bool) -> None:
 
     if not routed:
         output_error(
-            "Mozart conductor is not running.",
-            hints=["Start it with: mozart start"],
+            "Marianne conductor is not running.",
+            hints=["Start it with: mzt start"],
             json_output=json_output,
         )
         raise typer.Exit(1)
@@ -458,7 +458,7 @@ async def _status_overview(json_output: bool) -> None:
     health = result if isinstance(result, dict) else {}
     uptime_str = _format_uptime(health.get("uptime_seconds"))
     console.print(
-        f"[bold]Mozart Conductor:[/bold] [green]RUNNING[/green]"
+        f"[bold]Marianne Conductor:[/bold] [green]RUNNING[/green]"
         f"{f'  ({uptime_str})' if uptime_str else ''}"
     )
     console.print()
@@ -483,7 +483,7 @@ async def _status_overview(json_output: bool) -> None:
         summary_parts.append("No active scores")
 
     console.print(f"\n[dim]{'. '.join(summary_parts)}."
-                  " Use 'mozart status <score>' for details.[/dim]")
+                  " Use 'mzt status <score>' for details.[/dim]")
 
 
 def _render_overview_jobs(
@@ -554,8 +554,8 @@ async def _list_jobs(
     routed, result = await try_daemon_route("job.list", {})
     if not routed:
         output_error(
-            "Mozart conductor is not running.",
-            hints=["Start it with: mozart start"],
+            "Marianne conductor is not running.",
+            hints=["Start it with: mzt start"],
             json_output=json_output,
         )
         raise typer.Exit(1)
@@ -1306,7 +1306,7 @@ def _render_sheet_summary(job: CheckpointState) -> None:
         if len(failures) > 10:
             console.print(
                 f"\n  [dim]... and {len(failures) - 10} more validation failures. "
-                f"Run 'mozart errors {job.job_id} --verbose' for details.[/dim]"
+                f"Run 'mzt errors {job.job_id} --verbose' for details.[/dim]"
             )
 
 
@@ -1343,7 +1343,7 @@ def _render_recent_errors(job: CheckpointState) -> None:
         )
 
     console.print(
-        f"\n[dim]  Use 'mozart errors {job.job_id}' for complete error history[/dim]"
+        f"\n[dim]  Use 'mzt errors {job.job_id}' for complete error history[/dim]"
     )
 
 
@@ -1629,9 +1629,12 @@ def _render_now_playing(
                 desc = desc[:27] + "..."
             parts.append(desc)
 
-        # Instrument
+        # Instrument + model
         if sheet.instrument_name:
-            parts.append(f"[dim]{sheet.instrument_name}[/dim]")
+            inst_label = sheet.instrument_name
+            if sheet.instrument_model:
+                inst_label = f"{inst_label} ({sheet.instrument_model})"
+            parts.append(f"[dim]{inst_label}[/dim]")
 
         # Elapsed time
         if sheet.started_at:
@@ -1785,7 +1788,7 @@ def _output_status_rich(job: CheckpointState) -> None:
     # Suggest diagnose for failed jobs
     if job.status == JobStatus.FAILED:
         console.print(
-            f"\n[yellow]Run 'mozart diagnose {job.job_id}' for a full diagnostic report.[/yellow]"
+            f"\n[yellow]Run 'mzt diagnose {job.job_id}' for a full diagnostic report.[/yellow]"
         )
 
 
@@ -1973,12 +1976,12 @@ def clear(
     tracking. Running and queued scores are never cleared.
 
     Examples:
-        mozart clear                                 # Clear all terminal scores
-        mozart clear --job conductor-fix             # Clear a specific score
-        mozart clear --status failed                 # Clear only failed scores
-        mozart clear --status failed -s cancelled    # Clear failed + cancelled
-        mozart clear --older-than 3600               # Terminal scores older than 1h
-        mozart clear -y                              # Skip confirmation
+        mzt clear                                 # Clear all terminal scores
+        mzt clear --job conductor-fix             # Clear a specific score
+        mzt clear --status failed                 # Clear only failed scores
+        mzt clear --status failed -s cancelled    # Clear failed + cancelled
+        mzt clear --older-than 3600               # Terminal scores older than 1h
+        mzt clear -y                              # Skip confirmation
     """
     asyncio.run(_clear_jobs(job, status_filter, older_than, yes))
 
@@ -2001,7 +2004,7 @@ async def _clear_jobs(
             f"Invalid status(es): {', '.join(invalid)}.",
             hints=[
                 f"Valid values: {', '.join(sorted(valid))}",
-                "Example: mozart clear --status failed --status cancelled",
+                "Example: mzt clear --status failed --status cancelled",
             ],
         )
         raise typer.Exit(1)
@@ -2029,7 +2032,7 @@ async def _clear_jobs(
         output_error(
             str(exc),
             hints=[
-                "Check conductor status: mozart conductor-status",
+                "Check conductor status: mzt conductor-status",
                 "The conductor must be running to clear scores.",
             ],
         )

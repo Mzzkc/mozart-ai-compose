@@ -1,4 +1,4 @@
-"""Tests for mozart.daemon.config module."""
+"""Tests for marianne.daemon.config module."""
 
 from pathlib import Path
 
@@ -81,14 +81,14 @@ class TestSocketConfig:
     def test_defaults(self):
         """Test default values are applied."""
         config = SocketConfig()
-        assert config.path == Path("/tmp/mozart.sock")
+        assert config.path == Path("/tmp/marianne.sock")
         assert config.permissions == 0o660
         assert config.backlog == 5
 
     def test_custom_path(self):
         """Test custom socket path."""
-        config = SocketConfig(path=Path("/run/user/1000/mozart.sock"))
-        assert config.path == Path("/run/user/1000/mozart.sock")
+        config = SocketConfig(path=Path("/run/user/1000/marianne.sock"))
+        assert config.path == Path("/run/user/1000/marianne.sock")
 
     def test_custom_permissions(self):
         """Test custom socket permissions."""
@@ -120,11 +120,11 @@ class TestDaemonConfig:
     def test_defaults(self):
         """Test default values are applied."""
         config = DaemonConfig()
-        assert config.pid_file == Path("/tmp/mozart.pid")
+        assert config.pid_file == Path("/tmp/marianne.pid")
         assert config.max_concurrent_jobs == 15
-        assert config.max_concurrent_sheets == 10
+        assert config.max_concurrent_sheets == 25
         assert config.state_backend_type == "sqlite"
-        assert config.state_db_path == Path("~/.mozart/daemon-state.db")
+        assert config.state_db_path == Path("~/.marianne/daemon-state.db")
         assert config.log_level == "info"
         assert config.log_file is None
 
@@ -132,7 +132,7 @@ class TestDaemonConfig:
         """Test socket config is initialized with defaults."""
         config = DaemonConfig()
         assert isinstance(config.socket, SocketConfig)
-        assert config.socket.path == Path("/tmp/mozart.sock")
+        assert config.socket.path == Path("/tmp/marianne.sock")
 
     def test_nested_resource_limits_defaults(self):
         """Test resource limits config is initialized with defaults."""
@@ -189,13 +189,13 @@ class TestDaemonConfig:
 
     def test_custom_pid_file(self):
         """Test custom PID file path."""
-        config = DaemonConfig(pid_file=Path("/run/mozart.pid"))
-        assert config.pid_file == Path("/run/mozart.pid")
+        config = DaemonConfig(pid_file=Path("/run/marianne.pid"))
+        assert config.pid_file == Path("/run/marianne.pid")
 
     def test_custom_state_db_path(self):
         """Test custom state DB path."""
-        config = DaemonConfig(state_db_path=Path("/var/lib/mozart/state.db"))
-        assert config.state_db_path == Path("/var/lib/mozart/state.db")
+        config = DaemonConfig(state_db_path=Path("/var/lib/marianne/state.db"))
+        assert config.state_db_path == Path("/var/lib/marianne/state.db")
 
     def test_custom_log_level(self):
         """Test custom log level."""
@@ -204,18 +204,18 @@ class TestDaemonConfig:
 
     def test_custom_log_file(self):
         """Test custom log file path."""
-        config = DaemonConfig(log_file=Path("/var/log/mozart.log"))
-        assert config.log_file == Path("/var/log/mozart.log")
+        config = DaemonConfig(log_file=Path("/var/log/marianne.log"))
+        assert config.log_file == Path("/var/log/marianne.log")
 
     def test_full_custom_config(self):
         """Test fully customized daemon config (only implemented fields)."""
         config = DaemonConfig(
             socket=SocketConfig(
-                path=Path("/run/user/1000/mozart.sock"),
+                path=Path("/run/user/1000/marianne.sock"),
                 permissions=0o600,
                 backlog=10,
             ),
-            pid_file=Path("/run/mozart.pid"),
+            pid_file=Path("/run/marianne.pid"),
             max_concurrent_jobs=10,
             max_concurrent_sheets=20,  # Warns (Phase 3), but accepted
             resource_limits=ResourceLimitConfig(
@@ -223,14 +223,14 @@ class TestDaemonConfig:
                 max_processes=25,
             ),
             state_backend_type="sqlite",
-            state_db_path=Path("/data/mozart.db"),
+            state_db_path=Path("/data/marianne.db"),
             log_level="debug",
-            log_file=Path("/var/log/mozart.log"),
+            log_file=Path("/var/log/marianne.log"),
         )
-        assert config.socket.path == Path("/run/user/1000/mozart.sock")
+        assert config.socket.path == Path("/run/user/1000/marianne.sock")
         assert config.socket.permissions == 0o600
         assert config.socket.backlog == 10
-        assert config.pid_file == Path("/run/mozart.pid")
+        assert config.pid_file == Path("/run/marianne.pid")
         assert config.max_concurrent_jobs == 10
         assert config.max_concurrent_sheets == 20
         assert config.resource_limits.max_memory_mb == 4096
@@ -238,9 +238,9 @@ class TestDaemonConfig:
         # Non-default values are rejected; this stays at default
         assert config.resource_limits.max_api_calls_per_minute == 60
         assert config.state_backend_type == "sqlite"
-        assert config.state_db_path == Path("/data/mozart.db")
+        assert config.state_db_path == Path("/data/marianne.db")
         assert config.log_level == "debug"
-        assert config.log_file == Path("/var/log/mozart.log")
+        assert config.log_file == Path("/var/log/marianne.log")
 
     def test_serialization_roundtrip(self):
         """Test config survives model_dump -> model_validate roundtrip."""
@@ -304,9 +304,9 @@ class TestLoadConfig:
         from marianne.daemon.process import _load_config
 
         config = _load_config(None)
-        # When ~/.mozart/conductor.yaml exists, auto-discovery sets config_file;
+        # When ~/.marianne/conductor.yaml exists, auto-discovery sets config_file;
         # otherwise config_file is None.  Either way, defaults apply.
-        default_path = Path("~/.mozart/conductor.yaml").expanduser()
+        default_path = Path("~/.marianne/conductor.yaml").expanduser()
         if default_path.exists():
             assert config.config_file == default_path.resolve()
         else:

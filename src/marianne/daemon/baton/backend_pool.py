@@ -44,7 +44,9 @@ from marianne.instruments.registry import InstrumentRegistry
 if TYPE_CHECKING:
     from marianne.daemon.pgroup import ProcessGroupManager
 
-_logger = logging.getLogger(__name__)
+from marianne.core.logging import get_logger
+
+_logger = get_logger("daemon.baton.backend_pool")
 
 
 def _create_backend_for_profile(

@@ -1,6 +1,6 @@
 # Claude Code — Anthropic's official CLI agent
 #
-# The reference instrument for Mozart. Full tool use, file editing,
+# The reference instrument for Marianne. Full tool use, file editing,
 # shell access, vision, and MCP support. Uses the -p flag for
 # non-interactive prompt execution with JSON output.
 #
@@ -40,16 +40,31 @@ models:
     cost_per_1k_input: 0.003
     cost_per_1k_output: 0.015
     max_output_tokens: 64000
+    max_concurrent: 6
+  - name: claude-sonnet-4-5-20250929
+    context_window: 200000
+    cost_per_1k_input: 0.003
+    cost_per_1k_output: 0.015
+    max_output_tokens: 64000
+    max_concurrent: 6
   - name: claude-opus-4-20250514
     context_window: 200000
     cost_per_1k_input: 0.015
     cost_per_1k_output: 0.075
     max_output_tokens: 32000
+    max_concurrent: 2
+  - name: claude-opus-4-6
+    context_window: 1000000
+    cost_per_1k_input: 0.015
+    cost_per_1k_output: 0.075
+    max_output_tokens: 32000
+    max_concurrent: 2
   - name: claude-haiku-4-5-20251001
     context_window: 200000
     cost_per_1k_input: 0.0008
     cost_per_1k_output: 0.004
     max_output_tokens: 64000
+    max_concurrent: 8
 
 cli:
   command:
@@ -101,16 +116,17 @@ cli:
   errors:
     # Exit codes
     success_exit_codes: [0]
-    # Rate limit patterns (CRITICAL: check stdout too — Claude CLI puts rate
-    # limit messages on stdout, not stderr. See F-098.)
+    # Rate limit patterns — anchored to error contexts to avoid false
+    # positives from incidental mentions in result output (F-497).
+    # On successful exits, only stderr is scanned (guard in backend code).
     rate_limit_patterns:
       - "rate.?limit"
-      - "overloaded"
-      - "429"
-      - "529"
+      - "(?:error|status|code)[^\\w]*429"
+      - "(?:error|status|code)[^\\w]*529"
       - "You've hit your limit"
       - "API Error: Rate limit"
       - "resets.*\\(\\w+/\\w+\\)"
+      - "(?:server|api|service).*overloaded"
     # Auth/permission errors
     auth_error_patterns:
       - "not authenticated"

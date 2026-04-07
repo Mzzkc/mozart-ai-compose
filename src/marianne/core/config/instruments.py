@@ -1,13 +1,13 @@
 """Instrument Plugin System data models.
 
 Defines the config-driven instrument profile system that allows CLI tools
-to be added as Mozart instruments via YAML configuration files, without
+to be added as mzt instruments via YAML configuration files, without
 writing Python backend code.
 
-An InstrumentProfile describes everything Mozart needs to execute prompts
+An InstrumentProfile describes everything Marianne needs to execute prompts
 through an instrument: identity, capabilities, CLI flags, output parsing,
 error detection, and model metadata. Profiles are loaded from YAML files
-in ~/.mozart/instruments/ (organization) and .mozart/instruments/ (venue).
+in ~/.marianne/instruments/ (organization) and .marianne/instruments/ (venue).
 
 The music metaphor: an instrument is what the musician plays. The profile
 is the instrument's spec sheet — what it can do, how it's held, what
@@ -110,6 +110,13 @@ class ModelCapacity(BaseModel):
         ge=1,
         description="Maximum output tokens the model can produce. None if unlimited.",
     )
+    max_concurrent: int = Field(
+        default=4,
+        ge=1,
+        description="Maximum concurrent sheets using this model. "
+        "The baton tracks concurrency per (instrument, model) pair. "
+        "Sensible defaults by tier: haiku/flash=8, sonnet/pro=4, opus=2.",
+    )
 
 
 # --- CLI Sub-models ---
@@ -118,7 +125,7 @@ class ModelCapacity(BaseModel):
 class CliCommand(BaseModel):
     """How to build the CLI command for an instrument.
 
-    Maps Mozart execution concepts (prompt, model, auto-approve, output format)
+    Maps Marianne execution concepts (prompt, model, auto-approve, output format)
     to CLI flags. When a field is None, the instrument doesn't support that
     concept via flags. When prompt_flag is None, the prompt is passed as a
     positional argument.
@@ -293,7 +300,7 @@ class CliOutputConfig(BaseModel):
 class CliErrorConfig(BaseModel):
     """How to detect errors from CLI instrument output.
 
-    Supplements Mozart's existing ErrorClassifier with instrument-specific
+    Supplements Marianne's existing ErrorClassifier with instrument-specific
     patterns for rate limit detection and auth error recognition.
     """
 
@@ -396,10 +403,10 @@ class HttpProfile(BaseModel):
 
 
 class InstrumentProfile(BaseModel):
-    """Everything Mozart needs to execute prompts through an instrument.
+    """Everything Marianne needs to execute prompts through an instrument.
 
     This is the top-level type for the instrument plugin system. Each
-    instrument profile describes a CLI tool or HTTP API that Mozart can
+    instrument profile describes a CLI tool or HTTP API that Marianne can
     use as a backend. Profiles are loaded from YAML files and validated
     by Pydantic at conductor startup.
 

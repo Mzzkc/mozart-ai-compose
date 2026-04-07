@@ -34,7 +34,9 @@ from dataclasses import dataclass, field
 from marianne.daemon.baton.core import BatonCore
 from marianne.daemon.baton.state import BatonSheetStatus, SheetExecutionState
 
-_logger = logging.getLogger(__name__)
+from marianne.core.logging import get_logger
+
+_logger = get_logger("daemon.baton.dispatch")
 
 # Type alias for the dispatch callback.
 # Signature: async def dispatch(job_id: str, sheet_num: int, state: SheetExecutionState) -> None
@@ -47,15 +49,18 @@ class DispatchConfig:
 
     Attributes:
         max_concurrent_sheets: Global ceiling on concurrent sheet tasks.
-        instrument_concurrency: Per-instrument concurrency limits.
-            Keys are instrument names, values are max concurrent sheets.
-            Instruments not in this dict have no per-instrument limit.
+        instrument_concurrency: Per-instrument concurrency limits (fallback
+            when no model-specific limit exists).
+        model_concurrency: Per-(instrument, model) concurrency limits.
+            Keys are ``"instrument:model"`` strings. Takes priority over
+            instrument_concurrency when the sheet has a known model.
         rate_limited_instruments: Set of instrument names currently rate-limited.
         open_circuit_breakers: Set of instrument names with open circuit breakers.
     """
 
     max_concurrent_sheets: int = 10
     instrument_concurrency: dict[str, int] = field(default_factory=dict)
+    model_concurrency: dict[str, int] = field(default_factory=dict)
     rate_limited_instruments: set[str] = field(default_factory=set)
     open_circuit_breakers: set[str] = field(default_factory=set)
 
@@ -107,8 +112,8 @@ async def dispatch_ready(
     if baton._shutting_down:
         return result
 
-    # Track running counts per instrument for this dispatch cycle
-    instrument_running: dict[str, int] = _count_dispatched_per_instrument(baton)
+    # Track running counts per model key (instrument:model or just instrument)
+    model_running: dict[str, int] = _count_dispatched_per_model(baton)
     global_running = baton.running_sheet_count
 
     for job_id in list(baton._jobs.keys()):
@@ -120,18 +125,30 @@ async def dispatch_ready(
             continue
 
         ready = baton.get_ready_sheets(job_id)
+        if ready:
+            _logger.info(
+                "dispatch.ready_sheets",
+                job_id=job_id,
+                ready_count=len(ready),
+                global_running=global_running,
+                max_concurrent=config.max_concurrent_sheets,
+                rate_limited=list(config.rate_limited_instruments),
+            )
         for sheet in ready:
             # Check global concurrency
             if global_running >= config.max_concurrent_sheets:
                 result.record_skip("global_concurrency")
                 return result  # Hard stop — can't dispatch more
 
-            # Check per-instrument concurrency
+            # Check per-model concurrency (falls back to per-instrument)
             instrument = sheet.instrument_name
-            inst_limit = config.instrument_concurrency.get(instrument)
-            inst_count = instrument_running.get(instrument, 0)
-            if inst_limit is not None and inst_count >= inst_limit:
-                result.record_skip(f"instrument_concurrency:{instrument}")
+            model_key = f"{instrument}:{sheet.model}" if sheet.model else instrument
+            model_limit = config.model_concurrency.get(model_key)
+            if model_limit is None:
+                model_limit = config.instrument_concurrency.get(instrument)
+            model_count = model_running.get(model_key, 0)
+            if model_limit is not None and model_count >= model_limit:
+                result.record_skip(f"model_concurrency:{model_key}")
                 continue
 
             # Check instrument rate limit (transient — don't fallback)
@@ -170,7 +187,7 @@ async def dispatch_ready(
                 sheet.status = BatonSheetStatus.DISPATCHED
                 result.record_dispatch(job_id, sheet.sheet_num)
                 global_running += 1
-                instrument_running[instrument] = inst_count + 1
+                model_running[model_key] = model_count + 1
             except Exception:
                 _logger.error(
                     "baton.dispatch.callback_failed",
@@ -198,12 +215,22 @@ async def dispatch_ready(
     return result
 
 
-def _count_dispatched_per_instrument(baton: BatonCore) -> dict[str, int]:
-    """Count sheets currently in 'dispatched' status per instrument."""
+def _count_dispatched_per_model(baton: BatonCore) -> dict[str, int]:
+    """Count sheets currently in 'dispatched' status per model key.
+
+    Keys are ``"instrument:model"`` when model is known, or just
+    ``"instrument"`` when no model is set. This supports per-model
+    concurrency limits while falling back to per-instrument for
+    sheets without model info.
+    """
     counts: dict[str, int] = {}
     for job in baton._jobs.values():
         for sheet in job.sheets.values():
             if sheet.status == BatonSheetStatus.DISPATCHED:
-                inst = sheet.instrument_name
-                counts[inst] = counts.get(inst, 0) + 1
+                key = (
+                    f"{sheet.instrument_name}:{sheet.model}"
+                    if sheet.model
+                    else sheet.instrument_name
+                )
+                counts[key] = counts.get(key, 0) + 1
     return counts

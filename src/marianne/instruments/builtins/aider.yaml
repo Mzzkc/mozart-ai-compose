@@ -29,8 +29,8 @@ cli:
   errors:
     rate_limit_patterns:
       - "rate.?limit"
-      - "429"
-      - "too.?many"
+      - "(?:error|status|code)[^\\w]*429"
+      - "too many requests"
     auth_error_patterns:
       - "authenticat"
       - "api.*key"

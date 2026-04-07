@@ -39,7 +39,7 @@ cli:
   errors:
     rate_limit_patterns:
       - "rate.?limit"
-      - "429"
+      - "(?:error|status|code)[^\\w]*429"
     auth_error_patterns:
       - "authenticat"
       - "unauthorized"

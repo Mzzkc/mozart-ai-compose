@@ -2,7 +2,7 @@
 
 PluginCliBackend is a generic Backend implementation driven by an
 InstrumentProfile. Instead of writing Python for each CLI tool, you
-write a ~30-line YAML profile and Mozart handles command construction,
+write a ~30-line YAML profile and Marianne handles command construction,
 output parsing, and error classification.
 
 The music metaphor: a musician doesn't need to know how the instrument
@@ -64,7 +64,7 @@ class PluginCliBackend(Backend):
     output according to the profile's output and error configuration.
 
     This is the core of the instrument plugin system — any CLI tool
-    with a YAML profile can be used as a Mozart instrument.
+    with a YAML profile can be used as a mzt instrument.
     """
 
     def __init__(
@@ -343,7 +343,7 @@ class PluginCliBackend(Backend):
         is_success = exit_code in errors.success_exit_codes
 
         # Check rate limiting and error classification
-        rate_limited = self._check_rate_limit(stdout, stderr)
+        rate_limited = self._check_rate_limit(stdout, stderr, is_success=is_success)
         error_type = self._classify_output_errors(
             stdout, stderr, is_success=is_success,
         )
@@ -490,19 +490,28 @@ class PluginCliBackend(Backend):
 
         return result_text, error_message, input_tokens, output_tokens
 
-    def _check_rate_limit(self, stdout: str, stderr: str) -> bool:
+    def _check_rate_limit(
+        self, stdout: str, stderr: str, *, is_success: bool = False,
+    ) -> bool:
         """Check for rate limiting using profile patterns.
+
+        When the execution succeeded (exit code in success_exit_codes),
+        only scan stderr — stdout contains the result and may include
+        incidental rate limit text from the tool's internal retry handling
+        (e.g., Claude Code retries rate limits internally and exits 0, but
+        leaves rate limit messages in the result output).
 
         Args:
             stdout: Standard output text.
             stderr: Standard error text.
+            is_success: Whether the execution exited with a success code.
 
         Returns:
             True if rate limiting was detected.
         """
-        combined = f"{stdout}\n{stderr}"
+        text = stderr if is_success else f"{stdout}\n{stderr}"
         for pattern in self._cli.errors.rate_limit_patterns:
-            if re.search(pattern, combined, re.IGNORECASE):
+            if re.search(pattern, text, re.IGNORECASE):
                 return True
         return False
 

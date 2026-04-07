@@ -1,4 +1,4 @@
-"""Job manager for the Mozart daemon.
+"""Job manager for the Marianne daemon.
 
 Maps job IDs to asyncio.Tasks, enforces concurrency limits via semaphore,
 routes IPC requests to JobService, and cancels all tasks on shutdown.
@@ -39,6 +39,7 @@ from marianne.daemon.semantic_analyzer import SemanticAnalyzer
 from marianne.daemon.snapshot import SnapshotManager
 from marianne.daemon.task_utils import log_task_exception
 from marianne.daemon.types import JobRequest, JobResponse, ObserverEvent
+from marianne.utils.time import utc_now
 
 _logger = get_logger("daemon.manager")
 
@@ -341,7 +342,7 @@ class JobManager:
 
         # Start observer recorder after event bus (needs bus for subscription).
         # Guard: observer.enabled, NOT persist_events. The ring buffer serves
-        # mozart top even when persistence is off.
+        # mzt top even when persistence is off.
         if self._config.observer.enabled:
             self._observer_recorder = ObserverRecorder(
                 config=self._config.observer,
@@ -369,6 +370,13 @@ class JobManager:
             self._baton_adapter.set_backend_pool(
                 BackendPool(registry, pgroup=self._pgroup)
             )
+
+            # Populate per-model concurrency from instrument profiles
+            for profile in profiles.values():
+                for model in profile.models:
+                    self._baton_adapter._baton.set_model_concurrency(
+                        profile.name, model.name, model.max_concurrent,
+                    )
 
             # Start the baton's event loop as a background task
             self._baton_loop_task = asyncio.create_task(
@@ -506,29 +514,42 @@ class JobManager:
         return DaemonJobStatus.FAILED
 
     def _on_baton_state_sync(
-        self, job_id: str, sheet_num: int, checkpoint_status: str,
+        self,
+        job_id: str,
+        sheet_num: int,
+        checkpoint_status: str,
+        baton_state: Any | None = None,
     ) -> None:
         """Callback invoked by the baton adapter when a sheet status changes.
 
         Step 29: Syncs baton state changes to the in-memory live state.
-        The live state serves ``mozart status`` and persists to the registry.
+        The live state serves ``mzt status`` and persists to the registry.
+
+        Uses CheckpointState.mark_sheet_* methods so that all derived fields
+        (last_completed_sheet, updated_at, job completion) stay consistent.
 
         Args:
             job_id: The job identifier.
             sheet_num: The sheet number that changed.
             checkpoint_status: The new status as a checkpoint status string.
+            baton_state: Optional SheetExecutionState from the baton with rich
+                metadata (duration, validation, attempts).
         """
         live = self._live_states.get(job_id)
         if live is None:
-            return
-
-        sheet_state = live.sheets.get(sheet_num)
-        if sheet_state is None:
+            _logger.info(
+                "baton.state_sync.no_live_state",
+                job_id=job_id,
+                sheet_num=sheet_num,
+                status=checkpoint_status,
+                known_ids=list(self._live_states.keys()),
+            )
             return
 
         from marianne.core.checkpoint import SheetStatus
+
         try:
-            sheet_state.status = SheetStatus(checkpoint_status)
+            status = SheetStatus(checkpoint_status)
         except ValueError:
             _logger.warning(
                 "baton.state_sync.invalid_status",
@@ -536,6 +557,67 @@ class JobManager:
                 sheet_num=sheet_num,
                 status=checkpoint_status,
             )
+            return
+
+        _logger.info(
+            "baton.state_sync.applying",
+            job_id=job_id,
+            sheet_num=sheet_num,
+            status=checkpoint_status,
+        )
+
+        _logger.debug(
+            "baton.state_sync.applying",
+            job_id=job_id,
+            sheet_num=sheet_num,
+            status=checkpoint_status,
+            has_baton_state=baton_state is not None,
+        )
+
+        if status == SheetStatus.IN_PROGRESS:
+            live.mark_sheet_started(sheet_num)
+        elif status == SheetStatus.COMPLETED:
+            # Extract rich metadata from baton state if available
+            validation_passed = True
+            duration: float | None = None
+            if baton_state is not None:
+                duration = baton_state.total_duration_seconds or None
+                # Check the latest attempt result for validation details
+                if baton_state.attempt_results:
+                    last = baton_state.attempt_results[-1]
+                    validation_passed = last.validation_pass_rate >= 100.0
+            live.mark_sheet_completed(
+                sheet_num,
+                validation_passed=validation_passed,
+                execution_duration_seconds=duration,
+            )
+        elif status == SheetStatus.FAILED:
+            error_msg = "Sheet failed"
+            error_code: str | None = None
+            duration_f: float | None = None
+            exit_code: int | None = None
+            if baton_state is not None:
+                duration_f = baton_state.total_duration_seconds or None
+                if baton_state.attempt_results:
+                    last = baton_state.attempt_results[-1]
+                    error_msg = last.error_message or error_msg
+                    error_code = last.error_classification
+                    exit_code = last.exit_code
+            live.mark_sheet_failed(
+                sheet_num,
+                error_message=error_msg,
+                error_code=error_code,
+                exit_code=exit_code,
+                execution_duration_seconds=duration_f,
+            )
+        elif status == SheetStatus.SKIPPED:
+            live.mark_sheet_skipped(sheet_num)
+        else:
+            # Fallback for other statuses (e.g., rate_limited → in_progress)
+            sheet_state = live.sheets.get(sheet_num)
+            if sheet_state is not None:
+                sheet_state.status = status
+                live.updated_at = utc_now()
 
     async def _recover_baton_orphans(self) -> None:
         """Recover paused orphan jobs through the baton after restart.
@@ -718,7 +800,7 @@ class JobManager:
                     status="rejected",
                     message=(
                         f"Job '{job_id}' is already {existing.status.value}. "
-                        "Use 'mozart pause' or 'mozart cancel' first, or wait for it to finish."
+                        "Use 'mzt pause' or 'mzt cancel' first, or wait for it to finish."
                     ),
                 )
 
@@ -816,7 +898,7 @@ class JobManager:
                 limit_parts.append(f"{instrument} clears in {time_str}")
 
         # Register in persistent storage + in-memory metadata so
-        # the job is visible via `mozart list` and `mozart status`.
+        # the job is visible via `mzt list` and `mzt status`.
         workspace = request.workspace or self._resolve_workspace_from_config(
             request.config_path, job_id,
         )
@@ -1390,7 +1472,7 @@ class JobManager:
 
         from marianne.state import SQLiteStateBackend
 
-        sqlite_path = ws / ".mozart-state.db"
+        sqlite_path = ws / ".marianne-state.db"
         records: list[dict[str, Any]] = []
         has_history = False
 
@@ -2044,6 +2126,7 @@ class JobManager:
             initial_sheets[sheet.num] = SheetState(
                 sheet_num=sheet.num,
                 instrument_name=sheet.instrument_name,  # F-151
+                instrument_model=sheet.instrument_config.get("model"),
             )
         initial_state = CheckpointState(
             job_id=job_id,
@@ -2212,6 +2295,16 @@ class JobManager:
             parallel_enabled=config.parallel.enabled,
             cross_sheet=config.cross_sheet,  # F-210
         )
+
+        # Reconcile live state with baton's view: recover_job resets
+        # in_progress sheets to PENDING (dead musicians), but the live
+        # CheckpointState still has them as in_progress with stale times.
+        from marianne.core.checkpoint import SheetStatus
+        for sheet_num, sheet_state in checkpoint.sheets.items():
+            if sheet_state.status == SheetStatus.IN_PROGRESS:
+                sheet_state.status = SheetStatus.PENDING
+                sheet_state.started_at = None
+        checkpoint.current_sheet = None
 
         try:
             # Wait for the baton to complete all sheets

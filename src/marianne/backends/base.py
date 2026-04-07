@@ -216,9 +216,13 @@ class Backend(ABC):
         """Check output for rate limit indicators.
 
         Uses the shared ErrorClassifier to ensure consistent detection
-        across all backends. Checks both stdout and stderr regardless of
-        exit code — rate limit messages can appear even when the CLI
-        handles the error internally and exits 0 (F-098).
+        across all backends.
+
+        When exit_code == 0, only stderr is checked. Tools like Claude Code
+        handle rate limits internally (retry within session) and exit 0, but
+        leave rate limit text in stdout from their internal status messages.
+        Scanning stdout on success causes false positives that block dispatch
+        for all jobs sharing the instrument profile (F-497).
 
         Args:
             stdout: Standard output text.
@@ -232,8 +236,12 @@ class Backend(ABC):
         if exit_code is None:
             return False
 
+        # On success, only check stderr — stdout contains the result and
+        # may include incidental rate limit text from internal retries.
+        effective_stdout = "" if exit_code == 0 else stdout
+
         # No output to check → not a rate limit
-        if not stdout and not stderr:
+        if not effective_stdout and not stderr:
             return False
 
         if not hasattr(self, "_error_classifier"):
@@ -242,7 +250,7 @@ class Backend(ABC):
         # Pass output_format to avoid false E009 for text-mode exit code 1
         output_format = getattr(self, "output_format", None)
         classified = self._error_classifier.classify(
-            stdout=stdout,
+            stdout=effective_stdout,
             stderr=stderr,
             exit_code=exit_code,
             output_format=output_format,
