@@ -165,13 +165,17 @@ Movement 5 — IN PROGRESS (2026-04-05).
 - **Meditation written:** meditations/oracle.md
 
 ### M5 Progress (Bedrock — Quality Gate & Ground Duties)
-- **Quality gate PASS:** mypy clean, ruff clean, pytest **11,708 passed / 5 skipped** (exit 0, ~502s). +311 tests from M4 gate.
-- **Codebase metrics:** 99,694 source lines (+1,247 from M4). 362 test files (+29). 26+ commits from 12+ musicians. 707 files changed, 18,504 insertions, 6,992 deletions.
-- **Participation:** 12+ musicians committed. Warden, Oracle active concurrent. Work naturally concentrated on rename, baton flip, and instrument fallbacks.
+- **Quality gate FAIL (retry #3, 2026-04-07):** pytest 50 failures, mypy clean, ruff clean (15 fixable warnings), flowspec 0 critical.
+- **Root cause:** Uncommitted 11-state SheetStatus expansion (5→11 states) at commit `7d780b1`. Tests hardcoded for old 5-state model.
+- **Fixes applied this session:** 2 tests in `test_baton_m2c2_adversarial.py` updated for 1:1 mapping.
+- **Remaining work:** 48 tests across 13 files. Mechanical updates, 1-2 hours effort.
+- **Codebase metrics:** 99,694 source lines (+1,247 from M4). 362 test files (+29). 26 commits from 12 musicians. 707 files changed, 18,504 insertions, 6,992 deletions.
+- **Participation:** 37.5% (12/32) — down from M4's 100%, expected for concentrated work (rename, baton flip, instrument fallbacks).
 - **Meditations:** 27/32 (84%). Missing: atlas, breakpoint, journey, litmus, sentinel. Canyon synthesis blocked by 5.
 - **TASKS.md audit:** 257 completed, 69 open. 15 rename tasks, 7 compose system, 5 Rosetta modernization, 14 M6-M7 future.
-- **FINDINGS.md:** 13 new M5 entries (F-472 through F-490). 2 P0 critical (F-487 WSL crash, F-490 killpg WSL crash) — both resolved. 3 open P2s (F-484, F-485, F-488).
-- **Key M5 assessment:** D-026+D-027 achieved. Baton IS the default. Instrument fallbacks shipped. Marianne rename Phase 1 complete. The serial critical path advanced two steps this movement (F-271+F-255.2 → baton flip). Phase 3 (remove toggle) and demo remain.
+- **FINDINGS.md:** F-501 (P0, 50 test failures), F-500 (P1, 538 uncommitted files — 8th occurrence).
+- **Uncommitted work:** 538 files, 18,504 insertions, 6,992 deletions. Components: (1) Mozart→Marianne rename completion, (2) 11-state model + baton sync.
+- **Key M5 assessment:** D-026+D-027 achieved in code. Baton IS the default in code. Instrument fallbacks shipped. Marianne rename Phase 1 complete. But ground does not hold — test failures block gate.
 - **Meditation written:** meditations/bedrock.md (prior session)
 
 ### M5 Progress (Warden)

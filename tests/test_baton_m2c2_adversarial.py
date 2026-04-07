@@ -825,20 +825,20 @@ class TestCheckpointStatusMappingBoundary:
         result = checkpoint_to_baton_status("in_progress")
         assert result == BatonSheetStatus.DISPATCHED
 
-    def test_cancelled_maps_to_failed_in_checkpoint(self) -> None:
-        """CANCELLED maps to 'failed' (CheckpointState has no 'cancelled')."""
+    def test_cancelled_maps_1_to_1(self) -> None:
+        """CANCELLED maps 1:1 (11-state model)."""
         result = baton_to_checkpoint_status(BatonSheetStatus.CANCELLED)
-        assert result == "failed"
+        assert result == "cancelled"
 
-    def test_non_terminal_statuses_collapse_correctly(self) -> None:
-        """Non-terminal baton states collapse to their checkpoint equivalents."""
+    def test_non_terminal_statuses_map_1_to_1(self) -> None:
+        """Non-terminal baton states map 1:1 to checkpoint (11-state model)."""
         assert baton_to_checkpoint_status(BatonSheetStatus.PENDING) == "pending"
-        assert baton_to_checkpoint_status(BatonSheetStatus.READY) == "pending"
-        assert baton_to_checkpoint_status(BatonSheetStatus.DISPATCHED) == "in_progress"
+        assert baton_to_checkpoint_status(BatonSheetStatus.READY) == "ready"
+        assert baton_to_checkpoint_status(BatonSheetStatus.DISPATCHED) == "dispatched"
         assert baton_to_checkpoint_status(BatonSheetStatus.RUNNING) == "in_progress"
-        assert baton_to_checkpoint_status(BatonSheetStatus.WAITING) == "in_progress"
-        assert baton_to_checkpoint_status(BatonSheetStatus.RETRY_SCHEDULED) == "pending"
-        assert baton_to_checkpoint_status(BatonSheetStatus.FERMATA) == "in_progress"
+        assert baton_to_checkpoint_status(BatonSheetStatus.WAITING) == "waiting"
+        assert baton_to_checkpoint_status(BatonSheetStatus.RETRY_SCHEDULED) == "retry_scheduled"
+        assert baton_to_checkpoint_status(BatonSheetStatus.FERMATA) == "fermata"
 
 
 # =========================================================================
