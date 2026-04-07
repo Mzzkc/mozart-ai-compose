@@ -1654,6 +1654,32 @@ class JobManager:
 
         self._jobs.clear()
 
+        # Stop the baton adapter: send ShutdownRequested, wait for the
+        # event loop to exit, cancel if it doesn't, close backend pool.
+        if self._baton_adapter is not None:
+            try:
+                from marianne.daemon.baton.events import ShutdownRequested
+                self._baton_adapter._baton.inbox.put_nowait(
+                    ShutdownRequested(graceful=graceful)
+                )
+                # Wait for the baton loop to exit (bounded by 5s)
+                if self._baton_loop_task is not None and not self._baton_loop_task.done():
+                    try:
+                        await asyncio.wait_for(self._baton_loop_task, timeout=5.0)
+                    except (TimeoutError, asyncio.CancelledError):
+                        self._baton_loop_task.cancel()
+                        try:
+                            await self._baton_loop_task
+                        except (asyncio.CancelledError, Exception):
+                            pass
+                # Cancel any remaining musician tasks
+                await self._baton_adapter.shutdown()
+                _logger.info("manager.baton_adapter_stopped")
+            except Exception:
+                _logger.warning(
+                    "manager.baton_adapter_stop_failed", exc_info=True,
+                )
+
         # Stop all observers for any remaining jobs
         for jid in list(self._job_meta.keys()):
             await self._stop_observer(jid)
@@ -1686,6 +1712,26 @@ class JobManager:
 
         # Stop centralized learning hub (final persist + cleanup)
         await self._learning_hub.stop()
+
+        # Final checkpoint flush: persist ALL live states to registry before
+        # closing. Fire-and-forget saves from _on_baton_state_sync may be
+        # pending — this synchronous flush ensures no progress is lost.
+        flushed = 0
+        for jid, live in self._live_states.items():
+            try:
+                checkpoint_json = live.model_dump_json()
+                await self._registry.save_checkpoint(jid, checkpoint_json)
+                await self._registry.update_status(
+                    jid, live.status.value if hasattr(live.status, 'value') else str(live.status),
+                )
+                flushed += 1
+            except Exception:
+                _logger.warning(
+                    "manager.shutdown_flush_failed",
+                    job_id=jid, exc_info=True,
+                )
+        if flushed:
+            _logger.info("manager.shutdown_checkpoint_flush", flushed=flushed)
 
         await self._registry.close()
         self._shutdown_event.set()
