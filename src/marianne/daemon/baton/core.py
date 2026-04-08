@@ -1606,6 +1606,11 @@ class BatonCore:
             # Only fail non-terminal sheets
             if sheet.status not in _TERMINAL_BATON_STATUSES:
                 sheet.status = BatonSheetStatus.FAILED
+                sheet.error_message = (
+                    f"Dependency failed: sheet {failed_sheet_num} failed, "
+                    f"blocking this sheet"
+                )
+                sheet.error_code = "E999"
                 _logger.info(
                     "baton.sheet.dependency_failed",
                     extra={
