@@ -213,6 +213,7 @@ class TestBeautifiedStatusHeader:
             job.sheets[i].started_at = datetime.now(UTC) - timedelta(minutes=5)
             job.sheets[i].movement = 2
             job.sheets[i].instrument_name = "claude-code"
+            job.sheets[i].instrument_model = "claude-sonnet-4-5-20250929"
 
         buf = StringIO()
         test_console = Console(file=buf, force_terminal=True, width=120)
@@ -231,7 +232,7 @@ class TestBeautifiedStatusHeader:
 
 
 class TestBeautifiedListDisplay:
-    """Tests for the beautified mozart list output."""
+    """Tests for the beautified mzt list output."""
 
     @pytest.fixture()
     def mock_daemon_route(self) -> Any:

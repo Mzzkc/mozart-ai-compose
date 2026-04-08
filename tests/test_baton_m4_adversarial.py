@@ -597,8 +597,8 @@ class TestCloneGlobalStateAdversarial:
         """Default clone paths must not overlap production paths."""
         from marianne.daemon.clone import resolve_clone_paths
 
-        # Production uses ~/.mozart/mozart.sock (or similar)
-        # Clone uses /tmp/mozart-clone.sock
+        # Production uses ~/.marianne/marianne.sock (or similar)
+        # Clone uses /tmp/marianne-clone.sock
         paths = resolve_clone_paths(None)
         assert "clone" in str(paths.socket)
         assert "clone" in str(paths.pid_file)
@@ -638,7 +638,11 @@ class TestAdapterStateMappingAdversarial:
         """
         from marianne.daemon.baton.adapter import _CHECKPOINT_TO_BATON
 
-        known_statuses = {"pending", "in_progress", "completed", "failed", "skipped"}
+        known_statuses = {
+            "pending", "ready", "dispatched", "in_progress",
+            "waiting", "retry_scheduled", "fermata",
+            "completed", "failed", "skipped", "cancelled",
+        }
         for status in known_statuses:
             assert status in _CHECKPOINT_TO_BATON, (
                 f"Checkpoint status '{status}' has no baton mapping"
@@ -651,7 +655,7 @@ class TestAdapterStateMappingAdversarial:
         """
         from marianne.daemon.baton.adapter import _BATON_TO_CHECKPOINT
 
-        terminal_checkpoint = {"completed", "failed", "skipped"}
+        terminal_checkpoint = {"completed", "failed", "skipped", "cancelled"}
         terminal_baton = {
             BatonSheetStatus.COMPLETED,
             BatonSheetStatus.FAILED,

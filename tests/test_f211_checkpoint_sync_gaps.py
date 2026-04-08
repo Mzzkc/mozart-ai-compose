@@ -111,7 +111,7 @@ class TestEscalationResolvedSync:
         """EscalationResolved with decision='retry' syncs PENDING status."""
         captured: list[tuple[str, int, str]] = []
 
-        def capture_sync(job_id: str, sheet_num: int, status: str) -> None:
+        def capture_sync(job_id: str, sheet_num: int, status: str, baton_state: object = None) -> None:
             captured.append((job_id, sheet_num, status))
 
         adapter = BatonAdapter(state_sync_callback=capture_sync)
@@ -142,7 +142,7 @@ class TestEscalationResolvedSync:
         """EscalationResolved with decision='skip' syncs SKIPPED status."""
         captured: list[tuple[str, int, str]] = []
 
-        def capture_sync(job_id: str, sheet_num: int, status: str) -> None:
+        def capture_sync(job_id: str, sheet_num: int, status: str, baton_state: object = None) -> None:
             captured.append((job_id, sheet_num, status))
 
         adapter = BatonAdapter(state_sync_callback=capture_sync)
@@ -167,7 +167,7 @@ class TestEscalationResolvedSync:
         """EscalationResolved with decision='accept' syncs COMPLETED status."""
         captured: list[tuple[str, int, str]] = []
 
-        def capture_sync(job_id: str, sheet_num: int, status: str) -> None:
+        def capture_sync(job_id: str, sheet_num: int, status: str, baton_state: object = None) -> None:
             captured.append((job_id, sheet_num, status))
 
         adapter = BatonAdapter(state_sync_callback=capture_sync)
@@ -192,7 +192,7 @@ class TestEscalationResolvedSync:
         """EscalationResolved with unknown decision syncs FAILED status."""
         captured: list[tuple[str, int, str]] = []
 
-        def capture_sync(job_id: str, sheet_num: int, status: str) -> None:
+        def capture_sync(job_id: str, sheet_num: int, status: str, baton_state: object = None) -> None:
             captured.append((job_id, sheet_num, status))
 
         adapter = BatonAdapter(state_sync_callback=capture_sync)
@@ -217,7 +217,7 @@ class TestEscalationResolvedSync:
         """EscalationResolved failure also syncs dependent sheets that get skipped."""
         captured: list[tuple[str, int, str]] = []
 
-        def capture_sync(job_id: str, sheet_num: int, status: str) -> None:
+        def capture_sync(job_id: str, sheet_num: int, status: str, baton_state: object = None) -> None:
             captured.append((job_id, sheet_num, status))
 
         adapter = BatonAdapter(state_sync_callback=capture_sync)
@@ -254,7 +254,7 @@ class TestEscalationTimeoutSync:
         """EscalationTimeout syncs FAILED status for the timed-out sheet."""
         captured: list[tuple[str, int, str]] = []
 
-        def capture_sync(job_id: str, sheet_num: int, status: str) -> None:
+        def capture_sync(job_id: str, sheet_num: int, status: str, baton_state: object = None) -> None:
             captured.append((job_id, sheet_num, status))
 
         adapter = BatonAdapter(state_sync_callback=capture_sync)
@@ -280,7 +280,7 @@ class TestEscalationTimeoutSync:
         """EscalationTimeout failure propagates and syncs dependents."""
         captured: list[tuple[str, int, str]] = []
 
-        def capture_sync(job_id: str, sheet_num: int, status: str) -> None:
+        def capture_sync(job_id: str, sheet_num: int, status: str, baton_state: object = None) -> None:
             captured.append((job_id, sheet_num, status))
 
         adapter = BatonAdapter(state_sync_callback=capture_sync)
@@ -313,10 +313,10 @@ class TestCancelJobSync:
     """Sync callback must fire for all sheets when a job is cancelled."""
 
     def test_sync_on_cancel_all_pending_sheets(self) -> None:
-        """CancelJob syncs CANCELLED→'failed' for all pending sheets."""
+        """CancelJob syncs CANCELLED→'cancelled' for all pending sheets."""
         captured: list[tuple[str, int, str]] = []
 
-        def capture_sync(job_id: str, sheet_num: int, status: str) -> None:
+        def capture_sync(job_id: str, sheet_num: int, status: str, baton_state: object = None) -> None:
             captured.append((job_id, sheet_num, status))
 
         adapter = BatonAdapter(state_sync_callback=capture_sync)
@@ -327,7 +327,7 @@ class TestCancelJobSync:
         event = CancelJob(job_id="test-job")
         _run_event(adapter, event)
 
-        # All 3 sheets should be synced as "failed" (CANCELLED→"failed")
+        # All 3 sheets should be synced as "cancelled" (CANCELLED→"cancelled")
         synced_sheets = {s for j, s, st in captured if j == "test-job"}
         assert synced_sheets == {1, 2, 3}, (
             f"Expected sync for all 3 sheets, got: {captured}"
@@ -335,15 +335,15 @@ class TestCancelJobSync:
 
         for j, s, st in captured:
             if j == "test-job":
-                assert st == "failed", (
-                    f"Sheet {s} synced as '{st}', expected 'failed'"
+                assert st == "cancelled", (
+                    f"Sheet {s} synced as '{st}', expected 'cancelled'"
                 )
 
     def test_sync_on_cancel_skips_terminal_sheets(self) -> None:
         """CancelJob does NOT re-sync sheets that are already terminal."""
         captured: list[tuple[str, int, str]] = []
 
-        def capture_sync(job_id: str, sheet_num: int, status: str) -> None:
+        def capture_sync(job_id: str, sheet_num: int, status: str, baton_state: object = None) -> None:
             captured.append((job_id, sheet_num, status))
 
         adapter = BatonAdapter(state_sync_callback=capture_sync)
@@ -380,7 +380,7 @@ class TestCancelJobSync:
         """CancelJob on unknown job does not crash."""
         captured: list[tuple[str, int, str]] = []
 
-        def capture_sync(job_id: str, sheet_num: int, status: str) -> None:
+        def capture_sync(job_id: str, sheet_num: int, status: str, baton_state: object = None) -> None:
             captured.append((job_id, sheet_num, status))
 
         adapter = BatonAdapter(state_sync_callback=capture_sync)
@@ -401,10 +401,10 @@ class TestShutdownRequestedSync:
     """Sync callback must fire when a non-graceful shutdown cancels sheets."""
 
     def test_sync_on_non_graceful_shutdown(self) -> None:
-        """Non-graceful shutdown syncs all non-terminal sheets as 'failed'."""
+        """Non-graceful shutdown syncs all non-terminal sheets as 'cancelled'."""
         captured: list[tuple[str, int, str]] = []
 
-        def capture_sync(job_id: str, sheet_num: int, status: str) -> None:
+        def capture_sync(job_id: str, sheet_num: int, status: str, baton_state: object = None) -> None:
             captured.append((job_id, sheet_num, status))
 
         adapter = BatonAdapter(state_sync_callback=capture_sync)
@@ -422,13 +422,13 @@ class TestShutdownRequestedSync:
 
         for j, s, st in captured:
             if j == "test-job":
-                assert st == "failed"
+                assert st == "cancelled"
 
     def test_no_sync_on_graceful_shutdown(self) -> None:
         """Graceful shutdown does NOT cancel sheets — no sync needed."""
         captured: list[tuple[str, int, str]] = []
 
-        def capture_sync(job_id: str, sheet_num: int, status: str) -> None:
+        def capture_sync(job_id: str, sheet_num: int, status: str, baton_state: object = None) -> None:
             captured.append((job_id, sheet_num, status))
 
         adapter = BatonAdapter(state_sync_callback=capture_sync)
@@ -446,7 +446,7 @@ class TestShutdownRequestedSync:
         """Non-graceful shutdown syncs sheets across multiple jobs."""
         captured: list[tuple[str, int, str]] = []
 
-        def capture_sync(job_id: str, sheet_num: int, status: str) -> None:
+        def capture_sync(job_id: str, sheet_num: int, status: str, baton_state: object = None) -> None:
             captured.append((job_id, sheet_num, status))
 
         adapter = BatonAdapter(state_sync_callback=capture_sync)
@@ -473,7 +473,7 @@ class TestShutdownRequestedSync:
         """Non-graceful shutdown does not re-sync already-terminal sheets."""
         captured: list[tuple[str, int, str]] = []
 
-        def capture_sync(job_id: str, sheet_num: int, status: str) -> None:
+        def capture_sync(job_id: str, sheet_num: int, status: str, baton_state: object = None) -> None:
             captured.append((job_id, sheet_num, status))
 
         adapter = BatonAdapter(state_sync_callback=capture_sync)

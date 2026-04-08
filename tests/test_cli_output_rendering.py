@@ -1,4 +1,4 @@
-"""Tests for mozart.cli.output module — Rich output rendering.
+"""Tests for marianne.cli.output module — Rich output rendering.
 
 Covers formatters, table builders, panel builders, error output, and
 status helpers using the StringIO + Console capture pattern (no ANSI).
@@ -221,12 +221,12 @@ class TestFormatSheetDisplayStatus:
     def test_pending_status_unchanged(self) -> None:
         label, color = format_sheet_display_status(SheetStatus.PENDING, None)
         assert label == "pending"
-        assert color == "yellow"
+        assert color == "dim"
 
     def test_in_progress_status_unchanged(self) -> None:
         label, color = format_sheet_display_status(SheetStatus.IN_PROGRESS, None)
         assert label == "in_progress"
-        assert color == "blue"
+        assert color == "green"
 
     def test_skipped_status_unchanged(self) -> None:
         label, color = format_sheet_display_status(SheetStatus.SKIPPED, None)
@@ -336,11 +336,11 @@ class TestPanelBuilders:
     def test_server_panel(self) -> None:
         panel = create_server_panel(
             title="Server Info",
-            server_name="Mozart Conductor",
+            server_name="Marianne Conductor",
             info_lines=["Socket: /tmp/test.sock", "PID: 12345"],
         )
         output = _render(panel)
-        assert "Mozart Conductor" in output
+        assert "Marianne Conductor" in output
         assert "Socket: /tmp/test.sock" in output
         assert "Ctrl+C" in output
 

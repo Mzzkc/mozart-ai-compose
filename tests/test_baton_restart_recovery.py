@@ -438,7 +438,7 @@ class TestStateSyncCallback:
         """Sync callback receives correct status for completed sheets."""
         captured: list[tuple[str, int, str]] = []
 
-        def capture_sync(job_id: str, sheet_num: int, status: str) -> None:
+        def capture_sync(job_id: str, sheet_num: int, status: str, baton_state: object = None) -> None:
             captured.append((job_id, sheet_num, status))
 
         adapter = BatonAdapter(state_sync_callback=capture_sync)
@@ -498,7 +498,7 @@ class TestStateSyncCallback:
         """Sync callback fires for SheetSkipped events."""
         captured: list[tuple[str, int, str]] = []
 
-        def capture_sync(job_id: str, sheet_num: int, status: str) -> None:
+        def capture_sync(job_id: str, sheet_num: int, status: str, baton_state: object = None) -> None:
             captured.append((job_id, sheet_num, status))
 
         adapter = BatonAdapter(state_sync_callback=capture_sync)

@@ -31,14 +31,12 @@ from __future__ import annotations
 
 import asyncio
 import heapq
-import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from marianne.daemon.baton.events import BatonEvent
-
 from marianne.core.logging import get_logger
+from marianne.daemon.baton.events import BatonEvent
 
 _logger = get_logger("daemon.baton.timer")
 

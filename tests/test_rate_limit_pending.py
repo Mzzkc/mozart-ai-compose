@@ -3,7 +3,7 @@
 When rate limits cause backpressure but system resources are healthy,
 the conductor should accept jobs as PENDING instead of rejecting them.
 Pending jobs start automatically when rate limits clear. Pending jobs
-can be cancelled via ``mozart cancel``.
+can be cancelled via ``mzt cancel``.
 
 Red first, then green.
 """
@@ -452,7 +452,7 @@ class TestPendingAutoStartWiring:
 
 
 class TestPendingJobVisibility:
-    """Pending jobs must be visible in mozart list and mozart status.
+    """Pending jobs must be visible in mzt list and mzt status.
 
     A pending job that's invisible to the user is a UX bug — they were told
     their job was queued, but they can't see or manage it.
@@ -491,6 +491,8 @@ class TestPendingJobVisibility:
             mgr._config_name_to_conductor_id = {}
             mgr._rate_coordinator = MagicMock()
             mgr._rate_coordinator.active_limits = {"claude-cli": 60.0}
+            mgr._live_states = {}
+            mgr._baton_adapter = None
 
             request = JobRequest(
                 config_path=config_file,
@@ -521,7 +523,7 @@ class TestPendingJobVisibility:
 
     @pytest.mark.asyncio
     async def test_pending_job_not_clearable(self) -> None:
-        """Pending jobs should not be cleared by mozart clear."""
+        """Pending jobs should not be cleared by mzt clear."""
         from marianne.daemon.registry import DaemonJobStatus
 
         # "pending" is not in _TERMINAL_STATUSES

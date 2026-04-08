@@ -511,7 +511,19 @@ class PluginCliBackend(Backend):
         """
         text = stderr if is_success else f"{stdout}\n{stderr}"
         for pattern in self._cli.errors.rate_limit_patterns:
-            if re.search(pattern, text, re.IGNORECASE):
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                # Log what matched so we can diagnose false positives
+                _logger.debug(
+                    "plugin_cli_rate_limit_match",
+                    instrument=self._profile.name,
+                    pattern=pattern,
+                    matched_text=match.group(),
+                    match_start=match.start(),
+                    context=text[max(0, match.start() - 80):match.end() + 80],
+                    stdout_head=stdout[:500] if stdout else "",
+                    stderr_head=stderr[:500] if stderr else "",
+                )
                 return True
         return False
 
@@ -695,6 +707,17 @@ class PluginCliBackend(Backend):
             exit_code=exit_code,
             rate_limited=result.rate_limited,
         )
+
+        if result.rate_limited:
+            _logger.info(
+                "plugin_cli_rate_limit_detected",
+                instrument=self._profile.name,
+                exit_code=exit_code,
+                stdout_head=stdout_data[:1000] if stdout_data else "",
+                stderr_head=stderr_data[:1000] if stderr_data else "",
+                error_type=result.error_type,
+                error_message=result.error_message,
+            )
 
         return result
 

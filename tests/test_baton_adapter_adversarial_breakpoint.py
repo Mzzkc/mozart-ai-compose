@@ -123,8 +123,12 @@ class TestStateMappingTotality:
             )
 
     def test_every_checkpoint_status_mapped_to_baton(self) -> None:
-        """_CHECKPOINT_TO_BATON covers every CheckpointState status string."""
-        expected = {"pending", "in_progress", "completed", "failed", "skipped"}
+        """_CHECKPOINT_TO_BATON covers every CheckpointState status string (11 states since Phase 1)."""
+        expected = {
+            "pending", "ready", "dispatched", "in_progress",
+            "waiting", "retry_scheduled", "fermata",
+            "completed", "failed", "skipped", "cancelled",
+        }
         assert set(_CHECKPOINT_TO_BATON.keys()) == expected
 
     def test_roundtrip_checkpoint_to_baton_to_checkpoint(self) -> None:
@@ -148,17 +152,17 @@ class TestStateMappingTotality:
         with pytest.raises(KeyError):
             checkpoint_to_baton_status("")
 
-    def test_baton_ready_maps_to_pending(self) -> None:
-        """READY is a transient pre-dispatch state — maps to 'pending' in checkpoint."""
-        assert baton_to_checkpoint_status(BatonSheetStatus.READY) == "pending"
+    def test_baton_ready_maps_to_ready(self) -> None:
+        """READY maps 1:1 to 'ready' since Phase 1."""
+        assert baton_to_checkpoint_status(BatonSheetStatus.READY) == "ready"
 
-    def test_baton_waiting_maps_to_in_progress(self) -> None:
-        """WAITING (rate limited) maps to 'in_progress' — the sheet is active, just paused."""
-        assert baton_to_checkpoint_status(BatonSheetStatus.WAITING) == "in_progress"
+    def test_baton_waiting_maps_to_waiting(self) -> None:
+        """WAITING maps 1:1 to 'waiting' since Phase 1."""
+        assert baton_to_checkpoint_status(BatonSheetStatus.WAITING) == "waiting"
 
-    def test_baton_cancelled_maps_to_failed(self) -> None:
-        """CANCELLED maps to 'failed' — CheckpointState has no cancelled state."""
-        assert baton_to_checkpoint_status(BatonSheetStatus.CANCELLED) == "failed"
+    def test_baton_cancelled_maps_to_cancelled(self) -> None:
+        """CANCELLED maps 1:1 to 'cancelled' since Phase 1."""
+        assert baton_to_checkpoint_status(BatonSheetStatus.CANCELLED) == "cancelled"
 
 
 # =========================================================================

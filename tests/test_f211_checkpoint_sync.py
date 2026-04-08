@@ -11,7 +11,7 @@ Only tests transitions that produce VISIBLE checkpoint status changes
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import ANY, MagicMock
 
 from marianne.daemon.baton.adapter import BatonAdapter
 from marianne.daemon.baton.events import (
@@ -118,7 +118,7 @@ class TestExistingBehavior:
             validations_total=1, validation_pass_rate=100.0,
         ))
 
-        cb.assert_any_call("test-job", 1, "completed")
+        cb.assert_any_call("test-job", 1, "completed", ANY)
 
     async def test_sheet_skipped_syncs(self) -> None:
         cb = MagicMock()
@@ -129,7 +129,7 @@ class TestExistingBehavior:
             job_id="test-job", sheet_num=1, reason="skip_when",
         ))
 
-        cb.assert_any_call("test-job", 1, "skipped")
+        cb.assert_any_call("test-job", 1, "skipped", ANY)
 
     async def test_escalation_resolved_syncs(self) -> None:
         cb = MagicMock()
@@ -144,7 +144,7 @@ class TestExistingBehavior:
             job_id="test-job", sheet_num=1, decision="retry",
         ))
 
-        cb.assert_any_call("test-job", 1, "pending")
+        cb.assert_any_call("test-job", 1, "pending", ANY)
 
     async def test_escalation_timeout_syncs(self) -> None:
         cb = MagicMock()
@@ -159,7 +159,7 @@ class TestExistingBehavior:
             job_id="test-job", sheet_num=1,
         ))
 
-        cb.assert_any_call("test-job", 1, "failed")
+        cb.assert_any_call("test-job", 1, "failed", ANY)
 
     async def test_cancel_job_syncs_all(self) -> None:
         cb = MagicMock()
@@ -170,7 +170,7 @@ class TestExistingBehavior:
         await _handle(adapter, CancelJob(job_id="test-job"))
 
         for sn in [1, 2, 3]:
-            cb.assert_any_call("test-job", sn, "failed")
+            cb.assert_any_call("test-job", sn, "cancelled", ANY)
 
     async def test_shutdown_non_graceful_syncs(self) -> None:
         cb = MagicMock()
@@ -183,7 +183,7 @@ class TestExistingBehavior:
 
         for jid in ["j1", "j2"]:
             for sn in [1, 2]:
-                cb.assert_any_call(jid, sn, "failed")
+                cb.assert_any_call(jid, sn, "cancelled", ANY)
 
 
 # =============================================================================
@@ -209,12 +209,12 @@ class TestF211EscalationNeededSync:
             job_id="test-job", sheet_num=1, reason="test",
         ))
 
-        # FERMATA → "in_progress" is a checkpoint-visible change from "pending"
-        cb.assert_any_call("test-job", 1, "in_progress")
+        # FERMATA → "fermata" is a checkpoint-visible change from "pending"
+        cb.assert_any_call("test-job", 1, "fermata", ANY)
 
 
 class TestF211JobTimeoutSync:
-    """JobTimeout: all PENDING("pending") → CANCELLED("failed").
+    """JobTimeout: all PENDING("pending") → CANCELLED("cancelled").
 
     This is a checkpoint-visible change. Without sync, on restart
     timed-out sheets would be re-dispatched.
@@ -229,7 +229,7 @@ class TestF211JobTimeoutSync:
         await _handle(adapter, JobTimeout(job_id="test-job"))
 
         for sn in [1, 2, 3]:
-            cb.assert_any_call("test-job", sn, "failed")
+            cb.assert_any_call("test-job", sn, "cancelled", ANY)
 
     async def test_job_timeout_preserves_completed(self) -> None:
         """Completed sheets keep their status after job timeout."""
@@ -247,9 +247,9 @@ class TestF211JobTimeoutSync:
 
         await _handle(adapter, JobTimeout(job_id="test-job"))
 
-        # Only sheets 2 and 3 should get the new "failed" sync
-        cb.assert_any_call("test-job", 2, "failed")
-        cb.assert_any_call("test-job", 3, "failed")
+        # Only sheets 2 and 3 should get the new "cancelled" sync
+        cb.assert_any_call("test-job", 2, "cancelled", ANY)
+        cb.assert_any_call("test-job", 3, "cancelled", ANY)
         # Sheet 1 shouldn't re-sync (already "completed", unchanged)
         sheet1_calls = [c for c in cb.call_args_list if c[0][1] == 1]
         assert len(sheet1_calls) == 0
@@ -272,9 +272,9 @@ class TestF211RateLimitSync:
             1: BatonSheetStatus.WAITING,
             2: BatonSheetStatus.WAITING,
         }, instrument="claude-cli")
-        # Seed the sync cache: sheets are currently WAITING="in_progress"
-        adapter._synced_status[("test-job", 1)] = "in_progress"
-        adapter._synced_status[("test-job", 2)] = "in_progress"
+        # Seed the sync cache: sheets are currently WAITING="waiting"
+        adapter._synced_status[("test-job", 1)] = "waiting"
+        adapter._synced_status[("test-job", 2)] = "waiting"
 
         # Also need to mark the instrument as rate-limited so expired clears it
         adapter._baton._instruments["claude-cli"].rate_limited = True
@@ -282,35 +282,33 @@ class TestF211RateLimitSync:
         await _handle(adapter, RateLimitExpired(instrument="claude-cli"))
 
         # WAITING→PENDING is "in_progress"→"pending" — visible change
-        cb.assert_any_call("test-job", 1, "pending")
-        cb.assert_any_call("test-job", 2, "pending")
+        cb.assert_any_call("test-job", 1, "pending", ANY)
+        cb.assert_any_call("test-job", 2, "pending", ANY)
 
 
 class TestF211RetryDueSync:
-    """RetryDue: RETRY_SCHEDULED("pending") → PENDING("pending").
+    """RetryDue: RETRY_SCHEDULED("retry_scheduled") → PENDING("pending").
 
-    Both map to "pending" in checkpoint, so this is NOT a checkpoint-visible
-    change. The sync should be a noop. This test verifies no spurious syncs.
+    With 1:1 mapping, these are different checkpoint statuses, so the
+    transition IS a checkpoint-visible change. The sync fires for the
+    PENDING status after RetryDue.
     """
 
-    async def test_retry_due_is_invisible_to_checkpoint(self) -> None:
-        """RETRY_SCHEDULED → PENDING: same checkpoint status, no sync."""
+    async def test_retry_due_syncs_pending(self) -> None:
+        """RETRY_SCHEDULED → PENDING: visible change, sync fires."""
         cb = MagicMock()
         adapter = _make_adapter(cb)
         # Register with sheet 1 in RETRY_SCHEDULED
         _register_job_with_statuses(adapter, "test-job", {
             1: BatonSheetStatus.RETRY_SCHEDULED,
         })
-        # First sync catches the initial RETRY_SCHEDULED → "pending"
+        # Seed sync cache with current status
+        adapter._synced_status[("test-job", 1)] = "retry_scheduled"
+
         await _handle(adapter, RetryDue(job_id="test-job", sheet_num=1))
-        # The first call syncs "pending" (from RETRY_SCHEDULED or PENDING — same)
-        # After that, PENDING is also "pending" — no change
-        initial_calls = [
-            c for c in cb.call_args_list
-            if c[0] == ("test-job", 1, "pending")
-        ]
-        # Exactly 1 call (the initial sync), not 2
-        assert len(initial_calls) == 1
+
+        # RETRY_SCHEDULED→PENDING is "retry_scheduled"→"pending" — visible change
+        cb.assert_any_call("test-job", 1, "pending", ANY)
 
 
 # =============================================================================
@@ -351,18 +349,18 @@ class TestStateDiffIdempotent:
         adapter = _make_adapter(cb)
         _register_job(adapter, num_sheets=1)
 
-        # PENDING → FERMATA ("pending" → "in_progress")
+        # PENDING → FERMATA ("pending" → "fermata")
         await _handle(adapter, EscalationNeeded(
             job_id="test-job", sheet_num=1, reason="test",
         ))
-        cb.assert_any_call("test-job", 1, "in_progress")
+        cb.assert_any_call("test-job", 1, "fermata", ANY)
         cb.reset_mock()
 
-        # FERMATA → FAILED ("in_progress" → "failed") via timeout
+        # FERMATA → FAILED ("fermata" → "failed") via timeout
         await _handle(adapter, EscalationTimeout(
             job_id="test-job", sheet_num=1,
         ))
-        cb.assert_any_call("test-job", 1, "failed")
+        cb.assert_any_call("test-job", 1, "failed", ANY)
         cb.reset_mock()
 
         # No more changes — sync should be noop
@@ -391,9 +389,9 @@ class TestStateDiffCancelPreserves:
 
         await _handle(adapter, CancelJob(job_id="test-job"))
 
-        # Only non-terminal sheets synced
-        cb.assert_any_call("test-job", 2, "failed")
-        cb.assert_any_call("test-job", 3, "failed")
+        # Only non-terminal sheets synced (CANCELLED→"cancelled")
+        cb.assert_any_call("test-job", 2, "cancelled", ANY)
+        cb.assert_any_call("test-job", 3, "cancelled", ANY)
         sheet1_calls = [c for c in cb.call_args_list if c[0][1] == 1]
         assert len(sheet1_calls) == 0
 

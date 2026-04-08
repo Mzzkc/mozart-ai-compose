@@ -197,11 +197,17 @@ class TestSheetStateTransitions:
     """Property-based tests for SheetState / SheetStatus transitions."""
 
     VALID_TRANSITIONS: dict[SheetStatus, set[SheetStatus]] = {
-        SheetStatus.PENDING: {SheetStatus.IN_PROGRESS, SheetStatus.SKIPPED},
-        SheetStatus.IN_PROGRESS: {SheetStatus.COMPLETED, SheetStatus.FAILED, SheetStatus.SKIPPED},
+        SheetStatus.PENDING: {SheetStatus.READY, SheetStatus.IN_PROGRESS, SheetStatus.SKIPPED, SheetStatus.DISPATCHED, SheetStatus.CANCELLED},
+        SheetStatus.READY: {SheetStatus.DISPATCHED, SheetStatus.PENDING, SheetStatus.CANCELLED},
+        SheetStatus.DISPATCHED: {SheetStatus.IN_PROGRESS, SheetStatus.WAITING, SheetStatus.COMPLETED, SheetStatus.FAILED, SheetStatus.CANCELLED},
+        SheetStatus.IN_PROGRESS: {SheetStatus.COMPLETED, SheetStatus.FAILED, SheetStatus.SKIPPED, SheetStatus.WAITING, SheetStatus.CANCELLED},
+        SheetStatus.WAITING: {SheetStatus.PENDING, SheetStatus.CANCELLED},
+        SheetStatus.RETRY_SCHEDULED: {SheetStatus.PENDING, SheetStatus.CANCELLED},
+        SheetStatus.FERMATA: {SheetStatus.PENDING, SheetStatus.FAILED, SheetStatus.SKIPPED, SheetStatus.COMPLETED, SheetStatus.CANCELLED},
         SheetStatus.COMPLETED: set(),  # terminal
-        SheetStatus.FAILED: {SheetStatus.IN_PROGRESS},  # retry
+        SheetStatus.FAILED: {SheetStatus.IN_PROGRESS, SheetStatus.PENDING, SheetStatus.RETRY_SCHEDULED},  # retry
         SheetStatus.SKIPPED: set(),  # terminal
+        SheetStatus.CANCELLED: set(),  # terminal
     }
 
     @pytest.mark.property_based

@@ -619,14 +619,25 @@ class BatonAdapter:
             cp_sheet = checkpoint.sheets.get(sheet.num)
 
             if cp_sheet is not None:
-                # Map checkpoint status to baton status.
-                # Critical: in_progress sheets are reset to PENDING because
-                # their executing musician was killed on restart.
-                cp_status = cp_sheet.status.value
-                if cp_status == "in_progress":
-                    baton_status = BatonSheetStatus.PENDING
-                else:
-                    baton_status = checkpoint_to_baton_status(cp_status)
+                # On restart, active/transient sheets reset to PENDING:
+                # - in_progress/dispatched: musician was killed on restart
+                # - waiting: rate limit timers lost on restart
+                # - retry_scheduled: retry timers lost on restart
+                # - fermata: re-evaluate escalation on restart
+                # Terminal sheets (completed, failed, skipped, cancelled)
+                # keep their status. Pending/ready stay as-is.
+                _RESET_ON_RESTART = frozenset({
+                    BatonSheetStatus.IN_PROGRESS,
+                    BatonSheetStatus.DISPATCHED,
+                    BatonSheetStatus.WAITING,
+                    BatonSheetStatus.RETRY_SCHEDULED,
+                    BatonSheetStatus.FERMATA,
+                })
+                baton_status = (
+                    BatonSheetStatus.PENDING
+                    if cp_sheet.status in _RESET_ON_RESTART
+                    else cp_sheet.status
+                )
 
                 # Carry forward attempt counts to avoid infinite retries
                 normal_attempts = cp_sheet.attempt_count

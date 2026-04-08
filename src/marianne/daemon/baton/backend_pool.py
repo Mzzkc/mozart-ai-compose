@@ -33,7 +33,6 @@ See: ``docs/plans/2026-03-26-baton-design.md`` — BackendPool section.
 from __future__ import annotations
 
 import asyncio
-import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
