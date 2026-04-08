@@ -2323,6 +2323,14 @@ class JobManager:
         )
         self._live_states[job_id] = initial_state
 
+        # Handle --start-sheet / -s flag: mark sheets before start_sheet
+        # as SKIPPED so the baton doesn't dispatch them.
+        if request.start_sheet and request.start_sheet > 1:
+            from marianne.core.checkpoint import SheetStatus
+            for snum, sstate in initial_sheets.items():
+                if snum < request.start_sheet:
+                    sstate.status = SheetStatus.SKIPPED
+
         # Deregister stale baton state if this job_id was previously
         # registered (e.g., --fresh resubmit, or cancelled job restarted).
         # Without this, register_job returns early on duplicate and the
