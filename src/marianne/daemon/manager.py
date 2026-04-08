@@ -1204,8 +1204,12 @@ class JobManager:
                 PauseJob(job_id=job_id)
             )
             _logger.info("job.baton_pause_sent", job_id=job_id)
-            # Also update registry so CLI shows PAUSED
+            # Update ALL state stores: meta, live state, registry
             meta.status = DaemonJobStatus.PAUSED
+            live = self._live_states.get(job_id)
+            if live is not None:
+                from marianne.core.checkpoint import JobStatus as CPJobStatus
+                live.status = CPJobStatus.PAUSED
             await self._registry.update_status(job_id, DaemonJobStatus.PAUSED.value)
             return True
 
@@ -1262,6 +1266,11 @@ class JobManager:
 
         ws = workspace or meta.workspace
         meta.status = DaemonJobStatus.QUEUED
+        # Update live state for consistency
+        live = self._live_states.get(job_id)
+        if live is not None:
+            from marianne.core.checkpoint import JobStatus as CPJobStatus
+            live.status = CPJobStatus.RUNNING  # Will be running shortly
 
         task = asyncio.create_task(
             self._resume_job_task(job_id, ws, no_reload=no_reload),
@@ -1372,6 +1381,11 @@ class JobManager:
         meta = self._job_meta.get(job_id)
         if meta:
             meta.status = DaemonJobStatus.CANCELLED
+        # Update live state so mzt status agrees with mzt list
+        live = self._live_states.get(job_id)
+        if live is not None:
+            from marianne.core.checkpoint import JobStatus as CPJobStatus
+            live.status = CPJobStatus.CANCELLED
 
         # Defer registry + scheduler cleanup so the IPC handler can
         # respond immediately.  In-memory meta is already authoritative.
