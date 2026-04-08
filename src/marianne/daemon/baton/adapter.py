@@ -445,6 +445,10 @@ class BatonAdapter:
             for sheet in sheets:
                 s = live_sheets.get(sheet.num)
                 if s is not None:
+                    s.instrument_name = sheet.instrument_name
+                    raw_m = sheet.instrument_config.get("model")
+                    if raw_m is not None:
+                        s.model = str(raw_m)
                     s.max_retries = max_retries
                     s.max_completion = max_completion
                     s.fallback_chain = list(sheet.instrument_fallbacks)
@@ -633,6 +637,13 @@ class BatonAdapter:
                     model=str(raw_model) if raw_model is not None else None,
                 )
 
+            # Always populate instrument identity from the Sheet entity.
+            # The checkpoint may have instrument_name=None for sheets that
+            # were never dispatched (e.g., dependency-cascaded failures).
+            state.instrument_name = sheet.instrument_name
+            raw_model = sheet.instrument_config.get("model")
+            if raw_model is not None:
+                state.model = str(raw_model)
             state.max_retries = max_retries
             state.max_completion = max_completion
             state.fallback_chain = list(sheet.instrument_fallbacks)
