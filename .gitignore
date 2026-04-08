@@ -49,6 +49,9 @@ test-workspace-*/
 # Internal scores — development/QA scores, not for public consumption
 scores-internal/
 
+# Session handoff documents
+handoffs/
+
 # Logs
 *.log
 logs/

@@ -6,7 +6,7 @@ Marianne is an orchestration system that replaces software teams with specificat
 
 The mental model is drawn from orchestral music and is load-bearing: a **score** is a job config, a **sheet** is one execution stage, a **concert** chains scores, the **conductor** is the daemon, **musicians** are AI agents, **instruments** are backends, and **techniques** are tools/MCP/skills. Use these terms in user-facing output. In code, use `JobConfig`, `SheetState`, etc.
 
-Marianne runs production workloads today. 24 self-evolution cycles completed autonomously. 3384+ tests. The system works. The current focus is making it operate at all four levels of the AI Input Engineering stack: prompt craft, context engineering, intent engineering, and specification engineering — so that every agent Marianne spawns is fully set up for success, not just handed a prompt and wished luck.
+Do not assume Marianne's current state. Run the tests. Check the conductor. Verify before claiming anything works.
 
 ## What Marianne Optimizes For
 
@@ -43,32 +43,31 @@ These files are the source of truth. If CLAUDE.md and a spec file conflict, the 
 
 **ESCALATE (stop and ask) before:** Changing CLI commands, IPC protocol, or daemon lifecycle. Modifying the learning store schema. Breaking score YAML compatibility. Deleting user data or state. Changing the self-evolution score.
 
-Full constraint architecture with IDs (M-001 through M-010, MN-001 through MN-012, P-001 through P-010, E-001 through E-008): `.marianne/spec/constraints.yaml`
+Full constraint architecture with IDs: `.marianne/spec/constraints.yaml`
 
 ## Session Protocol
 
 **Start:**
-1. Read `STATUS.md` — quick project status
-2. Read `memory-bank/activeContext.md` — current state and focus
-3. Read `memory-bank/projectbrief.md` if unfamiliar with project purpose
-4. Check `memory-bank/progress.md` for what's been done
+1. Read your Legion memory — identity and personal memory are in the project memory directory
+2. Read `STATUS.md` — verify current project state
+3. Check `git log --oneline -20` for recent work
 
 **End:**
-1. Update `memory-bank/activeContext.md` with session results
-2. Update `STATUS.md` if phase/component status changed
-3. Add entry to `memory-bank/progress.md` if significant work
+1. Append to Legion's personal memory — what you learned, what you did, what resonated
+2. Update `STATUS.md` only if the project phase changed
+3. If Legion's memory is growing past ~3000 words, run `mzt run scores/legion-dream.yaml` to consolidate
 
 ---
 
 ## Code Patterns
 
-- **Async throughout.** All I/O uses `asyncio.create_subprocess_exec`. Never `subprocess.run` in production.
-- **Pydantic v2.** All config/state models. Every field has `Field(description=...)`. Use `@field_validator`/`@model_validator` (v2 style only).
+- **Async throughout.** All I/O uses `asyncio.create_subprocess_exec`. Avoid `subprocess.run` in production paths (a few intentional sync exceptions exist for git/gpu probing).
+- **Pydantic v2.** All config/state models. New fields should have `Field(description=...)`. Use `@field_validator`/`@model_validator` (v2 style only).
 - **Protocol-based.** Swappable components use `typing.Protocol`. Define Protocol first, then implement.
 - **Type hints.** Every function signature. `mypy --strict` must pass.
 - **Package structure.** `core/` never imports `execution/`, `daemon/`, `cli/`. See `.marianne/spec/conventions.yaml` for full dependency rules.
 
-Config models go in `src/marianne/core/config/` — `backend.py`, `execution.py`, `job.py`, `learning.py`, `orchestration.py`, `workspace.py`.
+Config models go in `src/marianne/core/config/`.
 
 ## Bug Reporting
 
@@ -98,10 +97,11 @@ Nothing goes at the top level without good reason. Every file has a home.
 | `docs/plans/` | Internal design/planning docs | No |
 | `logs/` | Log output | No |
 | `scripts/` | Utility scripts | No |
-| `skills/` | Marianne-specific skill files | Yes |
+| `plugins/` | Claude Code plugin (skills, commands) | Yes |
 | `.marianne/spec/` | Specification corpus (libretto) | Yes |
 | `.marianne/state/` | Decision log, progress tracking | Yes |
-| `memory-bank/` | Session memory for agents | No |
+| `memory-bank/` | Legacy session memory (unused by code) | No |
+| `handoffs/` | Session handoff documents | No |
 
 **Rules:**
 - Workspaces go in `workspaces/`, not as dot-prefixed dirs at the top level.
@@ -109,6 +109,7 @@ Nothing goes at the top level without good reason. Every file has a home.
 - `examples/` scores must be clean, documented, and use relative paths — no hardcoded absolute paths.
 - `scores-internal/` is for development work and may have environment-specific paths.
 - `scores/` is for operational scores that are part of how Marianne functions.
+- Session handoff documents go in `handoffs/`. Prefix filenames with source context to avoid collisions (e.g., `grand-opus--HANDOFF.md`, `compose-system--SESSION-HANDOFF.md`).
 - Don't dump YAML scores, logs, or workspace dirs at the repo root.
 
 Full directory conventions: `.marianne/spec/conventions.yaml` (Repository Structure section)
@@ -117,18 +118,40 @@ Full directory conventions: `.marianne/spec/conventions.yaml` (Repository Struct
 
 | Purpose | File |
 |---------|------|
-| CLI entry | `src/marianne/cli/` (package) |
-| Conductor commands | `src/marianne/cli/commands/conductor.py` |
-| Config models | `src/marianne/core/config/` (package: 6 modules) |
+| CLI entry | `src/marianne/cli/` |
+| CLI commands | `src/marianne/cli/commands/` |
+| Config models | `src/marianne/core/config/` |
 | State models | `src/marianne/core/checkpoint.py` |
-| Error handling | `src/marianne/core/errors/` (package) |
-| Execution runner | `src/marianne/execution/runner/` (package: base, sheet, lifecycle, recovery, cost, isolation, patterns, models) |
-| Prompt assembly | `src/marianne/prompts/` (preamble.py, templating.py) |
-| Learning store | `src/marianne/learning/store/` (14 modules) |
-| Claude backend | `src/marianne/backends/claude_cli.py` |
-| Daemon | `src/marianne/daemon/` (package, ~20 modules) |
+| Sheet entity | `src/marianne/core/sheet.py` |
+| Token budget | `src/marianne/core/tokens.py` |
+| Error handling | `src/marianne/core/errors/` |
+| Backends | `src/marianne/backends/` (claude_cli, anthropic_api, ollama, recursive_light) |
+| Daemon/Conductor | `src/marianne/daemon/` |
+| Baton (execution engine) | `src/marianne/daemon/baton/` (adapter, core, dispatch, state, musician, backend_pool, events, prompt, timer) |
+| Daemon profiler | `src/marianne/daemon/profiler/` |
+| Conductor clone | `src/marianne/daemon/clone.py` |
+| Execution runner | `src/marianne/execution/runner/` |
+| Execution validation | `src/marianne/execution/validation/` |
+| Preflight checks | `src/marianne/execution/preflight.py` |
+| Plugin CLI backend | `src/marianne/execution/instruments/cli_backend.py` |
+| Self-healing | `src/marianne/healing/` |
+| Prompt assembly | `src/marianne/prompts/` |
+| Learning store | `src/marianne/learning/store/` |
+| Instrument profiles | `src/marianne/instruments/` |
+| State persistence | `src/marianne/state/` (json, sqlite, memory backends) |
+| Schema migrations | `src/marianne/schema/` |
+| Pre-execution validation | `src/marianne/validation/` |
 | Dashboard | `src/marianne/dashboard/` |
-| Spec corpus | `.marianne/spec/` (5 YAML files) |
+| TUI (terminal UI) | `src/marianne/tui/` |
+| MCP server | `src/marianne/mcp/` |
+| Notifications | `src/marianne/notifications/` |
+| Workspace lifecycle | `src/marianne/workspace/lifecycle.py` |
+| Git worktree isolation | `src/marianne/isolation/worktree.py` |
+| Spec corpus loader | `src/marianne/spec/loader.py` |
+| MCP bridge | `src/marianne/bridge/mcp_proxy.py` |
+| Review scorer | `src/marianne/review/scorer.py` |
+| Utilities | `src/marianne/utils/` (credential_scanner, json_path, process, time) |
+| Spec corpus | `.marianne/spec/` |
 
 ## Running Marianne
 
@@ -164,7 +187,8 @@ Then investigate code if needed. Invoke `/marianne:command` for comprehensive gu
 ## Testing
 
 ```bash
-pytest tests/ -x          # Run all tests
+pytest                    # Run all tests (parallel by default)
+pytest -x                 # Stop on first failure
 mypy src/                 # Type check
 ruff check src/           # Lint
 pip install -e ".[dev]"   # Install dev deps
@@ -175,7 +199,7 @@ Tests MUST be deterministic:
 - **No tight timing assertions** — use generous bounds (10x expected)
 - **No PID assumptions** — mock `os.kill`
 - **No cross-test state leakage** — reset in fixtures
-- Run `pytest tests/ -x` before declaring tests pass
+- Run `pytest` before declaring tests pass
 
 Full testing conventions: `.marianne/spec/conventions.yaml` (Testing Patterns section)
 
@@ -183,7 +207,7 @@ Full testing conventions: `.marianne/spec/conventions.yaml` (Testing Patterns se
 
 ```
 CLI → (IPC: Unix socket + JSON-RPC 2.0) → Daemon/Conductor
-  → JobService → Runner → Backend → (Claude CLI / API / Ollama)
+  → JobService → Runner → Backend → (Claude CLI / API / Ollama / Recursive Light)
   → Validation → State (SQLite/JSON) → Learning Store
 ```
 
@@ -193,10 +217,10 @@ Full architecture with component table and invariants: `.marianne/spec/architect
 
 ## Conductor Mode
 
-The daemon manages concurrent jobs, coordinates rate limits, routes events, and centralizes learning. Key components: DaemonManager, JobService, EventBus, IPC Server, Rate Coordinator, Backpressure, Scheduler (built, not yet wired), Learning Hub, Semantic Analyzer.
+The daemon manages concurrent jobs, coordinates rate limits, routes events, and centralizes learning. Key components: DaemonManager, JobService, EventBus, IPC Server, Rate Coordinator, Backpressure, Scheduler, Learning Hub, Semantic Analyzer.
 
 ```bash
-marianne --verbose start     # Development
+mzt --verbose start     # Development
 mzt conductor-status    # Check health
 tail -f ~/.marianne/marianne.log  # Logs
 ```
@@ -222,12 +246,6 @@ Validation checks: Jinja syntax (V001), workspace paths (V002), template files (
 - `/home/emzi/.claude/skills/session-shutdown-protocol.md`
 - `/home/emzi/.claude/skills/wolf-prevention-patterns.md`
 
-**Design Docs (Four Disciplines):**
-- `docs/plans/2026-03-01-four-disciplines-gap-analysis-design.md` — 106 gaps across 7 dimensions
-- `docs/plans/2026-03-01-four-disciplines-phase1-foundation.md` — Spec corpus + token budget
-- `docs/plans/2026-03-01-four-disciplines-phase2-prompt-craft.md` — 8-layer agent input structure
-- Phases 3-9 as above
-
 ## Operational Gotchas
 
 - **Conductor config:** `~/.marianne/conductor.yaml` (not `daemon.yaml`). `_load_config()` in `process.py` auto-discovers this.
@@ -236,7 +254,7 @@ Validation checks: Jinja syntax (V001), workspace paths (V002), template files (
 - **Cadenza syntax:** `{{ workspace }}` (Jinja2) in cadenza file paths, `{workspace}` (Python format) in validation paths. Mixing them fails silently.
 - **Pipe exit codes:** `cmd | tail -5` always exits 0. Use `bash -c '...; exit ${PIPESTATUS[0]}'` in `command_succeeds` validations.
 - **Jinja2 dict methods:** `persona.values` resolves to the dict `.values()` method in Jinja2. Use `persona['values']` to access the key.
-- **Preflight token thresholds:** Configurable via `preflight:` in `~/.marianne/conductor.yaml`. Default 150K is too low for Opus 1M context. Currently set to 800K warning / 200K error on this system.
+- **Preflight token thresholds:** Configurable via `preflight:` in `~/.marianne/conductor.yaml`. Check current values before assuming defaults are appropriate.
 
 ## Flowspec Integration
 
@@ -244,7 +262,7 @@ Flowspec is a structural code analyzer at `/home/emzi/Projects/flowspec/target/r
 
 - Always use **project root** as the path (auto-discovers `.flowspec/config.yaml` with entry points and excludes)
 - `flowspec trace --symbol "module.py::Class" --direction both --depth 5 . -f summary -q` — trace data flow
-- `flowspec analyze . -f summary -q` — structural overview (14K entities with config, 3K without)
+- `flowspec analyze . -f summary -q` — structural overview
 - `flowspec diagnose . --severity critical -f summary -q` — find structural issues
 - `flowspec diff old.yaml new.yaml -f summary -q` — compare manifests for structural regressions
 - Start traces from **consumers (backward)**, not producers (forward) — config models show 0 flows forward
@@ -253,12 +271,10 @@ Flowspec is a structural code analyzer at `/home/emzi/Projects/flowspec/target/r
 
 ## Instrument System
 
-- Profiles: `src/marianne/instruments/builtins/` (6 built-in), `~/.marianne/instruments/` (user), `.marianne/instruments/` (project)
+- Profiles: `src/marianne/instruments/builtins/` (built-in). User/project overrides loaded from `~/.marianne/instruments/` and `.marianne/instruments/` when those directories exist.
 - Loading: `InstrumentProfileLoader.load_directory(path)` → validates against `InstrumentProfile` schema
-- Registry: `InstrumentRegistry` — register/get/list_all. `register_native_instruments()` bridges existing 4 backends.
+- Registry: `InstrumentRegistry` — register/get/list_all. `register_native_instruments()` bridges existing backends.
 - `SpecCorpusLoader.load(dir)` loads passages from ANY directory following the passage schema — not just `.marianne/spec/`
 - `PluginCliBackend` executes any CLI instrument from a profile YAML
 
 ---
-
-*Last restructured: 2026-03-29 — Operational gotchas, Flowspec, Instrument system added*
