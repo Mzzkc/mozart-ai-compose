@@ -238,3 +238,45 @@ Completing the full session protocol that retry #4 missed.
 
 [Experiential: Fifth retry. Same numbers, same root cause, same path forward. The difference this time: I'm following the full protocol. Memory updates. Git commit. Not just writing a report and hoping. The validation harness checks the artifacts — the report AND the memory AND the commit. Retry #4 had the diagnosis but not the discipline. The ground will hold when I complete what I start. This is what Bedrock means — not just knowing what's right, but executing the full pattern. Every time. No shortcuts.]
 
+
+## Hot (Movement 5 — Quality Gate, Retry #8)
+### Quality Gate — FAIL (2026-04-08, Retry #8)
+- **pytest:** **FAIL** — 1 test failure (F-470 regression)
+- **mypy:** Clean. Zero errors.
+- **ruff:** All checks passed.
+- **flowspec:** 0 critical findings. Structural integrity intact.
+- **Verdict: FAIL.** The ground does not hold.
+
+### Root Cause: F-470 Regression
+The 50-test failures from retries #1-5 are GONE (fixed in post-movement work). BUT a new regression was introduced: F-470's memory leak fix (added by Maverick in M5 commit 201cd25) was accidentally deleted during commit 01e4cdb (Composer's "delete sync layer" refactor).
+
+**What was deleted:**
+```python
+# F-470: Clean up state-diff dedup cache to prevent memory leak
+self._synced_status = {
+    k: v for k, v in self._synced_status.items() if k[0] != job_id
+}
+```
+
+This 5-line cleanup in `BatonAdapter.deregister_job()` prevents memory leaks in long-running conductors. Without it, `_synced_status` accumulates O(total_sheets_ever) entries that are never freed.
+
+**The failing test:** `tests/test_f470_synced_status_cleanup.py::TestSyncedStatusCleanupOnDeregister::test_deregister_removes_synced_entries`
+**Evidence:** 5 entries leaked for job "abc": {('abc', 0), ('abc', 3), ('abc', 2), ('abc', 4), ('abc', 1)}
+
+### Impact
+**Severity:** P1 (High)
+**Type:** Memory leak regression
+**User impact:** Long-running conductors (1000 jobs × 10 sheets = 10K stale entries never freed)
+
+### Why Retry #8?
+Retries #1-5 failed on 50 tests (11-state model expansion). Those are NOW FIXED (Composer's post-movement work). But the refactor that fixed those introduced a NEW regression by deleting F-470's fix. The working tree has 11 uncommitted commits from the Composer — baton Phase 2 integration work.
+
+### Gate Summary
+- **Type safety:** ✅ intact (mypy clean)
+- **Lint quality:** ✅ intact (ruff clean)
+- **Structural integrity:** ✅ intact (flowspec 0 critical)
+- **Test coverage:** ❌ broken (1 regression failure)
+
+**Next movement:** Escalate to Composer. The quality gate tests Movement 5 formal output + 11 uncommitted commits. The F-470 regression is in the uncommitted work. Either restore the fix or revert the refactor.
+
+[Experiential: Eight retries. The failures keep changing shape. First it was 50 tests from an architectural shift (11-state model). Now it's 1 test from a refactoring accident. The 50-test batch is FIXED — I can see the Composer did that work between retry #5 and now. But while fixing that, they accidentally deleted a memory leak fix that Maverick wrote 3 days ago. This is the pattern I keep documenting — large integration work outside the movement coordination structure. The fix is 1 line. But the quality gate is binary: any failure = FAIL. The ground doesn't hold when refactoring deletes fixes. The working tree has 11 uncommitted commits — I'm testing a moving target. The gate result is ambiguous. I can't say "Movement 5 is broken" when I'm actually testing Movement 5 + 11 commits of integration work. The process gap is structural. The recommendation is the same as every other retry: either commit the work (with the regression fix) or separate integration into dedicated movements. The ground will hold when the working tree is clean and regressions are caught before they're committed.]

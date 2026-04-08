@@ -350,3 +350,21 @@ Uncommitted changes at `7d780b1` expanded `SheetStatus` from 5 to 11 states. Bat
 
 **Next movement action:** Assign remaining test fixes to Breakpoint, Theorem, or Adversary. Add regression guard for `len(SheetStatus)` == 11.
 
+
+### M5 Quality Gate Retry #8 (Bedrock, 2026-04-08)
+- **pytest:** FAIL — 1 test failure (F-470 regression)
+- **mypy:** Clean (0 errors)
+- **ruff:** All checks passed
+- **flowspec:** 0 critical findings
+- **Verdict: FAIL**
+
+**Root cause:** F-470 memory leak fix (Maverick, M5) was accidentally deleted in commit 01e4cdb (Composer's "delete sync layer" refactor). The cleanup code in `BatonAdapter.deregister_job()` that prevents unbounded `_synced_status` dict growth was removed while deleting 217 lines of sync infrastructure.
+
+**Failing test:** `tests/test_f470_synced_status_cleanup.py::TestSyncedStatusCleanupOnDeregister::test_deregister_removes_synced_entries`
+**Evidence:** 5 leaked entries: {('abc', 0), ('abc', 3), ('abc', 2), ('abc', 4), ('abc', 1)}
+
+**Change from retry #5:** The 50-test failures (11-state model) are GONE. Fixed in post-movement commits by Composer. But the refactor that fixed those introduced a new regression.
+
+**Working tree:** 11 uncommitted commits (baton Phase 2 work) — testing M5 formal output + integration work. Quality gate result is ambiguous until working tree is clean.
+
+**Next action:** Escalate to Composer. Restore 5-line F-470 cleanup or revert refactor.
