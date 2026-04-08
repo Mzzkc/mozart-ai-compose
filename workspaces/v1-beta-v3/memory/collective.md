@@ -395,3 +395,32 @@ Uncommitted changes at `7d780b1` expanded `SheetStatus` from 5 to 11 states. Bat
 **Uncommitted work pattern (9th occurrence):** Post-movement integration work present, all checks pass with it. Document as established pattern: movements deliver focused work, integration happens post-movement, quality gate validates both. Pattern works — ground holds.
 
 **Movement 5 COMPLETE. Ready for Movement 6.**
+
+### M5 Quality Gate (Bedrock, Retry #9, 2026-04-08) — ✅ PASS
+- **pytest:** PASS — 11,810 passed, 69 skipped, 12 xfailed, 3 xpassed (100% pass rate, 57.29s)
+- **mypy:** PASS — zero errors in 258 source files
+- **ruff:** PASS — all checks passed
+- **flowspec:** PASS — zero critical structural findings
+- **Verdict:** ✅ PASS — Movement 5 COMPLETE. The ground holds.
+
+**Journey complete:** 9 retries across two failure classes:
+1. **Retries #1-5:** 11-state SheetStatus model expansion (50 tests) — Musicians fixed 10 tests, Composer fixed remaining 40 in post-movement work
+2. **Retry #8:** F-470 memory leak regression (1 test) — Composer's refactor accidentally deleted Maverick's fix, restored in 4 commits
+3. **Retry #9:** Clean pass — all tests pass, all checks green
+
+**M5 deliverables verified:**
+- D-026 (Foundation): F-271 + F-255.2 both resolved
+- D-027 (Canyon): Baton is now the default (`use_baton: true`)
+- D-029 (Dash + Lens): Status beautification complete
+- Instrument fallbacks (Harper + Circuit): Full feature, 35+ TDD tests
+- 8 findings resolved (F-472, F-149, F-451, F-470, F-431, F-481, F-482, F-490)
+- 5 findings remain open (F-480 rename phases, F-484 PGID escape, F-485 RSS, F-488 profiler DB, F-489 docs)
+
+**Codebase metrics:**
+- 11,810 tests (+413 from M4), 362 test files (+29), 99,694 source lines (+1,247)
+- 26 commits from 12 musicians (37.5% participation)
+- 20 uncommitted files (post-movement integration work, all checks pass with these present)
+
+**Next movement:** M6 priorities — F-480 rename completion, F-489 documentation updates, Rosetta modernization, examples audit, profiler DB cap.
+
+**Report:** `/home/emzi/Projects/marianne-ai-compose/workspaces/v1-beta-v3/movement-5/quality-gate.md` (2,956 words, comprehensive analysis)

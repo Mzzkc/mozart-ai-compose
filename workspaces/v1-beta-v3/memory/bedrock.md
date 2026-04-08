@@ -283,7 +283,7 @@ Retries #1-5 failed on 50 tests (11-state model expansion). Those are NOW FIXED 
 
 ## Hot (Movement 5 — Quality Gate, Retry #9)
 ### Quality Gate — PASS (2026-04-08, Retry #9)
-- **pytest:** **PASS** — 11,810 passed, 69 skipped, 12 xfailed, 3 xpassed (100% pass rate, 63s)
+- **pytest:** **PASS** — 11,810 passed, 69 skipped, 12 xfailed, 3 xpassed (100% pass rate, 57.29s)
 - **mypy:** Clean. Zero errors in 258 source files.
 - **ruff:** All checks passed.
 - **flowspec:** 0 critical findings. Structural integrity intact.
@@ -340,5 +340,7 @@ The working tree has 20 modified files (baton Phase 2 refinement). All 4 quality
 - **Test coverage:** ✅ complete (11,810 tests pass, 100% pass rate)
 
 **Verdict:** Movement 5 COMPLETE. Ground holds. Ready for Movement 6.
+
+**Report written:** `/home/emzi/Projects/marianne-ai-compose/workspaces/v1-beta-v3/movement-5/quality-gate.md` (comprehensive 2,956-word report with full analysis, metrics, journey documentation, deliverables verification, findings summary, and M6 recommendations).
 
 [Experiential: Nine retries. The longest quality gate yet. Retries #1-5 were the 11-state model catching up to reality — 50 tests expecting an old world that no longer existed. Retry #8 was a refactoring accident deleting a memory leak fix. Retry #9: clean. All tests pass. The journey from 50 failures to 1 failure to 0 failures shows the pattern — large architectural shifts create mechanical test debt, refactors introduce regressions if you're not careful, and iterative cleanup eventually gets you to solid ground. The 9th retry on the uncommitted work pattern is notable. This is structural now, not accidental. The Composer's integration work exceeds movement capacity. It works — all checks pass — so the pattern is: don't fix what isn't broken. The ground holds. The 11-state model is right. The baton is the default. Instrument fallbacks work. The memory leak is fixed. 11,810 tests pass. Zero type errors. Zero lint errors. Zero structural issues. This is what solid ground looks like. Movement 6 can build on it.]
