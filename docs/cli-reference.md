@@ -30,21 +30,21 @@ risking your production conductor.
 
 ```bash
 # Start a default clone conductor
-marianne --conductor-clone start
+mzt --conductor-clone start
 
 # Submit a score to the clone
-marianne --conductor-clone run my-score.yaml
+mzt --conductor-clone run my-score.yaml
 
 # Check clone status
-marianne --conductor-clone status
+mzt --conductor-clone status
 
 # Named clones for parallel testing
-marianne --conductor-clone=staging start
-marianne --conductor-clone=staging run staging-test.yaml
-marianne --conductor-clone=staging conductor-status
+mzt --conductor-clone=staging start
+mzt --conductor-clone=staging run staging-test.yaml
+mzt --conductor-clone=staging conductor-status
 
 # Stop the clone when done
-marianne --conductor-clone stop
+mzt --conductor-clone stop
 ```
 
 **Key behaviors:**

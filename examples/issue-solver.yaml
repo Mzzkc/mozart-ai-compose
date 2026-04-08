@@ -858,7 +858,7 @@ prompt:
     python -c "import marianne" 2>&1
 
     # Verify CLI entry point
-    marianne --help 2>&1 | head -5
+    mzt --help 2>&1 | head -5
 
     # Verify config validation
     mzt validate examples/sheet-review.yaml 2>&1 | head -10
@@ -1083,7 +1083,7 @@ prompt:
     python -c "import marianne" 2>&1
 
     # Check CLI
-    marianne --help >/dev/null 2>&1 && echo "CLI OK" || echo "CLI BROKEN"
+    mzt --help >/dev/null 2>&1 && echo "CLI OK" || echo "CLI BROKEN"
     ```
 
     **Step 6: Live conductor smoke tests**

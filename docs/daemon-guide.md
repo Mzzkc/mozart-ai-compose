@@ -361,20 +361,20 @@ test scores and CLI behavior without risking your production conductor.
 
 ```bash
 # Start a clone
-marianne --conductor-clone start
+mzt --conductor-clone start
 
 # Submit a score to the clone
-marianne --conductor-clone run my-test-score.yaml
+mzt --conductor-clone run my-test-score.yaml
 
 # Check the clone's status
-marianne --conductor-clone conductor-status
+mzt --conductor-clone conductor-status
 
 # Named clones for parallel testing
-marianne --conductor-clone=staging start
-marianne --conductor-clone=staging run staging-test.yaml
+mzt --conductor-clone=staging start
+mzt --conductor-clone=staging run staging-test.yaml
 
 # Stop when done
-marianne --conductor-clone stop
+mzt --conductor-clone stop
 ```
 
 **Key behaviors:**

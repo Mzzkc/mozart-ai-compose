@@ -184,8 +184,8 @@ def conductor_clone_callback(value: str | None) -> str | None:
     This enables safe testing without risking the production conductor.
 
     Usage (always use = syntax):
-        marianne --conductor-clone= status             # Default clone
-        marianne --conductor-clone=staging run x.yaml  # Named clone
+        mzt --conductor-clone= status             # Default clone
+        mzt --conductor-clone=staging run x.yaml  # Named clone
     """
     if value is not None:
         from marianne.daemon.clone import set_clone_name

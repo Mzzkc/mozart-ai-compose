@@ -151,7 +151,7 @@ prompt:
     ```bash
     # Run --help on every command and capture line counts
     for cmd in \
-      "marianne --help" \
+      "mzt --help" \
       "mzt run --help" \
       "mzt resume --help" \
       "mzt pause --help" \
@@ -935,7 +935,7 @@ prompt:
     ```bash
     echo "=== Marianne CLI Commands ==="
     for cmd in \
-      "marianne --help" \
+      "mzt --help" \
       "mzt run --help" \
       "mzt resume --help" \
       "mzt pause --help" \
