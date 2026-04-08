@@ -212,11 +212,15 @@ class TestStateSynchronization:
         assert result == BatonSheetStatus.PENDING
 
     def test_checkpoint_to_baton_in_progress(self) -> None:
-        """CheckpointState in_progress → BatonSheetStatus.DISPATCHED."""
+        """Phase 2: checkpoint_to_baton_status is now identity mapping.
+
+        Restart recovery (in_progress → PENDING) is handled directly
+        in recover_job via _RESET_ON_RESTART frozenset.
+        """
         from marianne.daemon.baton.adapter import checkpoint_to_baton_status
 
         result = checkpoint_to_baton_status("in_progress")
-        assert result == BatonSheetStatus.DISPATCHED
+        assert result == BatonSheetStatus.IN_PROGRESS
 
     def test_checkpoint_to_baton_skipped(self) -> None:
         """CheckpointState skipped → BatonSheetStatus.SKIPPED."""

@@ -793,8 +793,8 @@ class TestCheckpointStatusMappingBoundary:
     """Adversarial tests for the checkpoint ↔ baton status mapping tables."""
 
     def test_unknown_checkpoint_status_raises(self) -> None:
-        """An unrecognized checkpoint status must raise KeyError."""
-        with pytest.raises(KeyError):
+        """An unrecognized checkpoint status must raise ValueError."""
+        with pytest.raises(ValueError):
             checkpoint_to_baton_status("exploded")
 
     def test_all_baton_statuses_map_to_checkpoint(self) -> None:
@@ -819,11 +819,10 @@ class TestCheckpointStatusMappingBoundary:
             back = checkpoint_to_baton_status(cp_status)
             assert back == expected_back
 
-    def test_in_progress_maps_to_dispatched(self) -> None:
-        """'in_progress' maps to DISPATCHED. For recovery, in_progress
-        sheets are explicitly reset to PENDING in recover_job."""
+    def test_in_progress_maps_to_in_progress(self) -> None:
+        """Phase 2: identity mapping. Recovery resets are in recover_job."""
         result = checkpoint_to_baton_status("in_progress")
-        assert result == BatonSheetStatus.DISPATCHED
+        assert result == BatonSheetStatus.IN_PROGRESS
 
     def test_cancelled_maps_1_to_1(self) -> None:
         """CANCELLED maps 1:1 (11-state model)."""

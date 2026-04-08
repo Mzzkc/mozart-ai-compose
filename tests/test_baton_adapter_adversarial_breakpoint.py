@@ -143,13 +143,13 @@ class TestStateMappingTotality:
                 )
 
     def test_checkpoint_to_baton_unknown_status_raises(self) -> None:
-        """Unknown checkpoint status string raises KeyError."""
-        with pytest.raises(KeyError):
+        """Unknown checkpoint status string raises ValueError."""
+        with pytest.raises(ValueError):
             checkpoint_to_baton_status("nonexistent_status")
 
     def test_checkpoint_to_baton_empty_string_raises(self) -> None:
         """Empty string is not a valid checkpoint status."""
-        with pytest.raises(KeyError):
+        with pytest.raises(ValueError):
             checkpoint_to_baton_status("")
 
     def test_baton_ready_maps_to_ready(self) -> None:
@@ -1290,7 +1290,7 @@ class TestHasCompletedSheetsEdgeCases:
         assert adapter.has_completed_sheets("j1") is True
 
     def test_nonexistent_job_returns_false(self) -> None:
-        """Unknown job_id returns False, not KeyError."""
+        """Unknown job_id returns False, not ValueError."""
         adapter = _make_adapter()
         assert adapter.has_completed_sheets("ghost") is False
 

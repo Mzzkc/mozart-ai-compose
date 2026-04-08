@@ -367,6 +367,7 @@ class JobManager:
                 event_bus=self._event_bus,
                 max_concurrent_sheets=self._config.max_concurrent_sheets,
                 state_sync_callback=self._on_baton_state_sync,
+                persist_callback=self._on_baton_persist,
             )
             self._baton_adapter.set_backend_pool(
                 BackendPool(registry, pgroup=self._pgroup)
@@ -508,6 +509,30 @@ class JobManager:
                     job_id=orphan.job_id,
                 )
         return DaemonJobStatus.FAILED
+
+    def _on_baton_persist(self, job_id: str) -> None:
+        """Phase 2 persist callback — save CheckpointState to registry.
+
+        The baton writes directly to SheetState objects inside _live_states.
+        This callback serializes the whole CheckpointState and saves it to
+        the registry for crash recovery. No field copying, no status
+        mapping — just persist.
+        """
+        live = self._live_states.get(job_id)
+        if live is None:
+            return
+        try:
+            checkpoint_json = live.model_dump_json()
+            asyncio.get_event_loop().create_task(
+                self._registry.save_checkpoint(job_id, checkpoint_json),
+                name=f"baton-persist-{job_id}",
+            )
+        except Exception:
+            _logger.warning(
+                "baton.persist_failed",
+                extra={"job_id": job_id},
+                exc_info=True,
+            )
 
     def _on_baton_state_sync(
         self,

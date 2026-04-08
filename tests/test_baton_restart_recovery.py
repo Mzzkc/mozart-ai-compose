@@ -561,14 +561,14 @@ class TestRecoveryStatusMapping:
     """Edge cases in checkpoint-to-baton status mapping during recovery."""
 
     def test_unknown_status_raises(self) -> None:
-        """Unknown checkpoint status raises KeyError."""
-        with pytest.raises(KeyError):
+        """Unknown checkpoint status raises ValueError."""
+        with pytest.raises(ValueError):
             checkpoint_to_baton_status("unknown_status")
 
     def test_all_checkpoint_statuses_mapped(self) -> None:
         """Every SheetStatus value has a mapping to BatonSheetStatus."""
         for status in SheetStatus:
-            # All should be mappable without KeyError
+            # All should be mappable without ValueError
             baton_status = checkpoint_to_baton_status(status.value)
             assert isinstance(baton_status, BatonSheetStatus)
 

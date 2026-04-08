@@ -163,18 +163,18 @@ class TestStateMappingCompleteness:
         assert cp_status == "cancelled"
 
     def test_unknown_checkpoint_status_raises_key_error(self) -> None:
-        """An unknown status string must raise KeyError, not silently default."""
-        with pytest.raises(KeyError):
+        """An unknown status string must raise ValueError, not silently default."""
+        with pytest.raises(ValueError):
             checkpoint_to_baton_status("running_very_fast")
 
-    def test_in_progress_maps_to_dispatched_on_recovery(self) -> None:
-        """in_progress in checkpoint → DISPATCHED in baton.
+    def test_in_progress_maps_to_in_progress_identity(self) -> None:
+        """Phase 2: checkpoint_to_baton_status is identity mapping.
 
-        But the adapter overrides this to PENDING for in_progress sheets.
-        This test documents the raw mapping behavior.
+        Restart recovery (in_progress → PENDING) is now handled
+        directly in recover_job via _RESET_ON_RESTART frozenset.
         """
         baton_status = checkpoint_to_baton_status("in_progress")
-        assert baton_status == BatonSheetStatus.DISPATCHED
+        assert baton_status == BatonSheetStatus.IN_PROGRESS
 
     def test_baton_to_checkpoint_maps_non_terminal_1_to_1(self) -> None:
         """Non-terminal baton states map 1:1 to checkpoint since Phase 1."""

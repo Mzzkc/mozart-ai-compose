@@ -76,80 +76,42 @@ from marianne.core.logging import get_logger
 
 _logger = get_logger("daemon.baton.adapter")
 
-# Type alias for the state sync callback.
-# Called after each baton event that changes sheet status:
-#   (job_id, sheet_num, checkpoint_status_string, baton_sheet_state) → None
-# The baton_sheet_state carries rich metadata (duration, validation, attempts)
-# so the manager can update the live CheckpointState fully.
+# Type alias for the persist callback.
+# Called after significant baton state transitions to persist the
+# CheckpointState to the registry for crash recovery.
+# Phase 2: replaces the old StateSyncCallback that mapped between
+# two state representations. Now there's one shared SheetState —
+# persistence is all that's needed.
+PersistCallback = Callable[[str], None]
+
+# Backward compat aliases — tests may import these
 StateSyncCallback = Callable[[str, int, str, SheetExecutionState | None], None]
 
 
-# =============================================================================
-# State mapping — Surface 4
-# =============================================================================
-
-# BatonSheetStatus → SheetStatus (1:1 now that SheetStatus has all 11 states)
+# Phase 2: identity mappings — kept for test backward compat
 _BATON_TO_CHECKPOINT: dict[BatonSheetStatus, str] = {
-    BatonSheetStatus.PENDING: "pending",
-    BatonSheetStatus.READY: "ready",
-    BatonSheetStatus.DISPATCHED: "dispatched",
-    BatonSheetStatus.IN_PROGRESS: "in_progress",
-    BatonSheetStatus.COMPLETED: "completed",
-    BatonSheetStatus.FAILED: "failed",
-    BatonSheetStatus.SKIPPED: "skipped",
-    BatonSheetStatus.CANCELLED: "cancelled",
-    BatonSheetStatus.WAITING: "waiting",
-    BatonSheetStatus.RETRY_SCHEDULED: "retry_scheduled",
-    BatonSheetStatus.FERMATA: "fermata",
+    s: s.value for s in BatonSheetStatus
 }
-
-# SheetStatus → BatonSheetStatus (for resume from checkpoint)
 _CHECKPOINT_TO_BATON: dict[str, BatonSheetStatus] = {
-    "pending": BatonSheetStatus.PENDING,
-    "ready": BatonSheetStatus.READY,
-    "dispatched": BatonSheetStatus.DISPATCHED,
-    "in_progress": BatonSheetStatus.DISPATCHED,  # Running → re-dispatch on resume
-    "waiting": BatonSheetStatus.PENDING,          # Rate limit cleared on restart
-    "retry_scheduled": BatonSheetStatus.PENDING,  # Retry timer lost on restart
-    "fermata": BatonSheetStatus.PENDING,          # Re-evaluate escalation on restart
-    "completed": BatonSheetStatus.COMPLETED,
-    "failed": BatonSheetStatus.FAILED,
-    "skipped": BatonSheetStatus.SKIPPED,
-    "cancelled": BatonSheetStatus.CANCELLED,
+    s.value: s for s in BatonSheetStatus
 }
 
 
 def baton_to_checkpoint_status(status: BatonSheetStatus) -> str:
-    """Map a BatonSheetStatus to the equivalent CheckpointState status string.
+    """Identity mapping — Phase 2 unified the enums.
 
-    Every BatonSheetStatus value has an entry in the mapping.
-    The baton tracks more granular states — this function collapses them
-    to the 5 states CheckpointState understands.
-
-    Args:
-        status: The baton's sheet status.
-
-    Returns:
-        The CheckpointState status string.
+    Kept for backward compatibility with tests that import this function.
+    Since BatonSheetStatus IS SheetStatus, this is just status.value.
     """
-    return _BATON_TO_CHECKPOINT[status]
+    return status.value
 
 
 def checkpoint_to_baton_status(status: str) -> BatonSheetStatus:
-    """Map a CheckpointState status string to BatonSheetStatus.
+    """Reconstruct SheetStatus from string — Phase 2 unified the enums.
 
-    Used during resume to rebuild baton state from a checkpoint.
-
-    Args:
-        status: The CheckpointState status string.
-
-    Returns:
-        The equivalent BatonSheetStatus.
-
-    Raises:
-        KeyError: If the status string is not recognized.
+    Kept for backward compatibility with tests that import this function.
     """
-    return _CHECKPOINT_TO_BATON[status]
+    return BatonSheetStatus(status)
 
 
 # =============================================================================
@@ -334,16 +296,18 @@ class BatonAdapter:
         event_bus: EventBus | None = None,
         max_concurrent_sheets: int = 10,
         state_sync_callback: StateSyncCallback | None = None,
+        persist_callback: PersistCallback | None = None,
     ) -> None:
         """Initialize the BatonAdapter.
 
         Args:
             event_bus: Optional EventBus for publishing events to subscribers.
             max_concurrent_sheets: Global concurrency ceiling for dispatch.
-            state_sync_callback: Optional callback invoked after each baton
-                event that changes sheet status. Receives
-                (job_id, sheet_num, checkpoint_status_string). Used by the
-                manager to sync baton state changes to CheckpointState.
+            state_sync_callback: Deprecated — kept for backward compat.
+                Phase 2 uses persist_callback instead.
+            persist_callback: Called with job_id after significant state
+                transitions (terminal, dispatch) to persist CheckpointState
+                to the registry. Replaces the sync layer.
         """
         from marianne.daemon.baton.timer import TimerWheel
 
@@ -355,11 +319,11 @@ class BatonAdapter:
         self._baton = BatonCore(timer=self._timer_wheel, inbox=inbox)
         self._event_bus = event_bus
         self._max_concurrent_sheets = max_concurrent_sheets
-        self._state_sync_callback = state_sync_callback
+        self._state_sync_callback = state_sync_callback  # deprecated
+        self._persist_callback = persist_callback
 
-        # F-211: State-diff sync cache — last-synced checkpoint status per sheet.
-        # After each event, compare current baton status against this cache
-        # and sync only sheets whose checkpoint-mapped status changed.
+        # F-211: State-diff sync cache — kept for backward compat with
+        # state_sync_callback. Will be removed when sync layer is fully deleted.
         self._synced_status: dict[tuple[str, int], str] = {}
 
         # Job → Sheet mapping for prompt rendering
@@ -929,6 +893,25 @@ class BatonAdapter:
             Number of instruments whose rate limit was cleared.
         """
         return self._baton.clear_instrument_rate_limit(instrument)
+
+    def _persist_dirty_jobs(self) -> None:
+        """Persist all jobs that have dirty state to the registry.
+
+        Phase 2: replaces the sync layer. The baton writes directly to
+        SheetState objects in _live_states. This method tells the manager
+        to serialize and save the CheckpointState for each active job.
+        """
+        if self._persist_callback is None:
+            return
+        for job_id in self._baton._jobs:
+            try:
+                self._persist_callback(job_id)
+            except Exception:
+                _logger.warning(
+                    "adapter.persist_failed",
+                    extra={"job_id": job_id},
+                    exc_info=True,
+                )
 
     def _check_completions(self) -> None:
         """Check all registered jobs for completion and signal waiters.
@@ -1668,8 +1651,9 @@ class BatonAdapter:
                         ],
                     },
                 )
-                for d_job_id, d_sheet_num in initial_result.dispatched_sheets:
-                    self._sync_single_sheet(d_job_id, d_sheet_num)
+                for d_job_id, _d_sheet_num in initial_result.dispatched_sheets:
+                    if self._persist_callback:
+                        self._persist_callback(d_job_id)
 
             while not self._baton._shutting_down:
                 event = await self._baton.inbox.get()
@@ -1680,14 +1664,14 @@ class BatonAdapter:
                     queue_size=self._baton.inbox.qsize(),
                 )
 
-                # F-211: Capture pre-event state for events that
-                # deregister jobs (CancelJob removes state)
-                pre_capture = self._capture_pre_event_state(event)
-
                 await self._baton.handle_event(event)
 
-                # Step 29 + F-211: Sync state changes to checkpoint
-                self._sync_sheet_status(event, pre_capture=pre_capture)
+                # Phase 2: persist to registry if state changed.
+                # The baton writes directly to SheetState objects in
+                # _live_states — no sync needed. Just persist.
+                if self._baton._state_dirty and self._persist_callback:
+                    self._persist_dirty_jobs()
+                    self._baton._state_dirty = False
 
                 # Dispatch ready sheets after every event
                 config = self._baton.build_dispatch_config(
@@ -1710,7 +1694,9 @@ class BatonAdapter:
                         },
                     )
                 for d_job_id, d_sheet_num in dispatch_result.dispatched_sheets:
-                    self._sync_single_sheet(d_job_id, d_sheet_num)
+                    # Persist dispatch state (sheet moved to DISPATCHED)
+                    if self._persist_callback:
+                        self._persist_callback(d_job_id)
                     # Schedule stale detection for each dispatched sheet.
                     # Fires after 1800s (default Sheet timeout) + 60s buffer.
                     # If the sheet completes normally, the StaleCheck handler
