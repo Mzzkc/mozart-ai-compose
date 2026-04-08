@@ -1415,10 +1415,10 @@ class BatonCore:
             return  # No dispatch timestamp — can't determine staleness
 
         elapsed = time.monotonic() - sheet.dispatched_at
-        # Default stale timeout: 1800s (30 min), matching Sheet.timeout_seconds default.
-        # The actual sheet timeout is enforced by the backend; this catches cases
+        # Use per-sheet timeout from the Sheet entity (populated at registration).
+        # The backend enforces this timeout for execution; StaleCheck catches cases
         # where the musician task itself hung without the backend timing out.
-        stale_timeout = 1800.0
+        stale_timeout = getattr(sheet, "sheet_timeout_seconds", 1800.0) or 1800.0
         if elapsed < stale_timeout:
             # Not stale yet — reschedule check for remaining time
             remaining = stale_timeout - elapsed

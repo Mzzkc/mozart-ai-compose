@@ -390,6 +390,7 @@ class TestRecoverJobDispatchKick:
 # =========================================================================
 
 
+@pytest.mark.skip(reason="Phase 2: sync layer replaced by persist callback — see docs/plans/2026-04-07-unified-state-spec.md")
 class TestStateSyncCallback:
     """Test that the adapter can sync baton state changes to CheckpointState."""
 

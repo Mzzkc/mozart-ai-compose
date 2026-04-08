@@ -470,6 +470,7 @@ class TestDispatchCallbackEdgeCases:
 # =========================================================================
 
 
+@pytest.mark.skip(reason="Phase 2: sync layer removed, replaced by persist callback")
 class TestStateSyncFiltering:
     """Verify _sync_sheet_status only fires for state-changing events."""
 

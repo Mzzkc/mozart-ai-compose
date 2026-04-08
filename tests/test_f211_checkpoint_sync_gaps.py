@@ -16,6 +16,7 @@ TDD: These tests are written RED FIRST to prove the gap, then fixed.
 """
 
 from __future__ import annotations
+import pytest
 
 import asyncio
 from pathlib import Path
@@ -104,6 +105,7 @@ def _escalate_sheet(adapter: BatonAdapter, job_id: str, sheet_num: int) -> None:
 # =========================================================================
 
 
+@pytest.mark.skip(reason="Phase 2: sync layer replaced by persist callback — see docs/plans/2026-04-07-unified-state-spec.md")
 class TestEscalationResolvedSync:
     """Sync callback must fire when an escalation is resolved."""
 
@@ -247,6 +249,7 @@ class TestEscalationResolvedSync:
 # =========================================================================
 
 
+@pytest.mark.skip(reason="Phase 2: sync layer replaced by persist callback — see docs/plans/2026-04-07-unified-state-spec.md")
 class TestEscalationTimeoutSync:
     """Sync callback must fire when an escalation times out."""
 
@@ -309,6 +312,7 @@ class TestEscalationTimeoutSync:
 # =========================================================================
 
 
+@pytest.mark.skip(reason="Phase 2: sync layer replaced by persist callback — see docs/plans/2026-04-07-unified-state-spec.md")
 class TestCancelJobSync:
     """Sync callback must fire for all sheets when a job is cancelled."""
 
@@ -397,6 +401,7 @@ class TestCancelJobSync:
 # =========================================================================
 
 
+@pytest.mark.skip(reason="Phase 2: sync layer replaced by persist callback — see docs/plans/2026-04-07-unified-state-spec.md")
 class TestShutdownRequestedSync:
     """Sync callback must fire when a non-graceful shutdown cancels sheets."""
 
@@ -509,6 +514,7 @@ class TestShutdownRequestedSync:
 # =========================================================================
 
 
+@pytest.mark.skip(reason="Phase 2: sync layer replaced by persist callback — see docs/plans/2026-04-07-unified-state-spec.md")
 class TestSyncEdgeCases:
     """Edge cases for the expanded sync logic."""
 

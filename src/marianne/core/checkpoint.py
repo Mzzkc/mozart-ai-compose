@@ -483,6 +483,14 @@ class SheetState(BaseModel):
         description="Retry count per instrument in the chain.",
     )
 
+    # Per-sheet timeout for stale detection
+    sheet_timeout_seconds: float = Field(
+        default=1800.0,
+        description="Per-sheet execution timeout in seconds. Used by "
+        "StaleCheck to detect hung sheets. Populated from Sheet entity "
+        "at registration time.",
+    )
+
     # Transient — not persisted (populated during execution, lost on restart)
     attempt_results: list[Any] = Field(
         default_factory=list,

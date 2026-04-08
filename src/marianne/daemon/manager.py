@@ -366,7 +366,6 @@ class JobManager:
             self._baton_adapter = BatonAdapter(
                 event_bus=self._event_bus,
                 max_concurrent_sheets=self._config.max_concurrent_sheets,
-                state_sync_callback=self._on_baton_state_sync,
                 persist_callback=self._on_baton_persist,
             )
             self._baton_adapter.set_backend_pool(

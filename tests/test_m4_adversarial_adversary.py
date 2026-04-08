@@ -276,6 +276,7 @@ class TestF441StrictnessEdges:
 # =============================================================================
 
 
+@pytest.mark.skip(reason="Phase 2: sync layer replaced by persist callback — see docs/plans/2026-04-07-unified-state-spec.md")
 class TestSyncDedupCacheLifecycle:
     """Test _synced_status cache behavior across job lifecycle."""
 

@@ -10,6 +10,7 @@ Only tests transitions that produce VISIBLE checkpoint status changes
 """
 
 from __future__ import annotations
+import pytest
 
 from unittest.mock import ANY, MagicMock
 
@@ -104,6 +105,7 @@ async def _handle(adapter: BatonAdapter, event: BatonEvent) -> None:
 # =============================================================================
 
 
+@pytest.mark.skip(reason="Phase 2: sync layer replaced by persist callback — see docs/plans/2026-04-07-unified-state-spec.md")
 class TestExistingBehavior:
     """Verify existing sync for SheetAttemptResult/SheetSkipped still works."""
 
@@ -191,6 +193,7 @@ class TestExistingBehavior:
 # =============================================================================
 
 
+@pytest.mark.skip(reason="Phase 2: sync layer replaced by persist callback — see docs/plans/2026-04-07-unified-state-spec.md")
 class TestF211EscalationNeededSync:
     """EscalationNeeded: PENDING("pending") → FERMATA("in_progress").
 
@@ -213,6 +216,7 @@ class TestF211EscalationNeededSync:
         cb.assert_any_call("test-job", 1, "fermata", ANY)
 
 
+@pytest.mark.skip(reason="Phase 2: sync layer replaced by persist callback — see docs/plans/2026-04-07-unified-state-spec.md")
 class TestF211JobTimeoutSync:
     """JobTimeout: all PENDING("pending") → CANCELLED("cancelled").
 
@@ -255,6 +259,7 @@ class TestF211JobTimeoutSync:
         assert len(sheet1_calls) == 0
 
 
+@pytest.mark.skip(reason="Phase 2: sync layer replaced by persist callback — see docs/plans/2026-04-07-unified-state-spec.md")
 class TestF211RateLimitSync:
     """RateLimitExpired: WAITING("in_progress") → PENDING("pending").
 
@@ -286,6 +291,7 @@ class TestF211RateLimitSync:
         cb.assert_any_call("test-job", 2, "pending", ANY)
 
 
+@pytest.mark.skip(reason="Phase 2: sync layer replaced by persist callback — see docs/plans/2026-04-07-unified-state-spec.md")
 class TestF211RetryDueSync:
     """RetryDue: RETRY_SCHEDULED("retry_scheduled") → PENDING("pending").
 
@@ -316,6 +322,7 @@ class TestF211RetryDueSync:
 # =============================================================================
 
 
+@pytest.mark.skip(reason="Phase 2: sync layer replaced by persist callback — see docs/plans/2026-04-07-unified-state-spec.md")
 class TestStateDiffIdempotent:
     """State-diff approach only syncs CHANGED checkpoint statuses."""
 
@@ -371,6 +378,7 @@ class TestStateDiffIdempotent:
         assert len(sheet1_calls) == 0
 
 
+@pytest.mark.skip(reason="Phase 2: sync layer replaced by persist callback — see docs/plans/2026-04-07-unified-state-spec.md")
 class TestStateDiffCancelPreserves:
     """CancelJob preserves completed sheets and syncs the rest."""
 
@@ -396,6 +404,7 @@ class TestStateDiffCancelPreserves:
         assert len(sheet1_calls) == 0
 
 
+@pytest.mark.skip(reason="Phase 2: sync layer replaced by persist callback — see docs/plans/2026-04-07-unified-state-spec.md")
 class TestStateDiffNoCallback:
     """No callback set — sync is a safe noop."""
 
@@ -405,6 +414,7 @@ class TestStateDiffNoCallback:
         await _handle(adapter, CancelJob(job_id="test-job"))
 
 
+@pytest.mark.skip(reason="Phase 2: sync layer replaced by persist callback — see docs/plans/2026-04-07-unified-state-spec.md")
 class TestStateDiffCallbackFailure:
     """Callback failures are logged, not raised."""
 

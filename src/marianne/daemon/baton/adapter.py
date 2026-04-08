@@ -45,14 +45,9 @@ from typing import TYPE_CHECKING, Any, cast
 from marianne.core.sheet import Sheet
 from marianne.daemon.baton.core import BatonCore
 from marianne.daemon.baton.events import (
-    BatonEvent,
-    CancelJob,
     DispatchRetry,
-    JobTimeout,
-    RateLimitExpired,
     SheetAttemptResult,
     SheetSkipped,
-    ShutdownRequested,
     StaleCheck,
 )
 from marianne.daemon.baton.musician import sheet_task
@@ -213,6 +208,7 @@ def sheets_to_execution_states(
             max_retries=max_retries,
             max_completion=max_completion,
             fallback_chain=list(sheet.instrument_fallbacks),
+            sheet_timeout_seconds=sheet.timeout_seconds,
         )
     return states
 
@@ -319,11 +315,9 @@ class BatonAdapter:
         self._baton = BatonCore(timer=self._timer_wheel, inbox=inbox)
         self._event_bus = event_bus
         self._max_concurrent_sheets = max_concurrent_sheets
-        self._state_sync_callback = state_sync_callback  # deprecated
         self._persist_callback = persist_callback
-
-        # F-211: State-diff sync cache — kept for backward compat with
-        # state_sync_callback. Will be removed when sync layer is fully deleted.
+        # Deprecated compat attributes — tests set/read these directly
+        self._state_sync_callback = state_sync_callback
         self._synced_status: dict[tuple[str, int], str] = {}
 
         # Job → Sheet mapping for prompt rendering
@@ -499,11 +493,6 @@ class BatonAdapter:
         self._job_cross_sheet.pop(job_id, None)
         self._completion_events.pop(job_id, None)
         self._completion_results.pop(job_id, None)
-
-        # F-470: Clean up state-diff dedup cache to prevent memory leak
-        self._synced_status = {
-            k: v for k, v in self._synced_status.items() if k[0] != job_id
-        }
 
         _logger.info("adapter.job_deregistered", extra={"job_id": job_id})
 
@@ -1405,196 +1394,6 @@ class BatonAdapter:
     # Main Loop
     # =========================================================================
 
-    def _capture_pre_event_state(
-        self,
-        event: BatonEvent,
-    ) -> dict[str, list[int]] | None:
-        """Capture non-terminal sheet nums before events that deregister jobs.
-
-        CancelJob calls deregister_job(), removing the job from the baton's
-        internal state. Without capturing BEFORE handle_event, we cannot
-        sync the cancelled sheets afterward.
-
-        Returns:
-            Mapping of job_id to non-terminal sheet nums, or None if
-            the event doesn't need pre-capture.
-        """
-        from marianne.daemon.baton.state import _TERMINAL_BATON_STATUSES
-
-        if isinstance(event, CancelJob):
-            job = self._baton._jobs.get(event.job_id)
-            if job is None:
-                return None
-            non_terminal = [
-                num
-                for num, s in job.sheets.items()
-                if s.status not in _TERMINAL_BATON_STATUSES
-            ]
-            return {event.job_id: non_terminal} if non_terminal else None
-        return None
-
-    def _sync_sheet_status(
-        self,
-        event: BatonEvent,
-        pre_capture: dict[str, list[int]] | None = None,
-    ) -> None:
-        """Sync baton sheet status changes to the checkpoint callback.
-
-        Called after each event is handled. Determines which sheet(s)
-        were affected by the event and invokes the state_sync_callback
-        with the current baton status mapped to checkpoint status.
-
-        F-211: Extended from SheetAttemptResult/SheetSkipped to also handle
-        EscalationResolved, EscalationTimeout, CancelJob, ShutdownRequested.
-
-        Args:
-            event: The event that was just processed.
-            pre_capture: Pre-event sheet nums for events that deregister
-                jobs (e.g., CancelJob). Captured by _capture_pre_event_state
-                before handle_event runs.
-        """
-        if self._state_sync_callback is None:
-            return
-
-        # Single-sheet events: any event with job_id + sheet_num attributes
-        # gets its affected sheet synced. This covers SheetAttemptResult,
-        # SheetSkipped, EscalationResolved, EscalationTimeout, RateLimitHit,
-        # RateLimitExpired, RetryDue, StaleCheck, JobTimeout,
-        # EscalationNeeded, ProcessExited — all events that target one sheet.
-        # Using duck typing so new event types are automatically handled.
-        if hasattr(event, "job_id") and hasattr(event, "sheet_num"):
-            self._sync_single_sheet(event.job_id, event.sheet_num)  # duck-typed
-            return
-
-        # JobTimeout: has job_id but no sheet_num. The handler cancels
-        # all non-terminal sheets. Sync each affected sheet.
-        if isinstance(event, JobTimeout):
-            self._sync_all_sheets_for_job(event.job_id)
-            return
-
-        # RateLimitExpired: has instrument but no job_id/sheet_num.
-        # The handler transitions WAITING sheets back to PENDING. Sync
-        # all sheets across all jobs for this instrument.
-        if isinstance(event, RateLimitExpired):
-            self._sync_all_sheets_for_instrument(event.instrument)
-            return
-
-        # CancelJob: the handler deregistered the job, so we use the
-        # pre-captured sheet nums and sync them as "failed" (CANCELLED
-        # maps to "failed" in the checkpoint status model).
-        if isinstance(event, CancelJob):
-            if pre_capture is not None:
-                cancelled_status = baton_to_checkpoint_status(
-                    BatonSheetStatus.CANCELLED
-                )
-                for sheet_num in pre_capture.get(event.job_id, []):
-                    key = (event.job_id, sheet_num)
-                    if self._synced_status.get(key) != cancelled_status:
-                        self._synced_status[key] = cancelled_status
-                        self._invoke_sync_callback(
-                            event.job_id, sheet_num, cancelled_status
-                        )
-            return
-
-        # ShutdownRequested (non-graceful): cancels all non-terminal
-        # sheets across ALL jobs. Jobs remain in _jobs (no deregister),
-        # so we can read state directly.
-        if isinstance(event, ShutdownRequested) and not event.graceful:
-            for job_id in list(self._baton._jobs.keys()):
-                self._sync_cancelled_sheets_from_state(job_id)
-
-    def _sync_single_sheet(self, job_id: str, sheet_num: int) -> None:
-        """Sync a single sheet's status to the checkpoint callback.
-
-        F-211: Uses state-diff dedup — only invokes the callback when the
-        mapped checkpoint status actually changes from the last-synced value.
-        """
-        state = self._baton.get_sheet_state(job_id, sheet_num)
-        if state is None:
-            _logger.info(
-                "adapter.sync.no_baton_state",
-                extra={"job_id": job_id, "sheet_num": sheet_num},
-            )
-            return
-
-        checkpoint_status = baton_to_checkpoint_status(state.status)
-        key = (job_id, sheet_num)
-        prev = self._synced_status.get(key)
-        if prev == checkpoint_status:
-            return  # No change — skip duplicate sync
-        _logger.info(
-            "adapter.sync.status_changed",
-            extra={
-                "job_id": job_id,
-                "sheet_num": sheet_num,
-                "prev": prev,
-                "new": checkpoint_status,
-                "baton_status": state.status.value,
-            },
-        )
-        self._synced_status[key] = checkpoint_status
-        self._invoke_sync_callback(job_id, sheet_num, checkpoint_status, state)
-
-    def _sync_all_sheets_for_job(self, job_id: str) -> None:
-        """Sync all sheets of a job using state-diff dedup.
-
-        Used by JobTimeout where all non-terminal sheets are cancelled.
-        Each sheet's current baton status is mapped to checkpoint status
-        and synced only if it differs from the last-synced value.
-        """
-        job = self._baton._jobs.get(job_id)
-        if job is None:
-            return
-        for sheet_num in job.sheets:
-            self._sync_single_sheet(job_id, sheet_num)
-
-    def _sync_all_sheets_for_instrument(self, instrument: str) -> None:
-        """Sync all sheets across all jobs for a given instrument.
-
-        Used by RateLimitExpired where WAITING sheets for the instrument
-        transition back to PENDING. Uses state-diff dedup via _sync_single_sheet.
-        """
-        for job_id, job in self._baton._jobs.items():
-            for sheet_num, sheet_state in job.sheets.items():
-                if sheet_state.instrument_name == instrument:
-                    self._sync_single_sheet(job_id, sheet_num)
-
-    def _sync_cancelled_sheets_from_state(self, job_id: str) -> None:
-        """Sync all CANCELLED sheets of a job from current baton state.
-
-        Used by ShutdownRequested (non-graceful) where jobs remain in
-        the baton's internal state after the handler runs.
-        """
-        job = self._baton._jobs.get(job_id)
-        if job is None:
-            return
-
-        for sheet_num in job.sheets:
-            self._sync_single_sheet(job_id, sheet_num)
-
-    def _invoke_sync_callback(
-        self,
-        job_id: str,
-        sheet_num: int,
-        checkpoint_status: str,
-        baton_state: SheetExecutionState | None = None,
-    ) -> None:
-        """Invoke the state sync callback with error handling."""
-        if self._state_sync_callback is None:
-            _logger.warning("adapter.sync.no_callback_set")
-            return
-        try:
-            self._state_sync_callback(job_id, sheet_num, checkpoint_status, baton_state)
-        except Exception:
-            _logger.warning(
-                "adapter.state_sync_failed",
-                extra={
-                    "job_id": job_id,
-                    "sheet_num": sheet_num,
-                },
-                exc_info=True,
-            )
-
     async def run(self) -> None:
         """Run the baton's event loop with dispatch integration.
 
@@ -1697,12 +1496,16 @@ class BatonAdapter:
                     # Persist dispatch state (sheet moved to DISPATCHED)
                     if self._persist_callback:
                         self._persist_callback(d_job_id)
-                    # Schedule stale detection for each dispatched sheet.
-                    # Fires after 1800s (default Sheet timeout) + 60s buffer.
+                    # Schedule stale detection using per-sheet timeout.
                     # If the sheet completes normally, the StaleCheck handler
                     # finds it non-DISPATCHED and is a no-op.
+                    d_state = self._baton.get_sheet_state(d_job_id, d_sheet_num)
+                    stale_delay = (
+                        getattr(d_state, "sheet_timeout_seconds", 1800.0)
+                        if d_state else 1800.0
+                    ) + 60.0  # buffer beyond timeout
                     self._timer_wheel.schedule(
-                        1860.0,
+                        stale_delay,
                         StaleCheck(job_id=d_job_id, sheet_num=d_sheet_num),
                     )
 

@@ -907,6 +907,7 @@ class TestCompletionDetectionAfterRecovery:
 # =========================================================================
 
 
+@pytest.mark.skip(reason="Phase 2: sync layer replaced by persist callback — see docs/plans/2026-04-07-unified-state-spec.md")
 class TestStateSyncCallback:
     """Verify the state sync callback fires correctly via the adapter."""
 

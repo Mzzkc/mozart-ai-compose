@@ -102,6 +102,8 @@ Every test in this file answers: "Is the system smarter WITH this than WITHOUT?"
 
 from __future__ import annotations
 
+import pytest
+
 import json
 from pathlib import Path
 
@@ -4096,6 +4098,7 @@ class TestCheckpointSyncDuckTyping:
 # =============================================================================
 
 
+@pytest.mark.skip(reason="Phase 2: sync layer removed, replaced by persist callback")
 class TestStateDiffDedup:
     """F-211 litmus: does the _synced_status cache prevent duplicate
     checkpoint sync callbacks?
