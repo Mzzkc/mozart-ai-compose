@@ -279,6 +279,61 @@ class ErrorClassifier:
         # No pattern matched, return default wait
         return None
 
+    def extract_rate_limit_wait(self, text: str) -> float | None:
+        """Extract wait duration from rate limit error text.
+
+        Supports common patterns from Anthropic, Claude Code, and generic APIs:
+        - "retry after N seconds/minutes/hours"
+        - "try again in N seconds/minutes/hours"
+        - "wait N seconds/minutes/hours"
+        - "Retry-After: N" (header value)
+        - "resets in N hours/minutes" (delegates to parse_reset_time)
+
+        Args:
+            text: Error message or combined stdout/stderr.
+
+        Returns:
+            Seconds to wait, clamped to [MIN, MAX], or None if no pattern matches.
+        """
+        if not text:
+            return None
+
+        # Defer to existing parse_reset_time for "resets in/at" patterns
+        reset_time = self.parse_reset_time(text)
+        if reset_time is not None:
+            return reset_time
+
+        import re as _re
+
+        patterns: list[tuple[_re.Pattern[str], float]] = [
+            # "retry after N seconds/second"
+            (_re.compile(r"retry\s+after\s+(\d+)\s*s(?:econds?)?", _re.IGNORECASE), 1.0),
+            # "retry after N minutes/minute"
+            (_re.compile(r"retry\s+after\s+(\d+)\s*m(?:in(?:utes?)?)?", _re.IGNORECASE), 60.0),
+            # "retry after N hours/hour"
+            (_re.compile(r"retry\s+after\s+(\d+)\s*h(?:ours?)?", _re.IGNORECASE), 3600.0),
+            # "try again in N seconds"
+            (_re.compile(r"try\s+again\s+in\s+(\d+)\s*s(?:econds?)?", _re.IGNORECASE), 1.0),
+            # "try again in N minutes"
+            (_re.compile(r"try\s+again\s+in\s+(\d+)\s*m(?:in(?:utes?)?)?", _re.IGNORECASE), 60.0),
+            # "try again in N hours"
+            (_re.compile(r"try\s+again\s+in\s+(\d+)\s*h(?:ours?)?", _re.IGNORECASE), 3600.0),
+            # "wait N seconds"
+            (_re.compile(r"wait\s+(\d+)\s*s(?:econds?)?", _re.IGNORECASE), 1.0),
+            # "wait N minutes"
+            (_re.compile(r"wait\s+(\d+)\s*m(?:in(?:utes?)?)?", _re.IGNORECASE), 60.0),
+            # "Retry-After: N" (header value, always seconds)
+            (_re.compile(r"[Rr]etry-?After\s*:\s*(\d+)", _re.IGNORECASE), 1.0),
+        ]
+
+        for pattern, multiplier in patterns:
+            match = pattern.search(text)
+            if match:
+                value = int(match.group(1))
+                return self._clamp_wait(value * multiplier)
+
+        return None
+
     @staticmethod
     def _clamp_wait(seconds: float) -> float:
         """Clamp wait time to [MINIMUM, MAXIMUM] range.

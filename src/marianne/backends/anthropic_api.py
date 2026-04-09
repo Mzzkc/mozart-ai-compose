@@ -260,11 +260,13 @@ class AnthropicApiBackend(Backend):
 
         except anthropic.RateLimitError as e:
             duration = time.monotonic() - start_time
+            rate_limit_wait = self._error_classifier.extract_rate_limit_wait(str(e))
             _logger.warning(
                 "rate_limit_error",
                 duration_seconds=duration,
                 model=self.model,
                 error_message=str(e),
+                parsed_wait_seconds=rate_limit_wait,
             )
             self._write_log_file(self._stderr_log_path, str(e))
             return ExecutionResult(
@@ -274,6 +276,7 @@ class AnthropicApiBackend(Backend):
                 stderr=str(e),
                 duration_seconds=duration,
                 rate_limited=True,
+                rate_limit_wait_seconds=rate_limit_wait,
                 error_type="rate_limit",
                 error_message=f"Rate limited: {e}",
                 model=self.model,
@@ -365,6 +368,10 @@ class AnthropicApiBackend(Backend):
             status_code = e.status_code if hasattr(e, "status_code") else 500
             # Check if this is a rate limit error by status code or message
             rate_limited = self._detect_rate_limit(stderr=str(e), exit_code=status_code)
+            rate_limit_wait = (
+                self._error_classifier.extract_rate_limit_wait(str(e))
+                if rate_limited else None
+            )
 
             if rate_limited:
                 _logger.warning(
@@ -373,6 +380,7 @@ class AnthropicApiBackend(Backend):
                     status_code=status_code,
                     model=self.model,
                     error_message=str(e),
+                    parsed_wait_seconds=rate_limit_wait,
                 )
             else:
                 _logger.error(
@@ -391,6 +399,7 @@ class AnthropicApiBackend(Backend):
                 stderr=str(e),
                 duration_seconds=duration,
                 rate_limited=rate_limited,
+                rate_limit_wait_seconds=rate_limit_wait,
                 error_type="rate_limit" if rate_limited else "api_error",
                 error_message=str(e),
                 model=self.model,

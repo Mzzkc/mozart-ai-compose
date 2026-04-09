@@ -68,6 +68,14 @@ class ExecutionResult:
     rate_limited: bool = False
     """Whether rate limiting was detected."""
 
+    rate_limit_wait_seconds: float | None = None
+    """Parsed wait duration from rate limit error, in seconds.
+
+    When set, this is the actual duration extracted from the API's
+    error message (e.g. 'retry after 300 seconds'). When None,
+    callers should use their default wait time.
+    """
+
     error_type: str | None = None
     """Classified error type if failed."""
 

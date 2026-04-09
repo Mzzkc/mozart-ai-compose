@@ -1054,9 +1054,10 @@ class BatonCore:
             # WAITING forever with no timer to recover it.
             self._inbox.put_nowait(RateLimitHit(
                 instrument=event.instrument_name,
-                wait_seconds=60.0,  # Default wait; will be extended if still limited
+                wait_seconds=event.rate_limit_wait_seconds or 60.0,
                 job_id=event.job_id,
                 sheet_num=event.sheet_num,
+                model=event.model_used,
             ))
             return
 
@@ -1228,9 +1229,12 @@ class BatonCore:
         sheets) and the per-instrument state (rate_limited=True). This ensures
         the dispatch logic knows to skip this instrument for all jobs.
 
-        Only transition sheets that are currently dispatched or running.
-        Pending/ready sheets haven't been sent to an instrument yet;
-        terminal sheets must never regress.
+        When ``event.model`` is set, only sheets using that model are
+        affected (per-model rate limit). When ``model`` is None, all sheets
+        on the instrument are held (backward-compatible legacy behaviour).
+
+        Sheets with fallback instruments advance to their fallback instead
+        of waiting.
         """
         # Update instrument-level state
         inst = self._instruments.get(event.instrument)
@@ -1261,19 +1265,45 @@ class BatonCore:
                 },
             )
 
-        # Update sheet-level state — ALL dispatched/running sheets on this
-        # instrument across ALL jobs move to waiting, not just the one that
-        # triggered the rate limit. Rate limits are per-instrument, not per-sheet.
+        # Update sheet-level state — dispatched/running sheets on this
+        # instrument across ALL jobs.  When model is specified, only
+        # sheets using that model are affected (per-model granularity).
         for job in self._jobs.values():
             for sheet in job.sheets.values():
                 if (
                     sheet.instrument_name == event.instrument
-                    and sheet.status in (
+                    and sheet.status
+                    in (
                         BatonSheetStatus.DISPATCHED,
                         BatonSheetStatus.IN_PROGRESS,
                     )
                 ):
-                    sheet.status = BatonSheetStatus.WAITING
+                    # Per-model filtering: skip sheets using a different model
+                    if (
+                        event.model is not None
+                        and sheet.model is not None
+                        and sheet.model != event.model
+                    ):
+                        continue
+                    # If the sheet has fallback instruments, advance to fallback
+                    if sheet.has_fallback_available:
+                        fallback_name = sheet.advance_fallback(
+                            reason="rate_limit",
+                        )
+                        if fallback_name is not None:
+                            sheet.status = BatonSheetStatus.PENDING
+                            _logger.info(
+                                "baton.rate_limit.fallback_advanced",
+                                extra={
+                                    "job_id": event.job_id,
+                                    "sheet_num": sheet.sheet_num,
+                                    "fallback_instrument": fallback_name,
+                                },
+                            )
+                        else:
+                            sheet.status = BatonSheetStatus.WAITING
+                    else:
+                        sheet.status = BatonSheetStatus.WAITING
         self._state_dirty = True
 
     def _handle_rate_limit_expired(self, event: RateLimitExpired) -> None:

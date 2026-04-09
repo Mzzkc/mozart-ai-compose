@@ -443,6 +443,12 @@ class ClaudeCliBackend(Backend):
         rate_limited = self._detect_rate_limit(stdout, stderr, exit_code)
         success = exit_code == 0
 
+        # Extract parsed wait duration from rate limit error text
+        rate_limit_wait_seconds = None
+        if rate_limited:
+            combined = f"{stdout}\n{stderr}"
+            rate_limit_wait_seconds = self._error_classifier.extract_rate_limit_wait(combined)
+
         if rate_limited:
             _logger.warning(
                 "rate_limit_detected",
@@ -490,6 +496,7 @@ class ClaudeCliBackend(Backend):
             stderr=stderr,
             duration_seconds=duration,
             rate_limited=rate_limited,
+            rate_limit_wait_seconds=rate_limit_wait_seconds,
             error_type="rate_limit" if rate_limited else None,
             input_tokens=input_tokens,
             output_tokens=output_tokens,

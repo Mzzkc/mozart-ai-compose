@@ -85,6 +85,13 @@ class SheetAttemptResult:
 
     # Rate limit signal — NOT a failure
     rate_limited: bool = False
+    rate_limit_wait_seconds: float | None = None
+    """Parsed wait duration from the API's rate limit error message.
+
+    When set, the baton uses this instead of the default 60s for
+    scheduling the recovery timer. This is the actual duration the
+    API told us to wait.
+    """
 
     # Cost tracking — musician calculates, baton enforces limits
     cost_usd: float = 0.0
@@ -148,6 +155,7 @@ class RateLimitHit:
     wait_seconds: float
     job_id: str
     sheet_num: int
+    model: str | None = None
     timestamp: float = field(default_factory=time.time)
 
 

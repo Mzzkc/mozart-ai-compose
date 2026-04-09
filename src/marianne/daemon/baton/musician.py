@@ -160,6 +160,7 @@ async def sheet_task(
             error_classification=error_class,
             error_message=error_msg,
             rate_limited=exec_result.rate_limited,
+            rate_limit_wait_seconds=exec_result.rate_limit_wait_seconds,
             cost_usd=_estimate_cost(
                 exec_result,
                 cost_per_1k_input=cost_per_1k_input,
