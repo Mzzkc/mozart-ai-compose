@@ -619,6 +619,21 @@ class PluginCliBackend(Backend):
         proc: asyncio.subprocess.Process | None = None
 
         try:
+            # Resolve executable to full path to avoid FileNotFoundError
+            # in daemon contexts where asyncio's posix_spawn may fail to
+            # resolve executables even though they exist on PATH.
+            import shutil as _shutil
+            _resolved = _shutil.which(cmd[0])
+            if _resolved:
+                cmd = [_resolved] + cmd[1:]
+
+            # Ensure working directory exists before spawning —
+            # asyncio.create_subprocess_exec raises FileNotFoundError
+            # for both missing executables AND missing cwd, so we
+            # must ensure cwd exists to disambiguate errors.
+            if self._working_directory and not self._working_directory.exists():
+                self._working_directory.mkdir(parents=True, exist_ok=True)
+
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdin=asyncio.subprocess.PIPE if use_stdin else None,
@@ -663,6 +678,8 @@ class PluginCliBackend(Backend):
                 exit_reason = "timeout"
 
         except FileNotFoundError:
+            # After ensuring cwd exists above, this is genuinely about
+            # a missing executable, not a missing working directory.
             stderr_data = f"Executable not found: {cmd[0]}"
             exit_reason = "error"
             _logger.error(
