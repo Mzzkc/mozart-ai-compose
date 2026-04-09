@@ -9,6 +9,7 @@ this module provides thin Typer command wrappers.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
@@ -24,37 +25,77 @@ def start(
         help="Daemon operational profile (dev, intensive, minimal). "
         "Overrides config file defaults.",
     ),
+    conductor_clone: Annotated[
+        str | None,
+        typer.Option(
+            "--conductor-clone",
+            help="Start a clone conductor for safe testing. "
+            "Use --conductor-clone= (with equals) for default clone, "
+            "or --conductor-clone=NAME for a named clone. "
+            "Overrides global --conductor-clone if both are given.",
+        ),
+    ] = None,
 ) -> None:
     """Start the Marianne conductor."""
-    from marianne.daemon.clone import get_clone_name, is_clone_active
+    from marianne.daemon.clone import get_clone_name, is_clone_active, set_clone_name
     from marianne.daemon.process import start_conductor
+
+    # Determine which clone name to use
+    clone_to_use: str | None = None
+    if conductor_clone is not None:
+        # Command-level --conductor-clone overrides global flag
+        set_clone_name(conductor_clone)
+        clone_to_use = conductor_clone
+    elif is_clone_active():
+        # Use global --conductor-clone
+        clone_to_use = get_clone_name()
 
     start_conductor(
         config_file=config_file,
         foreground=foreground,
         log_level=log_level,
         profile=profile,
-        clone_name=get_clone_name() if is_clone_active() else None,
+        clone_name=clone_to_use,
     )
 
 
 def stop(
     pid_file: Path | None = typer.Option(None, "--pid-file", help="PID file path"),
     force: bool = typer.Option(False, "--force", help="Send SIGKILL instead of SIGTERM"),
+    conductor_clone: Annotated[
+        str | None,
+        typer.Option(
+            "--conductor-clone",
+            help="Stop a clone conductor. "
+            "Use --conductor-clone= (with equals) for default clone, "
+            "or --conductor-clone=NAME for a named clone. "
+            "Overrides global --conductor-clone if both are given.",
+        ),
+    ] = None,
 ) -> None:
     """Stop the Marianne conductor.
 
     When jobs are actively running, warns and asks for confirmation.
     Use --force to skip the safety check and send SIGKILL.
     """
-    from marianne.daemon.clone import is_clone_active
+    from marianne.daemon.clone import get_clone_name, is_clone_active, set_clone_name
     from marianne.daemon.process import stop_conductor
 
-    socket_path: Path | None = None
-    if is_clone_active() and pid_file is None:
-        from marianne.daemon.clone import get_clone_name, resolve_clone_paths
+    # Determine which clone name to use
+    clone_name_to_use: str | None = None
+    if conductor_clone is not None:
+        # Command-level --conductor-clone overrides global flag
+        set_clone_name(conductor_clone)
+        clone_name_to_use = conductor_clone
+    elif is_clone_active():
+        # Use global --conductor-clone
+        clone_name_to_use = get_clone_name()
 
-        clone = resolve_clone_paths(get_clone_name())
+    socket_path: Path | None = None
+    if clone_name_to_use is not None and pid_file is None:
+        from marianne.daemon.clone import resolve_clone_paths
+
+        clone = resolve_clone_paths(clone_name_to_use)
         pid_file = clone.pid_file
         socket_path = clone.socket
 
@@ -71,21 +112,39 @@ def restart(
         help="Daemon operational profile (dev, intensive, minimal). "
         "Overrides config file defaults.",
     ),
+    conductor_clone: Annotated[
+        str | None,
+        typer.Option(
+            "--conductor-clone",
+            help="Restart a clone conductor. "
+            "Use --conductor-clone= (with equals) for default clone, "
+            "or --conductor-clone=NAME for a named clone. "
+            "Overrides global --conductor-clone if both are given.",
+        ),
+    ] = None,
 ) -> None:
     """Restart the Marianne conductor (stop + start)."""
-    from marianne.daemon.clone import get_clone_name, is_clone_active
+    from marianne.daemon.clone import get_clone_name, is_clone_active, set_clone_name
     from marianne.daemon.process import (
         start_conductor,
         stop_conductor,
         wait_for_conductor_exit,
     )
 
-    # When clone is active, redirect PID file to clone's PID
+    # Determine which clone name to use
     clone_name: str | None = None
-    if is_clone_active():
+    if conductor_clone is not None:
+        # Command-level --conductor-clone overrides global flag
+        set_clone_name(conductor_clone)
+        clone_name = conductor_clone
+    elif is_clone_active():
+        # Use global --conductor-clone
+        clone_name = get_clone_name()
+
+    # When clone is active, redirect PID file to clone's PID
+    if clone_name is not None:
         from marianne.daemon.clone import resolve_clone_paths
 
-        clone_name = get_clone_name()
         if pid_file is None:
             pid_file = resolve_clone_paths(clone_name).pid_file
 
