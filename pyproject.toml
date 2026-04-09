@@ -57,6 +57,7 @@ docs = [
     "mkdocstrings[python]>=0.24",
     "mkdocs-gen-files>=0.5",
     "mkdocs-literate-nav>=0.6",
+    "pymdown-extensions>=10.21.2",
 ]
 dev = [
     "pytest>=8.0.0",
