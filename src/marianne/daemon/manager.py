@@ -2375,6 +2375,7 @@ class JobManager:
             job_name=config.name,
             total_sheets=len(sheets),
             status=CPJobStatus.RUNNING,
+            started_at=utc_now(),  # F-493: Set started_at so elapsed time displays correctly
             sheets=initial_sheets,
             instruments_used=list({s.instrument_name for s in sheets if s.instrument_name}),
             total_movements=max((s.movement for s in sheets), default=None),
@@ -2561,6 +2562,11 @@ class JobManager:
         # Reset started_at for the new run so elapsed time is accurate.
         # The checkpoint's started_at is from the previous run.
         checkpoint.started_at = utc_now()
+
+        # F-493: Persist the updated started_at immediately so status queries
+        # show correct elapsed time even before the first baton persist cycle.
+        checkpoint_json = checkpoint.model_dump_json()
+        await self._registry.save_checkpoint(job_id, checkpoint_json)
 
         # Now that _live_states exists, set RUNNING across all three stores.
         # _run_managed_task already set meta + registry to RUNNING, but
