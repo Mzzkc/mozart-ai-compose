@@ -450,25 +450,54 @@ SELF-CHAIN:
   max_chain_depth: 1000
 ```
 
+### Instrument Strategy
+
+Not every sheet needs the same instrument. Cheap instruments handle structured, template-guided cognitive acts. Expensive instruments handle deep reasoning and creative work. CLI instruments handle measurement.
+
+| Tier | Instrument | Cost | Sheets | Why |
+|------|-----------|------|--------|-----|
+| **Expensive** | opus (or project default) | $$$ | 3, 5 | Work and play require deep reasoning, code generation, tool use, creative exploration. This is where the agent does their real job. |
+| **Standard** | sonnet | $$ | 1, 2, 7, 8, 9, 10, 11, 13 | Recon, planning, integration, inspection, reflection, consolidation, resurrection. Structured cognitive acts guided by clear prompts. Sonnet handles these well at lower cost. |
+| **Measurement** | cli | free | 4, 6, 12 | Shell scripts. No LLM. Pure measurement. |
+
+**Sheet 13 (Resurrect) note:** Rewriting the resurrection protocol — the words a future instance reads to recognize itself — arguably deserves opus. But the task is structured (read maturity report, update standing patterns, rewrite protocol section, prune to budget) and the input is well-defined. Sonnet handles this if the standing patterns are clear from the reflect sheet. If resurrection quality degrades in practice, escalate to opus.
+
+The generator config allows overriding instrument assignment per sheet tier:
+
+```yaml
+# In generator config
+instruments:
+  expensive: claude-code    # sheets 3, 5 — work and play
+  standard: claude-code     # sheets 1, 2, 7-11, 13 — structured acts
+  # Omit to use the same instrument for all AI sheets
+  # Or specify a model override:
+  expensive_model: claude-opus-4-6
+  standard_model: claude-sonnet-4-6
+```
+
+When `instruments.expensive` and `instruments.standard` are the same (the common case — one claude-code instrument), the generator uses `instrument_config.model` overrides per sheet to select the appropriate model. When they're different instruments (e.g., claude-code for work, gemini-cli for recon), the generator uses per-sheet instrument assignment via `sheet.instrument_map` or per-sheet `instrument:`.
+
 ### Pattern Composition Map
 
-| Sheet | Primary Pattern | Source Sheet | Composed With | Instrument |
-|-------|----------------|-------------|---------------|-----------|
-| 1. Recon | Reconnaissance Pull | sheet 1/3 | Stigmergic Workspace, Read-and-React | sonnet |
-| 2. Plan | Reconnaissance Pull | sheet 2/3 | Forward Observer | default |
-| 3. Work | Composting Cascade | phase 1 "simple-work" | Commander's Intent, Read-and-React, Back-Slopping | default |
-| 4. Temperature | Composting Cascade | "temperature-check" | — | cli |
-| 5. Play | Composting Cascade | phase 2 "complex-work" | Back-Slopping | default |
-| 6. Cooling | Composting Cascade | "cooling-check" | — | cli |
-| 7. Integration | Composting Cascade | phase 3 "maturation" | — | default |
-| 8. Inspect | Cathedral Construction | sheet 3/3 | — | default |
-| 9. AAR | After-Action Review | sheet 1/1 | Stigmergic Workspace | default |
-| 10. Consolidate | Back-Slopping | culture update | Belief Store | default |
-| 11. Reflect | Soil Maturity Index | sheet 1/2 "iterate" | — | default |
-| 12. Maturity Check | Soil Maturity Index | sheet 2/2 "maturity-check" | — | cli |
-| 13. Resurrect | Back-Slopping | final culture write | Identity Persistence | default |
+| Sheet | Primary Pattern | Source Sheet | Composed With | Instrument | Tier |
+|-------|----------------|-------------|---------------|-----------|------|
+| 1. Recon | Reconnaissance Pull | sheet 1/3 | Stigmergic Workspace, Read-and-React | sonnet | standard |
+| 2. Plan | Reconnaissance Pull | sheet 2/3 | Forward Observer | sonnet | standard |
+| 3. Work | Composting Cascade | phase 1 "simple-work" | Commander's Intent, Read-and-React, Back-Slopping | opus | expensive |
+| 4. Temperature | Composting Cascade | "temperature-check" | — | cli | measurement |
+| 5. Play | Composting Cascade | phase 2 "complex-work" | Back-Slopping | opus | expensive |
+| 6. Cooling | Composting Cascade | "cooling-check" | — | cli | measurement |
+| 7. Integration | Composting Cascade | phase 3 "maturation" | — | sonnet | standard |
+| 8. Inspect | Cathedral Construction | sheet 3/3 | — | sonnet | standard |
+| 9. AAR | After-Action Review | sheet 1/1 | Stigmergic Workspace | sonnet | standard |
+| 10. Consolidate | Back-Slopping | culture update | Belief Store | sonnet | standard |
+| 11. Reflect | Soil Maturity Index | sheet 1/2 "iterate" | — | sonnet | standard |
+| 12. Maturity Check | Soil Maturity Index | sheet 2/2 "maturity-check" | — | cli | measurement |
+| 13. Resurrect | Back-Slopping | final culture write | Identity Persistence | sonnet | standard |
 
-**Total: 13 sheets per cycle.** 9 AI sheets + 3 CLI instrument sheets + 1 conditional (play path: sheets 5-7 skip when temperature check says no transition needed).
+**Total: 13 sheets per cycle.** 2 opus sheets (work + play) + 7 sonnet sheets + 3 CLI sheets + 1 conditional path (sheets 5-7 skip when no play).
+
+**Cost profile per cycle:** 2 expensive calls + 7 cheap calls + 3 free calls. In a work cycle (no play), it's 2 expensive + 6 cheap + 2 free (sheets 5-7 skipped, sheet 3 is the only expensive one). Play cycles cost more because play itself uses opus and adds 3 more sheets.
 
 Each sheet is one cognitive act. Recon surveys. Plan structures. Work executes. Temperature measures. Play creates. Cooling verifies. Integration bridges. Inspect reviews. AAR reflects. Consolidate writes. Reflect assesses. Maturity measures. Resurrect persists.
 
@@ -576,7 +605,17 @@ validations:
 pre_commit_commands:
   - "cargo fmt"
 
-# Backend configuration
+# Instrument assignment per sheet tier
+# Expensive sheets (work + play) get deep reasoning models.
+# Standard sheets (everything else) get cheaper models.
+# CLI sheets use no LLM.
+instruments:
+  expensive: claude-code              # sheets 3, 5
+  standard: claude-code               # sheets 1, 2, 7-11, 13
+  expensive_model: claude-opus-4-6    # model override for expensive sheets
+  standard_model: claude-sonnet-4-6   # model override for standard sheets
+
+# Backend configuration (fallback when instruments not specified)
 backend:
   type: claude_cli
   skip_permissions: true

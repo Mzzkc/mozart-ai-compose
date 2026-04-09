@@ -1724,6 +1724,36 @@ class TestGeneratorScoreContent:
             score = yaml.safe_load(f)
         prelude_files = [p["file"] for p in score["sheet"]["prelude"]]
         assert any("identity.md" in f for f in prelude_files)
+
+    def test_instrument_model_overrides(self, tmp_path: Path) -> None:
+        """When instruments config specifies models, scores get per-sheet overrides."""
+        config = {
+            "name": "inst-test",
+            "workspace": str(tmp_path / "ws"),
+            "agents": [{"name": "a1", "role": "builder", "focus": "x", "voice": "y"}],
+            "validations": [],
+            "backend": {"type": "claude_cli", "skip_permissions": True, "timeout_seconds": 600},
+            "instruments": {
+                "expensive": "claude-code",
+                "standard": "claude-code",
+                "expensive_model": "claude-opus-4-6",
+                "standard_model": "claude-sonnet-4-6",
+            },
+            "concert": {"max_chain_depth": 10},
+        }
+        cfg_path = tmp_path / "cfg.yaml"
+        with open(cfg_path, "w") as f:
+            yaml.dump(config, f)
+        output = tmp_path / "out"
+        result = run_generator(cfg_path, output)
+        assert result.returncode == 0, result.stderr
+        with open(output / "a1.yaml") as f:
+            score = yaml.safe_load(f)
+        per_sheet = score["sheet"].get("per_sheet_instrument_config", {})
+        # Sheet 3 (work) should get opus model
+        assert per_sheet.get(3, {}).get("model") == "claude-opus-4-6"
+        # Sheet 1 (recon) should get sonnet model
+        assert per_sheet.get(1, {}).get("model") == "claude-sonnet-4-6"
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1864,6 +1894,36 @@ def build_score(config: dict[str, Any], agent: dict[str, Any], output_dir: Path)
         },
     }
 
+    # Instrument assignment per sheet tier
+    # Expensive sheets (3=work, 5=play) get deep reasoning.
+    # Standard sheets (all other AI sheets) get cheaper models.
+    # CLI sheets (4, 6, 12) have no instrument (pure validation).
+    instruments_cfg = config.get("instruments", {})
+    expensive_instrument = instruments_cfg.get("expensive", config["backend"].get("type", "claude_cli"))
+    standard_instrument = instruments_cfg.get("standard", config["backend"].get("type", "claude_cli"))
+    expensive_model = instruments_cfg.get("expensive_model")
+    standard_model = instruments_cfg.get("standard_model")
+
+    # Per-sheet instrument assignment
+    expensive_sheets = [3, 5]  # work + play
+    standard_sheets = [1, 2, 7, 8, 9, 10, 11, 13]
+
+    # Build instrument_map for batch assignment
+    instrument_map: dict[str, list[int]] = {}
+    if expensive_instrument != standard_instrument:
+        # Different instruments for different tiers
+        instrument_map[expensive_instrument] = expensive_sheets
+        instrument_map[standard_instrument] = standard_sheets
+
+    # Build per-sheet instrument_config for model overrides
+    per_sheet_instrument_config: dict[int, dict[str, Any]] = {}
+    if expensive_model:
+        for s in expensive_sheets:
+            per_sheet_instrument_config[s] = {"model": expensive_model}
+    if standard_model:
+        for s in standard_sheets:
+            per_sheet_instrument_config[s] = {"model": standard_model}
+
     score: dict[str, Any] = {
         "name": f"{config['name']}-{name}",
         "workspace": workspace,
@@ -1883,6 +1943,15 @@ def build_score(config: dict[str, Any], agent: dict[str, Any], output_dir: Path)
         },
         "rate_limit": {"wait_minutes": 60, "max_waits": 24},
         "stale_detection": {"enabled": True, "idle_timeout_seconds": 3600},
+    }
+
+    # Add instrument assignment if configured
+    if instrument_map:
+        score["sheet"]["instrument_map"] = instrument_map
+    if per_sheet_instrument_config:
+        score["sheet"]["per_sheet_instrument_config"] = per_sheet_instrument_config
+
+    score.update({
         "concert": {"enabled": True, "max_chain_depth": config["concert"]["max_chain_depth"]},
         "on_success": [
             {
