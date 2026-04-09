@@ -1276,6 +1276,7 @@ class BatonCore:
                     in (
                         BatonSheetStatus.DISPATCHED,
                         BatonSheetStatus.IN_PROGRESS,
+                        BatonSheetStatus.WAITING,
                     )
                 ):
                     # Per-model filtering: skip sheets using a different model
