@@ -1,99 +1,203 @@
-# Marianne Documentation Analysis: Plans, Specs, and Design Documents
+# Marianne Plan Analysis — Audited April 10, 2026
 
-This document categorizes and analyzes the planning and design landscape of the Marianne project as of April 9, 2026.
+Agent-verifiable status of all active plans against the actual codebase.
+Each plan was checked by searching source code for key class/function names
+and comparing git history against spec claims.
+
+---
 
 ## Executive Summary
 
-Marianne is in a transition phase from a "Discipline 1/2" prompt-execution engine to a sophisticated, autonomous "Discipline 3/4" orchestration infrastructure. 
+The project has 73 plan documents in `docs/plans/`. This audit evaluates the
+12 most consequential plans plus the learning store remediation against the
+current codebase. Several plans claim "DRAFT" status but are substantially
+implemented; others are stale or superseded.
 
-The **Baton (Execution Engine)** is the most complete and robust part of the new architecture, providing an event-driven, daemon-centric core. The **Four Disciplines** framework provides the strategic roadmap, with most phases (1-9) now having detailed specifications. **Generic Agent Scores** represents the current active frontier, building identity-driven autonomous agents on top of the established Baton infrastructure.
-
-**Strategic Inflection Point:** As of Movement 5 (April 2026), the project has reached an inflection point where the **Baton** is now the default execution model. The "serial critical path" has accelerated, and the project is focused on the **Marianne Rename** and final **v1 Beta** stabilization.
-
----
-
-## 1. Strategic Foundations & Roadmaps
-
-These documents define the "Why" and the "What" at the highest level.
-
-| Document Group | Files | Completeness | Quality | Complexity |
-| :--- | :--- | :--- | :--- | :--- |
-| **Project Vision** | `VISION.md` | **Partial** | High | Systemic |
-| **North Star Reports** | `workspaces/v1-beta-v3/reports/strategy/M*-north.md` | **Active** | High | Systemic |
-| **Atlas Strategic Alignment** | `workspaces/v1-beta-v3/reports/strategy/M*-atlas-strategic-alignment.md` | **Active** | High | Systemic |
-| **v1-beta Roadmap** | `docs/plans/2026-03-26-v1-beta-roadmap.md` | **Active** | High | Systemic |
-| **Gap Analysis** | `docs/plans/2026-03-01-four-disciplines-gap-analysis-design.md` | **Complete** | High | Systemic |
-
-### Analysis
-- **North Star / Atlas Reports**: These are the authoritative "Movement-by-Movement" strategic assessments. They reveal a project that has shifted from "breadth" (many agents doing parallel work) to "depth" (focused serial work on the critical path).
-- **Critical Path (M5)**: The current focus is the **Marianne Rename** (Phase 2-5), documentation refresh, and the "Wordware" demo presentation layer.
+**Key finding:** The learning store remediation spec (#101, #129) claimed all
+work was done because tests passed, but two critical runtime bugs existed:
+(1) `PatternWeighter` had no frequency floor — the aggregator's
+`_update_all_priorities()` crushed single-occurrence patterns to priority
+~0.075, making them invisible during exploitation; (2) `get_patterns()`
+instrument filtering excluded universal patterns (instrument_name=NULL),
+breaking the spec's "instrument-scoped + universal" requirement. Both fixed
+in commit `26718d7`.
 
 ---
 
-## 2. Plan Inventory (Agent-Readable)
+## 1. Active Plans — Status Audit
 
-| Plan | Directory | Semantic Blurb |
-| :--- | :--- | :--- |
-| **Vision** | `/` | The "AI People" philosophy and long-term orchestration goal. |
-| **Four Disciplines (1-9)** | `docs/plans/` | Strategic roadmap from Foundation to Learning Loops. |
-| **Baton Design** | `docs/plans/` | The event-driven, persistent-state execution engine (Implemented). |
-| **Marianne Rename** | `reports/strategy/` | Phased transition from `marianne` to `mzt` (Active). |
-| **Instrument Fallbacks** | `reports/strategy/` | Complete feature for rate-limit and availability resilience (Implemented). |
-| **Baton Event Flow** | `docs/superpowers/plans/` | Unifying all state changes into the event-driven model (Active). |
-| **Rate Limit Intel** | `docs/superpowers/plans/` | Model-aware rate limiting and automatic instrument fallback. |
-| **Agent Scores** | `docs/superpowers/plans/` | Identity-driven self-chaining agent cycles (Active). |
-| **Instrument Plugins** | `docs/plans/` | Config-driven plugin system for external tools (Implemented). |
-| **Sheet-First Architecture**| `docs/plans/` | Movements, voices, and the "music metaphor" in code (Implemented). |
-| **Marianne Compose** | `docs/plans/compose-system/` | The `mzt compose` command for autonomous score building. |
+### Learning Store Remediation (#101, #129)
+- **Plan:** `docs/plans/2026-03-26-learning-store-remediation-design.md`
+- **Claimed:** DRAFT
+- **Actual:** **COMPLETE** (code) + **BUGS FIXED** (runtime)
+- **Details:**
+  - ✅ `min_priority` default lowered to 0.01
+  - ✅ Soft delete (`active` column, `soft_delete_pattern()`)
+  - ✅ FK constraints dropped (v15 migration)
+  - ✅ `instrument_name` column + filter + index
+  - ✅ `content_hash` dedup (`_compute_content_hash()`, 3-step merge)
+  - ✅ `FREQUENCY_FACTOR_FLOOR = 0.6` in CRUD mixin
+  - 🐛 **FIXED:** `PatternWeighter.calculate_frequency_factor()` had no floor
+  - 🐛 **FIXED:** `get_patterns(instrument_name=X)` now includes universal patterns
+  - **Tests:** 29 TDD tests + 987 total learning tests passing
+
+### Instrument Plugin System
+- **Plan:** `docs/plans/2026-03-26-instrument-plugin-system-design.md`
+- **Claimed:** DRAFT
+- **Actual:** **DONE**
+- **Evidence:** `PluginCliBackend` (303 lines), `CliProfile`, `InstrumentProfile`,
+  `ModelCapacity` all in `src/marianne/execution/instruments/`. Built-in profiles
+  for claude-code, gemini-cli, codex-cli, cline-cli, aider, goose. Profile
+  loading from `~/.marianne/instruments/`.
+
+### The Baton
+- **Plan:** `docs/plans/2026-03-26-baton-design.md`
+- **Claimed:** DRAFT
+- **Actual:** **DONE** (core), **IN PROGRESS** (production integration)
+- **Evidence:** 6,806 lines across 10 files in `src/marianne/daemon/baton/`.
+  `BatonCore` (1,830 lines), `BatonAdapter` (1,746 lines), `Musician` (803 lines),
+  event-driven with timer wheel. 11-state `SheetStatus` enum. Circuit breaker,
+  rate limit handling, cost enforcement. 90 test files reference baton components.
+- **Remaining:** Production conductor integration (Phase 2 roadmap item),
+  legacy runner overrides in conductor.yaml.
+
+### Sheet-First Architecture
+- **Plan:** `docs/plans/2026-03-26-sheet-first-architecture-design.md`
+- **Claimed:** DRAFT
+- **Actual:** **DONE**
+- **Evidence:** `SheetConfig` in `job.py`, movements/voices resolution chains,
+  fan-out expansion, template variable system. Core of the score YAML surface.
+
+### Directory Cadenzas
+- **Plan:** `docs/plans/2026-04-08-directory-cadenza-spec.md`
+- **Claimed:** Spec
+- **Actual:** **IMPLEMENTED**, tests partial
+- **Evidence:** `directory` field on `InjectionItem` in `job.py`. Injection
+  resolver handles directory glob, text/binary classification, structured read
+  instructions. Committed in `c6e7bed`.
+- **Remaining:** Demo score updates (wrap demo data in `{% if not injected_context %}`),
+  dedicated test coverage for directory injection paths.
+
+### Instrument Fallbacks
+- **Plan:** `docs/plans/2026-04-04-instrument-fallbacks-spec.md`
+- **Claimed:** Design Specification
+- **Actual:** **DONE**
+- **Evidence:** `instrument_fallbacks` field on `SheetConfig` and `MovementConfig`
+  in `job.py`. Fallback chain in baton adapter (`fallback_chain=list(sheet.instrument_fallbacks)`).
+  `instrument_fallback_history` in status display. Reconciliation populates fallbacks.
+
+### Safety Hardening
+- **Plan:** `docs/plans/2026-03-26-safety-hardening-design.md`
+- **Claimed:** DRAFT
+- **Actual:** **PARTIAL** (~60% done)
+- **Done:**
+  - ✅ Credential scanning (13 patterns in `utils/credential_scanner.py`)
+  - ✅ Output redaction before storage (`redact_credentials` in context.py)
+  - ✅ Cost tracking visibility (always-visible in status display)
+  - ✅ CLI input validation (`validate_job_id` used across all commands)
+  - ✅ Environment variable filtering for PluginCliBackend
+- **Remaining:**
+  - ❌ Command injection prevention in `command_succeeds` (still uses `subprocess_shell`)
+  - ❌ Workspace path validation for file validations (issue #95 still open)
+  - ❌ `allowed_validation_paths` config field
+  - ❌ First-run cost guard (`mzt doctor` integration)
+  - ❌ Log sanitization processor for structlog
+  - ❌ Security best practices documentation page
+
+### CLI & UX
+- **Plan:** `docs/plans/2026-03-26-cli-ux-design.md`
+- **Claimed:** Design Spec
+- **Actual:** **PARTIAL** (~70% done)
+- **Done:**
+  - ✅ Error message standardization (across run.py, top.py, status.py)
+  - ✅ `mzt init` command with shared profile loader
+  - ✅ Movement-grouped status display
+  - ✅ `validate_job_id` across all CLI commands
+  - ✅ `hello.yaml` → `hello-mozart.yaml` visual upgrade
+- **Remaining:**
+  - ❌ `mzt doctor` command (full health check)
+  - ❌ `mzt instruments` management commands
+  - ❌ Cron command surface
+  - ❌ Full status no-args behavior redesign
+
+### Status Display Beautification
+- **Plan:** `docs/plans/2026-04-04-status-display-beautification.md`
+- **Claimed:** Active
+- **Actual:** **PARTIAL** (~50% done)
+- **Evidence:** `_render_movement_grouped_details()` in status.py provides
+  hierarchical view. Rich panels used throughout. But the full beautification
+  spec (D-029) with polished layout, cost display improvements, and live
+  progress is incomplete.
+
+### Unified State Model (Phase 2)
+- **Plan:** `docs/plans/2026-04-07-unified-state-spec.md`
+- **Claimed:** Phase 1 complete, Phase 2 ready
+- **Actual:** **PHASE 1 DONE**, Phase 2 **NOT STARTED**
+- **Evidence:** Phase 1: 11-state `SheetStatus` enum in `checkpoint.py`,
+  scheduling fields (`fire_at`, `rate_limit_expires_at`), display mapping.
+  Phase 2 requires eliminating `SheetExecutionState` (359 lines in
+  `baton/state.py`) and merging into `SheetState`. This is a large refactoring
+  touching 11+ source files and ~33 test files.
+
+### Intelligent Conductor (Phase 3)
+- **Plan:** `docs/plans/2026-04-07-intelligent-conductor-spec.md`
+- **Claimed:** Ready for implementation
+- **Actual:** **NOT STARTED** (scheduler exists, wiring doesn't)
+- **Evidence:** `GlobalSheetScheduler` class exists in `scheduler.py` with
+  `next_sheet()` method. But `dispatch_ready()` in `dispatch.py` still
+  iterates jobs in registration order. No signal integration, no intent-aware
+  routing, no cost-aware scheduling. Requires baton production integration
+  first.
+
+### Quality Gate Optimization
+- **Plan:** `docs/plans/2026-04-02-quality-gate-optimization.md`
+- **Claimed:** Rosetta Pattern Application
+- **Actual:** **NOT STARTED**
+- **Analysis:** Applies Rosetta corpus patterns (Screening Cascade, Immune
+  Cascade, Echelon Repair) to the quality gate. Requires baton multi-sheet
+  dispatch for the fan-out approach. Blocked on baton production integration.
+
+### Auto-Routing
+- **Plan:** `docs/plans/2026-04-08-auto-routing-design.md`
+- **Claimed:** Early draft
+- **Actual:** **NOT STARTED**, still early draft
+- **Analysis:** Set-intersection tag system for automatic instrument/model
+  selection. No implementation exists. Routing table format not finalized.
+  Requires intelligent conductor (Phase 3) as a dependency.
+
+### v1 Beta Roadmap
+- **Plan:** `docs/plans/2026-03-26-v1-beta-roadmap.md`
+- **Claimed:** DRAFT
+- **Actual:** **PARTIALLY IMPLEMENTED** — of 11 specs listed:
+  - ✅ Instrument Plugin System
+  - ✅ The Baton (core)
+  - ✅ Sheet-First Architecture
+  - ✅ Daemon-Only Architecture (3,236-line manager.py)
+  - ✅ CLI & UX (partial)
+  - ✅ Safety Hardening (partial)
+  - ✅ Provider Compliance (reference doc)
+  - ⬜ Score Looping (not started — no `repeat_until`, `for_each` in config)
+  - ⬜ Flowspec Integration (structural_check not implemented)
+  - ⬜ Documentation Strategy (partial — mkdocs exists, docs score doesn't)
+  - ⬜ Lovable Demo (not finalized)
+
+### Testing Strategy
+- **Plan:** `docs/plans/2026-03-26-testing-strategy-design.md`
+- **Claimed:** DRAFT
+- **Actual:** **PARTIALLY IMPLEMENTED** — 373 test files, 230K lines of tests.
+  Layer 1 (unit tests) extensively covers baton, instruments, sheet construction.
+  9 QA scores exist in `scores-internal/qa/`. Layer 2 (integration) partially
+  done. Layer 3 (QA score adaptation) not started.
 
 ---
 
-## 3. Plan Dependency DAG
+## 2. Implementation Roadmap (Revised)
 
-```mermaid
-graph TD
-    %% Foundations
-    VISION[VISION.md] --> 4D_ROADMAP[4D Gap Analysis]
-    4D_ROADMAP --> PH1[Ph 1: Foundation / Spec Corpus]
-    
-    %% Core Engine
-    PLUGINS[Instrument Plugins] --> BATON[The Baton Engine]
-    SHEET_FIRST[Sheet-First Arch] --> BATON
-    BATON --> EVENT_FLOW[Baton Event Flow Unification]
-    BATON --> RATE_INTEL[Rate Limit Intelligence]
-    BATON --> FALLBACKS[Instrument Fallbacks]
-    
-    %% The Rename (Current Focus)
-    RENAME_P1[Rename Ph 1: Package] --> RENAME_P2[Rename Ph 2: Config/Paths]
-    RENAME_P2 --> RENAME_P3[Rename Ph 3: CLI Command]
-    RENAME_P3 --> RENAME_P4[Rename Ph 4: Docs/Examples]
-    
-    %% Intelligence Layers
-    PH1 --> PH2[Ph 2: Prompt Craft]
-    PH1 --> PH4[Ph 4: Context Engineering]
-    PH2 --> PH3[Ph 3: Intent Infrastructure]
-    PH3 --> PH5[Ph 5: Semantic Evaluation]
-    PH5 --> PH8[Ph 8: Learning Loops]
-    
-    %% Capabilities
-    BATON --> AGENT_SCORES[Generic Agent Scores]
-    PH1 --> AGENT_SCORES
-    PH4 --> AGENT_SCORES
-    
-    %% High-Level Orchestration
-    PH1 --> COMPOSE[Marianne Compose / Ph 7 Planner]
-    PH3 --> COMPOSE
-    PLUGINS --> COMPOSE
-    AGENT_SCORES --> COMPOSE
-    
-    %% Monitoring
-    BATON --> PH9[Ph 9: Dashboard Evolution]
-    PH5 --> PH9
-```
-
----
-
-## 4. Implementation Roadmap (Movement 6+)
+### Phase 0: Stability (P0)
+**Status:** Active — one bug fixed, more may exist
+- Learning store runtime bugs (frequency floor, universal patterns) — ✅ Fixed
+- Verify all plans have accurate status fields
+- Run `mzt doctor` mental model: what breaks on a fresh install?
 
 ### Phase 1: The Rename Completion (P0)
 **Status:** In Progress
@@ -103,7 +207,7 @@ graph TD
 - **Task 1.4:** Verify backward compatibility for legacy path detection.
 
 ### Phase 2: Baton Production Integration (The Integration Cliff)
-**Status:** Critical Risk
+**Status:** Critical Risk — this is the blocking dependency for Phases 3-5
 - **Task 2.1:** Remove legacy runner overrides in `conductor.yaml`.
 - **Task 2.2:** Execute "Live Hello" on the production conductor via the Baton.
 - **Task 2.3:** Resolve "Stale Cost Display" findings (F-108).
@@ -115,17 +219,59 @@ graph TD
 - **Task 3.2:** Finalize the "Lovable" viral demo score.
 - **Task 3.3:** Polished `mzt status` beautification (D-029) refinement.
 
-### Phase 4: Discipline 3 - Intent & Constraints
+### Phase 4: Safety & Polish (NEW — extracted from scattered plans)
 **Status:** Ready for Implementation
-- **Task 4.1:** Implement `IntentConfig` and `intent.yaml` integration.
-- **Task 4.2:** Build heuristic `ConstraintChecker`.
-- **Task 4.3:** Deploy Escalation Triggers and Fermata pauses.
+- **Task 4.1:** Command injection prevention in `command_succeeds`
+- **Task 4.2:** Workspace path validation (issue #95)
+- **Task 4.3:** First-run cost guard in `mzt doctor`
+- **Task 4.4:** Log sanitization structlog processor
+- **Task 4.5:** Directory cadenza tests + demo score updates
+
+### Phase 5: Discipline 3 - Intent & Constraints
+**Status:** Blocked on Phase 2
+- **Task 5.1:** Implement `IntentConfig` and `intent.yaml` integration.
+- **Task 5.2:** Build heuristic `ConstraintChecker`.
+- **Task 5.3:** Deploy Escalation Triggers and Fermata pauses.
+
+### Phase 6: Unified State + Intelligent Conductor
+**Status:** Blocked on Phase 2
+- **Task 6.1:** Eliminate `SheetExecutionState`, merge into `SheetState`
+- **Task 6.2:** Wire `GlobalSheetScheduler` into dispatch loop
+- **Task 6.3:** Signal-weighted priority scoring
+- **Task 6.4:** Intent-aware routing
 
 ---
 
-## 5. Outdated / Superseded Plans
+## 3. Outdated / Superseded Plans
 
-1. **`docs/plans/2026-03-01-four-disciplines-phase6-model-selection.md`**: Superseded by **Instrument Plugins**.
-2. **`docs/plans/2026-03-26-scheduler-conductor-wiring-design.md`**: Superseded by **Baton Design**.
-3. **The "Restaurant Metaphor"**: Officially retired as of Movement 5 in favor of the **Music/Orchestra Metaphor**.
-4. **Older "Evolution" Plans (Feb 2026)**: Superseded by the structured **Four Disciplines Phase 8**.
+1. **`2026-03-01-four-disciplines-phase6-model-selection.md`**: Superseded by **Instrument Plugins**.
+2. **`2026-03-26-scheduler-conductor-wiring-design.md`**: Superseded by **Baton Design**.
+3. **The "Restaurant Metaphor"**: Retired in favor of the **Music/Orchestra Metaphor**.
+4. **Older "Evolution" Plans (Feb 2026)**: Superseded by **Four Disciplines Phase 8**.
+5. **Score Looping (`2026-03-26-score-looping-design.md`)**: Not started, no `repeat_until`
+   or `for_each` constructs exist. May be deprioritized for v1 beta.
+6. **Flowspec Integration (`2026-03-26-flowspec-integration-design.md`)**: `structural_check`
+   validation type not implemented. Blocked on Flowspec tool maturity.
+
+---
+
+## 4. Dependency Graph (Simplified Critical Path)
+
+```
+Learning Store Bugs ──── DONE ✅
+     │
+     ▼
+Rename (Phase 1) ──────── IN PROGRESS
+     │
+     ▼
+Baton Production ──────── BLOCKED (critical risk)
+     │
+     ├──▶ Intelligent Conductor ──▶ Auto-Routing
+     │
+     ├──▶ Quality Gate Optimization
+     │
+     └──▶ Unified State Phase 2
+               │
+               ▼
+          Intent & Constraints
+```
