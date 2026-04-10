@@ -50,6 +50,7 @@ class PatternQueryProtocol(Protocol):
         max_trust: float | None = ...,
         include_inactive: bool = ...,
         instrument_name: str | None = ...,
+        include_universal: bool = ...,
     ) -> list[PatternRecord]: ...
 
     def get_pattern_by_id(self, pattern_id: str) -> PatternRecord | None: ...
@@ -81,6 +82,7 @@ class PatternQueryMixin:
         max_trust: float | None = None,
         include_inactive: bool = False,
         instrument_name: str | None = None,
+        include_universal: bool = True,
     ) -> list[PatternRecord]:
         """Get patterns from the global store.
 
@@ -100,6 +102,9 @@ class PatternQueryMixin:
             max_trust: Filter patterns with trust_score <= this value.
             include_inactive: If True, include soft-deleted patterns (active=0).
             instrument_name: Filter by instrument name. None means no filter.
+            include_universal: If True (default) AND instrument_name is set,
+                              also include patterns where instrument_name is NULL
+                              (universal patterns applicable to all instruments).
 
         Returns:
             List of PatternRecord objects sorted by priority.
@@ -115,9 +120,13 @@ class PatternQueryMixin:
             if pattern_type:
                 wb.add("pattern_type = ?", pattern_type)
 
-            # v14: Instrument name filter — only when explicitly provided
+            # v14: Instrument name filter — when specified, match exact instrument
+            # or (if include_universal) also include NULL (universal) patterns
             if instrument_name is not None:
-                wb.add("instrument_name = ?", instrument_name)
+                if include_universal:
+                    wb.add("(instrument_name = ? OR instrument_name IS NULL)", instrument_name)
+                else:
+                    wb.add("instrument_name = ?", instrument_name)
 
             # v19: Quarantine status filtering
             if quarantine_status is not None:

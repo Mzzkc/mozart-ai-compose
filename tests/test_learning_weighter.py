@@ -138,17 +138,17 @@ class TestFrequencyFactor:
     """Tests for PatternWeighter.calculate_frequency_factor()."""
 
     def test_zero_occurrences(self, weighter: PatternWeighter):
-        """Zero occurrences gives 0.0."""
-        assert weighter.calculate_frequency_factor(0) == 0.0
+        """Zero occurrences returns the floor (minimum guaranteed factor)."""
+        assert weighter.calculate_frequency_factor(0) == weighter.frequency_floor
 
     def test_negative_occurrences(self, weighter: PatternWeighter):
-        """Negative occurrences gives 0.0."""
-        assert weighter.calculate_frequency_factor(-5) == 0.0
+        """Negative occurrences gives the floor (treated as zero)."""
+        assert weighter.calculate_frequency_factor(-5) == weighter.frequency_floor
 
     def test_single_occurrence(self, weighter: PatternWeighter):
-        """One occurrence gives a small but positive factor."""
+        """One occurrence is floored at 0.6, keeping single-occ patterns visible."""
         result = weighter.calculate_frequency_factor(1)
-        assert 0.0 < result < 0.3
+        assert result == weighter.frequency_floor  # 0.6, not the raw ~0.15
 
     def test_moderate_occurrences(self, weighter: PatternWeighter):
         """10 occurrences gives ~0.52."""
@@ -161,10 +161,13 @@ class TestFrequencyFactor:
         assert weighter.calculate_frequency_factor(1000) == 1.0
 
     def test_monotonically_increasing(self, weighter: PatternWeighter):
-        """Frequency factor increases with occurrence count."""
-        values = [weighter.calculate_frequency_factor(n) for n in [1, 5, 10, 50, 100]]
+        """Frequency factor increases with occurrence count (once above floor)."""
+        values = [weighter.calculate_frequency_factor(n) for n in [1, 50, 100, 500, 1000]]
         for i in range(len(values) - 1):
-            assert values[i] < values[i + 1]
+            assert values[i] <= values[i + 1], (
+                f"freq({[1, 50, 100, 500, 1000][i+1]})={values[i+1]} "
+                f"should be >= freq({[1, 50, 100, 500, 1000][i]})={values[i]}"
+            )
 
 
 # ─── Priority Calculation ─────────────────────────────────────────────

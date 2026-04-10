@@ -303,10 +303,9 @@ class TestPatternWeighter:
         assert 0.70 <= recency <= 0.75
 
     def test_frequency_factor(self, weighter: PatternWeighter) -> None:
-        """Test frequency factor calculation."""
-        assert weighter.calculate_frequency_factor(0) == 0.0
-        assert 0.1 <= weighter.calculate_frequency_factor(1) <= 0.2
-        assert 0.5 <= weighter.calculate_frequency_factor(10) <= 0.6
+        """Test frequency factor calculation with floor."""
+        assert weighter.calculate_frequency_factor(0) == weighter.frequency_floor
+        assert weighter.calculate_frequency_factor(1) == weighter.frequency_floor  # floored from ~0.15
         assert weighter.calculate_frequency_factor(100) == 1.0
 
     def test_priority_calculation(self, weighter: PatternWeighter) -> None:

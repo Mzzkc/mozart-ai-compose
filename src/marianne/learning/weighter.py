@@ -29,6 +29,15 @@ DEFAULT_MIN_APPLICATIONS: int = 3
 DEFAULT_FREQUENCY_BASE: int = 100
 """Log base for frequency normalization factor."""
 
+DEFAULT_FREQUENCY_FLOOR: float = 0.6
+"""Minimum frequency factor to prevent single-occurrence patterns from being
+crushed below query thresholds.  Without this, occ=1 produces frequency ≈ 0.15,
+yielding priority ≈ 0.075 — invisible at exploitation_threshold=0.3.
+The floor of 0.6 ensures single-occurrence patterns land at
+priority ≈ effectiveness × 0.6, keeping them queryable.
+Must match FREQUENCY_FACTOR_FLOOR in patterns_crud.py.
+"""
+
 
 class PatternWeighter:
     """Calculates priority scores for patterns.
@@ -74,6 +83,7 @@ class PatternWeighter:
         self.epistemic_threshold = epistemic_threshold
         self.min_applications_for_effectiveness = min_applications_for_effectiveness
         self.frequency_normalization_base = frequency_normalization_base
+        self.frequency_floor = DEFAULT_FREQUENCY_FLOOR
 
     def calculate_priority(
         self,
@@ -183,28 +193,33 @@ class PatternWeighter:
     def calculate_frequency_factor(self, occurrence_count: int) -> float:
         """Calculate frequency factor from occurrence count.
 
-        Formula: frequency = min(1.0, log(count + 1) / log(100))
+        Formula: frequency = max(floor, min(1.0, log(count + 1) / log(100)))
 
         This gives diminishing returns for high counts:
-        - 1 occurrence: ~0.15
-        - 10 occurrences: ~0.52
-        - 50 occurrences: ~0.85
+        - 1 occurrence: max(0.6, ~0.15) = 0.6 (floored)
+        - 10 occurrences: max(0.6, ~0.52) = 0.6 (floored)
+        - 50 occurrences: max(0.6, ~0.85) = 0.85
         - 100+ occurrences: 1.0
+
+        The floor prevents single-occurrence patterns from being crushed
+        below the exploitation query threshold.  See issue #101 and the
+        matching FREQUENCY_FACTOR_FLOOR in patterns_crud.py.
 
         Args:
             occurrence_count: How many times the pattern was observed.
 
         Returns:
-            Frequency factor from 0.0 to 1.0.
+            Frequency factor from ``frequency_floor`` to 1.0.
         """
         if occurrence_count <= 0:
-            return 0.0
+            return self.frequency_floor
 
         base = self.frequency_normalization_base
         log_count = math.log(occurrence_count + 1)
         log_base = math.log(base)
 
-        return min(1.0, log_count / log_base)
+        raw = min(1.0, log_count / log_base)
+        return max(self.frequency_floor, raw)
 
     def is_deprecated(
         self,

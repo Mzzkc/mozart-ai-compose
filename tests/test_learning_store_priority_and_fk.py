@@ -752,7 +752,8 @@ class TestInstrumentIsolation:
     def test_in_001_instrument_filter_returns_only_matching(
         self, store: GlobalLearningStore,
     ) -> None:
-        """TEST-IN-001: Instrument filter returns only patterns from that instrument."""
+        """TEST-IN-001: Instrument filter returns patterns from that instrument
+        PLUS universal patterns (instrument_name=NULL)."""
         store.record_pattern(
             pattern_type="INS_TEST", pattern_name="claude pattern",
             instrument_name="claude-code",
@@ -776,12 +777,39 @@ class TestInstrumentIsolation:
         claude_names = [p.pattern_name for p in claude_patterns]
         gemini_names = [p.pattern_name for p in gemini_patterns]
 
+        # Claude query returns claude patterns + universal patterns
         assert "claude pattern" in claude_names
+        assert "no instrument pattern" in claude_names, "Universal patterns must be included"
         assert "gemini pattern" not in claude_names
-        assert "no instrument pattern" not in claude_names
 
+        # Gemini query returns gemini patterns + universal patterns
         assert "gemini pattern" in gemini_names
+        assert "no instrument pattern" in gemini_names, "Universal patterns must be included"
         assert "claude pattern" not in gemini_names
+
+    def test_in_001b_strict_instrument_filter_excludes_universal(
+        self, store: GlobalLearningStore,
+    ) -> None:
+        """TEST-IN-001b: With include_universal=False, only exact instrument matches."""
+        store.record_pattern(
+            pattern_type="INS_STRICT", pattern_name="claude pattern",
+            instrument_name="claude-code",
+        )
+        store.record_pattern(
+            pattern_type="INS_STRICT", pattern_name="no instrument pattern",
+            instrument_name=None,
+        )
+
+        strict_patterns = store.get_patterns(
+            min_priority=0.0, limit=100,
+            instrument_name="claude-code", include_universal=False,
+        )
+        strict_names = [p.pattern_name for p in strict_patterns]
+
+        assert "claude pattern" in strict_names
+        assert "no instrument pattern" not in strict_names, (
+            "Universal patterns must NOT be included with include_universal=False"
+        )
 
     def test_in_002_no_instrument_filter_returns_all(
         self, store: GlobalLearningStore,
