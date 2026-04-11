@@ -42,8 +42,8 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
+from marianne.core.constants import VALIDATION_PASS_RATE_KEY
 from marianne.core.sheet import Sheet
-from marianne.core.constants import VALIDATION_PASS_RATE_KEY,  SHEET_NUM_KEY
 from marianne.daemon.baton.core import BatonCore
 from marianne.daemon.baton.events import (
     DispatchRetry,
@@ -140,7 +140,7 @@ def attempt_result_to_observer_event(
 
     return {
         "job_id": result.job_id,
-        SHEET_NUM_KEY: result.sheet_num,
+        "sheet_num": result.sheet_num,
         "event": event_name,
         "data": {
             "instrument": result.instrument_name,
@@ -168,7 +168,7 @@ def skipped_to_observer_event(event: SheetSkipped) -> ObserverEvent:
     """
     return {
         "job_id": event.job_id,
-        SHEET_NUM_KEY: event.sheet_num,
+        "sheet_num": event.sheet_num,
         "event": "sheet.skipped",
         "data": {"reason": event.reason},
         "timestamp": event.timestamp,
@@ -866,7 +866,7 @@ class BatonAdapter:
                 max_chars = cross_sheet.max_output_chars
                 template_vars = {
                     "workspace": str(workspace),
-                    SHEET_NUM_KEY: current_sheet_num,
+                    "sheet_num": current_sheet_num,
                 }
                 for pattern in cross_sheet.capture_files:
                     try:
@@ -1095,7 +1095,7 @@ class BatonAdapter:
             "adapter.dispatch.failure_event_sent",
             extra={
                 "job_id": job_id,
-                SHEET_NUM_KEY: sheet_num,
+                "sheet_num": sheet_num,
                 "instrument": instrument_name,
                 "error": error_msg,
             },
@@ -1127,7 +1127,7 @@ class BatonAdapter:
         if sheet is None:
             _logger.error(
                 "adapter.dispatch.sheet_not_found",
-                extra={"job_id": job_id, SHEET_NUM_KEY: sheet_num},
+                extra={"job_id": job_id, "sheet_num": sheet_num},
             )
             self._send_dispatch_failure(
                 job_id, sheet_num,
@@ -1140,7 +1140,7 @@ class BatonAdapter:
         if self._backend_pool is None:
             _logger.error(
                 "adapter.dispatch.no_backend_pool",
-                extra={"job_id": job_id, SHEET_NUM_KEY: sheet_num},
+                extra={"job_id": job_id, "sheet_num": sheet_num},
             )
             self._send_dispatch_failure(
                 job_id, sheet_num,
@@ -1175,7 +1175,7 @@ class BatonAdapter:
                 "adapter.dispatch.backend_acquire_failed",
                 extra={
                     "job_id": job_id,
-                    SHEET_NUM_KEY: sheet_num,
+                    "sheet_num": sheet_num,
                     "instrument": effective_instrument,
                     "error": str(exc),
                 },
@@ -1248,7 +1248,7 @@ class BatonAdapter:
             "adapter.dispatch.spawned",
             extra={
                 "job_id": job_id,
-                SHEET_NUM_KEY: sheet_num,
+                "sheet_num": sheet_num,
                 "instrument": sheet.instrument_name,
                 "attempt": attempt_number,
                 "mode": mode.value,
@@ -1372,7 +1372,7 @@ class BatonAdapter:
                         "adapter.backend_release_failed",
                         extra={
                             "job_id": job_id,
-                            SHEET_NUM_KEY: sheet.num,
+                            "sheet_num": sheet.num,
                         },
                         exc_info=True,
                     )
@@ -1415,14 +1415,14 @@ class BatonAdapter:
                 ))
             _logger.debug(
                 "adapter.musician.cancelled",
-                extra={"job_id": job_id, SHEET_NUM_KEY: sheet_num},
+                extra={"job_id": job_id, "sheet_num": sheet_num},
             )
         elif task.exception():
             _logger.error(
                 "adapter.musician.exception",
                 extra={
                     "job_id": job_id,
-                    SHEET_NUM_KEY: sheet_num,
+                    "sheet_num": sheet_num,
                     "error": str(task.exception()),
                 },
             )
@@ -1448,7 +1448,7 @@ class BatonAdapter:
                 "adapter.event_publish_failed",
                 extra={
                     "job_id": event.job_id,
-                    SHEET_NUM_KEY: event.sheet_num,
+                    "sheet_num": event.sheet_num,
                 },
                 exc_info=True,
             )
@@ -1471,7 +1471,7 @@ class BatonAdapter:
 
         event: ObserverEvent = {
             "job_id": job_id,
-            SHEET_NUM_KEY: 0,
+            "sheet_num": 0,
             "event": event_name,
             "data": data or {},
             "timestamp": time.time(),
@@ -1511,7 +1511,7 @@ class BatonAdapter:
                     "adapter.fallback_event_publish_failed",
                     extra={
                         "job_id": fallback_ev.job_id,
-                        SHEET_NUM_KEY: fallback_ev.sheet_num,
+                        "sheet_num": fallback_ev.sheet_num,
                         "from_instrument": fallback_ev.from_instrument,
                         "to_instrument": fallback_ev.to_instrument,
                     },
@@ -1621,7 +1621,7 @@ class BatonAdapter:
                                 "adapter.stale_check.task_dead",
                                 extra={
                                     "job_id": event.job_id,
-                                    SHEET_NUM_KEY: event.sheet_num,
+                                    "sheet_num": event.sheet_num,
                                 },
                             )
                             # Inject synthetic failure

@@ -18,8 +18,8 @@ from pathlib import Path
 from typing import Any
 
 from marianne.core.config import ValidationRule
-from marianne.core.constants import SHEET_NUM_KEY
 from marianne.core.constants import (
+    SHEET_NUM_KEY,
     VALIDATION_COMMAND_TIMEOUT_SECONDS,
     VALIDATION_OUTPUT_TRUNCATE_CHARS,
 )

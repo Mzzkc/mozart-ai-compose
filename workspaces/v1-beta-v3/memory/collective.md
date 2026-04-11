@@ -172,3 +172,7 @@ Newcomer, Adversary
 
 **Forge M6:** F-513 investigation - identified pause/cancel failure root cause in manager.py:1280 where missing wrapper task triggers destructive FAILED assignment. Baton jobs need different control path - send events directly without checking _jobs dict. Test failure: test_dashboard_auth test_expired_entries_cleaned fails in suite, passes isolated (test ordering issue).
 
+
+### Foundation M6 Session 1
+- **F-514 RESOLVED:** TypedDict construction with SHEET_NUM_KEY variable broke mypy (27 errors across 5 files). Root cause: 7f1b435 refactor centralized magic strings but TypedDict requires literal keys for type safety. Fixed by replacing `SHEET_NUM_KEY: value` with `"sheet_num": value` in TypedDict construction sites. Fixed 3 additional sites where `.get(SHEET_NUM_KEY, 0)` returned `object` instead of `int` by using direct TypedDict field access `event["sheet_num"]`. Mypy clean, ruff clean (auto-fixed 26 import sorting errors). Constant remains valid for regular dict operations. Commit pending test verification.
+

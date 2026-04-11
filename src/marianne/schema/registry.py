@@ -13,8 +13,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal, Union, get_args, get_origin
 
-from marianne.core.logging import get_logger
 from marianne.core.constants import SHEET_NUM_KEY
+from marianne.core.logging import get_logger
 
 _logger = get_logger("schema.registry")
 

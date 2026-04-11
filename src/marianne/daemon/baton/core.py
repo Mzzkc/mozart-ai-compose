@@ -29,8 +29,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from marianne.daemon.baton.dispatch import DispatchConfig
 
-from marianne.core.logging import get_logger
 from marianne.core.constants import SHEET_NUM_KEY
+from marianne.core.logging import get_logger
 from marianne.daemon.baton.events import (
     BatonEvent,
     CancelJob,

@@ -21,8 +21,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
 from marianne.core.checkpoint import SheetStatus, ValidationDetailDict
-from marianne.core.logging import get_logger
 from marianne.core.constants import VALIDATION_PASS_RATE_KEY
+from marianne.core.logging import get_logger
 from marianne.learning.outcomes import SheetOutcome
 
 

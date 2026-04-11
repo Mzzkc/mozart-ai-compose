@@ -8,9 +8,9 @@ import difflib
 import re
 from typing import TYPE_CHECKING
 
+from marianne.core.constants import SHEET_NUM_KEY
 from marianne.healing.diagnosis import Diagnosis
 from marianne.healing.remedies.base import BaseRemedy, RemedyCategory, RemedyResult, RiskLevel
-from marianne.core.constants import SHEET_NUM_KEY
 
 if TYPE_CHECKING:
     from marianne.healing.context import ErrorContext

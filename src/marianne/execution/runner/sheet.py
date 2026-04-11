@@ -50,7 +50,11 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from marianne.core.constants import VALIDATION_PASS_RATE_KEY,  SHEET_NUM_KEY,  TRUNCATE_STDOUT_TAIL_CHARS
+from marianne.core.constants import (
+    SHEET_NUM_KEY,
+    TRUNCATE_STDOUT_TAIL_CHARS,
+    VALIDATION_PASS_RATE_KEY,
+)
 from marianne.core.tokens import (
     TokenBudgetTracker,
     estimate_tokens,

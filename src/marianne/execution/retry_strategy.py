@@ -38,6 +38,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import TYPE_CHECKING
 
+from marianne.core.constants import SHEET_NUM_KEY
 from marianne.core.errors import (
     ClassificationResult,
     ClassifiedError,
@@ -46,7 +47,6 @@ from marianne.core.errors import (
     RetryBehavior,
     RetryDelays,
 )
-from marianne.core.constants import SHEET_NUM_KEY
 from marianne.core.logging import get_logger
 
 if TYPE_CHECKING:

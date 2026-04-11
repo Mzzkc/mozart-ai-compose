@@ -7,8 +7,8 @@ would cause runtime errors.
 import difflib
 from pathlib import Path
 
-from marianne.core.logging import get_logger
 from marianne.core.constants import SHEET_NUM_KEY
+from marianne.core.logging import get_logger
 
 _logger = get_logger("validation.jinja")
 

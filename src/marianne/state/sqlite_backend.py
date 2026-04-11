@@ -17,8 +17,8 @@ from typing import Any
 import aiosqlite
 
 from marianne.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
-from marianne.core.logging import get_logger
 from marianne.core.constants import SHEET_NUM_KEY
+from marianne.core.logging import get_logger
 from marianne.state.base import StateBackend
 from marianne.utils.time import utc_now
 

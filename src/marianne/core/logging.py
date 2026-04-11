@@ -45,10 +45,10 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Literal
 
-from marianne.core.constants import SHEET_NUM_KEY
-
 import structlog
 from structlog.types import EventDict, Processor, WrappedLogger
+
+from marianne.core.constants import SHEET_NUM_KEY
 
 # Sensitive field patterns that should never be logged
 SENSITIVE_PATTERNS = frozenset({

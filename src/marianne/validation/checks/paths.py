@@ -252,7 +252,9 @@ class PreludeCadenzaFileCheck:
         for sheet_num, items in config.sheet.cadenzas.items():
             for item in items:
                 issues.extend(
-                    self._check_item(item, f"cadenza (sheet {sheet_num})", config, config_path, raw_yaml)
+                    self._check_item(
+                        item, f"cadenza (sheet {sheet_num})", config, config_path, raw_yaml
+                    )
                 )
 
         return issues

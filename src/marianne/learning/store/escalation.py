@@ -20,8 +20,8 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager
 from datetime import datetime
 
+from marianne.core.constants import SHEET_NUM_KEY, VALIDATION_PASS_RATE_KEY
 from marianne.core.logging import MarianneLogger, get_logger
-from marianne.core.constants import VALIDATION_PASS_RATE_KEY,  SHEET_NUM_KEY
 
 from .base import WhereBuilder
 from .models import EscalationDecisionRecord

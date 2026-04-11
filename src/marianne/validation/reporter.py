@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, Any, TypedDict
 from rich.console import Console
 from rich.panel import Panel
 
-from marianne.validation.base import ValidationIssue, ValidationSeverity
 from marianne.core.constants import SHEET_NUM_KEY
+from marianne.validation.base import ValidationIssue, ValidationSeverity
 
 if TYPE_CHECKING:
     from marianne.validation.rendering import RenderingPreview

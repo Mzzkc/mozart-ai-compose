@@ -30,8 +30,8 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-from marianne.core.logging import get_logger
 from marianne.core.constants import SHEET_NUM_KEY
+from marianne.core.logging import get_logger
 from marianne.daemon.baton.core import BatonCore
 from marianne.daemon.baton.events import SheetDispatched
 from marianne.daemon.baton.state import BatonSheetStatus, SheetExecutionState

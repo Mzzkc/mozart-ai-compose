@@ -21,8 +21,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from marianne.core.constants import SHEET_NUM_KEY, VALIDATION_PASS_RATE_KEY
 from marianne.core.logging import MarianneLogger
-from marianne.core.constants import VALIDATION_PASS_RATE_KEY,  SHEET_NUM_KEY
 from marianne.learning.outcomes import SheetOutcome
 from marianne.learning.store.base import WhereBuilder, _logger
 from marianne.learning.store.models import ExecutionRecord

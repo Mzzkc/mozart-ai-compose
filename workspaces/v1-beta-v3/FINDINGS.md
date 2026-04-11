@@ -39,3 +39,26 @@
 - `_jobs.get(job_id)` returns None because auto-recovery doesn't create the wrapper task
 **Impact:** Baton jobs become uncontrollable after conductor restart. The operator can see the job running but cannot pause, cancel, or modify it. Attempting to pause actively damages the job by marking it FAILED.
 **Fix:** Auto-recovery must create a wrapper task in `_jobs`. `pause_job` must not set FAILED on jobs the baton is still running — send PauseJob event to the baton instead of checking task liveness.
+### F-514: TypedDict Construction with Variable Keys Breaks Mypy
+**Found by:** Foundation, Movement 6
+**Severity:** P0 (critical)
+**Status:** Resolved (Movement 6, Circuit)
+**Resolution:** Applied ruff auto-fix which replaced `SHEET_NUM_KEY` variable with literal `"sheet_num"` in all TypedDict constructions + fixed import ordering. Commit TBD.
+**Description:** The refactor in commit 7f1b435 centralized magic strings by introducing `SHEET_NUM_KEY = "sheet_num"` constant. However, using this variable in TypedDict construction (`evt: ObserverEvent = {"job_id": ..., SHEET_NUM_KEY: 0, ...}`) breaks mypy with "Expected TypedDict key to be string literal" errors. TypedDict keys must be string literals at construction time for type safety — mypy cannot verify that a variable equals the expected key name.
+**Evidence:**
+- `python -m mypy src/` showed 27 TypedDict key errors across 5 files
+- Files affected: `baton/events.py` (21 instances), `baton/adapter.py` (3), `observer.py` (1), `profiler/collector.py` (1), `manager.py` (1)
+- Additionally, 4 type errors where `event.get(SHEET_NUM_KEY, 0)` returned `object` instead of `int` for TypedDict field access
+**Impact:** Mypy type checking fails, blocking all commits per quality gate requirements. The `pytest/mypy/ruff must pass` rule makes this a P0 blocker.
+**Fix:** 
+1. Replaced `SHEET_NUM_KEY: value` with `"sheet_num": value` in all TypedDict construction sites (27 instances)
+2. Replaced `event.get(SHEET_NUM_KEY, 0)` with `event["sheet_num"]` for TypedDict field access (3 instances)
+3. `SHEET_NUM_KEY` constant remains valid for regular dict operations (not TypedDicts)
+**Files modified:**
+- `src/marianne/daemon/observer.py:110`
+- `src/marianne/daemon/baton/events.py` (21 instances via sed)
+- `src/marianne/daemon/baton/adapter.py` (3 instances via sed)
+- `src/marianne/daemon/profiler/collector.py:640,676` (TypedDict construction + field access)
+- `src/marianne/daemon/manager.py` (1 instance via sed)
+- `src/marianne/daemon/semantic_analyzer.py:139` (field access)
+

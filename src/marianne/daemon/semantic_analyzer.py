@@ -18,8 +18,8 @@ from typing import Any
 
 from marianne.backends.base import Backend
 from marianne.core.checkpoint import CheckpointState
-from marianne.core.logging import get_logger
 from marianne.core.constants import SHEET_NUM_KEY
+from marianne.core.logging import get_logger
 from marianne.daemon.config import SemanticLearningConfig
 from marianne.daemon.event_bus import EventBus
 from marianne.daemon.learning_hub import LearningHub
@@ -136,7 +136,7 @@ class SemanticAnalyzer:
         """
         event_type = event.get("event", "")
         job_id = event.get("job_id", "")
-        sheet_num = event.get(SHEET_NUM_KEY, 0)
+        sheet_num = event["sheet_num"]  # TypedDict access has correct type
 
         # Determine if this event outcome matches our analyze_on filter
         if event_type == "sheet.completed" and "success" not in self._config.analyze_on:

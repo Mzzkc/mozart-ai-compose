@@ -19,8 +19,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, cast
 
-from marianne.core.logging import get_logger
 from marianne.core.constants import SHEET_NUM_KEY
+from marianne.core.logging import get_logger
 from marianne.daemon.exceptions import DaemonNotRunningError
 from marianne.daemon.ipc.errors import rpc_error_to_exception
 from marianne.daemon.ipc.protocol import JsonRpcRequest

@@ -43,7 +43,7 @@ import jinja2
 
 from marianne.backends.base import Backend, ExecutionResult
 from marianne.core.config.job import InjectionCategory, InjectionItem
-from marianne.core.constants import SHEET_NUM_KEY,  TRUNCATE_STDOUT_TAIL_CHARS
+from marianne.core.constants import SHEET_NUM_KEY, TRUNCATE_STDOUT_TAIL_CHARS
 from marianne.core.logging import get_logger
 from marianne.core.sheet import Sheet
 from marianne.daemon.baton.events import SheetAttemptResult

@@ -94,7 +94,7 @@ class InjectionItem(BaseModel):
     )
 
     @model_validator(mode="after")
-    def exactly_one_source(self) -> "InjectionItem":
+    def exactly_one_source(self) -> InjectionItem:
         """Ensure exactly one of file or directory is specified."""
         if self.file and self.directory:
             raise ValueError("Specify 'file' or 'directory', not both.")

@@ -22,8 +22,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 import typer
 
-from marianne.core.logging import get_logger
 from marianne.core.constants import SHEET_NUM_KEY
+from marianne.core.logging import get_logger
 from marianne.daemon.config import DaemonConfig
 from marianne.daemon.pgroup import ProcessGroupManager
 from marianne.daemon.task_utils import log_task_exception
