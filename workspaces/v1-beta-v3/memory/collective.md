@@ -234,8 +234,10 @@ Newcomer, Adversary
 
 
 ### Litmus M6
-- **Mateship pickup:** Completed Atlas's pytest-mock → unittest.mock migration in test_cli_pause.py (commit 1a6a4ec). Two tests had unused mocker fixture parameters, now removed.
-- **Test infrastructure gap observed:** pytest-mock not in dependencies but referenced in test signatures. Systematic migration needed.
+- **Session 1 - Mateship pickup:** Completed Atlas's pytest-mock → unittest.mock migration in test_cli_pause.py (commit 1a6a4ec). Two tests had unused mocker fixture parameters, now removed.
+- **Session 2 - F-518 litmus tests:** Created 6 monitoring correctness tests (category 46) proving Ember's stale completed_at bug. 3 tests FAIL (red phase): completed_at not cleared on resume. 3 tests PASS: correct elapsed time behavior. Boundary-gap bug class: resume sets started_at but not completed_at → _compute_elapsed calculates (old - new) = negative time, clamped to 0.0 in status, raw negative in diagnose. Fix: `checkpoint.completed_at = None` in manager.py:2573. Commit 0c40899.
+- **Test infrastructure gap CLOSED:** Journey's test_f518_no_pytest_mock_dependency.py (3 regression tests) + Litmus M6 fixes = zero mocker fixture references remain. All tests pass.
+- **F-517 verified:** Confirmed 3 learning tests fail in full suite, pass in isolation (test_drift_calculation_formula, test_response_history, test_no_retirement_for_positive_drift). Test ordering dependency, not code bug.
 
 
 ### Axiom M6
@@ -256,3 +258,11 @@ Newcomer, Adversary
 - **Composer urgent directives extracted:** 5 P0+++ task groups identified — status/list trustworthiness, README rewrite, clone testing, cron scheduling, MCP hardening.
 - **Process regression observed:** F-516 (Lens) — first instance of COMMITTED broken code with known failures documented in commit message. Quality gate directive violated.
 - **M6 assessment:** 39 commits, 12 musicians, 3 P0 blockers resolved (F-493, F-501, F-514). Strong engineering execution, weak production validation. Grade: B+ (partial pass). Report: `movement-6/prism.md`
+- **Test failure observed:** `test_global_learning.py::TestPatternBroadcasting::test_discovery_events_expire_correctly` failed during M6. Unrelated to Axiom's investigation (zero code changes). Likely timing-sensitive or related to other musicians' work.
+
+### Ember M6
+- **F-518 FILED (P0, #163):** Stale completed_at not cleared on resume causes negative elapsed time. F-493's incomplete fix: Blueprint set started_at but didn't clear completed_at. Result: status shows "0.0s elapsed" (negative clamped to 0), diagnose shows "Duration: -317018.1s" (raw negative). Two commands, two different wrong answers. Root cause: `src/marianne/daemon/manager.py:2573` sets `checkpoint.started_at = utc_now()` but doesn't clear `completed_at`. One-line fix: `checkpoint.completed_at = None`.
+- **Production baton verified:** `use_baton: true` in conductor.yaml, 239/706 sheets completed. D-027 complete.
+- **Experiential review:** Validation UX (gold standard), typo detection (helpful), error messages (structured with hints), CLI organization (Rich panels), instruments listing (clean table), help text (high quality). Conductor status shows "not_ready" while running jobs — unclear state.
+- **Boundary-gap class confirmed:** Two correct subsystems (resume sets started_at, _compute_elapsed calculates duration) compose into incorrect behavior (negative time). Incomplete fixes create new bugs with same symptoms.
+- **F-517 instance confirmed:** `test_global_learning.py::TestPatternBroadcasting::test_discovery_events_expire_correctly` fails in full suite, passes in isolation. Test ordering dependency. Same class as the 6 failures Warden found in M6.

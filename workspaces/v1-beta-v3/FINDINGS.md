@@ -1,3 +1,21 @@
+### F-518: Stale completed_at Not Cleared on Resume Causes Negative Elapsed Time
+**Found by:** Ember, Movement 6
+**Severity:** P0 (critical)
+**Status:** Open
+**GitHub Issue:** #163
+**Description:** When a job is resumed, the `started_at` timestamp is correctly reset to the current time (F-493 fix), but the `completed_at` timestamp from the previous run is not cleared. This causes `_compute_elapsed()` to calculate a negative duration (completed_at - started_at), which gets clamped to 0.0. The diagnose command shows the actual negative value.
+**Evidence:**
+- Job `marianne-orchestra-v3` JSON output shows:
+  - `started_at: "2026-04-11T22:19:35"` (recent)
+  - `completed_at: "2026-04-08T06:15:57"` (3+ days earlier, stale from previous run)
+  - Calculated elapsed: `(2026-04-08 - 2026-04-11) = -317,018 seconds`
+- Command: `mzt status marianne-orchestra-v3` shows "Status: RUNNING · 0.0s elapsed" (clamped)
+- Command: `mzt diagnose marianne-orchestra-v3` shows "Duration: -317018.1s" (unclamped)
+- File: `src/marianne/cli/commands/status.py:395-403` — `_compute_elapsed()` returns `max(elapsed, 0.0)` which clamps negative to 0
+- File: `src/marianne/daemon/manager.py:2573` — resume sets `checkpoint.started_at = utc_now()` but doesn't clear `completed_at`
+**Impact:** Users see obviously wrong data in both status and diagnose outputs. Status shows "0.0s elapsed" for a job that's been running for an hour. Diagnose shows a nonsensical negative duration. This is worse than F-493 because it manifests in two different places and one of them shows the raw negative value. Complete erosion of trust in monitoring data.
+**Fix:** Add `checkpoint.completed_at = None` in `manager.py:2573` (immediately after `started_at = utc_now()`). Add test that verifies resumed jobs have `None` for `completed_at` until they actually complete.
+
 ### F-515: MovementDef.voices Field Documented but Not Implemented
 **Found by:** Spark, Movement 6
 **Severity:** P2 (medium)
@@ -82,10 +100,26 @@
 
 
 
+### F-519: Pattern Discovery Expiry Timing Bug (Test Flakiness)
+**Found by:** Journey, Movement 6
+**Severity:** P2 (medium)
+**Status:** Resolved (Movement 6, Journey)
+**Resolution:** Increased TTL in test_discovery_events_expire_correctly from 0.1s to 2.0s. The 100ms TTL was too short for parallel test execution with xdist - scheduling overhead between record and query could exceed the TTL, causing the pattern to expire before verification. Commit TBD.
+**Description:** The `test_discovery_events_expire_correctly` test in `tests/test_global_learning.py:3603` failed intermittently when run in the full test suite but passed in isolation. This was NOT a test isolation issue (F-517) but a race condition in the test itself.
+**Evidence:**
+- Test passed in isolation: `pytest tests/test_global_learning.py::TestPatternBroadcasting::test_discovery_events_expire_correctly -xvs` → PASS
+- Test failed in full suite: `pytest tests/test_global_learning.py -x` → FAILED at line 3620
+- Root cause: TTL of 0.1s (100ms) is shorter than xdist worker scheduling overhead under parallel execution
+- When `record_pattern_discovery()` completes and `get_active_pattern_discoveries()` runs, >100ms may have elapsed, causing the pattern to already be expired
+- Log output showed "expires in 0s" confirming the pattern was recorded but expired immediately
+**Impact:** Flaky test blocking quality gate. False negative - code is correct, test timing is unrealistic.
+**Fix:** Changed TTL from 0.1s to 2.0s (gives sufficient margin for scheduling delays while still testing expiry). Changed sleep from 0.2s to 2.5s. Added F-519 reference comment. Added regression test `tests/test_f519_discovery_expiry_timing.py` demonstrating the race condition and verifying the fix.
+
 ### F-517: Test Suite Isolation Gaps — Ordering-Dependent Failures
 **Found by:** Warden, Movement 6
 **Severity:** P2 (medium)
-**Status:** Open
+**Status:** Partially Resolved (Movement 6, Journey)
+**Resolution:** F-519 resolved the TestPatternBroadcasting::test_discovery_events_expire_correctly failure - it was a timing bug, not isolation. Remaining 5 tests from F-517 still need investigation.
 **Description:** Six tests fail when run in the full test suite but pass when run in isolation. This indicates test isolation gaps - likely shared state pollution, mock cleanup issues, or teardown problems.
 **Evidence:**
 ```bash
