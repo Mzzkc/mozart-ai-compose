@@ -1,7 +1,8 @@
 ### F-518: Stale completed_at Not Cleared on Resume Causes Negative Elapsed Time
 **Found by:** Ember, Movement 6
 **Severity:** P0 (critical)
-**Status:** Open
+**Status:** Resolved (Movement 6, Weaver)
+**Resolution:** Two-part fix: (1) CheckpointState model validator clears completed_at when status=RUNNING (defensive), (2) manager.py:2579 explicit clear during resume (primary). Fixed Litmus's test bug (tests didn't trigger Pydantic validators). Commit 47dce21.
 **GitHub Issue:** #163
 **Description:** When a job is resumed, the `started_at` timestamp is correctly reset to the current time (F-493 fix), but the `completed_at` timestamp from the previous run is not cleared. This causes `_compute_elapsed()` to calculate a negative duration (completed_at - started_at), which gets clamped to 0.0. The diagnose command shows the actual negative value.
 **Evidence:**

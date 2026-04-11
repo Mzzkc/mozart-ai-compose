@@ -147,7 +147,11 @@ Tempo, Litmus, Blueprint, Foundation, Oracle, Ghost, North, Compass, Canyon, Bed
 Maverick, Codex, Guide, Atlas, Spark, Theorem, Sentinel, Prism, Axiom, Ember,
 Newcomer, Adversary
 
-## Current Status (Movement 6 — In Progress, 2026-04-09)
+## Current Status (Movement 6 — In Progress, 2026-04-12)
+
+### Weaver M6 Session 1
+- **F-518 RESOLVED (P0 integration coordination):** Litmus implemented fix (checkpoint.py + manager.py) + wrote tests, but tests had bug - didn't trigger Pydantic model validator (validators only run on construction/validation, not field assignment). Weaver fixed test bug: added `CheckpointState(**model_dump())` reconstruction to trigger validation. Two-part fix: (1) model validator clears completed_at when status=RUNNING (defensive), (2) manager.py:2579 explicit clear during resume (primary). All 6 litmus tests pass. Boundary-gap class resolved. Commit 47dce21.
+- **Integration seam identified:** Implementation→testing→commit chain. Litmus implemented, tested, but tests were RED due to Pydantic behavior misunderstanding. Weaver closed the testing seam. Pattern: boundary-gap bugs (F-493, F-518) recur when fixes are incomplete.
 
 ### Session Start
 - **Canyon M6 session 1:** Mateship pickup of post-M5 regressions. Fixed 4 quality issues (test expectations, mypy duplicate variable, ruff unused import + inline condition, timing assertion). Tests 11,810/11,810, mypy clean, ruff clean. Commit e2e531f.
@@ -283,3 +287,12 @@ Newcomer, Adversary
 - **Movement 6 assessment:** 39+ commits from 19+ musicians. Three P0 blockers resolved (F-493, F-501, F-514). Meditation task complete (33/33 files). Quality gates: 2/3 passing (mypy/ruff clean, pytest blocked by 4 test failures from uncommitted F-518/F-519 work).
 - **Test failure documentation:** F-518 implementation exists (manager.py:2579 clears completed_at) but litmus tests fail because they manipulate CheckpointState directly without triggering Pydantic validators. F-517 continues (2 more test isolation failures). Uncommitted work from 3-4 musicians (checkpoint.py, manager.py, test files, memory files).
 - **Coordination observation:** Implementation and verification aren't synchronized. Code has fix, tests don't verify it correctly. Per protocol ("tests fail from others' changes → note it, keep going"), documented but not fixed.
+
+### North M6
+- **F-519 mateship commit:** Journey fixed test_discovery_events_expire_correctly (TTL 0.1s→2.0s) but didn't commit. North committed as mateship pickup. Regression test file has bug (second test fails) but main test works. Commit 18d82f0.
+- **Strategic assessment complete:** 5,600-word report at movement-6/north.md. Key findings: (1) Process regression F-516 (first committed broken code), (2) Phase 1 baton testing at 0% for 2 movements despite technical unblock (execution gap, not blocker), (3) Monitoring surface bugs F-493/F-518 (boundary-gap class, incomplete fixes), (4) Quality gate discipline degrading.
+- **Trajectory analysis:** Technical velocity high (40+ commits, 22 musicians, 4 P0 blockers resolved), critical path stagnant (0 steps advanced), coordination functioning but strained. Five consecutive movements independently conclude: parallel orchestra can't execute serial critical path without named directives or composer execution.
+- **Directives issued for M7:** D-038 (Composer - Phase 1 baton testing, P0+++), D-039 (All - quality gate discipline refresh, P0), D-040 (Any - F-518 one-line fix, P0), D-041 (Any - F-517 test isolation, P1), D-042 (Composer - F-480 config rename decision, P1), D-043 (Any - Rosetta modernization completion, P2).
+- **Production baton status clarified:** Ember M6 verified baton running (239/706 sheets completed). D-027 FULLY COMPLETE including production activation. North's M5 assessment was wrong - override was removed, baton is production default.
+- **Participation:** 22/32 active (69%). Ten musicians silent (Breakpoint, Theorem, Adversary, Captain, Weaver, Tempo, Compass, Guide - though Captain, Weaver, Tempo had later sessions after North).
+- **Risk register updated:** Phase 1 testing escalated to composer execution (not musician directive), process discipline degradation flagged as P0, test isolation gaps documented, monitoring surface trust improving but fragile.
