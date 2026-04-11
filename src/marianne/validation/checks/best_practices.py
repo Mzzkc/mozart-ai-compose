@@ -8,13 +8,14 @@ import re
 from pathlib import Path
 
 from marianne.core.config import JobConfig
+from marianne.core.constants import SHEET_NUM_KEY
 from marianne.validation.base import ValidationIssue, ValidationSeverity
 from marianne.validation.checks._helpers import find_line_in_yaml
 
 # Built-in template variable names used by Marianne's rendering engine.
 _BUILTIN_NAMES: frozenset[str] = frozenset({
     "workspace",
-    "sheet_num",
+    SHEET_NUM_KEY,
     "total_sheets",
     "start_item",
     "end_item",
@@ -492,7 +493,7 @@ class SkipWhenSheetRangeCheck:
                         suggestion=(
                             f"Remove sheet {k} or adjust total_sheets / fan-out"
                         ),
-                        metadata={"sheet_num": str(k), "source": "skip_when"},
+                        metadata={SHEET_NUM_KEY: str(k), "source": "skip_when"},
                     )
                 )
 
@@ -510,7 +511,7 @@ class SkipWhenSheetRangeCheck:
                             f"Remove sheet {k} or adjust total_sheets / fan-out"
                         ),
                         metadata={
-                            "sheet_num": str(k),
+                            SHEET_NUM_KEY: str(k),
                             "source": "skip_when_command",
                         },
                     )

@@ -51,11 +51,9 @@ from marianne.daemon.baton.state import (
     BatonSheetStatus,
 )
 
-
 # =========================================================================
 # Fixtures
 # =========================================================================
-
 
 def _make_sheet(
     num: int = 1,
@@ -79,11 +77,9 @@ def _make_sheet(
         timeout_seconds=timeout,
     )
 
-
 def _make_adapter(**kwargs: Any) -> BatonAdapter:
     """Create a BatonAdapter with defaults."""
     return BatonAdapter(**kwargs)
-
 
 def _make_checkpoint_sheet(
     sheet_num: int = 1,
@@ -99,18 +95,15 @@ def _make_checkpoint_sheet(
         completion_attempts=completion_attempts,
     )
 
-
 def _make_checkpoint(sheets: dict[int, SheetState] | None = None) -> MagicMock:
     """Create a mock CheckpointState with given sheets."""
     cp = MagicMock(spec=CheckpointState)
     cp.sheets = sheets or {}
     return cp
 
-
 # =========================================================================
 # 1. State Mapping — Totality and Inverse Consistency
 # =========================================================================
-
 
 class TestStateMappingTotality:
     """Every BatonSheetStatus MUST have a checkpoint mapping."""
@@ -164,11 +157,9 @@ class TestStateMappingTotality:
         """CANCELLED maps 1:1 to 'cancelled' since Phase 1."""
         assert baton_to_checkpoint_status(BatonSheetStatus.CANCELLED) == "cancelled"
 
-
 # =========================================================================
 # 2. Recovery Edge Cases
 # =========================================================================
-
 
 class TestRecoverJobEdgeCases:
     """Adversarial scenarios for recover_job() — the restart recovery path."""
@@ -310,11 +301,9 @@ class TestRecoverJobEdgeCases:
         assert state is not None
         assert state.status == BatonSheetStatus.SKIPPED
 
-
 # =========================================================================
 # 3. Dispatch Callback Edge Cases
 # =========================================================================
-
 
 class TestDispatchCallbackEdgeCases:
     """Adversarial scenarios for _dispatch_callback()."""
@@ -464,142 +453,13 @@ class TestDispatchCallbackEdgeCases:
         call_kwargs = pool.acquire.call_args
         assert call_kwargs[1]["model"] is None
 
-
 # =========================================================================
 # 4. State Sync Filtering
 # =========================================================================
 
-
-@pytest.mark.skip(reason="Phase 2: sync layer removed, replaced by persist callback")
-class TestStateSyncFiltering:
-    """Verify _sync_sheet_status only fires for state-changing events."""
-
-    def test_sync_fires_for_attempt_result(self) -> None:
-        """SheetAttemptResult triggers state sync callback."""
-        sync_calls: list[tuple[str, int, str]] = []
-        adapter = _make_adapter(
-            state_sync_callback=lambda j, s, st, bs: sync_calls.append((j, s, st))
-        )
-        sheets = [_make_sheet(num=1)]
-        adapter.register_job("j1", sheets, {1: []})
-
-        result = SheetAttemptResult(
-            job_id="j1", sheet_num=1,
-            instrument_name="claude-code", attempt=1,
-        )
-        adapter._sync_sheet_status(result)
-
-        assert len(sync_calls) == 1
-        assert sync_calls[0][0] == "j1"
-        assert sync_calls[0][1] == 1
-
-    def test_sync_fires_for_sheet_skipped(self) -> None:
-        """SheetSkipped triggers state sync callback."""
-        sync_calls: list[tuple[str, int, str]] = []
-        adapter = _make_adapter(
-            state_sync_callback=lambda j, s, st, bs: sync_calls.append((j, s, st))
-        )
-        sheets = [_make_sheet(num=1)]
-        adapter.register_job("j1", sheets, {1: []})
-
-        # Skip the sheet in the baton first so status lookup works
-        skip_event = SheetSkipped(job_id="j1", sheet_num=1, reason="test")
-        adapter._sync_sheet_status(skip_event)
-
-        assert len(sync_calls) == 1
-
-    def test_sync_ignores_dispatch_retry(self) -> None:
-        """DispatchRetry does not affect sheet status — no sync."""
-        sync_calls: list[tuple[str, int, str]] = []
-        adapter = _make_adapter(
-            state_sync_callback=lambda j, s, st, bs: sync_calls.append((j, s, st))
-        )
-
-        event = DispatchRetry()
-        adapter._sync_sheet_status(event)
-
-        assert len(sync_calls) == 0
-
-    def test_sync_ignores_rate_limit_expired(self) -> None:
-        """RateLimitExpired does not directly have job_id/sheet_num — no sync."""
-        sync_calls: list[tuple[str, int, str]] = []
-        adapter = _make_adapter(
-            state_sync_callback=lambda j, s, st, bs: sync_calls.append((j, s, st))
-        )
-
-        event = RateLimitExpired(instrument="claude-code")
-        adapter._sync_sheet_status(event)
-
-        assert len(sync_calls) == 0
-
-    def test_sync_ignores_shutdown_requested(self) -> None:
-        """ShutdownRequested is not a sheet-level event — no sync."""
-        sync_calls: list[tuple[str, int, str]] = []
-        adapter = _make_adapter(
-            state_sync_callback=lambda j, s, st, bs: sync_calls.append((j, s, st))
-        )
-
-        event = ShutdownRequested()
-        adapter._sync_sheet_status(event)
-
-        assert len(sync_calls) == 0
-
-    def test_sync_callback_exception_does_not_crash(self) -> None:
-        """If the sync callback raises, it's logged, not propagated."""
-        call_count = 0
-
-        def broken_callback(j: str, s: int, st: str, bs: object) -> None:
-            nonlocal call_count
-            call_count += 1
-            raise RuntimeError("sync exploded")
-
-        adapter = _make_adapter(state_sync_callback=broken_callback)
-        sheets = [_make_sheet(num=1)]
-        adapter.register_job("j1", sheets, {1: []})
-
-        result = SheetAttemptResult(
-            job_id="j1", sheet_num=1,
-            instrument_name="claude-code", attempt=1,
-        )
-        # Should not raise
-        adapter._sync_sheet_status(result)
-        assert call_count == 1  # Callback was called despite raising
-
-    def test_sync_no_callback_is_noop(self) -> None:
-        """With no state_sync_callback, _sync_sheet_status does nothing."""
-        adapter = _make_adapter()
-        assert adapter._state_sync_callback is None
-        sheets = [_make_sheet(num=1)]
-        adapter.register_job("j1", sheets, {1: []})
-
-        result = SheetAttemptResult(
-            job_id="j1", sheet_num=1,
-            instrument_name="claude-code", attempt=1,
-        )
-        adapter._sync_sheet_status(result)
-        assert adapter._state_sync_callback is None  # Still None
-
-    def test_sync_unknown_job_is_noop(self) -> None:
-        """If the event references a job not in the baton, sync is a noop."""
-        sync_calls: list[tuple[str, int, str]] = []
-        adapter = _make_adapter(
-            state_sync_callback=lambda j, s, st: sync_calls.append((j, s, st))
-        )
-
-        result = SheetAttemptResult(
-            job_id="ghost-job", sheet_num=1,
-            instrument_name="claude-code", attempt=1,
-        )
-        adapter._sync_sheet_status(result)
-
-        # get_sheet_state returns None for unknown job, so no sync
-        assert len(sync_calls) == 0
-
-
 # =========================================================================
 # 5. Completion Detection Edge Cases
 # =========================================================================
-
 
 class TestCompletionDetectionEdgeCases:
     """Adversarial scenarios for _check_completions()."""
@@ -684,11 +544,9 @@ class TestCompletionDetectionEdgeCases:
         with pytest.raises(KeyError, match="not registered"):
             await adapter.wait_for_completion("nonexistent")
 
-
 # =========================================================================
 # 6. Observer Event Edge Values
 # =========================================================================
-
 
 class TestObserverEventEdgeValues:
     """Boundary values for attempt_result_to_observer_event()."""
@@ -793,11 +651,9 @@ class TestObserverEventEdgeValues:
         event = attempt_result_to_observer_event(result)
         assert event["event"] == "sheet.partial"
 
-
 # =========================================================================
 # 7. Deregistration Cleanup
 # =========================================================================
-
 
 class TestDeregistrationCleanup:
     """Verify deregister_job cleans up ALL adapter state."""
@@ -886,11 +742,9 @@ class TestDeregistrationCleanup:
         j2_task.cancel.assert_not_called()
         assert ("j2", 1) in adapter._active_tasks
 
-
 # =========================================================================
 # 8. Dependency Extraction Edge Cases
 # =========================================================================
-
 
 class TestDependencyExtractionEdgeCases:
     """Adversarial scenarios for extract_dependencies()."""
@@ -972,11 +826,9 @@ class TestDependencyExtractionEdgeCases:
         assert deps[1] == []
         assert deps[2] == [1]
 
-
 # =========================================================================
 # 9. sheets_to_execution_states Edge Cases
 # =========================================================================
-
 
 class TestSheetsToExecutionStatesEdgeCases:
     """Edge cases for the sheet → execution state conversion."""
@@ -1012,11 +864,9 @@ class TestSheetsToExecutionStatesEdgeCases:
         for s in states.values():
             assert s.status == BatonSheetStatus.PENDING
 
-
 # =========================================================================
 # 10. Musician Wrapper Exception Handling
 # =========================================================================
-
 
 class TestMusicianWrapperExceptionHandling:
     """The _musician_wrapper must ALWAYS release the backend."""
@@ -1110,40 +960,16 @@ class TestMusicianWrapperExceptionHandling:
 
         pool.release.assert_called_once()  # Release was attempted
 
-
 # =========================================================================
 # 11. EventBus Publishing Resilience
 # =========================================================================
-
 
 class TestEventBusPublishingResilience:
     """EventBus publishing failures must not crash the adapter."""
 
     @pytest.mark.asyncio
-    async def test_publish_attempt_result_no_event_bus(self) -> None:
-        """Without an event bus, publish_attempt_result is a noop."""
-        adapter = _make_adapter(event_bus=None)
-        assert adapter._event_bus is None
-        result = SheetAttemptResult(
-            job_id="j1", sheet_num=1,
-            instrument_name="claude-code", attempt=1,
-        )
-        await adapter.publish_attempt_result(result)
-        assert adapter._event_bus is None  # Unchanged
 
     @pytest.mark.asyncio
-    async def test_publish_attempt_result_bus_failure(self) -> None:
-        """EventBus.publish failure is logged, not propagated."""
-        bus = AsyncMock()
-        bus.publish = AsyncMock(side_effect=RuntimeError("bus exploded"))
-        adapter = _make_adapter(event_bus=bus)
-
-        result = SheetAttemptResult(
-            job_id="j1", sheet_num=1,
-            instrument_name="claude-code", attempt=1,
-        )
-        await adapter.publish_attempt_result(result)
-        bus.publish.assert_called_once()  # Publish was attempted
 
     @pytest.mark.asyncio
     async def test_publish_sheet_skipped_bus_failure(self) -> None:
@@ -1182,11 +1008,9 @@ class TestEventBusPublishingResilience:
         assert event["event"] == "job.completed"
         assert event["data"]["result"] is True
 
-
 # =========================================================================
 # 12. Registration Edge Cases
 # =========================================================================
-
 
 class TestRegistrationEdgeCases:
     """Edge cases for register_job()."""
@@ -1249,11 +1073,9 @@ class TestRegistrationEdgeCases:
             assert kwargs["total_stages"] == 2
             assert kwargs["total_sheets"] == 3
 
-
 # =========================================================================
 # 13. has_completed_sheets Edge Cases
 # =========================================================================
-
 
 class TestHasCompletedSheetsEdgeCases:
     """Edge cases for the F-145 completed_new_work helper."""
@@ -1295,11 +1117,9 @@ class TestHasCompletedSheetsEdgeCases:
         adapter = _make_adapter()
         assert adapter.has_completed_sheets("ghost") is False
 
-
 # =========================================================================
 # 14. Shutdown
 # =========================================================================
-
 
 class TestShutdownBehavior:
     """Adversarial scenarios for adapter shutdown."""
@@ -1357,11 +1177,9 @@ class TestShutdownBehavior:
         assert len(adapter._active_tasks) == 0
         await adapter.shutdown()
 
-
 # =========================================================================
 # 15. _on_musician_done Callback
 # =========================================================================
-
 
 class TestOnMusicianDoneCallback:
     """Edge cases for the task completion callback."""
@@ -1411,11 +1229,9 @@ class TestOnMusicianDoneCallback:
         adapter._on_musician_done("j1", 1, task)
         assert ("j1", 1) not in adapter._active_tasks
 
-
 # =========================================================================
 # 16. get_sheet Edge Cases
 # =========================================================================
-
 
 class TestGetSheetEdgeCases:
     """Edge cases for the adapter's sheet lookup."""

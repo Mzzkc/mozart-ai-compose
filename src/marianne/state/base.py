@@ -4,6 +4,7 @@ import logging
 from abc import ABC, abstractmethod
 
 from marianne.core.checkpoint import CheckpointState, SheetStatus
+from marianne.core.constants import SHEET_NUM_KEY
 
 _logger = logging.getLogger(__name__)
 
@@ -134,7 +135,7 @@ class StateBackend(ABC):
         """
         _logger.warning(
             "record_execution_noop",
-            extra={"job_id": job_id, "sheet_num": sheet_num},
+            extra={"job_id": job_id, SHEET_NUM_KEY: sheet_num},
         )
         return None
 

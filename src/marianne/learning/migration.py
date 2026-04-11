@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 
 from marianne.core.checkpoint import SheetStatus, ValidationDetailDict
 from marianne.core.logging import get_logger
+from marianne.core.constants import VALIDATION_PASS_RATE_KEY
 from marianne.learning.outcomes import SheetOutcome
 
 
@@ -349,7 +350,7 @@ class OutcomeMigrator:
                 total_count = len(validation_results) if validation_results else 1
                 validation_pass_rate = pass_count / total_count if total_count > 0 else 0.0
             else:
-                validation_pass_rate = data.get("validation_pass_rate", 0.0)
+                validation_pass_rate = data.get(VALIDATION_PASS_RATE_KEY, 0.0)
 
             # Parse timestamp
             timestamp = data.get("timestamp")

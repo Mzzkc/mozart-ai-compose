@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from marianne.core.logging import get_logger
+from marianne.core.constants import SHEET_NUM_KEY
 from marianne.daemon.exceptions import DaemonNotRunningError
 from marianne.daemon.ipc.errors import rpc_error_to_exception
 from marianne.daemon.ipc.protocol import JsonRpcRequest
@@ -296,7 +297,7 @@ class DaemonClient:
         """Get execution history for a specific job."""
         result = await self.call("job.history", {
             "job_id": job_id, "workspace": workspace,
-            "sheet_num": sheet_num, "limit": limit,
+            SHEET_NUM_KEY: sheet_num, "limit": limit,
         })
         return cast(dict[str, Any], result)
 
@@ -307,7 +308,7 @@ class DaemonClient:
         """Request recovery data for a specific job."""
         result = await self.call("job.recover", {
             "job_id": job_id, "workspace": workspace,
-            "sheet_num": sheet_num, "dry_run": dry_run,
+            SHEET_NUM_KEY: sheet_num, "dry_run": dry_run,
         })
         return cast(dict[str, Any], result)
 

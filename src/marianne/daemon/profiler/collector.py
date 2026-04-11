@@ -24,6 +24,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from marianne.core.logging import get_logger
+from marianne.core.constants import SHEET_NUM_KEY
 from marianne.daemon.profiler.anomaly import AnomalyDetector
 from marianne.daemon.profiler.gpu_probe import GpuProbe
 from marianne.daemon.profiler.models import (
@@ -613,7 +614,7 @@ class ProfilerCollector:
         """Publish an anomaly as a ``monitor.anomaly`` event on the EventBus."""
         event: ObserverEvent = {
             "job_id": anomaly.job_id or "",
-            "sheet_num": anomaly.sheet_num or 0,
+            SHEET_NUM_KEY: anomaly.sheet_num or 0,
             "event": "monitor.anomaly",
             "data": {
                 "anomaly_type": anomaly.anomaly_type.value,
@@ -636,7 +637,7 @@ class ProfilerCollector:
     def _on_sheet_started(self, event: ObserverEvent) -> None:
         """Handle sheet.started — record spawn, attach strace, enrich with resource context."""
         job_id = event.get("job_id", "")
-        sheet_num = event.get("sheet_num", 0)
+        sheet_num = event.get(SHEET_NUM_KEY, 0)
         data = event.get("data") or {}
         pid = data.get("pid")
 
@@ -672,7 +673,7 @@ class ProfilerCollector:
     def _on_sheet_completed(self, event: ObserverEvent) -> None:
         """Handle sheet.completed/failed — record exit, detach strace, enrich resource context."""
         job_id = event.get("job_id", "")
-        sheet_num = event.get("sheet_num", 0)
+        sheet_num = event.get(SHEET_NUM_KEY, 0)
         data = event.get("data") or {}
         pid = data.get("pid")
         exit_code = data.get("exit_code")

@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any, cast
 import typer
 
 from marianne.core.logging import get_logger
+from marianne.core.constants import SHEET_NUM_KEY
 from marianne.daemon.config import DaemonConfig
 from marianne.daemon.pgroup import ProcessGroupManager
 from marianne.daemon.task_utils import log_task_exception
@@ -630,14 +631,14 @@ class DaemonProcess:
         async def handle_history(params: dict[str, Any], _w: Any) -> dict[str, Any]:
             return await manager.get_execution_history(
                 params["job_id"], _workspace_path(params.get("workspace")),
-                sheet_num=params.get("sheet_num"),
+                sheet_num=params.get(SHEET_NUM_KEY),
                 limit=params.get("limit", 50),
             )
 
         async def handle_recover(params: dict[str, Any], _w: Any) -> dict[str, Any]:
             return await manager.recover_job(
                 params["job_id"], _workspace_path(params.get("workspace")),
-                sheet_num=params.get("sheet_num"),
+                sheet_num=params.get(SHEET_NUM_KEY),
                 dry_run=params.get("dry_run", False),
             )
 

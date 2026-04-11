@@ -130,7 +130,6 @@ from marianne.prompts.templating import PromptBuilder, SheetContext
 # 1. PROMPT ASSEMBLY EFFECTIVENESS
 # =============================================================================
 
-
 class TestPromptAssemblyEffectiveness:
     """The litmus question: do assembled prompts give agents what they need?
 
@@ -325,11 +324,9 @@ class TestPromptAssemblyEffectiveness:
         # The original context is included for reference
         assert "Build everything" in prompt
 
-
 # =============================================================================
 # 2. SPEC CORPUS PIPELINE — JSON ROUNDTRIP SURVIVAL
 # =============================================================================
-
 
 class TestSpecTagsSerializationRoundtrip:
     """The spec_tags integer key serialization risk.
@@ -420,11 +417,9 @@ class TestSpecTagsSerializationRoundtrip:
         )
         assert restored.dependencies.get(4) == [3]
 
-
 # =============================================================================
 # 3. BATON DECISION INTELLIGENCE — REALISTIC MULTI-SHEET WORKFLOWS
 # =============================================================================
-
 
 class TestBatonMultiSheetWorkflows:
     """Does the baton make smart decisions for real-world score patterns?
@@ -566,11 +561,9 @@ class TestBatonMultiSheetWorkflows:
             f"Sheet 3 should be ready (skipped dep satisfies), got {ready_nums}"
         )
 
-
 # =============================================================================
 # 4. INSTRUMENT STATE BRIDGE — RATE LIMIT ISOLATION
 # =============================================================================
-
 
 class TestInstrumentStateIntelligence:
     """Does the baton correctly isolate instrument states?
@@ -706,11 +699,9 @@ class TestInstrumentStateIntelligence:
         # At minimum, consecutive_failures should be tracked
         assert inst.consecutive_failures >= 5
 
-
 # =============================================================================
 # 5. COST ENFORCEMENT — DOES THE BATON ACTUALLY STOP SPENDING?
 # =============================================================================
-
 
 class TestCostEnforcementEffectiveness:
     """Does cost enforcement actually prevent runaway spending?
@@ -769,11 +760,9 @@ class TestCostEnforcementEffectiveness:
             f"Sheet should be failed (cost exceeded), got {state.status}"
         )
 
-
 # =============================================================================
 # 6. EXHAUSTION DECISION TREE — HEALING → ESCALATION → FAILURE
 # =============================================================================
-
 
 class TestExhaustionDecisionTree:
     """When retries are exhausted, does the baton follow the right path?
@@ -877,11 +866,9 @@ class TestExhaustionDecisionTree:
         assert state is not None
         assert state.status == BatonSheetStatus.FAILED
 
-
 # =============================================================================
 # 7. PREAMBLE INTELLIGENCE — DOES IT HELP AGENTS ORIENT?
 # =============================================================================
-
 
 class TestPreambleIntelligence:
     """Does the preamble give agents the context they need to orient?
@@ -925,11 +912,9 @@ class TestPreambleIntelligence:
         # Retry preamble tells agent to study what went wrong
         assert "previous" in retry.lower() or "failed" in retry.lower()
 
-
 # =============================================================================
 # 8. BATON MUSICIAN PROMPT RENDERING (F-104 — the critical unblock)
 # =============================================================================
-
 
 class TestBatonMusicianPromptRendering:
     """Does the baton musician's _build_prompt() make agents more effective?
@@ -1115,11 +1100,9 @@ class TestBatonMusicianPromptRendering:
             "Raw template variable should be replaced"
         )
 
-
 # =============================================================================
 # 9. ERROR TAXONOMY INTELLIGENCE (E006 stale vs E001 timeout, F-098 Phase 4.5)
 # =============================================================================
-
 
 class TestErrorTaxonomyIntelligence:
     """Does the error taxonomy make meaningful distinctions?
@@ -1244,11 +1227,9 @@ class TestErrorTaxonomyIntelligence:
             f"Got primary: {result.primary.category}"
         )
 
-
 # =============================================================================
 # 10. SHEET ENTITY TEMPLATE VARIABLES — TERMINOLOGY COEXISTENCE
 # =============================================================================
-
 
 class TestSheetEntityIntelligence:
     """Does the Sheet entity produce template variables that serve both
@@ -1326,11 +1307,9 @@ class TestSheetEntityIntelligence:
         assert tvars["voice"] is None
         assert tvars["instance"] is None  # Old alias also None
 
-
 # =============================================================================
 # 11. CROSS-SYSTEM INTEGRATION — DO THE PIECES COMPOSE?
 # =============================================================================
-
 
 class TestCrossSystemIntegration:
     """Do the intelligence subsystems compose correctly?
@@ -1436,11 +1415,9 @@ class TestCrossSystemIntegration:
         )
         assert total == 0  # No rules means 0 total
 
-
 # =========================================================================
 # Category 11: Restart Recovery Intelligence (Step 29)
 # =========================================================================
-
 
 class TestRestartRecoveryIntelligence:
     """Does recover_job() actually rebuild the right state from a checkpoint?
@@ -1601,11 +1578,9 @@ class TestRestartRecoveryIntelligence:
             f"Should have max_retries=3, got {s1.max_retries}"
         )
 
-
 # =========================================================================
 # Category 12: Completion Signaling Intelligence
 # =========================================================================
-
 
 class TestCompletionSignaling:
     """Does wait_for_completion correctly detect terminal state?
@@ -1683,11 +1658,9 @@ class TestCompletionSignaling:
         )
         assert result is False, "Any failure should return False"
 
-
 # =========================================================================
 # Category 13: Credential Safety in Error Paths (F-135)
 # =========================================================================
-
 
 class TestCredentialSafetyInErrorPaths:
     """Does the musician's exception handler redact credentials?
@@ -1768,11 +1741,9 @@ class TestCredentialSafetyInErrorPaths:
         assert "xoxb-" not in redacted, "Slack bot token should be redacted"
         assert "hf_" not in redacted, "HF token should be redacted"
 
-
 # =========================================================================
 # Category 14: Parallel Executor Failure Handling (F-111, F-113)
 # =========================================================================
-
 
 class TestParallelFailureIntelligence:
     """Do F-111 and F-113 fixes actually prevent the production bugs?
@@ -1861,11 +1832,9 @@ class TestParallelFailureIntelligence:
             "exception types like RateLimitExhaustedError (F-111)"
         )
 
-
 # =========================================================================
 # Category 15: Clone Config Isolation (F-132)
 # =========================================================================
-
 
 class TestCloneConfigIsolation:
     """Does build_clone_config produce truly isolated paths?
@@ -1929,11 +1898,9 @@ class TestCloneConfigIsolation:
             "Clone state_db_path must differ from production"
         )
 
-
 # =========================================================================
 # Category 16: Cost Limit Wiring Intelligence (F-134)
 # =========================================================================
-
 
 class TestCostLimitWiringIntelligence:
     """Does _run_via_baton use the correct field for cost limits?
@@ -2013,11 +1980,9 @@ class TestCostLimitWiringIntelligence:
             "Job should be paused when cost exceeds limit ($0.10 > $0.05)"
         )
 
-
 # =========================================================================
 # Category 17: Baton-Runner State Mapping Totality
 # =========================================================================
-
 
 class TestBatonRunnerStateMappingTotality:
     """Does the baton ↔ checkpoint status mapping cover ALL states?
@@ -2061,11 +2026,9 @@ class TestBatonRunnerStateMappingTotality:
             f"These baton statuses have no checkpoint mapping: {unmapped}"
         )
 
-
 # =========================================================================
 # Category 18: Score-Level Instrument Alias Resolution
 # =========================================================================
-
 
 class TestInstrumentAliasResolution:
     """Does the instrument alias system make multi-instrument scores EASIER?
@@ -2171,11 +2134,9 @@ class TestInstrumentAliasResolution:
         # Sheet 2: per-sheet override takes priority over alias
         assert sheets[1].instrument_name == "codex-cli"
 
-
 # =========================================================================
 # Category 19: V210 Instrument Validation with Aliases
 # =========================================================================
-
 
 class TestInstrumentValidationWithAliases:
     """Does the validator accept score-level aliases as valid instrument names?
@@ -2222,11 +2183,9 @@ class TestInstrumentValidationWithAliases:
             f"Got: {[i.message for i in alias_issues]}"
         )
 
-
 # =========================================================================
 # Category 20: F-127 Success Outcome Classification After Restart
 # =========================================================================
-
 
 class TestSuccessOutcomeAfterRestart:
     """Does diagnose correctly classify sheets that took many attempts?
@@ -2275,11 +2234,9 @@ class TestSuccessOutcomeAfterRestart:
         assert not first_try
         assert outcome.value == "success_completion"
 
-
 # =========================================================================
 # Category 21: F-111 Parallel Executor Preserves Exception Types
 # =========================================================================
-
 
 class TestParallelExceptionPreservation:
     """Does the parallel batch preserve exception types for intelligent routing?
@@ -2344,11 +2301,9 @@ class TestParallelExceptionPreservation:
         found = LifecycleMixin._find_rate_limit_in_batch(result)
         assert found is None, "ValueError is not a rate limit error"
 
-
 # =========================================================================
 # Category 22: F-113 Failure Propagation Through Dependencies
 # =========================================================================
-
 
 class TestFailurePropagationIntelligence:
     """Does failure propagation prevent downstream sheets from running?
@@ -2382,11 +2337,9 @@ class TestFailurePropagationIntelligence:
             "propagate_failure_to_dependents must exist for F-113"
         )
 
-
 # =========================================================================
 # Category 23: F-119 Baton Event Stubs Log Instead of Silent Drop
 # =========================================================================
-
 
 class TestBatonEventStubLogging:
     """Do unimplemented baton event handlers log instead of silently dropping?
@@ -2422,11 +2375,9 @@ class TestBatonEventStubLogging:
             "CronTick should produce a warning log, not silent drop"
         )
 
-
 # =========================================================================
 # Category 24: Credential Redaction Defense-in-Depth
 # =========================================================================
-
 
 class TestCredentialRedactionDefenseInDepth:
     """Are ALL three credential data paths through the musician protected?
@@ -2510,11 +2461,9 @@ class TestCredentialRedactionDefenseInDepth:
             "redact_credentials must be applied to _classify_error output (F-136)"
         )
 
-
 # =============================================================================
 # 25. SEMANTIC CONTEXT TAGS — F-009/F-144 FIX EFFECTIVENESS
 # =============================================================================
-
 
 class TestSemanticContextTagEffectiveness:
     """Does the F-009/F-144 fix actually produce tags that MATCH stored patterns?
@@ -2636,11 +2585,9 @@ class TestSemanticContextTagEffectiveness:
             f"The old positional tags had ZERO overlap — this must be > 0."
         )
 
-
 # =============================================================================
 # 26. PROMPT RENDERER WIRING — F-158 FIX EFFECTIVENESS
 # =============================================================================
-
 
 class TestPromptRendererWiring:
     """Does the baton actually CREATE a PromptRenderer when prompt_config is provided?
@@ -2780,11 +2727,9 @@ class TestPromptRendererWiring:
             "Preamble must contain positional identity"
         )
 
-
 # =============================================================================
 # 27. DISPATCH GUARD — F-152 FIX EFFECTIVENESS
 # =============================================================================
-
 
 class TestDispatchGuardEffectiveness:
     """Does the F-152 dispatch guard actually prevent infinite loops?
@@ -2862,11 +2807,9 @@ class TestDispatchGuardEffectiveness:
             f"Missing calls = infinite dispatch loop potential."
         )
 
-
 # =============================================================================
 # 28. RATE LIMIT AUTO-RESUME — F-112 FIX EFFECTIVENESS
 # =============================================================================
-
 
 class TestRateLimitAutoResumeEffectiveness:
     """Does the rate limit auto-resume actually schedule a timer that clears?
@@ -2987,11 +2930,9 @@ class TestRateLimitAutoResumeEffectiveness:
         # Instrument should still be marked rate limited
         assert baton._instruments["claude-cli"].rate_limited is True
 
-
 # =============================================================================
 # 29. MODEL OVERRIDE WIRING — F-150 FIX EFFECTIVENESS
 # =============================================================================
-
 
 class TestModelOverrideEffectiveness:
     """Does the model override actually reach the backend?
@@ -3075,11 +3016,9 @@ class TestModelOverrideEffectiveness:
         assert backend._model == "default-model"
         assert backend._has_overrides is False
 
-
 # =============================================================================
 # 30. CONCERT CHAINING COMPLETENESS — F-145 FIX EFFECTIVENESS
 # =============================================================================
-
 
 class TestConcertChainingEffectiveness:
     """Does the baton path correctly detect completed_new_work for concerts?
@@ -3155,11 +3094,9 @@ class TestConcertChainingEffectiveness:
             "anywhere in manager.py"
         )
 
-
 # =============================================================================
 # 31. RATE LIMIT WAIT CAP — F-160 FIX EFFECTIVENESS
 # =============================================================================
-
 
 class TestRateLimitWaitCapEffectiveness:
     """Does the rate limit wait cap prevent adversarial timer durations?
@@ -3212,11 +3149,9 @@ class TestRateLimitWaitCapEffectiveness:
             f"Reasonable wait (600s, within range) should not be modified, got {result}"
         )
 
-
 # =============================================================================
 # 32. CROSS-SHEET CONTEXT IN BATON PROMPTS (F-210)
 # =============================================================================
-
 
 class TestCrossSheetContextInBatonPrompts:
     """F-210 litmus: does the baton's PromptRenderer actually deliver
@@ -3329,11 +3264,9 @@ class TestCrossSheetContextInBatonPrompts:
             "have no previous outputs."
         )
 
-
 # =============================================================================
 # 33. SKIPPED UPSTREAM VISIBILITY (#120)
 # =============================================================================
-
 
 class TestSkippedUpstreamVisibility:
     """#120 litmus: does the [SKIPPED] placeholder give downstream sheets
@@ -3453,11 +3386,9 @@ class TestSkippedUpstreamVisibility:
                 f"not '[SKIPPED]'. Inconsistent signals confuse agents."
             )
 
-
 # =============================================================================
 # 34. AUTO-FRESH DETECTION (#103)
 # =============================================================================
-
 
 class TestAutoFreshDetection:
     """#103 litmus: does _should_auto_fresh prevent stale reruns when
@@ -3531,11 +3462,9 @@ class TestAutoFreshDetection:
             "Can't detect modification without a baseline timestamp."
         )
 
-
 # =============================================================================
 # 35. BACKPRESSURE REJECTION INTELLIGENCE (F-110)
 # =============================================================================
-
 
 class TestBackpressureRejectionIntelligence:
     """F-110 litmus: does rejection_reason() distinguish rate-limit pressure
@@ -3619,11 +3548,9 @@ class TestBackpressureRejectionIntelligence:
             "False rejections prevent users from submitting work."
         )
 
-
 # =============================================================================
 # 36. CROSS-SHEET CREDENTIAL REDACTION (F-250)
 # =============================================================================
-
 
 class TestCrossSheetCredentialRedaction:
     """F-250 litmus: are credentials redacted BEFORE entering cross-sheet
@@ -3689,11 +3616,9 @@ class TestCrossSheetCredentialRedaction:
             "False positive redaction corrupts legitimate data."
         )
 
-
 # =============================================================================
 # 37. METHODNOT FOUNDERROR DIFFERENTIATION (F-450)
 # =============================================================================
-
 
 class TestMethodNotFoundErrorDifferentiation:
     """F-450 litmus: does the error hierarchy distinguish "unknown method"
@@ -3754,11 +3679,9 @@ class TestMethodNotFoundErrorDifferentiation:
             f"not {_CODE_EXCEPTION_MAP[METHOD_NOT_FOUND].__name__}."
         )
 
-
 # =============================================================================
 # 38. COST JSON EXTRACTION VS CHAR ESTIMATION (D-024)
 # =============================================================================
-
 
 class TestCostJsonExtractionEffectiveness:
     """D-024 litmus: does JSON token extraction produce BETTER cost data
@@ -3864,11 +3787,9 @@ class TestCostJsonExtractionEffectiveness:
             f"that char estimation underestimates by 10-100x."
         )
 
-
 # =============================================================================
 # 39. F-255.3: PluginCliBackend MCP CONFIG GAP
 # =============================================================================
-
 
 class TestPluginCliBackendMcpGap:
     """F-255.3 litmus: does PluginCliBackend handle MCP configuration?
@@ -3974,11 +3895,9 @@ class TestPluginCliBackendMcpGap:
             "servers while legacy runner sheets don't."
         )
 
-
 # =============================================================================
 # 40. F-211: CHECKPOINT SYNC DUCK TYPING COVERAGE
 # =============================================================================
-
 
 class TestCheckpointSyncDuckTyping:
     """F-211 litmus: does _sync_sheet_status handle ALL event types that
@@ -4092,128 +4011,13 @@ class TestCheckpointSyncDuckTyping:
             "all WAITING sheets for an instrument across all jobs."
         )
 
-
 # =============================================================================
 # 41. F-211: STATE-DIFF DEDUP PREVENTS DUPLICATE SYNC
 # =============================================================================
 
-
-@pytest.mark.skip(reason="Phase 2: sync layer removed, replaced by persist callback")
-class TestStateDiffDedup:
-    """F-211 litmus: does the _synced_status cache prevent duplicate
-    checkpoint sync callbacks?
-
-    WITHOUT dedup: every event fires a sync callback, even when status
-    hasn't changed. A RetryDue event on a PENDING sheet triggers a sync
-    even though PENDING→PENDING is a no-op. Wastes I/O, risks conflicts.
-    WITH dedup: _synced_status caches last-synced status per sheet. Same
-    status → skip. Different status → sync and update cache.
-
-    The litmus: repeated events for the same sheet produce exactly ONE
-    sync callback, not N callbacks for N events.
-    """
-
-    def test_dedup_cache_structure(self) -> None:
-        """The adapter stores _synced_status as (job_id, sheet_num) → status."""
-        from marianne.daemon.baton.adapter import BatonAdapter
-
-        adapter = BatonAdapter.__new__(BatonAdapter)
-        adapter._synced_status = {}
-
-        # Simulate first sync
-        adapter._synced_status[("job1", 1)] = "in_progress"
-
-        # Same status should be detectable
-        assert adapter._synced_status.get(("job1", 1)) == "in_progress", (
-            "F-211: _synced_status cache must store and retrieve by (job_id, sheet_num) tuple."
-        )
-
-        # Different sheet is independent
-        assert adapter._synced_status.get(("job1", 2)) is None, (
-            "F-211: Unsynced sheets must return None, not a default."
-        )
-
-    def test_dedup_skips_when_status_unchanged(self) -> None:
-        """_sync_single_sheet returns early when mapped status matches cache.
-
-        This tests the core dedup logic: if _synced_status[(job_id, sheet_num)]
-        equals the current mapped checkpoint status, no callback fires.
-        """
-        from unittest.mock import MagicMock
-
-        from marianne.daemon.baton.adapter import BatonAdapter
-        from marianne.daemon.baton.core import BatonCore
-        from marianne.daemon.baton.state import BatonSheetStatus, SheetExecutionState
-
-        adapter = BatonAdapter.__new__(BatonAdapter)
-        adapter._baton = BatonCore()
-        adapter._synced_status = {}
-        adapter._state_sync_callback = MagicMock()
-
-        # Register a job with a sheet in RUNNING status
-        job_state = MagicMock()
-        sheet_state = SheetExecutionState(
-            sheet_num=1,
-            status=BatonSheetStatus.IN_PROGRESS,
-            instrument_name="claude-code",
-        )
-        job_state.sheets = {1: sheet_state}
-        adapter._baton._jobs["j1"] = job_state
-
-        # First sync: should fire callback
-        adapter._sync_single_sheet("j1", 1)
-        assert adapter._state_sync_callback.call_count == 1, (
-            "F-211: First sync MUST fire the callback."
-        )
-
-        # Second sync with same status: should NOT fire callback
-        adapter._sync_single_sheet("j1", 1)
-        assert adapter._state_sync_callback.call_count == 1, (
-            "F-211: Second sync with SAME status MUST be suppressed. "
-            "The dedup cache prevents redundant checkpoint writes."
-        )
-
-    def test_dedup_fires_when_status_changes(self) -> None:
-        """Status change fires callback even when sheet was previously synced."""
-        from unittest.mock import MagicMock
-
-        from marianne.daemon.baton.adapter import BatonAdapter
-        from marianne.daemon.baton.core import BatonCore
-        from marianne.daemon.baton.state import BatonSheetStatus, SheetExecutionState
-
-        adapter = BatonAdapter.__new__(BatonAdapter)
-        adapter._baton = BatonCore()
-        adapter._synced_status = {}
-        adapter._state_sync_callback = MagicMock()
-
-        job_state = MagicMock()
-        sheet_state = SheetExecutionState(
-            sheet_num=1,
-            status=BatonSheetStatus.IN_PROGRESS,
-            instrument_name="claude-code",
-        )
-        job_state.sheets = {1: sheet_state}
-        adapter._baton._jobs["j1"] = job_state
-
-        # First sync (RUNNING)
-        adapter._sync_single_sheet("j1", 1)
-        assert adapter._state_sync_callback.call_count == 1
-
-        # Change status to COMPLETED
-        sheet_state.status = BatonSheetStatus.COMPLETED
-
-        # Second sync with CHANGED status: MUST fire
-        adapter._sync_single_sheet("j1", 1)
-        assert adapter._state_sync_callback.call_count == 2, (
-            "F-211: Status CHANGE must fire callback even when previously synced. "
-            "Dedup only suppresses same-status, not different-status."
-        )
-
-
 # =============================================================================
 # 42. F-202: BATON/LEGACY FAILED SHEET CONTEXT PARITY
 # =============================================================================
-
 
 class TestBatonLegacyFailedSheetParity:
     """F-202 litmus: does the baton handle FAILED sheets in cross-sheet
@@ -4270,11 +4074,9 @@ class TestBatonLegacyFailedSheetParity:
             "upstream sheets produced. See adapter.py:738."
         )
 
-
 # =============================================================================
 # 43. F-255.1: _load_checkpoint READS FROM DAEMON DB
 # =============================================================================
-
 
 class TestLoadCheckpointFromDaemonDb:
     """F-255.1 litmus: does _load_checkpoint read from the daemon's registry
@@ -4328,11 +4130,9 @@ class TestLoadCheckpointFromDaemonDb:
             "to signal that daemon DB is the sole authority."
         )
 
-
 # =============================================================================
 # 44. F-110: PENDING JOB QUEUE FIFO ORDERING
 # =============================================================================
-
 
 class TestPendingJobQueueOrdering:
     """F-110 litmus: when multiple jobs are queued during rate limits, do
@@ -4401,11 +4201,9 @@ class TestPendingJobQueueOrdering:
             "of pending keys (FIFO order) to avoid modification during iteration."
         )
 
-
 # =============================================================================
 # 45. F-250 + F-210: CROSS-SHEET CREDENTIAL PIPELINE END-TO-END
 # =============================================================================
-
 
 class TestCrossSheetCredentialPipelineEndToEnd:
     """F-250 + F-210 litmus: does the complete cross-sheet pipeline —
@@ -4498,11 +4296,9 @@ class TestCrossSheetCredentialPipelineEndToEnd:
             "the baton path leaks credentials through cross-sheet context."
         )
 
-
 # =============================================================================
 # 46. F-149 BACKPRESSURE REWORK — RATE LIMITS DON'T BLOCK UNRELATED JOBS
 # =============================================================================
-
 
 class TestBackpressureReworkIntelligence:
     """F-149 litmus: when instrument A is rate-limited, does the system still
@@ -4616,11 +4412,9 @@ class TestBackpressureReworkIntelligence:
             "state variables."
         )
 
-
 # =============================================================================
 # 47. D-027 BATON DEFAULT FLIP
 # =============================================================================
-
 
 class TestBatonDefaultFlipIntelligence:
     """D-027 litmus: does the baton activate by default without explicit config?
@@ -4667,11 +4461,9 @@ class TestBatonDefaultFlipIntelligence:
             "Operators need an opt-out path."
         )
 
-
 # =============================================================================
 # 48. INSTRUMENT FALLBACK CHAIN — THREE-LEVEL RESOLUTION
 # =============================================================================
-
 
 class TestInstrumentFallbackChainIntelligence:
     """Litmus: does the fallback chain walk through per-sheet → movement → score?
@@ -4805,11 +4597,9 @@ class TestInstrumentFallbackChainIntelligence:
             f"Got: {len(state.instrument_fallback_history)}"
         )
 
-
 # =============================================================================
 # 49. F-271 MCP PROCESS EXPLOSION FIX
 # =============================================================================
-
 
 class TestMcpProcessExplosionFixIntelligence:
     """F-271 litmus: does profile-driven mcp_disable_args prevent unwanted
@@ -4924,11 +4714,9 @@ class TestMcpProcessExplosionFixIntelligence:
             "disable strategies. The mechanism is profile-driven, not hardcoded."
         )
 
-
 # =============================================================================
 # 50. USER VARIABLES IN VALIDATIONS
 # =============================================================================
-
 
 class TestUserVariablesInValidationsIntelligence:
     """Litmus: do prompt.variables resolve during `mzt validate`?
@@ -4969,11 +4757,9 @@ class TestUserVariablesInValidationsIntelligence:
             "during `mzt validate` and `marianne recover`."
         )
 
-
 # =============================================================================
 # 51. D-029 STATUS BEAUTIFICATION
 # =============================================================================
-
 
 class TestStatusBeautificationIntelligence:
     """D-029 litmus: does beautified output convey MORE USEFUL information?
@@ -5054,11 +4840,9 @@ class TestStatusBeautificationIntelligence:
             f"D-029: None datetime should return '-'. Got: {result!r}"
         )
 
-
 # =============================================================================
 # 52. F-490 PROCESS CONTROL — SAFE KILL GUARDS
 # =============================================================================
-
 
 class TestProcessControlSafeKillGuardsIntelligence:
     """F-490 litmus: do all os.killpg calls go through _safe_killpg with

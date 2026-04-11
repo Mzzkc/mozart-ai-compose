@@ -50,7 +50,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from marianne.core.constants import TRUNCATE_STDOUT_TAIL_CHARS
+from marianne.core.constants import VALIDATION_PASS_RATE_KEY,  SHEET_NUM_KEY,  TRUNCATE_STDOUT_TAIL_CHARS
 from marianne.core.tokens import (
     TokenBudgetTracker,
     estimate_tokens,
@@ -794,7 +794,7 @@ class SheetExecutionMixin:
             {
                 "duration_seconds": round(execution_duration, 2),
                 "exit_code": result.exit_code,
-                "validation_pass_rate": 100.0,
+                VALIDATION_PASS_RATE_KEY: 100.0,
                 "outcome_category": outcome_category,
             },
         )
@@ -1945,7 +1945,7 @@ class SheetExecutionMixin:
                 relevant_patterns = await self.outcome_store.get_relevant_patterns(
                     context={
                         "job_id": state.job_id,
-                        "sheet_num": sheet_num,
+                        SHEET_NUM_KEY: sheet_num,
                     },
                     limit=3,
                 )

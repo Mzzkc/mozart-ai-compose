@@ -13,6 +13,7 @@ import jinja2
 
 from marianne.core.config import PromptConfig, ValidationRule
 from marianne.core.config.spec import SpecFragment
+from marianne.core.constants import SHEET_NUM_KEY
 
 if TYPE_CHECKING:
     from marianne.execution.validation import HistoricalFailure, ValidationResult
@@ -110,7 +111,7 @@ class SheetContext:
         effective_stage = self.stage if self.stage > 0 else self.sheet_num
         effective_total = self.total_stages if self.total_stages > 0 else self.total_sheets
         return {
-            "sheet_num": self.sheet_num,
+            SHEET_NUM_KEY: self.sheet_num,
             "total_sheets": self.total_sheets,
             "start_item": self.start_item,
             "end_item": self.end_item,
@@ -403,7 +404,7 @@ class PromptBuilder:
         if not rules:
             return ""
 
-        sheet_num = template_context.get("sheet_num", 1)
+        sheet_num = template_context.get(SHEET_NUM_KEY, 1)
 
         # Separate new vs inherited rules: a rule is "new" if the previous
         # sheet would NOT have matched its condition

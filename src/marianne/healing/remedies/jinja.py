@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from marianne.healing.diagnosis import Diagnosis
 from marianne.healing.remedies.base import BaseRemedy, RemedyCategory, RemedyResult, RiskLevel
+from marianne.core.constants import SHEET_NUM_KEY
 
 if TYPE_CHECKING:
     from marianne.healing.context import ErrorContext
@@ -17,7 +18,7 @@ if TYPE_CHECKING:
 
 # Known Jinja template variables in Mzt configs
 KNOWN_VARIABLES = [
-    "sheet_num",
+    SHEET_NUM_KEY,
     "total_sheets",
     "sheet_size",
     "start_item",

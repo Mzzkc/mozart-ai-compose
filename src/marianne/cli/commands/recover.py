@@ -28,6 +28,7 @@ from rich.panel import Panel
 
 from marianne.core.checkpoint import CheckpointState, JobStatus, SheetStatus
 from marianne.core.config import JobConfig
+from marianne.core.constants import SHEET_NUM_KEY
 from marianne.execution.validation import ValidationEngine
 
 from ..helpers import configure_global_logging, require_conductor
@@ -226,7 +227,7 @@ async def _recover_job(
     ws_str = str(workspace) if workspace else None
     params = {
         "job_id": job_id, "workspace": ws_str,
-        "sheet_num": sheet_num, "dry_run": dry_run,
+        SHEET_NUM_KEY: sheet_num, "dry_run": dry_run,
     }
     try:
         routed, result = await try_daemon_route("job.recover", params)
@@ -341,7 +342,7 @@ async def _recover_job(
         }
         sheet_context: dict[str, Any] = {
             **user_vars,
-            "sheet_num": snum,
+            SHEET_NUM_KEY: snum,
             "start_item": None,
             "end_item": None,
         }

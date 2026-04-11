@@ -23,6 +23,7 @@ import yaml
 import marianne
 from marianne.core.checkpoint import CheckpointState, JobStatus, SheetState
 from marianne.core.logging import get_logger
+from marianne.core.constants import SHEET_NUM_KEY
 from marianne.daemon.backpressure import BackpressureController
 from marianne.daemon.config import DaemonConfig
 from marianne.daemon.event_bus import EventBus
@@ -1718,7 +1719,7 @@ class JobManager:
             "state": state.model_dump(mode="json"),
             "workspace": str(ws),
             "dry_run": dry_run,
-            "sheet_num": sheet_num,
+            SHEET_NUM_KEY: sheet_num,
         }
 
     async def get_daemon_status(self) -> dict[str, Any]:
@@ -2068,7 +2069,7 @@ class JobManager:
         # Publish to event bus for downstream consumers
         bus_event: ObserverEvent = {
             "job_id": job_id,
-            "sheet_num": sheet_num,
+            SHEET_NUM_KEY: sheet_num,
             "event": event,
             "data": data,
             "timestamp": time.time(),

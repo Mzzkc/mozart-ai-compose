@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from marianne.core.config import ValidationRule
+from marianne.core.constants import SHEET_NUM_KEY
 from marianne.core.constants import (
     VALIDATION_COMMAND_TIMEOUT_SECONDS,
     VALIDATION_OUTPUT_TRUNCATE_CHARS,
@@ -138,8 +139,8 @@ class ValidationEngine:
         var_name, op_str, value_str = match.groups()
         value = int(value_str)
 
-        if var_name == "sheet_num":
-            var_value = self.sheet_context.get("sheet_num", 0)
+        if var_name == SHEET_NUM_KEY:
+            var_value = self.sheet_context.get(SHEET_NUM_KEY, 0)
         else:
             ctx_value = self.sheet_context.get(var_name)
             if ctx_value is None or not isinstance(ctx_value, int):
@@ -167,7 +168,7 @@ class ValidationEngine:
             results.append(result)
 
         return SheetValidationResult(
-            sheet_num=self.sheet_context.get("sheet_num", 0),
+            sheet_num=self.sheet_context.get(SHEET_NUM_KEY, 0),
             results=results,
             rules_checked=len(applicable_rules),
         )
@@ -180,7 +181,7 @@ class ValidationEngine:
 
         if not applicable_rules:
             return SheetValidationResult(
-                sheet_num=self.sheet_context.get("sheet_num", 0),
+                sheet_num=self.sheet_context.get(SHEET_NUM_KEY, 0),
                 results=[],
                 rules_checked=0,
             ), None
@@ -210,7 +211,7 @@ class ValidationEngine:
                 break
 
         return SheetValidationResult(
-            sheet_num=self.sheet_context.get("sheet_num", 0),
+            sheet_num=self.sheet_context.get(SHEET_NUM_KEY, 0),
             results=all_results,
             rules_checked=len(applicable_rules),
         ), failed_stage

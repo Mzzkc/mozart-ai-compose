@@ -19,6 +19,7 @@ from typing import Any
 from marianne.backends.base import Backend
 from marianne.core.checkpoint import CheckpointState
 from marianne.core.logging import get_logger
+from marianne.core.constants import SHEET_NUM_KEY
 from marianne.daemon.config import SemanticLearningConfig
 from marianne.daemon.event_bus import EventBus
 from marianne.daemon.learning_hub import LearningHub
@@ -135,7 +136,7 @@ class SemanticAnalyzer:
         """
         event_type = event.get("event", "")
         job_id = event.get("job_id", "")
-        sheet_num = event.get("sheet_num", 0)
+        sheet_num = event.get(SHEET_NUM_KEY, 0)
 
         # Determine if this event outcome matches our analyze_on filter
         if event_type == "sheet.completed" and "success" not in self._config.analyze_on:
@@ -181,7 +182,7 @@ class SemanticAnalyzer:
 
         data: dict[str, Any] = {
             "job_id": job_id,
-            "sheet_num": sheet_num,
+            SHEET_NUM_KEY: sheet_num,
             "event_type": event.get("event", ""),
             "event_data": event.get("data"),
         }
@@ -410,7 +411,7 @@ Example:
             return
 
         job_id = event.get("job_id", "")
-        sheet_num = event.get("sheet_num", 0)
+        sheet_num = event.get(SHEET_NUM_KEY, 0)
         data = event.get("data") or {}
 
         anomaly_type = data.get("anomaly_type", "unknown")

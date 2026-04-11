@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from marianne.core.checkpoint import SheetStatus, ValidationDetailDict
+from marianne.core.constants import VALIDATION_PASS_RATE_KEY
 
 if TYPE_CHECKING:
     from marianne.learning.patterns import DetectedPattern
@@ -309,7 +310,7 @@ class JsonOutcomeStore:
                     "retry_count": outcome.retry_count,
                     "completion_mode_used": outcome.completion_mode_used,
                     "final_status": outcome.final_status.value,
-                    "validation_pass_rate": outcome.validation_pass_rate,
+                    VALIDATION_PASS_RATE_KEY: outcome.validation_pass_rate,
                     "success_without_retry": outcome.success_without_retry,
                     "patterns_detected": outcome.patterns_detected,
                     "timestamp": outcome.timestamp.isoformat(),
@@ -378,7 +379,7 @@ class JsonOutcomeStore:
                 retry_count=raw["retry_count"],
                 completion_mode_used=raw["completion_mode_used"],
                 final_status=SheetStatus(raw["final_status"]),
-                validation_pass_rate=raw["validation_pass_rate"],
+                validation_pass_rate=raw[VALIDATION_PASS_RATE_KEY],
                 success_without_retry=raw.get(
                     "success_without_retry", raw.get("first_attempt_success", False)
                 ),

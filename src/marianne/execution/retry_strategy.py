@@ -46,6 +46,7 @@ from marianne.core.errors import (
     RetryBehavior,
     RetryDelays,
 )
+from marianne.core.constants import SHEET_NUM_KEY
 from marianne.core.logging import get_logger
 
 if TYPE_CHECKING:
@@ -343,7 +344,7 @@ class ErrorRecord:
             "exit_signal": self.exit_signal,
             "retriable": self.retriable,
             "suggested_wait": self.suggested_wait,
-            "sheet_num": self.sheet_num,
+            SHEET_NUM_KEY: self.sheet_num,
             "attempt_num": self.attempt_num,
             "root_cause_confidence": (
                 round(self.root_cause_confidence, 3)

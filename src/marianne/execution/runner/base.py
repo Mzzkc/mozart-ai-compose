@@ -46,6 +46,7 @@ from marianne.core.config import JobConfig
 from marianne.core.config.spec import SpecFragment
 from marianne.core.errors import ErrorClassifier
 from marianne.core.logging import ExecutionContext, MarianneLogger, get_logger
+from marianne.core.constants import SHEET_NUM_KEY
 from marianne.execution.circuit_breaker import CircuitBreaker
 from marianne.execution.dag import (
     CycleDetectedError,
@@ -685,7 +686,7 @@ class JobRunnerBase:
 
         # Add sheet_num to progress info
         progress_with_sheet = {
-            "sheet_num": self._current_sheet_num,
+            SHEET_NUM_KEY: self._current_sheet_num,
             **progress,
         }
 

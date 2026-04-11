@@ -43,7 +43,7 @@ import jinja2
 
 from marianne.backends.base import Backend, ExecutionResult
 from marianne.core.config.job import InjectionCategory, InjectionItem
-from marianne.core.constants import TRUNCATE_STDOUT_TAIL_CHARS
+from marianne.core.constants import SHEET_NUM_KEY,  TRUNCATE_STDOUT_TAIL_CHARS
 from marianne.core.logging import get_logger
 from marianne.core.sheet import Sheet
 from marianne.daemon.baton.events import SheetAttemptResult
@@ -187,7 +187,7 @@ async def sheet_task(
             "musician.sheet_task.exception",
             extra={
                 "job_id": job_id,
-                "sheet_num": sheet.num,
+                SHEET_NUM_KEY: sheet.num,
                 "error": error_msg,
             },
             exc_info=True,
@@ -212,7 +212,7 @@ async def sheet_task(
         "musician.sheet_task.reported",
         extra={
             "job_id": job_id,
-            "sheet_num": sheet.num,
+            SHEET_NUM_KEY: sheet.num,
             "success": result.execution_success,
             "pass_rate": result.validation_pass_rate,
             "duration": result.duration_seconds,
@@ -663,7 +663,7 @@ async def _validate(
     # Uses Sheet.template_variables() which provides all built-in vars
     # (workspace, movement, voice, stage, instance, etc.) plus custom
     # score-level variables. This closes the F-118 gap where the baton
-    # musician only passed {"sheet_num": N}.
+    # musician only passed {SHEET_NUM_KEY: N}.
     sheet_context = sheet.template_variables(
         total_sheets=total_sheets,
         total_movements=total_movements,
@@ -696,7 +696,7 @@ async def _validate(
         _logger.warning(
             "musician.validation.error",
             extra={
-                "sheet_num": sheet.num,
+                SHEET_NUM_KEY: sheet.num,
                 "error": error_text,
             },
         )

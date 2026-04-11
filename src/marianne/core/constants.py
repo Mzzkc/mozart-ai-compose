@@ -5,6 +5,16 @@ making them discoverable, consistent, and easy to modify.
 """
 
 # =============================================================================
+# JSON/Dict Key Constants
+# =============================================================================
+
+SHEET_NUM_KEY = "sheet_num"
+"""Standard key for sheet number in dicts and serialised state."""
+
+VALIDATION_PASS_RATE_KEY = "validation_pass_rate"
+"""Standard key for validation pass rate in checkpoint/job data."""
+
+# =============================================================================
 # Text Truncation Limits (characters)
 # =============================================================================
 

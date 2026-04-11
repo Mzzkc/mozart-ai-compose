@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from marianne.validation.base import ValidationIssue, ValidationSeverity
+from marianne.core.constants import SHEET_NUM_KEY
 
 if TYPE_CHECKING:
     from marianne.validation.rendering import RenderingPreview
@@ -294,7 +295,7 @@ class ValidationReporter:
                 validations.append(v)
 
             sheet_dict: dict[str, Any] = {
-                "sheet_num": sp.sheet_num,
+                SHEET_NUM_KEY: sp.sheet_num,
                 "item_range": list(sp.item_range),
                 "stage": sp.stage,
                 "instance": sp.instance,

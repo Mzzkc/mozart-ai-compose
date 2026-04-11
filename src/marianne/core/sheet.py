@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 
 from marianne.core.config.execution import ValidationRule
 from marianne.core.config.job import InjectionItem
+from marianne.core.constants import SHEET_NUM_KEY
 
 if TYPE_CHECKING:
     from marianne.core.config.job import JobConfig
@@ -164,7 +165,7 @@ class Sheet(BaseModel):
         # Built-in variables (override custom)
         tvars.update({
             # Core identity
-            "sheet_num": self.num,
+            SHEET_NUM_KEY: self.num,
             "total_sheets": total_sheets,
             "workspace": str(self.workspace),
             "instrument_name": self.instrument_name,

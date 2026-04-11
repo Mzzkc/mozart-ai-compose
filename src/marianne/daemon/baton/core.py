@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from marianne.daemon.baton.dispatch import DispatchConfig
 
 from marianne.core.logging import get_logger
+from marianne.core.constants import SHEET_NUM_KEY
 from marianne.daemon.baton.events import (
     BatonEvent,
     CancelJob,
@@ -437,7 +438,7 @@ class BatonCore:
                 "baton.sheet.cost_limit_exceeded",
                 extra={
                     "job_id": job_id,
-                    "sheet_num": sheet_num,
+                    SHEET_NUM_KEY: sheet_num,
                     "total_cost": sheet.total_cost_usd,
                     "limit": limit,
                 },
@@ -485,7 +486,7 @@ class BatonCore:
                 "baton.retry.scheduled",
                 extra={
                     "job_id": job_id,
-                    "sheet_num": sheet_num,
+                    SHEET_NUM_KEY: sheet_num,
                     "delay_seconds": delay,
                     "attempt": sheet.normal_attempts,
                 },
@@ -538,7 +539,7 @@ class BatonCore:
                     "baton.sheet.instrument_fallback",
                     extra={
                         "job_id": job_id,
-                        "sheet_num": sheet_num,
+                        SHEET_NUM_KEY: sheet_num,
                         "from_instrument": from_instrument,
                         "to_instrument": to_instrument,
                         "reason": "rate_limit_exhausted",
@@ -557,7 +558,7 @@ class BatonCore:
                 "baton.sheet.healing_attempt",
                 extra={
                     "job_id": job_id,
-                    "sheet_num": sheet_num,
+                    SHEET_NUM_KEY: sheet_num,
                     "healing_attempt": sheet.healing_attempts,
                 },
             )
@@ -572,7 +573,7 @@ class BatonCore:
                 "baton.sheet.escalated",
                 extra={
                     "job_id": job_id,
-                    "sheet_num": sheet_num,
+                    SHEET_NUM_KEY: sheet_num,
                     "normal_attempts": sheet.normal_attempts,
                     "healing_attempts": sheet.healing_attempts,
                 },
@@ -592,7 +593,7 @@ class BatonCore:
                 "baton.sheet.exhaustion_retry_available",
                 extra={
                     "job_id": job_id,
-                    "sheet_num": sheet_num,
+                    SHEET_NUM_KEY: sheet_num,
                     "normal_attempts": sheet.normal_attempts,
                     "max_retries": sheet.max_retries,
                 },
@@ -626,7 +627,7 @@ class BatonCore:
             "baton.sheet.retries_exhausted",
             extra={
                 "job_id": job_id,
-                "sheet_num": sheet_num,
+                SHEET_NUM_KEY: sheet_num,
                 "attempts": sheet.normal_attempts,
             },
         )
@@ -663,7 +664,7 @@ class BatonCore:
                         "baton.sheet.instrument_fallback",
                         extra={
                             "job_id": job_id,
-                            "sheet_num": sheet.sheet_num,
+                            SHEET_NUM_KEY: sheet.sheet_num,
                             "from_instrument": from_instrument,
                             "to_instrument": to_instrument,
                             "reason": "unavailable",
@@ -693,7 +694,7 @@ class BatonCore:
                     "baton.sheet.instrument_fallback",
                     extra={
                         "job_id": job_id,
-                        "sheet_num": sheet.sheet_num,
+                        SHEET_NUM_KEY: sheet.sheet_num,
                         "from_instrument": from_instrument,
                         "to_instrument": to_instrument,
                         "reason": "unavailable",
@@ -1004,7 +1005,7 @@ class BatonCore:
         if job is None:
             _logger.warning(
                 "baton.attempt_result.unknown_job",
-                extra={"job_id": event.job_id, "sheet_num": event.sheet_num},
+                extra={"job_id": event.job_id, SHEET_NUM_KEY: event.sheet_num},
             )
             return
 
@@ -1012,7 +1013,7 @@ class BatonCore:
         if sheet is None:
             _logger.warning(
                 "baton.attempt_result.unknown_sheet",
-                extra={"job_id": event.job_id, "sheet_num": event.sheet_num},
+                extra={"job_id": event.job_id, SHEET_NUM_KEY: event.sheet_num},
             )
             return
 
@@ -1024,7 +1025,7 @@ class BatonCore:
                 "baton.attempt_result.terminal_noop",
                 extra={
                     "job_id": event.job_id,
-                    "sheet_num": event.sheet_num,
+                    SHEET_NUM_KEY: event.sheet_num,
                     "status": sheet.status.value,
                 },
             )
@@ -1043,7 +1044,7 @@ class BatonCore:
                 "baton.sheet.rate_limited",
                 extra={
                     "job_id": event.job_id,
-                    "sheet_num": event.sheet_num,
+                    SHEET_NUM_KEY: event.sheet_num,
                     "instrument": event.instrument_name,
                 },
             )
@@ -1082,7 +1083,7 @@ class BatonCore:
                 "baton.sheet.completed",
                 extra={
                     "job_id": event.job_id,
-                    "sheet_num": event.sheet_num,
+                    SHEET_NUM_KEY: event.sheet_num,
                     "attempt": event.attempt,
                     "cost_usd": event.cost_usd,
                 },
@@ -1109,7 +1110,7 @@ class BatonCore:
                     "baton.sheet.completion_mode",
                     extra={
                         "job_id": event.job_id,
-                        "sheet_num": event.sheet_num,
+                        SHEET_NUM_KEY: event.sheet_num,
                         "pass_rate": effective_pass_rate,
                         "completion_attempt": sheet.completion_attempts,
                         "max_completion": sheet.max_completion,
@@ -1121,7 +1122,7 @@ class BatonCore:
                     "baton.sheet.completion_exhausted",
                     extra={
                         "job_id": event.job_id,
-                        "sheet_num": event.sheet_num,
+                        SHEET_NUM_KEY: event.sheet_num,
                         "completion_attempts": sheet.completion_attempts,
                     },
                 )
@@ -1144,7 +1145,7 @@ class BatonCore:
                     "baton.sheet.auth_failure",
                     extra={
                         "job_id": event.job_id,
-                        "sheet_num": event.sheet_num,
+                        SHEET_NUM_KEY: event.sheet_num,
                     },
                 )
                 self._propagate_failure_to_dependents(
@@ -1192,7 +1193,7 @@ class BatonCore:
                 "baton.sheet_skipped.terminal_noop",
                 extra={
                     "job_id": event.job_id,
-                    "sheet_num": event.sheet_num,
+                    SHEET_NUM_KEY: event.sheet_num,
                     "status": sheet.status.value,
                 },
             )
@@ -1203,7 +1204,7 @@ class BatonCore:
             "baton.sheet.skipped",
             extra={
                 "job_id": event.job_id,
-                "sheet_num": event.sheet_num,
+                SHEET_NUM_KEY: event.sheet_num,
                 "reason": event.reason,
             },
         )
@@ -1297,7 +1298,7 @@ class BatonCore:
                                 "baton.rate_limit.fallback_advanced",
                                 extra={
                                     "job_id": event.job_id,
-                                    "sheet_num": sheet.sheet_num,
+                                    SHEET_NUM_KEY: sheet.sheet_num,
                                     "fallback_instrument": fallback_name,
                                 },
                             )
@@ -1570,7 +1571,7 @@ class BatonCore:
             "baton.stale_check.dispatched",
             extra={
                 "job_id": event.job_id,
-                "sheet_num": event.sheet_num,
+                SHEET_NUM_KEY: event.sheet_num,
                 "instrument": sheet.instrument_name,
             },
         )
@@ -1752,7 +1753,7 @@ class BatonCore:
                 "baton.sheet.dependency_blocked",
                     extra={
                         "job_id": job_id,
-                        "sheet_num": current,
+                        SHEET_NUM_KEY: current,
                         "failed_dependency": failed_sheet_num,
                     },
                 )

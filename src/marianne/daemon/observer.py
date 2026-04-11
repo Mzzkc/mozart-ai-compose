@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from marianne.core.logging import get_logger
+from marianne.core.constants import SHEET_NUM_KEY
 
 if TYPE_CHECKING:
     from marianne.daemon.event_bus import EventBus
@@ -106,7 +107,7 @@ class JobObserver:
         """Publish an observer event to the event bus."""
         evt: ObserverEvent = {
             "job_id": self._job_id,
-            "sheet_num": 0,
+            SHEET_NUM_KEY: 0,
             "event": event_name,
             "data": data,
             "timestamp": time.time(),

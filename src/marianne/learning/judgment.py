@@ -14,6 +14,7 @@ from typing import Any, Literal
 import httpx
 
 from marianne.core.checkpoint import ValidationDetailDict
+from marianne.core.constants import SHEET_NUM_KEY
 
 _logger = logging.getLogger("marianne.learning.judgment")
 
@@ -151,7 +152,7 @@ class JudgmentClient:
             # Build request payload from JudgmentQuery
             payload = {
                 "job_id": query.job_id,
-                "sheet_num": query.sheet_num,
+                SHEET_NUM_KEY: query.sheet_num,
                 "validation_results": query.validation_results,
                 "execution_history": query.execution_history,
                 "error_patterns": query.error_patterns,

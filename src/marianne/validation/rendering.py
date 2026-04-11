@@ -17,6 +17,7 @@ import jinja2
 
 from marianne.core.config import JobConfig
 from marianne.core.config.job import InjectionCategory, InjectionItem
+from marianne.core.constants import SHEET_NUM_KEY
 from marianne.prompts.templating import PromptBuilder, SheetContext
 
 
@@ -323,7 +324,7 @@ def generate_preview(
         }
         path_context.update({
             "workspace": str(config.workspace),
-            "sheet_num": str(sheet_num),
+            SHEET_NUM_KEY: str(sheet_num),
             "start_item": str(context.start_item),
             "end_item": str(context.end_item),
             "stage": str(context.stage if context.stage > 0 else sheet_num),
@@ -336,7 +337,7 @@ def generate_preview(
         })
 
         condition_context: dict[str, int] = {
-            "sheet_num": sheet_num,
+            SHEET_NUM_KEY: sheet_num,
             "start_item": context.start_item,
             "end_item": context.end_item,
             "stage": context.stage if context.stage > 0 else sheet_num,

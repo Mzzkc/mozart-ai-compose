@@ -35,11 +35,9 @@ from marianne.daemon.baton.events import (
 )
 from marianne.daemon.baton.state import BatonSheetStatus
 
-
 # =========================================================================
 # Helpers
 # =========================================================================
-
 
 def _make_sheet(
     num: int = 1,
@@ -63,7 +61,6 @@ def _make_sheet(
         cadenza=[],
     )
 
-
 def _make_checkpoint(
     sheets: dict[int, SheetState] | None = None,
     total_sheets: int = 3,
@@ -76,7 +73,6 @@ def _make_checkpoint(
         total_sheets=total_sheets,
         sheets=sheets or {},
     )
-
 
 def _make_sheet_state(
     num: int,
@@ -92,11 +88,9 @@ def _make_sheet_state(
         completion_attempts=completion_attempts,
     )
 
-
 # =========================================================================
 # 1. Restart Recovery Adversarial Tests (Step 29)
 # =========================================================================
-
 
 class TestRecoverJobAdversarial:
     """Adversarial tests for adapter.recover_job() — the critical restart
@@ -302,148 +296,13 @@ class TestRecoverJobAdversarial:
             "None max_cost_usd should not set any cost limit"
         )
 
-
 # =========================================================================
 # 2. State Sync Callback Adversarial Tests
 # =========================================================================
 
-
-@pytest.mark.skip(reason="Phase 2: sync layer replaced by persist callback — see docs/plans/2026-04-07-unified-state-spec.md")
-class TestStateSyncCallbackAdversarial:
-    """Adversarial tests for _sync_sheet_status — the per-event callback
-    that syncs baton status changes to the manager's CheckpointState."""
-
-    def test_sync_fires_on_attempt_result(self) -> None:
-        """_sync_sheet_status must fire for SheetAttemptResult events."""
-        sync_calls: list[tuple[str, int, str]] = []
-
-        def on_sync(job_id: str, sheet_num: int, status: str, baton_state: object = None) -> None:
-            sync_calls.append((job_id, sheet_num, status))
-
-        adapter = BatonAdapter(state_sync_callback=on_sync)
-        sheets = [_make_sheet(num=1)]
-        adapter.register_job("test-job", sheets, {})
-
-        result = SheetAttemptResult(
-            job_id="test-job",
-            sheet_num=1,
-            instrument_name="claude-code",
-            attempt=1,
-            execution_success=True,
-            validation_pass_rate=100.0,
-            validations_total=0,
-            duration_seconds=1.0,
-        )
-        adapter._sync_sheet_status(result)
-
-        assert len(sync_calls) == 1
-        assert sync_calls[0][0] == "test-job"
-        assert sync_calls[0][1] == 1
-
-    def test_sync_fires_on_sheet_skipped(self) -> None:
-        """_sync_sheet_status must fire for SheetSkipped events."""
-        sync_calls: list[tuple[str, int, str]] = []
-
-        def on_sync(job_id: str, sheet_num: int, status: str, baton_state: object = None) -> None:
-            sync_calls.append((job_id, sheet_num, status))
-
-        adapter = BatonAdapter(state_sync_callback=on_sync)
-        sheets = [_make_sheet(num=1)]
-        adapter.register_job("test-job", sheets, {})
-
-        skipped = SheetSkipped(job_id="test-job", sheet_num=1, reason="test")
-        adapter._sync_sheet_status(skipped)
-
-        assert len(sync_calls) == 1
-
-    def test_sync_ignores_non_status_events(self) -> None:
-        """DispatchRetry and other non-status events must NOT trigger
-        the callback."""
-        sync_calls: list[tuple[str, int, str]] = []
-
-        def on_sync(job_id: str, sheet_num: int, status: str, baton_state: object = None) -> None:
-            sync_calls.append((job_id, sheet_num, status))
-
-        adapter = BatonAdapter(state_sync_callback=on_sync)
-
-        dispatch_retry = DispatchRetry()
-        adapter._sync_sheet_status(dispatch_retry)
-
-        assert len(sync_calls) == 0
-
-    def test_sync_callback_exception_does_not_crash(self) -> None:
-        """If the callback raises, _sync_sheet_status must catch it
-        and log a warning — never crash the baton."""
-        def on_sync(job_id: str, sheet_num: int, status: str, baton_state: object = None) -> None:
-            raise RuntimeError("Callback explosion")
-
-        adapter = BatonAdapter(state_sync_callback=on_sync)
-        sheets = [_make_sheet(num=1)]
-        adapter.register_job("test-job", sheets, {})
-
-        result = SheetAttemptResult(
-            job_id="test-job",
-            sheet_num=1,
-            instrument_name="claude-code",
-            attempt=1,
-            execution_success=True,
-            validation_pass_rate=100.0,
-            validations_total=0,
-            duration_seconds=1.0,
-        )
-
-        # Must not raise
-        adapter._sync_sheet_status(result)
-
-    def test_sync_with_unknown_job(self) -> None:
-        """If the event references a non-existent job, the callback
-        must not fire."""
-        sync_calls: list[tuple[str, int, str]] = []
-
-        def on_sync(job_id: str, sheet_num: int, status: str, baton_state: object = None) -> None:
-            sync_calls.append((job_id, sheet_num, status))
-
-        adapter = BatonAdapter(state_sync_callback=on_sync)
-
-        result = SheetAttemptResult(
-            job_id="ghost-job",
-            sheet_num=1,
-            instrument_name="claude-code",
-            attempt=1,
-            execution_success=True,
-            validation_pass_rate=100.0,
-            validations_total=0,
-            duration_seconds=1.0,
-        )
-
-        adapter._sync_sheet_status(result)
-        assert len(sync_calls) == 0
-
-    def test_sync_no_callback_is_noop(self) -> None:
-        """When no callback is set, the sync should be a clean no-op."""
-        adapter = BatonAdapter()
-        sheets = [_make_sheet(num=1)]
-        adapter.register_job("test-job", sheets, {})
-
-        result = SheetAttemptResult(
-            job_id="test-job",
-            sheet_num=1,
-            instrument_name="claude-code",
-            attempt=1,
-            execution_success=True,
-            validation_pass_rate=100.0,
-            validations_total=0,
-            duration_seconds=1.0,
-        )
-
-        # Must not raise
-        adapter._sync_sheet_status(result)
-
-
 # =========================================================================
 # 3. Credential Redaction in Exception Path (F-135)
 # =========================================================================
-
 
 class TestMusicianCredentialRedactionAdversarial:
     """Adversarial tests for credential redaction in the musician exception
@@ -530,11 +389,9 @@ class TestMusicianCredentialRedactionAdversarial:
             "Short credential-like strings below pattern threshold must pass through"
         )
 
-
 # =========================================================================
 # 4. Parallel Rate Limit Extraction (F-111)
 # =========================================================================
-
 
 class TestParallelRateLimitExtractionAdversarial:
     """Adversarial tests for _find_rate_limit_in_batch."""
@@ -625,11 +482,9 @@ class TestParallelRateLimitExtractionAdversarial:
         found = LifecycleMixin._find_rate_limit_in_batch(result)
         assert found is None
 
-
 # =========================================================================
 # 5. Failure Propagation in Parallel Executor (F-113)
 # =========================================================================
-
 
 class TestFailurePropagationAdversarial:
     """Adversarial tests for propagate_failure_to_dependents."""
@@ -745,11 +600,9 @@ class TestFailurePropagationAdversarial:
 
         assert {2, 3, 4}.issubset(executor._permanently_failed)
 
-
 # =========================================================================
 # 6. Cost Limit Field Correctness (F-134)
 # =========================================================================
-
 
 class TestCostLimitFieldCorrectness:
     """Adversarial tests verifying the F-134 fix — both baton paths must
@@ -784,11 +637,9 @@ class TestCostLimitFieldCorrectness:
         assert config.max_cost_per_job is None
         assert config.enabled is False
 
-
 # =========================================================================
 # 7. Checkpoint Status Mapping Boundary Tests
 # =========================================================================
-
 
 class TestCheckpointStatusMappingBoundary:
     """Adversarial tests for the checkpoint ↔ baton status mapping tables."""
@@ -840,11 +691,9 @@ class TestCheckpointStatusMappingBoundary:
         assert baton_to_checkpoint_status(BatonSheetStatus.RETRY_SCHEDULED) == "retry_scheduled"
         assert baton_to_checkpoint_status(BatonSheetStatus.FERMATA) == "fermata"
 
-
 # =========================================================================
 # 8. Completion Signaling Edge Cases
 # =========================================================================
-
 
 class TestCompletionSignalingAdversarial:
     """Adversarial tests for _check_completions."""
@@ -925,11 +774,9 @@ class TestCompletionSignalingAdversarial:
         adapter._check_completions()
         assert adapter._completion_results.get("test-job") is True
 
-
 # =========================================================================
 # 9. ParallelBatchResult Exceptions Field (F-111 regression)
 # =========================================================================
-
 
 class TestParallelBatchResultExceptionsField:
     """Tests for the exceptions dict on ParallelBatchResult."""
@@ -973,11 +820,9 @@ class TestParallelBatchResultExceptionsField:
         assert result.exceptions == {}
         assert isinstance(result.exceptions, dict)
 
-
 # =========================================================================
 # 10. Recovery + Dependency Interaction (Step 29 Boundary)
 # =========================================================================
-
 
 class TestRecoveryDependencyInteraction:
     """When recovery rebuilds from a checkpoint where some sheets failed
@@ -1063,11 +908,9 @@ class TestRecoveryDependencyInteraction:
             "Sheet 4 should be SKIPPED (blocked by failed dependency 2)"
         )
 
-
 # =========================================================================
 # 11. Credential Redaction Boundary Cases (F-135/F-136)
 # =========================================================================
-
 
 class TestCredentialRedactionBoundaryCases:
     """Boundary tests for credential redaction edge cases."""
@@ -1145,11 +988,9 @@ class TestCredentialRedactionBoundaryCases:
         assert result is not None
         assert "sk-ant-api03-embedded1234567890" not in result
 
-
 # =========================================================================
 # 12. Score-Level Instrument Resolution Adversarial
 # =========================================================================
-
 
 class TestScoreLevelInstrumentAdversarial:
     """Adversarial tests for instrument resolution through build_sheets()."""
@@ -1245,11 +1086,9 @@ class TestScoreLevelInstrumentAdversarial:
         with pytest.raises(pydantic.ValidationError):
             InstrumentDef(config={"model": "opus"})  # type: ignore[call-arg]
 
-
 # =========================================================================
 # 13. Failure Propagation Edge Cases (F-113 extended)
 # =========================================================================
-
 
 class TestFailurePropagationExtended:
     """Extended adversarial tests for failure propagation edge cases."""

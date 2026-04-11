@@ -21,6 +21,7 @@ from contextlib import AbstractContextManager
 from datetime import datetime
 
 from marianne.core.logging import MarianneLogger, get_logger
+from marianne.core.constants import VALIDATION_PASS_RATE_KEY,  SHEET_NUM_KEY
 
 from .base import WhereBuilder
 from .models import EscalationDecisionRecord
@@ -159,11 +160,11 @@ class EscalationMixin:
                     EscalationDecisionRecord(
                         id=row["id"],
                         job_hash=row["job_hash"],
-                        sheet_num=row["sheet_num"],
+                        sheet_num=row[SHEET_NUM_KEY],
                         confidence=row["confidence"],
                         action=row["action"],
                         guidance=row["guidance"],
-                        validation_pass_rate=row["validation_pass_rate"],
+                        validation_pass_rate=row[VALIDATION_PASS_RATE_KEY],
                         retry_count=row["retry_count"],
                         outcome_after_action=row["outcome_after_action"],
                         recorded_at=datetime.fromisoformat(row["recorded_at"]),
@@ -237,11 +238,11 @@ class EscalationMixin:
                     EscalationDecisionRecord(
                         id=row["id"],
                         job_hash=row["job_hash"],
-                        sheet_num=row["sheet_num"],
+                        sheet_num=row[SHEET_NUM_KEY],
                         confidence=row["confidence"],
                         action=row["action"],
                         guidance=row["guidance"],
-                        validation_pass_rate=row["validation_pass_rate"],
+                        validation_pass_rate=row[VALIDATION_PASS_RATE_KEY],
                         retry_count=row["retry_count"],
                         outcome_after_action=row["outcome_after_action"],
                         recorded_at=datetime.fromisoformat(row["recorded_at"]),

@@ -31,6 +31,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from marianne.core.logging import get_logger
+from marianne.core.constants import SHEET_NUM_KEY
 from marianne.daemon.baton.core import BatonCore
 from marianne.daemon.baton.events import SheetDispatched
 from marianne.daemon.baton.state import BatonSheetStatus, SheetExecutionState
@@ -201,7 +202,7 @@ async def dispatch_ready(
                     "baton.dispatch.callback_failed",
                     extra={
                         "job_id": job_id,
-                        "sheet_num": sheet.sheet_num,
+                        SHEET_NUM_KEY: sheet.sheet_num,
                         "instrument": instrument,
                     },
                     exc_info=True,

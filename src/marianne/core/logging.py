@@ -45,6 +45,8 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Literal
 
+from marianne.core.constants import SHEET_NUM_KEY
+
 import structlog
 from structlog.types import EventDict, Processor, WrappedLogger
 
@@ -376,7 +378,7 @@ class ExecutionContext:
             "component": self.component,
         }
         if self.sheet_num is not None:
-            result["sheet_num"] = self.sheet_num
+            result[SHEET_NUM_KEY] = self.sheet_num
         if self.parent_run_id is not None:
             result["parent_run_id"] = self.parent_run_id
         return result

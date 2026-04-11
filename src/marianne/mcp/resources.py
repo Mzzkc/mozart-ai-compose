@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from marianne.core.config import JobConfig
+from marianne.core.constants import SHEET_NUM_KEY
 from marianne.state.base import StateBackend
 
 logger = logging.getLogger(__name__)
@@ -525,7 +526,7 @@ notifications:
 
             for sheet_num, sheet in state.sheets.items():
                 job_details["sheets"][str(sheet_num)] = {
-                    "sheet_num": sheet.sheet_num,
+                    SHEET_NUM_KEY: sheet.sheet_num,
                     "status": sheet.status.value,
                     "started_at": sheet.started_at.isoformat() if sheet.started_at else None,
                     "completed_at": sheet.completed_at.isoformat() if sheet.completed_at else None,

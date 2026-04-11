@@ -18,6 +18,7 @@ import aiosqlite
 
 from marianne.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
 from marianne.core.logging import get_logger
+from marianne.core.constants import SHEET_NUM_KEY
 from marianne.state.base import StateBackend
 from marianne.utils.time import utc_now
 
@@ -360,7 +361,7 @@ class SQLiteStateBackend(StateBackend):
             sheets: dict[int, SheetState] = {}
             for row in sheet_rows:
                 sheet = SheetState(
-                    sheet_num=row["sheet_num"],
+                    sheet_num=row[SHEET_NUM_KEY],
                     status=SheetStatus(row["status"]),
                     started_at=self._str_to_datetime(row["started_at"]),
                     completed_at=self._str_to_datetime(row["completed_at"]),

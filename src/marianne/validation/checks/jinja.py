@@ -8,6 +8,7 @@ import difflib
 from pathlib import Path
 
 from marianne.core.logging import get_logger
+from marianne.core.constants import SHEET_NUM_KEY
 
 _logger = get_logger("validation.jinja")
 
@@ -161,7 +162,7 @@ class JinjaUndefinedVariableCheck:
 
     # Built-in variables always available in sheet context
     BUILTIN_VARIABLES = frozenset({
-        "sheet_num",
+        SHEET_NUM_KEY,
         "total_sheets",
         "start_item",
         "end_item",

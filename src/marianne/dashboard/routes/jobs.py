@@ -16,6 +16,7 @@ from marianne.dashboard.services.job_control import (
     JobControlService,
     JobStartResult,
 )
+from marianne.core.constants import SHEET_NUM_KEY
 from marianne.state.base import StateBackend
 
 router = APIRouter(prefix="/api/jobs", tags=["Job Control"])
@@ -312,7 +313,7 @@ async def get_sheet_details(
 
     # Build comprehensive sheet details
     sheet_details = {
-        "sheet_num": sheet_state.sheet_num,
+        SHEET_NUM_KEY: sheet_state.sheet_num,
         "status": sheet_state.status.value,
         "started_at": sheet_state.started_at.isoformat() if sheet_state.started_at else None,
         "completed_at": sheet_state.completed_at.isoformat() if sheet_state.completed_at else None,

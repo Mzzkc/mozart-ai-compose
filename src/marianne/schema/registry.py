@@ -14,6 +14,7 @@ from enum import Enum
 from typing import Any, Literal, Union, get_args, get_origin
 
 from marianne.core.logging import get_logger
+from marianne.core.constants import SHEET_NUM_KEY
 
 _logger = get_logger("schema.registry")
 
@@ -343,7 +344,7 @@ def _build_state_registry() -> list[TableMapping]:
         TableMapping(
             model=SheetState,
             table="sheets",
-            primary_key=("job_id", "sheet_num"),
+            primary_key=("job_id", SHEET_NUM_KEY),
             extra_columns=[("job_id", "TEXT NOT NULL")],
         ),
     ]

@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from marianne.daemon.types import ObserverEvent
+from marianne.core.constants import VALIDATION_PASS_RATE_KEY,  SHEET_NUM_KEY
 
 # =============================================================================
 # Musician Events — sheet execution results
@@ -482,14 +483,14 @@ def to_observer_event(event: BatonEvent) -> ObserverEvent:
         case SheetAttemptResult():
             return {
                 "job_id": event.job_id,
-                "sheet_num": event.sheet_num,
+                SHEET_NUM_KEY: event.sheet_num,
                 "event": "baton.sheet.attempt_result",
                 "data": {
                     "instrument": event.instrument_name,
                     "model": event.model_used,
                     "attempt": event.attempt,
                     "success": event.execution_success,
-                    "validation_pass_rate": event.validation_pass_rate,
+                    VALIDATION_PASS_RATE_KEY: event.validation_pass_rate,
                     "cost_usd": event.cost_usd,
                     "rate_limited": event.rate_limited,
                     "duration_seconds": event.duration_seconds,
@@ -500,7 +501,7 @@ def to_observer_event(event: BatonEvent) -> ObserverEvent:
         case SheetSkipped():
             return {
                 "job_id": event.job_id,
-                "sheet_num": event.sheet_num,
+                SHEET_NUM_KEY: event.sheet_num,
                 "event": "baton.sheet.skipped",
                 "data": {"reason": event.reason},
                 "timestamp": event.timestamp,
@@ -509,7 +510,7 @@ def to_observer_event(event: BatonEvent) -> ObserverEvent:
         case RateLimitHit():
             return {
                 "job_id": event.job_id,
-                "sheet_num": event.sheet_num,
+                SHEET_NUM_KEY: event.sheet_num,
                 "event": "baton.rate_limit.active",
                 "data": {
                     "instrument": event.instrument,
@@ -521,7 +522,7 @@ def to_observer_event(event: BatonEvent) -> ObserverEvent:
         case RateLimitExpired():
             return {
                 "job_id": "",
-                "sheet_num": 0,
+                SHEET_NUM_KEY: 0,
                 "event": "baton.rate_limit.cleared",
                 "data": {"instrument": event.instrument},
                 "timestamp": event.timestamp,
@@ -530,7 +531,7 @@ def to_observer_event(event: BatonEvent) -> ObserverEvent:
         case RetryDue():
             return {
                 "job_id": event.job_id,
-                "sheet_num": event.sheet_num,
+                SHEET_NUM_KEY: event.sheet_num,
                 "event": "baton.sheet.retry_scheduled",
                 "data": {},
                 "timestamp": event.timestamp,
@@ -539,7 +540,7 @@ def to_observer_event(event: BatonEvent) -> ObserverEvent:
         case StaleCheck():
             return {
                 "job_id": event.job_id,
-                "sheet_num": event.sheet_num,
+                SHEET_NUM_KEY: event.sheet_num,
                 "event": "baton.sheet.stale_check",
                 "data": {},
                 "timestamp": event.timestamp,
@@ -548,7 +549,7 @@ def to_observer_event(event: BatonEvent) -> ObserverEvent:
         case CronTick():
             return {
                 "job_id": "",
-                "sheet_num": 0,
+                SHEET_NUM_KEY: 0,
                 "event": "baton.cron.fired",
                 "data": {
                     "entry_name": event.entry_name,
@@ -560,7 +561,7 @@ def to_observer_event(event: BatonEvent) -> ObserverEvent:
         case JobTimeout():
             return {
                 "job_id": event.job_id,
-                "sheet_num": 0,
+                SHEET_NUM_KEY: 0,
                 "event": "baton.job.timeout",
                 "data": {},
                 "timestamp": event.timestamp,
@@ -569,7 +570,7 @@ def to_observer_event(event: BatonEvent) -> ObserverEvent:
         case PacingComplete():
             return {
                 "job_id": event.job_id,
-                "sheet_num": 0,
+                SHEET_NUM_KEY: 0,
                 "event": "baton.pacing.complete",
                 "data": {},
                 "timestamp": event.timestamp,
@@ -578,7 +579,7 @@ def to_observer_event(event: BatonEvent) -> ObserverEvent:
         case EscalationNeeded():
             return {
                 "job_id": event.job_id,
-                "sheet_num": event.sheet_num,
+                SHEET_NUM_KEY: event.sheet_num,
                 "event": "baton.fermata",
                 "data": {
                     "reason": event.reason,
@@ -590,7 +591,7 @@ def to_observer_event(event: BatonEvent) -> ObserverEvent:
         case EscalationResolved():
             return {
                 "job_id": event.job_id,
-                "sheet_num": event.sheet_num,
+                SHEET_NUM_KEY: event.sheet_num,
                 "event": "baton.fermata.resolved",
                 "data": {"decision": event.decision},
                 "timestamp": event.timestamp,
@@ -599,7 +600,7 @@ def to_observer_event(event: BatonEvent) -> ObserverEvent:
         case EscalationTimeout():
             return {
                 "job_id": event.job_id,
-                "sheet_num": event.sheet_num,
+                SHEET_NUM_KEY: event.sheet_num,
                 "event": "baton.fermata.timeout",
                 "data": {},
                 "timestamp": event.timestamp,
@@ -608,7 +609,7 @@ def to_observer_event(event: BatonEvent) -> ObserverEvent:
         case PauseJob():
             return {
                 "job_id": event.job_id,
-                "sheet_num": 0,
+                SHEET_NUM_KEY: 0,
                 "event": "baton.job.paused",
                 "data": {"reason": "user"},
                 "timestamp": event.timestamp,
@@ -617,7 +618,7 @@ def to_observer_event(event: BatonEvent) -> ObserverEvent:
         case ResumeJob():
             return {
                 "job_id": event.job_id,
-                "sheet_num": 0,
+                SHEET_NUM_KEY: 0,
                 "event": "baton.job.resumed",
                 "data": {"config_changed": event.new_config is not None},
                 "timestamp": event.timestamp,
@@ -626,7 +627,7 @@ def to_observer_event(event: BatonEvent) -> ObserverEvent:
         case CancelJob():
             return {
                 "job_id": event.job_id,
-                "sheet_num": 0,
+                SHEET_NUM_KEY: 0,
                 "event": "baton.job.cancelled",
                 "data": {},
                 "timestamp": event.timestamp,
@@ -635,7 +636,7 @@ def to_observer_event(event: BatonEvent) -> ObserverEvent:
         case ConfigReloaded():
             return {
                 "job_id": event.job_id,
-                "sheet_num": 0,
+                SHEET_NUM_KEY: 0,
                 "event": "baton.config.reloaded",
                 "data": {},
                 "timestamp": event.timestamp,
@@ -644,7 +645,7 @@ def to_observer_event(event: BatonEvent) -> ObserverEvent:
         case ShutdownRequested():
             return {
                 "job_id": "",
-                "sheet_num": 0,
+                SHEET_NUM_KEY: 0,
                 "event": "baton.shutdown.requested",
                 "data": {"graceful": event.graceful},
                 "timestamp": event.timestamp,
@@ -653,7 +654,7 @@ def to_observer_event(event: BatonEvent) -> ObserverEvent:
         case ProcessExited():
             return {
                 "job_id": event.job_id,
-                "sheet_num": event.sheet_num,
+                SHEET_NUM_KEY: event.sheet_num,
                 "event": "baton.process.exited",
                 "data": {
                     "pid": event.pid,
@@ -665,7 +666,7 @@ def to_observer_event(event: BatonEvent) -> ObserverEvent:
         case ResourceAnomaly():
             return {
                 "job_id": "",
-                "sheet_num": 0,
+                SHEET_NUM_KEY: 0,
                 "event": "baton.resource.anomaly",
                 "data": {
                     "severity": event.severity,
@@ -678,7 +679,7 @@ def to_observer_event(event: BatonEvent) -> ObserverEvent:
         case InstrumentFallback():
             return {
                 "job_id": event.job_id,
-                "sheet_num": event.sheet_num,
+                SHEET_NUM_KEY: event.sheet_num,
                 "event": "baton.instrument.fallback",
                 "data": {
                     "from_instrument": event.from_instrument,
@@ -691,7 +692,7 @@ def to_observer_event(event: BatonEvent) -> ObserverEvent:
         case DispatchRetry():
             return {
                 "job_id": "",
-                "sheet_num": 0,
+                SHEET_NUM_KEY: 0,
                 "event": "baton.dispatch.retry",
                 "data": {},
                 "timestamp": event.timestamp,

@@ -10,6 +10,7 @@ import time
 from typing import Any, cast
 
 from marianne.core.checkpoint import CheckpointState, SheetStatus
+from marianne.core.constants import SHEET_NUM_KEY
 from marianne.state.base import StateBackend
 
 
@@ -228,7 +229,7 @@ class DaemonAnalytics:
                     job_total += dur
                     slowest.append({
                         "job_id": job.job_id,
-                        "sheet_num": sheet.sheet_num,
+                        SHEET_NUM_KEY: sheet.sheet_num,
                         "duration_seconds": round(dur, 2),
                     })
             if job_total > 0:

@@ -40,6 +40,7 @@ from marianne.core.checkpoint import (
     ErrorRecord,
     SheetStatus,
 )
+from marianne.core.constants import SHEET_NUM_KEY
 from marianne.core.logging import find_log_files, get_default_log_path
 
 from ..helpers import (
@@ -81,7 +82,7 @@ _LEVEL_COLORS = {
 # Keys excluded from "extras" display in formatted log entries.
 _EXCLUDE_KEYS = {
     "timestamp", "level", "event", "component",
-    "job_id", "sheet_num", "run_id", "parent_run_id", "_raw",
+    "job_id", SHEET_NUM_KEY, "run_id", "parent_run_id", "_raw",
 }
 
 
@@ -143,7 +144,7 @@ class LogFollower:
         event = entry.get("event", "")
         component = entry.get("component", "")
         entry_job_id = entry.get("job_id", "")
-        sheet_num = entry.get("sheet_num")
+        sheet_num = entry.get(SHEET_NUM_KEY)
 
         level_color = _LEVEL_COLORS.get(level_str, "white")
 
@@ -571,7 +572,7 @@ async def _errors_job(
             "total_errors": len(all_errors),
             "errors": [
                 {
-                    "sheet_num": sheet_num,
+                    SHEET_NUM_KEY: sheet_num,
                     "timestamp": error.timestamp.isoformat() if error.timestamp else None,
                     "error_type": error.error_type,
                     "error_code": error.error_code,
@@ -1062,7 +1063,7 @@ def _build_diagnostic_report(
     for sheet_num, sheet in job.sheets.items():
         for warning in sheet.preflight_warnings:
             all_warnings.append({
-                "sheet_num": sheet_num,
+                SHEET_NUM_KEY: sheet_num,
                 "warning": warning,
             })
     report["preflight_warnings"] = all_warnings
@@ -1072,7 +1073,7 @@ def _build_diagnostic_report(
     for sheet_num, sheet in job.sheets.items():
         if sheet.prompt_metrics:
             prompt_metrics.append({
-                "sheet_num": sheet_num,
+                SHEET_NUM_KEY: sheet_num,
                 **sheet.prompt_metrics,
             })
     report["prompt_metrics"] = prompt_metrics
@@ -1097,7 +1098,7 @@ def _build_diagnostic_report(
             sheet.status, sheet.validation_passed
         )
         entry = {
-            "sheet_num": sheet_num,
+            SHEET_NUM_KEY: sheet_num,
             "status": display_label,
             "started_at": sheet.started_at.isoformat() if sheet.started_at else None,
             "completed_at": sheet.completed_at.isoformat() if sheet.completed_at else None,
@@ -1121,7 +1122,7 @@ def _build_diagnostic_report(
     for sheet_num, sheet in job.sheets.items():
         for error in sheet.error_history:
             all_errors.append({
-                "sheet_num": sheet_num,
+                SHEET_NUM_KEY: sheet_num,
                 "timestamp": error.timestamp.isoformat() if error.timestamp else None,
                 "error_type": error.error_type,
                 "error_code": format_error_code_for_display(
@@ -1138,7 +1139,7 @@ def _build_diagnostic_report(
         # Add sheet-level error if no history exists
         if not sheet.error_history and sheet.error_message:
             all_errors.append({
-                "sheet_num": sheet_num,
+                SHEET_NUM_KEY: sheet_num,
                 "timestamp": sheet.completed_at.isoformat() if sheet.completed_at else None,
                 "error_type": infer_error_type(sheet.error_code or sheet.error_category),
                 "error_code": format_error_code_for_display(
@@ -1245,7 +1246,7 @@ def _display_diagnostic_report(job: CheckpointState, report: dict[str, Any]) -> 
                 attempts_str += f"+{comp_attempts}c"
 
             timeline_table.add_row(
-                str(entry.get("sheet_num", "")),
+                str(entry.get(SHEET_NUM_KEY, "")),
                 f"[{status_style}]{status}[/{status_style}]",
                 duration_str,
                 attempts_str,
@@ -1289,7 +1290,7 @@ def _display_diagnostic_report(job: CheckpointState, report: dict[str, Any]) -> 
                 message += "..."
 
             error_table.add_row(
-                str(err.get("sheet_num", "")),
+                str(err.get(SHEET_NUM_KEY, "")),
                 f"[{type_style}]{err_type}[/{type_style}]",
                 err.get("error_code", ""),
                 str(err.get("attempt_number", "")),
@@ -1521,7 +1522,7 @@ async def _history_job(
     ws_str = str(workspace) if workspace else None
     params = {
         "job_id": job_id, "workspace": ws_str,
-        "sheet_num": sheet_filter, "limit": limit,
+        SHEET_NUM_KEY: sheet_filter, "limit": limit,
     }
     try:
         routed, result = await try_daemon_route("job.history", params)
@@ -1623,7 +1624,7 @@ async def _history_job(
             timestamp = timestamp[:19]
 
         table.add_row(
-            str(record.get("sheet_num", "")),
+            str(record.get(SHEET_NUM_KEY, "")),
             str(record.get("attempt_num", "")),
             f"[{exit_style}]{exit_str}[/{exit_style}]",
             duration_str,

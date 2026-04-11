@@ -43,6 +43,7 @@ from marianne.core.checkpoint import (
     SheetStatus,
     ValidationDetailDict,
 )
+from marianne.core.constants import SHEET_NUM_KEY
 from marianne.core.logging import get_logger
 
 from ..helpers import (
@@ -736,7 +737,7 @@ def _output_status_json(job: CheckpointState) -> None:
     recent_errors_data: list[dict[str, Any]] = []
     for sheet_num, error in _collect_recent_errors(job, limit=5):
         recent_errors_data.append({
-            "sheet_num": sheet_num,
+            SHEET_NUM_KEY: sheet_num,
             "timestamp": error.timestamp.isoformat() if error.timestamp else None,
             "error_type": error.error_type,
             "error_code": _format_error_code(error.error_code, None),

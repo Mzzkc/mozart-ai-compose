@@ -57,7 +57,6 @@ from marianne.daemon.manager import _MTIME_TOLERANCE_SECONDS, _should_auto_fresh
 # Helpers
 # =============================================================================
 
-
 def _minimal_job_config(**overrides: Any) -> dict[str, Any]:
     """Build a minimal valid JobConfig dict for testing."""
     base: dict[str, Any] = {
@@ -67,7 +66,6 @@ def _minimal_job_config(**overrides: Any) -> dict[str, Any]:
     }
     base.update(overrides)
     return base
-
 
 def _make_sheet_exec_state(
     sheet_num: int,
@@ -93,11 +91,9 @@ def _make_sheet_exec_state(
         ]
     return s
 
-
 # =============================================================================
 # 1. F-441: extra='forbid' Edge Cases
 # =============================================================================
-
 
 class TestF441StrictnessEdges:
     """Test extra='forbid' interactions with real-world YAML patterns."""
@@ -270,117 +266,13 @@ class TestF441StrictnessEdges:
                 {"type": "desktop", "channel": "general"}
             )
 
-
 # =============================================================================
 # 2. F-211: Sync Dedup Cache Lifecycle
 # =============================================================================
 
-
-@pytest.mark.skip(reason="Phase 2: sync layer replaced by persist callback — see docs/plans/2026-04-07-unified-state-spec.md")
-class TestSyncDedupCacheLifecycle:
-    """Test _synced_status cache behavior across job lifecycle."""
-
-    def test_synced_status_cleaned_on_deregister(self) -> None:
-        """F-470 FIXED: _synced_status entries ARE removed when a job is
-        deregistered. Previously a memory leak for long-running daemons.
-
-        Regression test: after deregister_job(), the cache must NOT retain
-        entries for the removed job's sheets.
-        """
-        adapter = BatonAdapter(
-            event_bus=MagicMock(),
-            max_concurrent_sheets=10,
-            state_sync_callback=MagicMock(),
-        )
-        adapter.set_backend_pool(MagicMock())
-
-        # Manually populate _synced_status as if sheets were synced
-        adapter._synced_status[("job-1", 1)] = "completed"
-        adapter._synced_status[("job-1", 2)] = "failed"
-        adapter._synced_status[("job-1", 3)] = "completed"
-        adapter._synced_status[("job-2", 1)] = "in_progress"
-
-        # Deregister job-1
-        adapter.deregister_job("job-1")
-
-        # FIX VERIFIED: job-1 entries are now cleaned up
-        assert ("job-1", 1) not in adapter._synced_status
-        assert ("job-1", 2) not in adapter._synced_status
-        assert ("job-1", 3) not in adapter._synced_status
-        # job-2 unaffected
-        assert ("job-2", 1) in adapter._synced_status
-
-        # Only 1 entry remains (job-2)
-        assert len(adapter._synced_status) == 1
-
-    def test_dedup_prevents_duplicate_callback(self) -> None:
-        """Sync callback not invoked when status hasn't changed."""
-        callback = MagicMock()
-        adapter = BatonAdapter(
-            event_bus=MagicMock(),
-            max_concurrent_sheets=10,
-            state_sync_callback=callback,
-        )
-
-        # First sync — should fire
-        adapter._synced_status.clear()
-        adapter._synced_status[("job-1", 1)] = "completed"
-        adapter._invoke_sync_callback("job-1", 1, "completed")
-        assert callback.call_count == 1
-
-        # Cache check: same status means _sync_single_sheet would skip
-        key = ("job-1", 1)
-        assert adapter._synced_status.get(key) == "completed"
-
-    def test_dedup_cache_allows_status_progression(self) -> None:
-        """Cache correctly detects status change and allows new sync."""
-        callback = MagicMock()
-        adapter = BatonAdapter(
-            event_bus=MagicMock(),
-            max_concurrent_sheets=10,
-            state_sync_callback=callback,
-        )
-
-        # Initial: pending
-        adapter._synced_status[("job-1", 1)] = "pending"
-
-        # Transition: pending -> in_progress — different, should fire
-        key = ("job-1", 1)
-        new_status = "in_progress"
-        assert adapter._synced_status.get(key) != new_status
-        adapter._synced_status[key] = new_status
-        adapter._invoke_sync_callback("job-1", 1, new_status)
-        assert callback.call_count == 1
-
-    def test_dedup_cache_cleaned_across_multiple_jobs(self) -> None:
-        """F-470 FIXED: Cache entries are cleaned on deregister.
-        Memory is now O(active_sheets), not O(total_sheets_ever).
-        """
-        adapter = BatonAdapter(
-            event_bus=MagicMock(),
-            max_concurrent_sheets=10,
-            state_sync_callback=MagicMock(),
-        )
-
-        # Simulate 100 jobs, each with 10 sheets
-        for job_num in range(100):
-            for sheet_num in range(1, 11):
-                adapter._synced_status[(f"job-{job_num}", sheet_num)] = "completed"
-
-        assert len(adapter._synced_status) == 1000
-
-        # Deregister all jobs — cache is now cleaned
-        for job_num in range(100):
-            adapter.deregister_job(f"job-{job_num}")
-
-        # FIX VERIFIED: all entries cleaned after deregister
-        assert len(adapter._synced_status) == 0
-
-
 # =============================================================================
 # 3. Auto-Fresh Edge Cases
 # =============================================================================
-
 
 class TestAutoFreshEdges:
     """Test _should_auto_fresh boundary conditions."""
@@ -466,11 +358,9 @@ class TestAutoFreshEdges:
         result = _should_auto_fresh(mock_path, -100.0)
         assert result is True
 
-
 # =============================================================================
 # 4. Cross-Sheet Context Edge Cases
 # =============================================================================
-
 
 class TestCrossSheetContextEdges:
     """Test baton adapter cross-sheet context collection edge cases."""
@@ -622,11 +512,9 @@ class TestCrossSheetContextEdges:
         assert "[truncated]" in previous_outputs[1]
         assert previous_outputs[1].startswith("A" * 1000)
 
-
 # =============================================================================
 # 5. Credential Redaction Defensive Pattern
 # =============================================================================
-
 
 class TestCredentialRedactionDefensivePattern:
     """Test the `redact_credentials(content) or content` pattern in adapter."""
@@ -688,11 +576,9 @@ class TestCredentialRedactionDefensivePattern:
         assert "AKIA" not in result
         assert result.count("REDACTED") == 3
 
-
 # =============================================================================
 # 6. F-441 Config Strictness with Real Score Patterns
 # =============================================================================
-
 
 class TestF441RealScorePatterns:
     """Test extra='forbid' against patterns that appear in real scores."""
@@ -762,11 +648,9 @@ class TestF441RealScorePatterns:
         assert config.sheet.fan_out == {}
         assert config.sheet.total_items == 5
 
-
 # =============================================================================
 # 7. Baton State Mapping Completeness
 # =============================================================================
-
 
 class TestBatonStateMappingEdges:
     """Test baton_to_checkpoint_status edge cases."""
@@ -805,11 +689,9 @@ class TestBatonStateMappingEdges:
                 f"Terminal baton status {status} mapped to non-terminal {result}"
             )
 
-
 # =============================================================================
 # 8. Feature Interaction Tests
 # =============================================================================
-
 
 class TestFeatureInteractions:
     """Test interactions between M4 features designed independently."""

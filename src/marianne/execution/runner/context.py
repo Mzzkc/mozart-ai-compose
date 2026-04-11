@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
 from marianne.core.checkpoint import SheetStatus
 from marianne.core.config.job import InjectionCategory, InjectionItem
+from marianne.core.constants import SHEET_NUM_KEY
 from marianne.prompts.templating import SheetContext
 from marianne.utils.credential_scanner import redact_credentials
 
@@ -374,7 +375,7 @@ class ContextBuildingMixin:
         """
         template_vars = {
             "workspace": str(self.config.workspace),
-            "sheet_num": sheet_num,
+            SHEET_NUM_KEY: sheet_num,
         }
 
         # Stale file threshold: files older than job start are from a previous run

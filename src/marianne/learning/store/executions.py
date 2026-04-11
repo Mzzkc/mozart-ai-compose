@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from marianne.core.logging import MarianneLogger
+from marianne.core.constants import VALIDATION_PASS_RATE_KEY,  SHEET_NUM_KEY
 from marianne.learning.outcomes import SheetOutcome
 from marianne.learning.store.base import WhereBuilder, _logger
 from marianne.learning.store.models import ExecutionRecord
@@ -241,7 +242,7 @@ class ExecutionMixin:
                         id=row["id"],
                         workspace_hash=row["workspace_hash"],
                         job_hash=row["job_hash"],
-                        sheet_num=row["sheet_num"],
+                        sheet_num=row[SHEET_NUM_KEY],
                         started_at=datetime.fromisoformat(row["started_at"])
                         if row["started_at"]
                         else None,
@@ -252,7 +253,7 @@ class ExecutionMixin:
                         status=row["status"] or "",
                         retry_count=row["retry_count"] or 0,
                         success_without_retry=bool(row["success_without_retry"]),
-                        validation_pass_rate=row["validation_pass_rate"] or 0.0,
+                        validation_pass_rate=row[VALIDATION_PASS_RATE_KEY] or 0.0,
                         confidence_score=row["confidence_score"] or 0.0,
                         model=row["model"],
                         error_codes=json.loads(row["error_codes"] or "[]"),
@@ -313,7 +314,7 @@ class ExecutionMixin:
                         id=row["id"],
                         workspace_hash=row["workspace_hash"],
                         job_hash=row["job_hash"],
-                        sheet_num=row["sheet_num"],
+                        sheet_num=row[SHEET_NUM_KEY],
                         started_at=datetime.fromisoformat(row["started_at"])
                         if row["started_at"]
                         else None,
@@ -324,7 +325,7 @@ class ExecutionMixin:
                         status=row["status"] or "",
                         retry_count=row["retry_count"] or 0,
                         success_without_retry=bool(row["success_without_retry"]),
-                        validation_pass_rate=row["validation_pass_rate"] or 0.0,
+                        validation_pass_rate=row[VALIDATION_PASS_RATE_KEY] or 0.0,
                         confidence_score=row["confidence_score"] or 0.0,
                         model=row["model"],
                         error_codes=json.loads(row["error_codes"] or "[]"),

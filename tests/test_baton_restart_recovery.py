@@ -35,11 +35,9 @@ from marianne.daemon.baton.state import (
     SheetExecutionState,
 )
 
-
 # =========================================================================
 # Fixtures
 # =========================================================================
-
 
 def _make_sheet(
     num: int = 1,
@@ -61,7 +59,6 @@ def _make_sheet(
         prompt_template=prompt,
         timeout_seconds=timeout,
     )
-
 
 def _make_checkpoint(
     job_id: str = "test-job",
@@ -102,11 +99,9 @@ def _make_checkpoint(
         sheets=sheets,
     )
 
-
 def _make_sheets_list(count: int = 5, instrument: str = "claude-code") -> list[Sheet]:
     """Create a list of Sheet entities."""
     return [_make_sheet(num=i, instrument=instrument) for i in range(1, count + 1)]
-
 
 def _make_simple_deps(count: int = 5) -> dict[int, list[int]]:
     """Create a simple linear dependency chain: 1→2→3→4→5."""
@@ -115,11 +110,9 @@ def _make_simple_deps(count: int = 5) -> dict[int, list[int]]:
         deps[i] = [i - 1]
     return deps
 
-
 # =========================================================================
 # Part 1: BatonAdapter.recover_job() — rebuild from checkpoint
 # =========================================================================
-
 
 class TestRecoverJobRegistration:
     """Test that recover_job() correctly re-registers a job with the baton."""
@@ -169,7 +162,6 @@ class TestRecoverJobRegistration:
 
         # Completion event should exist
         assert "test-job" in adapter._completion_events
-
 
 class TestRecoverJobStatusMapping:
     """Test that recover_job() correctly maps checkpoint statuses to baton statuses."""
@@ -255,7 +247,6 @@ class TestRecoverJobStatusMapping:
         # in_progress → PENDING because the executing musician was killed
         assert state.status == BatonSheetStatus.PENDING
 
-
 class TestRecoverJobAttemptPreservation:
     """Test that recover_job() preserves attempt counts from the checkpoint."""
 
@@ -312,7 +303,6 @@ class TestRecoverJobAttemptPreservation:
         assert state.normal_attempts == 0
         assert state.completion_attempts == 0
 
-
 class TestRecoverJobAlreadyComplete:
     """Test recover_job() behavior when all sheets are terminal."""
 
@@ -345,7 +335,6 @@ class TestRecoverJobAlreadyComplete:
 
         assert adapter.baton.is_job_complete("test-job")
 
-
 class TestRecoverJobCostLimit:
     """Test that recover_job() restores cost limits."""
 
@@ -362,7 +351,6 @@ class TestRecoverJobCostLimit:
         )
 
         assert adapter.baton._job_cost_limits.get("test-job") == 10.0
-
 
 class TestRecoverJobDispatchKick:
     """Test that recover_job() kicks dispatch for ready sheets."""
@@ -384,179 +372,13 @@ class TestRecoverJobDispatchKick:
         event = adapter.baton.inbox.get_nowait()
         assert isinstance(event, DispatchRetry)
 
-
 # =========================================================================
 # Part 2: Per-event state sync — baton events → CheckpointState
 # =========================================================================
 
-
-@pytest.mark.skip(reason="Phase 2: sync layer replaced by persist callback — see docs/plans/2026-04-07-unified-state-spec.md")
-class TestStateSyncCallback:
-    """Test that the adapter can sync baton state changes to CheckpointState."""
-
-    def test_state_sync_callback_accepted(self) -> None:
-        """BatonAdapter accepts a state_sync_callback parameter."""
-        callback = MagicMock()
-        adapter = BatonAdapter(state_sync_callback=callback)
-        assert adapter._state_sync_callback is callback
-
-    def test_state_sync_called_on_attempt_result(self) -> None:
-        """state_sync_callback is called when processing SheetAttemptResult."""
-        callback = MagicMock()
-        adapter = BatonAdapter(state_sync_callback=callback)
-        sheets = _make_sheets_list(2)
-        deps = {1: [], 2: [1]}
-        adapter.register_job("test-job", sheets, deps)
-
-        # Simulate a successful attempt result
-        result = SheetAttemptResult(
-            job_id="test-job",
-            sheet_num=1,
-            attempt=1,
-            instrument_name="claude-code",
-            execution_success=True,
-            validation_pass_rate=100.0,
-            cost_usd=0.05,
-            duration_seconds=10.0,
-        )
-
-        # Process the event through the baton + adapter sync
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(adapter.baton.handle_event(result))
-            # Call _sync_sheet_status as the main loop would
-            adapter._sync_sheet_status(result)
-        finally:
-            loop.close()
-
-        # Callback should have been called with job_id, sheet_num, new_status
-        callback.assert_called()
-        call_args = callback.call_args
-        assert call_args[0][0] == "test-job"  # job_id
-        assert call_args[0][1] == 1  # sheet_num
-
-    def test_sync_maps_completed_status(self) -> None:
-        """Sync callback receives correct status for completed sheets."""
-        captured: list[tuple[str, int, str]] = []
-
-        def capture_sync(job_id: str, sheet_num: int, status: str, baton_state: object = None) -> None:
-            captured.append((job_id, sheet_num, status))
-
-        adapter = BatonAdapter(state_sync_callback=capture_sync)
-        sheets = _make_sheets_list(1)
-        deps = {1: []}
-        adapter.register_job("test-job", sheets, deps)
-
-        result = SheetAttemptResult(
-            job_id="test-job",
-            sheet_num=1,
-            attempt=1,
-            instrument_name="claude-code",
-            execution_success=True,
-            validation_pass_rate=100.0,
-            cost_usd=0.05,
-            duration_seconds=10.0,
-        )
-
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(adapter.baton.handle_event(result))
-            adapter._sync_sheet_status(result)
-        finally:
-            loop.close()
-
-        # Should have synced with "completed" status
-        assert len(captured) >= 1
-        assert captured[-1][2] == "completed"
-
-    def test_sync_not_called_without_callback(self) -> None:
-        """No crash when state_sync_callback is None."""
-        adapter = BatonAdapter()  # No callback
-        sheets = _make_sheets_list(1)
-        deps = {1: []}
-        adapter.register_job("test-job", sheets, deps)
-
-        result = SheetAttemptResult(
-            job_id="test-job",
-            sheet_num=1,
-            attempt=1,
-            instrument_name="claude-code",
-            execution_success=True,
-            validation_pass_rate=100.0,
-            cost_usd=0.05,
-            duration_seconds=10.0,
-        )
-
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(adapter.baton.handle_event(result))
-            # Should not crash even without a callback
-            adapter._sync_sheet_status(result)
-        finally:
-            loop.close()
-
-    def test_sync_on_skipped_event(self) -> None:
-        """Sync callback fires for SheetSkipped events."""
-        captured: list[tuple[str, int, str]] = []
-
-        def capture_sync(job_id: str, sheet_num: int, status: str, baton_state: object = None) -> None:
-            captured.append((job_id, sheet_num, status))
-
-        adapter = BatonAdapter(state_sync_callback=capture_sync)
-        sheets = _make_sheets_list(2)
-        deps = {1: [], 2: [1]}
-        adapter.register_job("test-job", sheets, deps)
-
-        skip_event = SheetSkipped(
-            job_id="test-job",
-            sheet_num=1,
-            reason="dependency failed",
-        )
-
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(adapter.baton.handle_event(skip_event))
-            adapter._sync_sheet_status(skip_event)
-        finally:
-            loop.close()
-
-        assert len(captured) >= 1
-        assert captured[-1][2] == "skipped"
-
-    def test_sync_callback_exception_does_not_crash(self) -> None:
-        """If sync callback raises, the adapter logs but doesn't crash."""
-        def bad_callback(job_id: str, sheet_num: int, status: str) -> None:
-            raise ValueError("callback error")
-
-        adapter = BatonAdapter(state_sync_callback=bad_callback)
-        sheets = _make_sheets_list(1)
-        deps = {1: []}
-        adapter.register_job("test-job", sheets, deps)
-
-        result = SheetAttemptResult(
-            job_id="test-job",
-            sheet_num=1,
-            attempt=1,
-            instrument_name="claude-code",
-            execution_success=True,
-            validation_pass_rate=100.0,
-            cost_usd=0.05,
-            duration_seconds=10.0,
-        )
-
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(adapter.baton.handle_event(result))
-            # Should not raise — exception caught internally
-            adapter._sync_sheet_status(result)
-        finally:
-            loop.close()
-
-
 # =========================================================================
 # Part 3: Recovery status mapping edge cases
 # =========================================================================
-
 
 class TestRecoveryStatusMapping:
     """Edge cases in checkpoint-to-baton status mapping during recovery."""

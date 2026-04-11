@@ -52,7 +52,6 @@ from marianne.daemon.baton.state import (
 # Helpers
 # =========================================================================
 
-
 def _make_sheet_state(
     sheet_num: int,
     status: BatonSheetStatus = BatonSheetStatus.PENDING,
@@ -76,7 +75,6 @@ def _make_sheet_state(
     state.total_cost_usd = total_cost_usd
     return state
 
-
 def _success_result(
     job_id: str,
     sheet_num: int,
@@ -95,7 +93,6 @@ def _success_result(
         validations_total=1,
         cost_usd=cost,
     )
-
 
 def _failure_result(
     job_id: str,
@@ -119,11 +116,9 @@ def _failure_result(
         error_message="Command failed",
     )
 
-
 # =========================================================================
 # 1. State Mapping Completeness
 # =========================================================================
-
 
 class TestStateMappingCompleteness:
     """Verify that every status in both enums has a mapping in both directions."""
@@ -193,11 +188,9 @@ class TestStateMappingCompleteness:
                 f"{baton_status.name} → '{actual}', expected '{expected_cp}'"
             )
 
-
 # =========================================================================
 # 2. Recovery with Edge-Case Checkpoint Data (via Adapter)
 # =========================================================================
-
 
 class TestRecoveryEdgeCases:
     """Test adapter.recover_job with adversarial checkpoint states."""
@@ -357,11 +350,9 @@ class TestRecoveryEdgeCases:
         assert job.sheets[2].status == BatonSheetStatus.FAILED
         assert job.sheets[3].status == BatonSheetStatus.SKIPPED
 
-
 # =========================================================================
 # 3. Recovery + Cost Limit Interactions
 # =========================================================================
-
 
 class TestRecoveryCostInteractions:
     """Test that cost limits work correctly after recovery."""
@@ -417,11 +408,9 @@ class TestRecoveryCostInteractions:
         assert baton._jobs["j1"].sheets[2].status == BatonSheetStatus.COMPLETED
         assert baton._jobs["j1"].paused, "Job should be paused after exceeding cost limit"
 
-
 # =========================================================================
 # 4. F-143 Regression: Resume Handler Cost Limit Re-Check
 # =========================================================================
-
 
 class TestF143ResumeHandlerCostLimitRecheck:
     """Verify F-143 fix holds: _handle_resume_job checks cost after unpausing."""
@@ -491,11 +480,9 @@ class TestF143ResumeHandlerCostLimitRecheck:
             "even if cost re-pauses the job"
         )
 
-
 # =========================================================================
 # 5. Dependency Propagation After Recovery
 # =========================================================================
-
 
 class TestRecoveryDependencyPropagation:
     """Test that dependency satisfaction works correctly after recovery."""
@@ -566,11 +553,9 @@ class TestRecoveryDependencyPropagation:
         ready_nums = {s.sheet_num for s in ready}
         assert 3 not in ready_nums, "Sheet 3 blocked by failed dep 2"
 
-
 # =========================================================================
 # 6. F-111 Rate Limit Regression
 # =========================================================================
-
 
 class TestF111RateLimitRegression:
     """Verify the F-111 fix in the parallel executor still holds."""
@@ -622,11 +607,9 @@ class TestF111RateLimitRegression:
         state = baton._jobs["j1"].sheets[1]
         assert state.normal_attempts == 0, "Rate-limited attempt should not consume retry budget"
 
-
 # =========================================================================
 # 7. F-113 Failure Propagation Regression (Parallel Executor)
 # =========================================================================
-
 
 class TestF113FailurePropagationRegression:
     """Verify F-113 fix holds: failed deps are propagated in parallel executor."""
@@ -721,11 +704,9 @@ class TestF113FailurePropagationRegression:
         # Should not raise
         executor.propagate_failure_to_dependents(state, 1)
 
-
 # =========================================================================
 # 8. Double Recovery / Duplicate Registration
 # =========================================================================
-
 
 class TestDoubleRecovery:
     """Test what happens when the same job is recovered/registered twice."""
@@ -768,11 +749,9 @@ class TestDoubleRecovery:
         job = adapter._baton._jobs["j1"]
         assert job.sheets[1].status == BatonSheetStatus.COMPLETED
 
-
 # =========================================================================
 # 9. Terminal State Resistance During Recovery Events
 # =========================================================================
-
 
 class TestTerminalStateResistanceDuringRecovery:
     """Verify terminal states resist all events even in recovered jobs."""
@@ -832,11 +811,9 @@ class TestTerminalStateResistanceDuringRecovery:
 
         assert baton._jobs["j1"].sheets[1].status == BatonSheetStatus.FAILED
 
-
 # =========================================================================
 # 10. Completion Detection for Partially-Recovered Jobs
 # =========================================================================
-
 
 class TestCompletionDetectionAfterRecovery:
     """Test is_job_complete for recovered jobs."""
@@ -901,95 +878,13 @@ class TestCompletionDetectionAfterRecovery:
         baton = BatonCore()
         assert not baton.is_job_complete("nonexistent")
 
-
 # =========================================================================
 # 11. State Sync Callback
 # =========================================================================
 
-
-@pytest.mark.skip(reason="Phase 2: sync layer replaced by persist callback — see docs/plans/2026-04-07-unified-state-spec.md")
-class TestStateSyncCallback:
-    """Verify the state sync callback fires correctly via the adapter."""
-
-    @pytest.mark.asyncio
-    async def test_state_sync_fires_on_attempt_result(self) -> None:
-        """State sync callback must fire when a sheet attempt completes."""
-        sync_calls: list[tuple[str, int, str]] = []
-
-        def sync_cb(job_id: str, sheet_num: int, status: str, baton_state: Any = None) -> None:
-            sync_calls.append((job_id, sheet_num, status))
-
-        adapter = BatonAdapter(
-            event_bus=MagicMock(),
-            state_sync_callback=sync_cb,
-        )
-        states = {1: _make_sheet_state(1)}
-        adapter._baton.register_job("j1", states, {})
-        adapter._baton._jobs["j1"].sheets[1].status = BatonSheetStatus.IN_PROGRESS
-
-        result = _success_result("j1", 1)
-        # Handle event through baton, then sync
-        await adapter._baton.handle_event(result)
-        adapter._sync_sheet_status(result)
-
-        assert len(sync_calls) >= 1
-        last_call = sync_calls[-1]
-        assert last_call[0] == "j1"
-        assert last_call[1] == 1
-        # Should be "completed" in checkpoint terms
-        assert last_call[2] == "completed"
-
-    @pytest.mark.asyncio
-    async def test_state_sync_fires_on_skip(self) -> None:
-        """State sync callback must fire when a sheet is skipped."""
-        sync_calls: list[tuple[str, int, str]] = []
-
-        def sync_cb(job_id: str, sheet_num: int, status: str, baton_state: Any = None) -> None:
-            sync_calls.append((job_id, sheet_num, status))
-
-        adapter = BatonAdapter(
-            event_bus=MagicMock(),
-            state_sync_callback=sync_cb,
-        )
-        states = {1: _make_sheet_state(1)}
-        adapter._baton.register_job("j1", states, {})
-
-        skip_event = SheetSkipped(job_id="j1", sheet_num=1, reason="test")
-        await adapter._baton.handle_event(skip_event)
-        adapter._sync_sheet_status(skip_event)
-
-        found = any(
-            call[0] == "j1" and call[1] == 1 and call[2] == "skipped"
-            for call in sync_calls
-        )
-        assert found, "State sync should fire for sheet skip events"
-
-    @pytest.mark.asyncio
-    async def test_state_sync_not_called_for_non_sheet_events(self) -> None:
-        """Non-sheet events (PauseJob, ResumeJob) should not trigger sync."""
-        sync_calls: list[tuple[str, int, str]] = []
-
-        def sync_cb(job_id: str, sheet_num: int, status: str, baton_state: Any = None) -> None:
-            sync_calls.append((job_id, sheet_num, status))
-
-        adapter = BatonAdapter(
-            event_bus=MagicMock(),
-            state_sync_callback=sync_cb,
-        )
-        states = {1: _make_sheet_state(1)}
-        adapter._baton.register_job("j1", states, {})
-
-        pause_event = PauseJob(job_id="j1")
-        await adapter._baton.handle_event(pause_event)
-        adapter._sync_sheet_status(pause_event)
-
-        assert len(sync_calls) == 0, "PauseJob should not trigger state sync"
-
-
 # =========================================================================
 # 12. Credential Redaction Coverage
 # =========================================================================
-
 
 class TestCredentialRedactionCoverage:
     """Verify credential redaction covers recovery-relevant paths."""
@@ -1025,11 +920,9 @@ class TestCredentialRedactionCoverage:
         result = redact_credentials(None)
         assert result is None
 
-
 # =========================================================================
 # 13. Pause → Resume → Cost Re-check Integration
 # =========================================================================
-
 
 class TestPauseResumeCostIntegration:
     """End-to-end test of the pause → cost-exceed → resume → re-check flow."""
