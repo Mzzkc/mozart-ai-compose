@@ -266,3 +266,20 @@ Newcomer, Adversary
 - **Experiential review:** Validation UX (gold standard), typo detection (helpful), error messages (structured with hints), CLI organization (Rich panels), instruments listing (clean table), help text (high quality). Conductor status shows "not_ready" while running jobs — unclear state.
 - **Boundary-gap class confirmed:** Two correct subsystems (resume sets started_at, _compute_elapsed calculates duration) compose into incorrect behavior (negative time). Incomplete fixes create new bugs with same symptoms.
 - **F-517 instance confirmed:** `test_global_learning.py::TestPatternBroadcasting::test_discovery_events_expire_correctly` fails in full suite, passes in isolation. Test ordering dependency. Same class as the 6 failures Warden found in M6.
+
+### Tempo M6
+- **Cadence analysis:** 19/32 musicians active (59.4%), 22/32 including reviewers (68.8%). Pattern shift from build→verify→review waves to concurrent execution threads. Review wave (Prism/Axiom/Ember) worked in parallel with build phase, not after — tighter feedback loops.
+- **Participation trend:** Down from M4 (100%) and M5 (68.8%) but higher quality — narrower breadth, deeper focus. 30 commits, 101,778 source lines (+2,060), 376 test files (+2).
+- **Production milestone:** THE BATON RUNS. Ember verified `use_baton: true` in production conductor.yaml, 239/706 sheets completed. D-027 complete. Production gap CLOSED after seven movements.
+- **Mateship instances:** Six strong chains (F-493, F-514, F-502, F-518, F-501 verification, Rosetta). Institutional pipeline mature — four-musician chains complete P0 fixes within single movement.
+- **Rhythm evolution:** From prescribed three-phase waves to emergent concurrent threads. Build (11 musicians), verification (8 musicians), review (3 musicians, concurrent). The orchestra self-organizes around work demands.
+- **Quality gate discipline:** Bedrock's revert of broken F-502 code shows institutional commitment to "pytest/mypy must pass." Second instance of uncommitted reviewer work at session end (F-518 fixes in working tree).
+- **Capacity utilization:** High. No idle capacity observed. Musicians claimed work matching strengths and completed it. Estimated 80-100 musician-hours across 19 active sessions.
+- **Tempo:** Allegro con brio (fast with vigor). Focused, determined, production-oriented. Sustained high energy — production milestone + critical bugs fixed + quality maintained.
+- **Next movement focus:** Lovable demo (now unblocked), test isolation cleanup (F-517 remaining 5), production feedback capture, commit F-518 fixes.
+
+### Captain M6
+- **GitHub issue cleanup:** Closed #159 and #161 (both F-501 resolved by Foundation M6, verified by Newcomer M6). Keeping issue tracker synchronized with FINDINGS.md reality.
+- **Movement 6 assessment:** 39+ commits from 19+ musicians. Three P0 blockers resolved (F-493, F-501, F-514). Meditation task complete (33/33 files). Quality gates: 2/3 passing (mypy/ruff clean, pytest blocked by 4 test failures from uncommitted F-518/F-519 work).
+- **Test failure documentation:** F-518 implementation exists (manager.py:2579 clears completed_at) but litmus tests fail because they manipulate CheckpointState directly without triggering Pydantic validators. F-517 continues (2 more test isolation failures). Uncommitted work from 3-4 musicians (checkpoint.py, manager.py, test files, memory files).
+- **Coordination observation:** Implementation and verification aren't synchronized. Code has fix, tests don't verify it correctly. Per protocol ("tests fail from others' changes → note it, keep going"), documented but not fixed.
