@@ -1008,22 +1008,37 @@ class CheckpointState(BaseModel):
 
     @model_validator(mode="after")
     def _enforce_status_invariants(self) -> CheckpointState:
-        """Auto-fill started_at when job is RUNNING.
+        """Auto-fill started_at and clear completed_at when job is RUNNING.
 
-        Invariant:
-        - RUNNING → started_at must be set
+        Invariants:
+        - RUNNING → started_at must be set (F-493)
+        - RUNNING → completed_at must be None (F-518)
 
         This ensures that status display shows correct elapsed time
-        instead of "0.0s elapsed" (F-493).
+        instead of "0.0s elapsed" or negative time.
         """
-        if self.status == JobStatus.RUNNING and self.started_at is None:
-            _logger.debug(
-                "checkpoint_state.invariant_autofill",
-                job_id=self.job_id,
-                field="started_at",
-                status="RUNNING",
-            )
-            self.started_at = utc_now()
+        if self.status == JobStatus.RUNNING:
+            if self.started_at is None:
+                _logger.debug(
+                    "checkpoint_state.invariant_autofill",
+                    job_id=self.job_id,
+                    field="started_at",
+                    status="RUNNING",
+                )
+                self.started_at = utc_now()
+
+            # F-518: Clear stale completed_at from previous run.
+            # A running job has no completion time. Stale completed_at
+            # causes _compute_elapsed() to calculate negative time.
+            if self.completed_at is not None:
+                _logger.debug(
+                    "checkpoint_state.invariant_clear",
+                    job_id=self.job_id,
+                    field="completed_at",
+                    status="RUNNING",
+                    cleared_value=self.completed_at.isoformat(),
+                )
+                self.completed_at = None
 
         return self
 

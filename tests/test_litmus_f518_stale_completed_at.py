@@ -59,19 +59,21 @@ class TestLitmusF518StaleCompletedAt:
         assert checkpoint.completed_at is not None
         assert checkpoint.started_at < checkpoint.completed_at
 
-        # User resumes the job - manager.py:2573 sets started_at
+        # User resumes the job - status changes to RUNNING
+        checkpoint.status = JobStatus.RUNNING
         checkpoint.started_at = utc_now()
 
-        # THE BUG: completed_at is NOT cleared
-        # F-493 fixed started_at but missed this
-        # The fix: checkpoint.completed_at = None
+        # Model validator only runs on construction/validation, not field assignment
+        # Trigger it by reconstructing the model (simulates what happens during persistence round-trip)
+        checkpoint = CheckpointState(**checkpoint.model_dump())
 
-        # After resume, completed_at should be None
-        # A running job has no completion time
+        # Verify the fix: RUNNING jobs must have completed_at = None
+        # The model validator _enforce_status_invariants() ensures this invariant
+        # Also enforced explicitly in manager.py:2579 during resume for immediate effect
         assert checkpoint.completed_at is None, (
-            "F-518: completed_at must be cleared when resuming a job. "
+            "F-518: completed_at must be None for RUNNING jobs. "
             "Stale completed_at from previous run causes negative elapsed time. "
-            "Fix: Add 'checkpoint.completed_at = None' in manager.py after line 2573."
+            "Fix: CheckpointState._enforce_status_invariants() clears completed_at when status=RUNNING"
         )
 
     async def test_compute_elapsed_with_stale_timestamps(self) -> None:
@@ -81,6 +83,7 @@ class TestLitmusF518StaleCompletedAt:
         It demonstrates what users see in the wild.
         """
         # Simulate the stale timestamp scenario
+        # Start with COMPLETED state (before resume)
         three_days_ago = utc_now() - timedelta(days=3)
         now = utc_now()
 
@@ -88,11 +91,18 @@ class TestLitmusF518StaleCompletedAt:
             job_id="test-job",
             job_name="test",
             total_sheets=1,
-            status=JobStatus.RUNNING,
-            started_at=now,  # Fresh from resume
-            completed_at=three_days_ago,  # Stale from previous run
-            sheets={1: SheetState(sheet_num=1, status=SheetStatus.IN_PROGRESS)},
+            status=JobStatus.COMPLETED,
+            started_at=three_days_ago,
+            completed_at=three_days_ago,
+            sheets={1: SheetState(sheet_num=1, status=SheetStatus.COMPLETED)},
         )
+
+        # Resume: transition to RUNNING with fresh started_at
+        checkpoint.status = JobStatus.RUNNING
+        checkpoint.started_at = now
+
+        # Reconstruct to trigger model validator
+        checkpoint = CheckpointState(**checkpoint.model_dump())
 
         # This is the _compute_elapsed() logic from status.py:395-403
         if checkpoint.started_at:
@@ -116,19 +126,14 @@ class TestLitmusF518StaleCompletedAt:
         # Which would show the correct elapsed time since resume
 
         # The litmus test: does the monitoring layer produce semantically correct data?
-        # Currently: NO (shows 0.0s for running job)
-        # After fix: YES (shows actual elapsed time)
+        # After fix: YES - completed_at is None so elapsed calculation uses (now - started_at)
 
-        # This test documents the bug without asserting the fix
-        # It passes if completed_at is None (correct)
-        # It fails if completed_at is stale (bug)
-        completed_str = (
-            checkpoint.completed_at.isoformat() if checkpoint.completed_at else "None"
-        )
+        # This test verifies the fix is in place
         assert checkpoint.completed_at is None, (
             "Monitoring data integrity failure: stale completed_at "
-            f"produces wrong elapsed time. started_at={checkpoint.started_at.isoformat()}, "
-            f"completed_at={completed_str}, computed_elapsed={computed:.1f}s"
+            f"produces wrong elapsed time. started_at={checkpoint.started_at.isoformat() if checkpoint.started_at else 'None'}, "
+            f"completed_at={checkpoint.completed_at.isoformat() if checkpoint.completed_at else 'None'}, "
+            f"computed_elapsed={computed:.1f}s"
         )
 
     async def test_resume_clears_all_completion_metadata(self) -> None:
@@ -150,6 +155,9 @@ class TestLitmusF518StaleCompletedAt:
         # On resume, transition from COMPLETED → RUNNING
         checkpoint.status = JobStatus.RUNNING
         checkpoint.started_at = utc_now()
+
+        # Trigger model validator by reconstructing
+        checkpoint = CheckpointState(**checkpoint.model_dump())
 
         # All completion metadata should be cleared
         assert checkpoint.completed_at is None, (

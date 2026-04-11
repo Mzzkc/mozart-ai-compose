@@ -2572,6 +2572,12 @@ class JobManager:
         # The checkpoint's started_at is from the previous run.
         checkpoint.started_at = utc_now()
 
+        # F-518: Clear completed_at to prevent negative elapsed time.
+        # A resumed job is running again, not completed. Stale completed_at
+        # from the previous run would cause _compute_elapsed() to calculate
+        # (old_completed_at - new_started_at) = negative time.
+        checkpoint.completed_at = None
+
         # F-493: Persist the updated started_at immediately so status queries
         # show correct elapsed time even before the first baton persist cycle.
         checkpoint_json = checkpoint.model_dump_json()
