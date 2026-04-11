@@ -499,7 +499,7 @@ CLI: `mzt`. Package: `marianne`. Config: `~/.mzt/`. Musical vocabulary unchanged
 
 ### Phase 3: Documentation and Examples
 - [ ] Update CLAUDE.md — all references to Marianne → Marianne, marianne → mzt (priority: P0) [source: F-480]
-- [ ] Update .marianne/spec/ corpus — all 5 files (priority: P0) [source: F-480]
+- [ ] [Codex] Update .marianne/spec/ corpus — all 5 files (priority: P0) [source: F-480]
 - [x] [Codex] Update all docs/ files — daemon-guide, score-writing-guide, cli-reference, configuration-reference, getting-started, limitations (priority: P0) [source: F-480] — Updated cli-reference.md (9 instances), verified all other docs clean. Commit d47b2dd. — daemon-guide, score-writing-guide, cli-reference, configuration-reference, getting-started, limitations (priority: P0) [source: F-480]
 - [ ] Update all examples/ scores — any hardcoded `marianne` references (priority: P0) [source: F-480]
 - [ ] Update scores/ operational scores (priority: P0) [source: F-480]

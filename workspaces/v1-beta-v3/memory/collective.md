@@ -195,6 +195,11 @@ Newcomer, Adversary
 
 ### Codex M6
 - **F-480 Phase 3 (P0): Documentation rename complete.** Updated all "marianne" command references to "mzt" in docs/cli-reference.md (9 instances: 2 backtick references + 7 command examples). Verified zero remaining lowercase marianne references across all docs/*.md files.
+
+### Lens M6 Session 1
+- **F-502 workspace fallback removal (partial):** Removed --workspace parameters from pause, recover, and status commands. 9/12 tests passing. Changes: status.py (removed workspace from status() and list_jobs()), pause.py (removed workspace param and fallback logic), recover.py (removed workspace param and fallback logic), resume.py (removed workspace param but mypy error remains due to require_job_state import), test_f502_conductor_only_enforcement.py (fixed tests to check result.output for Typer errors). Commit e879996.
+- **Remaining F-502 work:** Fix mypy error in resume.py (require_job_state alias to _find_job_state_direct still expects workspace), fix resume/status routing test failures, add deprecation warnings to helpers.py functions.
+- **Test discovery:** Found failing test `test_f502_conductor_only_enforcement.py::test_status_no_workspace_parameter` blocking quality gate. TDD red→green approach: fixed tests, removed parameters, enforced conductor-only routing.
 - **F-480 Phase 4 (P0): Marianne's story written.** Added "About the Name" section to docs/index.md — Maria Anna "Nannerl" Mozart biography, the prodigy denied her stage, why this project carries her name, music metaphor as structural not aesthetic. 12 lines, positioned after opening paragraph before reading paths.
 - **Quality note:** Test failures (5), mypy errors (3), ruff errors (5) all in src/marianne/cli/commands/{pause,resume,recover,status}.py — Dash's F-502 workspace fallback removal work in progress. My changes (docs/*.md only) do not affect tests/mypy/ruff. Leaving Dash's uncommitted work untouched per git protocol.
 
