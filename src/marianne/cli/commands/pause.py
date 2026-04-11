@@ -43,13 +43,6 @@ from ..output import console, output_error
 
 def pause(
     job_id: str = typer.Argument(..., help="Score ID to pause"),
-    workspace: Path | None = typer.Option(
-        None,
-        "--workspace",
-        "-w",
-        help="Workspace directory containing score state (debug override)",
-        hidden=True,
-    ),
     wait: bool = typer.Option(
         False,
         "--wait",
@@ -96,24 +89,21 @@ def pause(
         asyncio.run(_cancel_job(job_id, json_output))
         return
 
-    asyncio.run(_pause_job(job_id, workspace, wait, timeout, json_output))
+    asyncio.run(_pause_job(job_id, wait, timeout, json_output))
 
 
 async def _pause_job(
     job_id: str,
-    workspace: Path | None,
     wait: bool,
     timeout: int,
     json_output: bool,
 ) -> None:
     """Pause a running job via the conductor.
 
-    Routes through ``job.pause`` RPC. Falls back to filesystem-based
-    pause when conductor is unavailable and --workspace is given.
+    Routes through ``job.pause`` RPC. Requires conductor to be running.
 
     Args:
         job_id: Job ID to pause.
-        workspace: Optional workspace directory (debug override).
         wait: Whether to wait for pause acknowledgment.
         timeout: Timeout in seconds for wait.
         json_output: Output in JSON format.
@@ -175,14 +165,9 @@ async def _pause_job(
             )
         return
 
-    # Conductor not available
-    if workspace is None:
-        # No workspace override — conductor is required
-        require_conductor(routed, json_output=json_output)
-        return  # unreachable
-
-    # Fallback: filesystem-based pause with workspace override
-    await _pause_job_direct(job_id, workspace, wait, timeout, json_output)
+    # Conductor not available - require it
+    require_conductor(routed, json_output=json_output)
+    return  # unreachable
 
 
 async def _pause_job_direct(
@@ -691,7 +676,6 @@ async def _modify_job(
         await _resume_job(
             job_id=job_id,
             config_file=config_file,
-            workspace=workspace,
             force=False,
             escalation=False,
             no_reload=False,

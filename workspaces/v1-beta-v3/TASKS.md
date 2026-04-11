@@ -500,14 +500,14 @@ CLI: `mzt`. Package: `marianne`. Config: `~/.mzt/`. Musical vocabulary unchanged
 ### Phase 3: Documentation and Examples
 - [ ] Update CLAUDE.md — all references to Marianne → Marianne, marianne → mzt (priority: P0) [source: F-480]
 - [ ] Update .marianne/spec/ corpus — all 5 files (priority: P0) [source: F-480]
-- [ ] [Codex] Update all docs/ files — daemon-guide, score-writing-guide, cli-reference, configuration-reference, getting-started, limitations (priority: P0) [source: F-480]
+- [x] [Codex] Update all docs/ files — daemon-guide, score-writing-guide, cli-reference, configuration-reference, getting-started, limitations (priority: P0) [source: F-480] — Updated cli-reference.md (9 instances), verified all other docs clean. Commit d47b2dd. — daemon-guide, score-writing-guide, cli-reference, configuration-reference, getting-started, limitations (priority: P0) [source: F-480]
 - [ ] Update all examples/ scores — any hardcoded `marianne` references (priority: P0) [source: F-480]
 - [ ] Update scores/ operational scores (priority: P0) [source: F-480]
 - [ ] Rename `.marianne/` project directory → `.mzt/` (priority: P0) [source: F-480]
 
 ### Phase 4: Tell the Story
 - [ ] [Guide] Write Marianne's story for the README — who she was, why the name, what it means for this project (priority: P0) [source: F-480, composer directive]
-- [ ] [Codex] Write Marianne's story for the docs landing page (priority: P0) [source: F-480, composer directive]
+- [x] [Codex] Write Marianne's story for the docs landing page (priority: P0) [source: F-480, composer directive] — Added "About the Name" section to docs/index.md. Maria Anna "Nannerl" Mozart biography, 12 lines. Commit d47b2dd. for the docs landing page (priority: P0) [source: F-480, composer directive]
 - [ ] [Guide] Update getting-started.md with the new name, CLI examples, and story context (priority: P0) [source: F-480]
 
 ### Phase 5: Verification
