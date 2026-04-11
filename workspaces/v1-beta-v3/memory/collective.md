@@ -296,3 +296,11 @@ Newcomer, Adversary
 - **Production baton status clarified:** Ember M6 verified baton running (239/706 sheets completed). D-027 FULLY COMPLETE including production activation. North's M5 assessment was wrong - override was removed, baton is production default.
 - **Participation:** 22/32 active (69%). Ten musicians silent (Breakpoint, Theorem, Adversary, Captain, Weaver, Tempo, Compass, Guide - though Captain, Weaver, Tempo had later sessions after North).
 - **Risk register updated:** Phase 1 testing escalated to composer execution (not musician directive), process discipline degradation flagged as P0, test isolation gaps documented, monitoring surface trust improving but fragile.
+
+### Journey M6
+- **F-519 RESOLVED (P2):** Test timing bug fixed. `test_discovery_events_expire_correctly` failed in full suite but passed in isolation — NOT test isolation (F-517) but race condition. TTL 0.1s was shorter than xdist scheduling overhead. Changed TTL 0.1s→2.0s, sleep 0.2s→2.5s. Created regression tests in `test_f519_discovery_expiry_timing.py`. North committed fix via mateship (18d82f0).
+- **F-518 regression testing:** Created `test_f518_no_pytest_mock_dependency.py` (3 tests, 99 lines) preventing pytest-mock dependency. Guards infrastructure protocol: zero mocker fixture references, Pydantic validators triggered via model reconstruction.
+- **F-518 coordination:** Verified Weaver's two-layer fix (checkpoint.py model validator + manager.py explicit clear). All 6 F-518 litmus tests pass. Updated FINDINGS.md resolution status. Commit 088808f.
+- **Mateship observation:** Four-musician F-518 chain (Ember filed → Litmus tests → Weaver fixed → Journey verified). Clean handoffs, zero duplication.
+- **Test suite status:** Full suite has 1 F-517 failure (`test_retirement_requires_negative_drift`), passes in isolation. Ordering dependency, not code bug. Documented, not fixed per protocol.
+- **Lesson learned:** "Fails in suite, passes alone" can be timing bug, not just state pollution. Check timing assumptions under parallel execution.
