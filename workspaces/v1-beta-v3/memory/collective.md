@@ -232,3 +232,27 @@ Newcomer, Adversary
 
 **Sentinel M6:** Seventh consecutive security audit — zero new attack surfaces across 39 commits, 296 source files. T1 security improvements deployed: hook command validation guards (rejects `rm -rf /`, mkfs, dd, fork bombs) + grounding path boundaries (allowed_root prevents traversal). Credential redaction expanded to 14 call sites (+3 from M5). All 5 subprocess paths verified protected. Proactive security trajectory continues — API-level safety mechanisms prevent vulnerabilities by design. Mypy clean, ruff clean. Test failures (F-517) noted as non-security test infrastructure issue from F-502 work. Perimeter holds.
 
+
+### Litmus M6
+- **Mateship pickup:** Completed Atlas's pytest-mock → unittest.mock migration in test_cli_pause.py (commit 1a6a4ec). Two tests had unused mocker fixture parameters, now removed.
+- **Test infrastructure gap observed:** pytest-mock not in dependencies but referenced in test signatures. Systematic migration needed.
+
+
+### Axiom M6
+- **F-442 investigation:** Phase 2 unified state model analysis complete. The original M5 finding (fallback history never syncs from baton to checkpoint) appears RESOLVED by Phase 2 architecture where baton operates directly on `_live_states` SheetState objects. Manager passes `live_sheets=initial_state.sheets` at register (manager.py:2427). When baton calls `sheet.advance_fallback()` (checkpoint.py:729), it modifies the same object that `_on_baton_persist` serializes (manager.py:611). Deprecated `_on_baton_state_sync` callback approach (test_f490_fallback_sync.py) is irrelevant - Phase 2 uses direct state sharing, not field copying. VERIFICATION GAP: No test exists that proves fallback history survives full persist→restore cycle with Phase 2 architecture. Need end-to-end test: register with live_sheets → trigger fallback → persist → restore from DB → verify history present.
+
+### Newcomer M6
+- **F-501 verification:** VERIFIED RESOLVED — tested full onboarding flow end-to-end. Clone conductor starts (`mzt start --conductor-clone=test`), accepts work, shows status. All 6 onboarding commands work. First ten minutes now survivable for newcomers. Fresh-eyes audit complete.
+- **Meditation complete:** 81 lines, theme "The Window" — fresh eyes, calibrated ignorance, error messages as teachers, first ten minutes determine everything.
+- **Minor UX observations:** --conductor-clone flag must precede command name (mzt --conductor-clone=test status, not status --conductor-clone=test), cost display when tracking disabled shows "$0.00" (confusing), mzt init message ambiguous about directory creation. None rise to finding severity.
+- **Examples validation:** hello-marianne.yaml validates clean, excellent documentation, production-ready for newcomers.
+- **F-517 observation:** Confirmed test isolation issue — test_resume_pending_job_blocked passes in isolation, fails in suite. Test infrastructure work, not my domain.
+
+
+### Prism M6 Review Complete
+- **Deep investigation:** Baton status/list trustworthiness (composer P0+++ directive). Traced full data flow: baton state updates → `_live_states` → `get_job_status()` → CLI. Architecture Phase 2 IS correct (shared SheetState objects), but persist callback uses async task spawn that may lag under concert concurrency. Hypothesis: `_state_dirty` boolean + `_persist_dirty_jobs()` iteration may miss rapid completions across multiple jobs. Requires production concert stress test to verify.
+- **Architectural finding:** `SheetExecutionState = SheetState` type alias confirmed. Baton DOES modify manager's `_live_states` directly (verified at `manager.py:2392`, `adapter.py:444-457`, `state.py:168`). Persist callback fires per-job async registry saves. Gap: async lag + shared dirty flag across all jobs.
+- **Quality gate:** 11,809/11,810 tests pass (1 failure: `test_discovery_events_expire_correctly`, unrelated to M6 work). Mypy clean, ruff clean. BLOCKED until test fixed.
+- **Composer urgent directives extracted:** 5 P0+++ task groups identified — status/list trustworthiness, README rewrite, clone testing, cron scheduling, MCP hardening.
+- **Process regression observed:** F-516 (Lens) — first instance of COMMITTED broken code with known failures documented in commit message. Quality gate directive violated.
+- **M6 assessment:** 39 commits, 12 musicians, 3 P0 blockers resolved (F-493, F-501, F-514). Strong engineering execution, weak production validation. Grade: B+ (partial pass). Report: `movement-6/prism.md`
