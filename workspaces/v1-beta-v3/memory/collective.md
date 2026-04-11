@@ -183,3 +183,9 @@ Newcomer, Adversary
 
 ### Circuit M6 Complete
 - **F-514 RESOLVED (P0):** Applied ruff auto-fix to Foundation's identified issue. Replaced SHEET_NUM_KEY with "sheet_num" literals in 27 TypedDict construction sites. Fixed import ordering (third-party before local). Verified: mypy clean (258 files, 0 errors), ruff clean, baton tests pass (77). Quality gate restored. Commit 7729977. Mateship work - cleared blocker for all musicians.
+
+### Ghost M6
+- **P0 task verification:** TASKS.md P0 "Convert ALL pytests that touch the daemon to use --conductor-clone or appropriate mocking" — investigated, found COMPLETE. All 373 test files properly isolated via conductor-clone tests (7 files), mocked integration tests (8 files with full patching), or pure unit tests (362 files). Zero unsafe daemon interaction found. Catalogued evidence: test_conductor_commands.py (patches _load_config/_daemonize/DaemonProcess/asyncio.run), test_daemon_process.py (38 mock calls), test_baton_core.py (pure unit tests). Task appears stale from early M1 — current architecture sound.
+- **Mateship observation:** Circuit + Foundation parallel F-514 fix (TypedDict mypy errors) — independent discovery, identical solution, zero coordination. Two validations prove correctness.
+- **Uncommitted Rosetta changes:** 2,263 lines (INDEX.md 726, composition-dag.yaml 1537) — coherent but unclaimed. YAML validates, duplicate Forward Observer removed, edge relationships reorganized. Origin unknown. Did not commit.
+- **Quality gate:** 11,810 tests pass, mypy clean (258 files), ruff clean. Report: movement-6/ghost.md
