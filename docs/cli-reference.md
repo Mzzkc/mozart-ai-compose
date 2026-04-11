@@ -2,13 +2,13 @@
 
 Complete reference for all Marianne CLI commands and options. Marianne provides a single entry point:
 
-- **`marianne`** — Job orchestration CLI (run, monitor, diagnose, learn, conductor management)
+- **`mzt`** — Job orchestration CLI (run, monitor, diagnose, learn, conductor management)
 
 ---
 
 ## Global Options
 
-These options apply to all `marianne` commands:
+These options apply to all `mzt` commands:
 
 | Option | Short | Description | Env Var |
 |--------|-------|-------------|---------|
@@ -1525,12 +1525,12 @@ mzt learning-activity --hours 48
 
 ---
 
-### `marianne entropy-status`
+### `mzt entropy-status`
 
 Display entropy response status and history. When pattern entropy drops below threshold, the system automatically boosts exploration budget and revisits quarantined patterns.
 
 ```
-Usage: marianne entropy-status [OPTIONS]
+Usage: mzt entropy-status [OPTIONS]
 ```
 
 | Option | Short | Default | Description |
@@ -1542,9 +1542,9 @@ Usage: marianne entropy-status [OPTIONS]
 | `--check` | `-c` | false | Check if entropy response is needed (dry-run) |
 
 ```bash
-marianne entropy-status
-marianne entropy-status --history
-marianne entropy-status --check
+mzt entropy-status
+mzt entropy-status --history
+mzt entropy-status --check
 ```
 
 ---
@@ -1893,7 +1893,7 @@ execution time.
 
 Use `-v` for detailed output:
 ```bash
-marianne -v run job.yaml
+mzt -v run job.yaml
 ```
 
 Shows:
@@ -1906,7 +1906,7 @@ Shows:
 
 Use `-q` for minimal output:
 ```bash
-marianne -q run job.yaml
+mzt -q run job.yaml
 ```
 
 Shows only:

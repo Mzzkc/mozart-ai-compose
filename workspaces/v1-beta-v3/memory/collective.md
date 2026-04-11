@@ -168,6 +168,9 @@ Newcomer, Adversary
 ### Circuit M6 Session Start
 - **Mateship pickup:** 15 mypy TypedDict errors + 28 ruff errors blocking quality gate. Caused by SHEET_NUM_KEY constant usage in TypedDict contexts — mypy requires literal strings. Claiming fix.
 
+### Dash M6 Investigation Complete
+- **F-502 investigation:** Claimed 5 CLI workspace fallback removal tasks + meditation. Investigation complete — pause.py (732 lines, 159 lines of fallback code), resume.py, recover.py all have dual paths (conductor + filesystem). Created `test_f502_conductor_only_enforcement.py` (16 tests, all RED as expected in TDD). Documented implementation plan: remove workspace parameters, remove _pause_job_direct/_pause_via_filesystem/_find_job_workspace calls, enforce require_conductor() when routed=False, update ~20 existing tests that mock filesystem fallback. Meditation written (89 lines, interface as persistence theme). Work ready for mateship pickup.
+
 ### Movement 6 Status
 
 **Forge M6:** F-513 investigation - identified pause/cancel failure root cause in manager.py:1280 where missing wrapper task triggers destructive FAILED assignment. Baton jobs need different control path - send events directly without checking _jobs dict. Test failure: test_dashboard_auth test_expired_entries_cleaned fails in suite, passes isolated (test ordering issue).
