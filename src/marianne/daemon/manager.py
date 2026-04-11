@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import time
 import traceback
 from collections import deque
@@ -15,7 +16,7 @@ from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import yaml
 
@@ -2941,6 +2942,32 @@ class JobManager:
 
         return result
 
+    # Patterns that are almost certainly destructive when run as hooks.
+    # The composer owns their YAML — this is a safety net, not a sandbox.
+    _DESTRUCTIVE_HOOK_PATTERNS: ClassVar[re.Pattern[str]] = re.compile(
+        r"(?:rm\s+(?:--?[a-zA-Z][a-zA-Z-]*\s+)+/|"
+        r"mkfs\.|dd\s+(?:if|of)=|"
+        r":\(\)\s*\{.*\}\s*;|"
+        r">\s*/dev/sd|"
+        r"chmod\s+-R\s+[0-7]{3,4}\s+/)",
+    )
+    _MAX_HOOK_COMMAND_LENGTH: ClassVar[int] = 4096
+
+    def _validate_hook_command(self, command: str, *, hook_type: str) -> None:
+        """Guard against obviously destructive hook commands.
+
+        This is a best-effort safety check.  It does NOT sandbox or sanitize
+        commands — the composer is trusted.  It catches catastrophic typos.
+        """
+        if len(command) > self._MAX_HOOK_COMMAND_LENGTH:
+            raise ValueError(
+                f"{hook_type} command exceeds {self._MAX_HOOK_COMMAND_LENGTH} chars"
+            )
+        if self._DESTRUCTIVE_HOOK_PATTERNS.search(command):
+            raise ValueError(
+                f"{hook_type} command contains destructive pattern"
+            )
+
     async def _execute_hook_command(
         self,
         hook: dict[str, Any],
@@ -2971,6 +2998,7 @@ class JobManager:
         command = self._expand_hook_vars(
             command, meta.workspace, meta.job_id, for_shell=use_shell,
         )
+        self._validate_hook_command(command, hook_type=hook_type)
         cwd = hook.get("working_directory") or str(meta.workspace)
         timeout = hook.get("timeout_seconds", 300.0)
 

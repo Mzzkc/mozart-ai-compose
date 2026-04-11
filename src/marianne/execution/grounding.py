@@ -11,6 +11,7 @@ in arXiv 2601.05280 (entropy decay in self-training) and DGM objective hacking.
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from marianne.core.checkpoint import ValidationDetailDict
@@ -146,6 +147,8 @@ class FileChecksumGroundingHook:
         expected_checksums: dict[str, str] | None = None,
         checksum_algorithm: Literal["md5", "sha256"] = "sha256",
         name: str | None = None,
+        *,
+        allowed_root: str | Path | None = None,
     ) -> None:
         """Initialize the file checksum hook.
 
@@ -153,10 +156,13 @@ class FileChecksumGroundingHook:
             expected_checksums: Map of file path to expected checksum.
             checksum_algorithm: Algorithm to use for checksums.
             name: Custom name for this hook (defaults to "file_checksum").
+            allowed_root: If set, all file paths must resolve within this
+                directory.  Rejects absolute paths and ``..`` traversal.
         """
         self._expected_checksums = expected_checksums or {}
         self._algorithm = checksum_algorithm
         self._name = name or "file_checksum"
+        self._allowed_root = Path(allowed_root).resolve() if allowed_root else None
 
     @property
     def name(self) -> str:
@@ -183,6 +189,16 @@ class FileChecksumGroundingHook:
 
         for file_path, expected_hash in self._expected_checksums.items():
             path = Path(file_path)
+
+            # Security: when allowed_root is set, validate paths stay within bounds
+            if self._allowed_root is not None:
+                resolved = (self._allowed_root / path).resolve()
+                if not str(resolved).startswith(str(self._allowed_root)):
+                    mismatches.append(
+                        f"{file_path}: path escapes allowed root"
+                    )
+                    continue
+
             if not path.exists():
                 mismatches.append(f"{file_path}: file not found")
                 continue
