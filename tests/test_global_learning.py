@@ -3606,21 +3606,22 @@ class TestPatternBroadcasting:
         """Test that expired events are cleaned up."""
         import time
 
-        # Record with very short TTL
+        # Record with short TTL (2s - enough margin for xdist scheduling overhead)
+        # F-519: Previous 0.1s TTL was too short, causing flaky failures under parallel execution
         global_store.record_pattern_discovery(
             pattern_id="short-lived-001",
             pattern_name="Short Lived Pattern",
             pattern_type="test",
             job_id="job-X",
-            ttl_seconds=0.1,  # 100ms TTL
+            ttl_seconds=2.0,  # 2s TTL - survives scheduling delays
         )
 
         # Should exist immediately
         events = global_store.get_active_pattern_discoveries()
         assert any(e.pattern_name == "Short Lived Pattern" for e in events)
 
-        # Wait for expiry
-        time.sleep(0.2)
+        # Wait for expiry (2.5s > 2.0s TTL)
+        time.sleep(2.5)
 
         # Should not appear in active discoveries
         events = global_store.get_active_pattern_discoveries()
