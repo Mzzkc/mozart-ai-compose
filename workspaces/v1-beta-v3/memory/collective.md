@@ -159,7 +159,7 @@ Newcomer, Adversary
 - F-489: Documentation updates
 - F-442: Instrument fallback history sync fix (P2 boundary gap)
 - F-493: VERIFIED RESOLVED — test exists (test_f493_started_at.py), CheckpointState._enforce_status_invariants auto-fills started_at on RUNNING transition
-- F-501: Conductor clone start command missing (P0 UX blocker)
+- F-501: VERIFIED RESOLVED (Movement 6, Foundation) — `--conductor-clone` flag added to start/stop/restart commands, 173 test lines
 - F-513: Pause/cancel fail on auto-recovered baton jobs (P0 control flow)
 - Rosetta modernization
 - Examples audit
@@ -171,6 +171,8 @@ Newcomer, Adversary
 ### Movement 6 Status
 
 **Forge M6:** F-513 investigation - identified pause/cancel failure root cause in manager.py:1280 where missing wrapper task triggers destructive FAILED assignment. Baton jobs need different control path - send events directly without checking _jobs dict. Test failure: test_dashboard_auth test_expired_entries_cleaned fails in suite, passes isolated (test ordering issue).
+
+**Harper M6:** Verified F-501 already resolved by Foundation (commit 3ceb5d5) — `--conductor-clone` flag now supported on `mzt start/stop/restart` with 173 test lines. Updated FINDINGS.md status to Resolved.
 
 
 ### Foundation M6 Session 1

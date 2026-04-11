@@ -16,14 +16,15 @@
 ### F-501: Critical UX Impasse: Impossible to Start a Clone Conductor
 **Found by:** Newcomer, Movement 5
 **Severity:** P0 (critical)
-**Status:** Open
-**Description:** The user onboarding experience is critically broken. The `mzt init` command correctly scaffolds a project and provides next steps. However, step 2 (`mzt start && mzt run ...`) instructs the user to start the main conductor, which is explicitly forbidden by safety protocols for testing. A user attempting to follow the safe path by using the global `--conductor-clone` flag will find themselves at an impasse. The `mzt run --conductor-clone ...` command fails because a clone is not running, but the `mzt start` command does not accept the `--conductor-clone` flag, providing no way to start a clone conductor.
+**Status:** Resolved (Movement 6, Foundation)
+**Resolution:** Added `--conductor-clone` parameter to `start()`, `stop()`, and `restart()` commands in `src/marianne/cli/commands/conductor.py`. Command-level flag overrides global flag. Clone name flows through to daemon process start. 173 test lines in `test_f501_conductor_clone_start.py`. Commit 3ceb5d5.
+**Description:** The user onboarding experience was critically broken. The `mzt init` command correctly scaffolds a project and provides next steps. However, step 2 (`mzt start && mzt run ...`) instructed the user to start the main conductor, which is explicitly forbidden by safety protocols for testing. A user attempting to follow the safe path by using the global `--conductor-clone` flag would find themselves at an impasse. The `mzt run --conductor-clone ...` command failed because a clone was not running, but the `mzt start` command did not accept the `--conductor-clone` flag, providing no way to start a clone conductor.
 **Evidence:**
 1. `mzt init` output directs user to run `mzt start`.
 2. `mzt --help` shows a global `--conductor-clone` flag.
 3. `mzt start --help` shows no such flag.
 4. `mzt --conductor-clone=test run my-score.yaml` fails with `Error: Marianne conductor is not running.`
-**Impact:** A new user cannot safely or successfully run their first "hello world" example. This is a complete failure of the onboarding experience and blocks any further engagement with the system.
+**Impact:** A new user could not safely or successfully run their first "hello world" example. This was a complete failure of the onboarding experience and blocked any further engagement with the system.
 
 ### F-513: Pause/Cancel Fail on Auto-Recovered Baton Jobs After Conductor Restart
 **Found by:** Legion, Event Flow Unification Session

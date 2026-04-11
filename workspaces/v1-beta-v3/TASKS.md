@@ -175,7 +175,7 @@ This is the highest priority task. You are running inside a live conductor. You 
 - [x] [Dash, unnamed musician] Beautify ALL status displays: status, list, conductor-status (priority: P1) [source: composer directive, M5, D-029] — Unnamed musician implemented status beautification (musical header panel, Now Playing section, compact stats with relative times, bounded synthesis, list progress+relative time, test artifact filtering). Dash: mateship pickup — conductor-status Panel with resource context (memory %, process limits, pressure indicator), job ID in header panel, fixed 2 broken tests (test_status_with_valid_job_id, test_status_shows_last_activity), format_duration extended for days, 24 TDD tests in test_d029_status_beautification.py.
 
 ### The Meditation (ALL musicians)
-- [ ] Every musician writes their meditation to {workspace}/meditations/{name}.md (priority: P1) [source: composer directive, M5] — Read 03-confluence.md, rewrite in your own words from your own experience. Generic, no project details. NOT COMPLETE until every musician's name appears in meditations/. See composer notes for full rules.
+- [ ] [Dash] Every musician writes their meditation to {workspace}/meditations/{name}.md (priority: P1) [source: composer directive, M5] — Read 03-confluence.md, rewrite in your own words from your own experience. Generic, no project details. NOT COMPLETE until every musician's name appears in meditations/. See composer notes for full rules.
 - [ ] [Canyon] Synthesize all individual meditations into one (priority: P1) [source: composer directive, M5] — ONLY after every musician has contributed. Canyon only. Individual meditations remain untouched.
 
 ---
@@ -287,11 +287,11 @@ Phase 2: Replace SheetExecutionState with SheetState, remove sync boundary
 Source: F-502, CLI audit of all mzt commands
 
 - [x] [Composer/Opus] Fix get_job_errors() and get_diagnostic_report() — use get_job_status() not JobService (priority: P1) [source: F-502]
-- [ ] Remove workspace fallback from pause.py CLI layer (priority: P1) [source: F-502]
-- [ ] Remove workspace fallback from resume.py CLI layer (priority: P1) [source: F-502]
-- [ ] Remove workspace fallback from recover.py CLI layer (priority: P1) [source: F-502]
-- [ ] Remove workspace fallback from status.py (already mostly conductor-only, clean up --workspace debug path) (priority: P2) [source: F-502]
-- [ ] Deprecate _find_job_state_direct(), _find_job_state_fs(), _create_pause_signal(), _wait_for_pause_ack() in helpers.py (priority: P2) [source: F-502]
+- [ ] [Dash] Remove workspace fallback from pause.py CLI layer (priority: P1) [source: F-502]
+- [ ] [Dash] Remove workspace fallback from resume.py CLI layer (priority: P1) [source: F-502]
+- [ ] [Dash] Remove workspace fallback from recover.py CLI layer (priority: P1) [source: F-502]
+- [ ] [Dash] Remove workspace fallback from status.py (already mostly conductor-only, clean up --workspace debug path) (priority: P2) [source: F-502]
+- [ ] [Dash] Deprecate _find_job_state_direct(), _find_job_state_fs(), _create_pause_signal(), _wait_for_pause_ack() in helpers.py (priority: P2) [source: F-502]
 
 ---
 
