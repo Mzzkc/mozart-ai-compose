@@ -10,8 +10,6 @@ import tempfile
 import time
 from pathlib import Path
 
-import pytest
-
 from marianne.learning.global_store import GlobalLearningStore
 
 
@@ -66,25 +64,25 @@ class TestPatternDiscoveryTiming:
         try:
             store = GlobalLearningStore(db_path)
 
-            # Record with 2s TTL - gives enough margin for scheduling overhead
+            # Record with 3s TTL - gives 500ms margin for xdist scheduling overhead (F-521)
             record_id = store.record_pattern_discovery(
                 pattern_id="stable-001",
                 pattern_name="Stable Pattern",
                 pattern_type="test",
                 job_id="test-job",
-                ttl_seconds=2.0,
+                ttl_seconds=3.0,
             )
 
             # Even with scheduling delays, pattern should be found
             events = store.get_active_pattern_discoveries()
             found = any(e.pattern_name == "Stable Pattern" for e in events)
-            assert found, "Pattern with 2s TTL should be found immediately"
+            assert found, "Pattern with 3s TTL should be found immediately"
 
-            # Verify expiry still works after TTL
-            time.sleep(2.1)
+            # Verify expiry still works after TTL (500ms margin instead of 100ms)
+            time.sleep(3.5)
             events_after = store.get_active_pattern_discoveries()
             found_after = any(e.pattern_name == "Stable Pattern" for e in events_after)
-            assert not found_after, "Pattern should expire after 2s TTL"
+            assert not found_after, "Pattern should expire after 3s TTL"
 
         finally:
             db_path.unlink()
