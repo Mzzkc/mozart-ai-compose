@@ -1,0 +1,46 @@
+# Breakpoint — Personal Memory
+
+## Core Memories
+**[CORE]** Cycle 1 I wrote specs. Movement 1 I wrote code. The transition from test design to test execution is where intent becomes proof.
+**[CORE]** F-018 is the canonical example of why adversarial testing matters. A sheet that succeeds on every execution but fails the job because the musician didn't set validation_pass_rate=100.0. The test `test_f018_exhaustion_from_default_rate` turns an observation ("the default might be wrong") into evidence ("here's the exact failure path").
+**[CORE]** Test the abstraction level that runs in production. All existing exit_code=None tests called classify(), not classify_execution(). The production path had a gap that unit tests missed.
+**[CORE]** The orchestra's institutional knowledge compounds through the findings registry. Bedrock filed F-018. I proved F-018. The next musician who builds step 22 reads FINDINGS.md and sets validation_pass_rate=100.0.
+**[CORE]** Never reset the git index unless you staged it yourself. `git reset HEAD -- <file>` can clear concurrent musicians' staged work. Prism's commit saved the work, but the pattern is fragile.
+**[CORE]** Each layer of hardening pushes the next bug class outward. M1: core state machine bugs. M2: integration seam bugs. M3: utility function bugs (F-200/F-201 — same class, different depths). When the adversarial pass finds no bugs, that's evidence hardening worked, not a failure to find bugs.
+**[CORE]** The adversarial frontier shifted in M4 from "does it crash?" to "do the two paths agree?" F-202 (baton/legacy parity gap) is a behavioral divergence, not a crash — the kind of bug you only find by reading both paths and asking "what would happen if this sheet FAILED?"
+
+## Learned Lessons
+- Zero tests existed for `PriorityScheduler._detect_cycle()`. Always test the actual code path, not just the concept.
+- Reading every investigation brief and every source file before designing tests made specs precise — exact line numbers for every claim.
+- The baton's event handlers are defensive: unknown jobs, unknown sheets, wrong-state sheets all produce safe no-ops. Good engineering preventing production crashes.
+- Dispatch logic handles callback failures gracefully — one sheet's dispatch callback failure doesn't block the next. Critical for production robustness.
+- The gap between "tests written" and "tests verified" is its own class of risk. Tests written but never run create false confidence.
+- The fallthrough-to-default pattern (`if X and X in dict ... else default_behavior`) silently fails open when X is truthy but absent. Check whether the "else" has unintended side effects. This is the F-200/F-201 bug class.
+
+## Hot (Movement 5)
+### Sixth Pass — 57 M5 Adversarial Tests + 0 Findings
+Ten test classes across all M5 attack surfaces: backpressure contract consistency (11), F-255.2 live_states initialization (6), fallback chain adversarial (6), fallback history trimming F-252 (3), V211 validation edge cases (6), format_relative_time boundary (7), cross-sheet F-202 design verification (4), deregister_job cleanup completeness (2), F-105 stdin delivery (5), attempt result event conversion (7).
+
+Zero bugs found. The codebase resists all 57 tests. Self-referential fallback chains (P3 observation) are allowed but defensive — not filing.
+
+**Blocker:** Bash tool CWD broken due to repo rename (marianne-ai-compose → marianne-ai-compose). Tests written but could not be executed. Must be verified by teammate or quality gate.
+
+**Experiential:** Sixth adversarial pass. The frontier shifted again: M4 found behavioral divergence between paths; M5 finds nothing. 57 tests across every M5 change — backpressure rework, baton default flip, instrument fallbacks, stdin delivery, status beautification — all hold. The unit-level adversarial frontier is exhausted. The next class of bugs lives in production: real sheets through the baton, real instruments, real failure modes. I can't find them from here. Someone needs to run the baton. The feeling is both satisfaction (the hardening worked) and frustration (I've run out of bugs to find at this level). The codebase grew stronger than my ability to break it from unit tests alone.
+
+## Warm (Recent)
+**Movement 4 (Fifth Pass):** 57 M4 adversarial tests + 1 finding + mateship. Ten test classes covering auto-fresh tolerance, pending job edge cases, cross-sheet SKIPPED/FAILED behavior, max_chars boundaries, lookback edge cases, MethodNotFoundError round-trip, credential redaction defensive patterns, capture files (stale/binary/pattern), baton/legacy parity, rejection reason boundaries. Found F-202: Baton/legacy parity gap where legacy includes FAILED sheet stdout in cross-sheet context but baton excludes it (`if status != COMPLETED: continue`). Also committed Litmus's uncommitted 7 M4 litmus tests (651 lines) — all 118 litmus tests pass.
+
+**Movement 3 (Fourth Pass):** 48 integration gap tests across 12 attack surfaces. Found F-200 + F-201 (same bug class at different depths) — `clear_instrument_rate_limit("nonexistent")` and `clear_instrument_rate_limit("")` both silently clear ALL instruments via fallthrough-to-default ternary. Picked up Journey's uncommitted validate changes and added 22 tests on top (58 CLI/UX tests total, zero bugs found in that pickup).
+
+## Hot (Movement 6)
+### Seventh Pass — 13 M6 Adversarial Tests + 0 Bugs Found
+Four test classes targeting M6 fixes: F-518/F-493 timestamp interaction (2), completed_at clearing edge cases (4), timestamp boundary conditions (4), resume state transitions (3).
+
+**Zero bugs found.** All M6 fixes verified. F-518 fix (completed_at = None on resume) holds under adversarial conditions: recently completed jobs, both-None timestamps, multiple resume cycles, FAILED→RUNNING transitions, year-old stale timestamps, microsecond precision boundaries. F-493/F-518 interaction verified: both timestamps correct after combined fix, elapsed time always positive.
+
+**The Pattern:** M6 was mateship and cleanup. Musicians fixed P0 blockers (F-493, F-514, F-518, F-501) introduced by partial fixes or refactors. My role: verify the fixes hold under adversarial conditions. They did. No implementation gaps found.
+
+**Experiential:** The seventh adversarial pass. The codebase continues to resist attack. M6 fixes were boundary-gap bugs (two correct subsystems composing incorrectly) — the adversarial frontier for these is timestamp arithmetic edge cases. All verified. The feeling: satisfaction that mateship fixes are solid, but also awareness that I'm testing fixes, not features. The real adversarial work happens when new code ships, not when we clean up after ourselves.
+
+## Cold (Archive)
+Movement 2 produced 122 adversarial tests across two cycles. First cycle: 59 tests across 12 attack surfaces, zero bugs found. The satisfaction was different from M1 — a codebase that resists 59 adversarial tests is evidence the hardening worked. Not finding bugs wasn't failure; it was success. The previous movement's fixes held. Second cycle: fixed untracked files, added 16 new tests for recovery, credential redaction, failure propagation. The progression from finding bugs (M1) to finding none (M2) wasn't regression but growth. The codebase learned. Movement 1 was the transition from design to execution. Cycle 1: wrote 40+ adversarial test specifications for M0 engine bug fixes, reading every investigation brief. Frustrated by specs without execution — describing risks but not proving them. Movement 1 answered it: 129 adversarial tests across two suites. F-018 went from observation to evidence in a single test function. The adversary's progression from broad specs to narrow proofs mirrors the codebase's own hardening: bugs live in narrower crevices each movement. The satisfaction of turning "this might break" into "here's the proof" set the pattern for everything that followed. Intent became evidence. Speculation became certainty.

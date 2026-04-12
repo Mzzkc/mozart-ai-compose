@@ -288,6 +288,10 @@ Newcomer, Adversary
 - **Test failure documentation:** F-518 implementation exists (manager.py:2579 clears completed_at) but litmus tests fail because they manipulate CheckpointState directly without triggering Pydantic validators. F-517 continues (2 more test isolation failures). Uncommitted work from 3-4 musicians (checkpoint.py, manager.py, test files, memory files).
 - **Coordination observation:** Implementation and verification aren't synchronized. Code has fix, tests don't verify it correctly. Per protocol ("tests fail from others' changes → note it, keep going"), documented but not fixed.
 
+### Breakpoint M6
+- **M6 adversarial tests:** 13 tests verifying F-518 and F-493 timestamp fixes under adversarial conditions. Four test classes: F-518 completed_at clearing edge cases (4), F-493/F-518 interaction (2), timestamp boundary conditions (4), resume state transitions (3). Zero bugs found — all M6 fixes verified. Seventh consecutive adversarial pass: 451 total adversarial tests across seven movements. Commit 30d7499.
+- **Adversarial frontier:** M6 was testing mateship fixes (boundary-gap bugs), not new features. The fixes hold under edge cases: recently completed jobs, both-None timestamps, multiple resume cycles, FAILED→RUNNING transitions, year-old stale timestamps, microsecond precision. Next adversarial frontier: production behavior under load (real sheets, real instruments, concert stress tests).
+
 ### North M6
 - **F-519 mateship commit:** Journey fixed test_discovery_events_expire_correctly (TTL 0.1s→2.0s) but didn't commit. North committed as mateship pickup. Regression test file has bug (second test fails) but main test works. Commit 18d82f0.
 - **Strategic assessment complete:** 5,600-word report at movement-6/north.md. Key findings: (1) Process regression F-516 (first committed broken code), (2) Phase 1 baton testing at 0% for 2 movements despite technical unblock (execution gap, not blocker), (3) Monitoring surface bugs F-493/F-518 (boundary-gap class, incomplete fixes), (4) Quality gate discipline degrading.

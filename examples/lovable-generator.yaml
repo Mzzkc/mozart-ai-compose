@@ -1,0 +1,550 @@
+# lovable-generator.yaml
+#
+# "Lovable (formerly GPT Engineer) raised $15.7M from Y Combinator to build an
+# AI app generator. We generated their app generator with a YAML file."
+#
+# This score orchestrates AI to build a working web application generator —
+# similar to what Lovable does. Five movements: Architecture, Foundation (3
+# parallel voices), Features (4 parallel voices), Polish (2 parallel voices),
+# and Verification.
+#
+# Usage:
+#   mzt start
+#   mzt run examples/lovable-generator.yaml
+#   mzt status lovable-generator --watch
+#
+# Expected output: A working React + TypeScript app that takes natural language
+# descriptions and generates code with live preview.
+#
+# Time: ~25 minutes  |  Cost: ~$30-40  |  Sheets: 13
+
+name: lovable-generator
+description: "Build an AI app generator — what Lovable raised $15.7M to create"
+
+workspace: ../workspaces/lovable-generator
+
+instrument: claude-code
+instrument_config:
+  timeout_seconds: 1800
+  model: claude-opus-4-6
+
+movements:
+  1:
+    name: "Architecture"
+  2:
+    name: "Foundation"
+  3:
+    name: "Features"
+  4:
+    name: "Polish"
+  5:
+    name: "Verification"
+
+sheet:
+  size: 1
+  total_items: 5
+  fan_out:
+    2: 3  # 3 parallel voices for foundation
+    3: 4  # 4 parallel voices for features
+    4: 2  # 2 parallel voices for polish
+  dependencies:
+    2: [1]
+    3: [2]
+    4: [3]
+    5: [4]
+
+parallel:
+  enabled: true
+  max_concurrent: 4
+  stagger_delay_ms: 200
+
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 5000
+  lookback_sheets: 12
+
+cost_limits:
+  enabled: true
+  max_cost_per_job: 50.00
+
+retry:
+  max_retries: 2
+  base_delay_seconds: 30.0
+  jitter: true
+
+prompt:
+  template: |
+    {% if stage == 1 %}
+    # Movement 1: Architecture Design
+
+    You are architecting an AI-powered web application generator — similar to what Lovable (formerly GPT Engineer) does: take a natural language description and generate a working web app.
+
+    ## Your Task
+
+    Design the technical architecture for a web application that:
+    1. Takes natural language app descriptions as input
+    2. Uses AI (Claude API) to generate React + TypeScript + Tailwind code
+    3. Displays live preview with hot reload
+    4. Supports iteration (user refines via follow-up prompts)
+
+    ## Deliverables
+
+    Create these architecture documents in {{ workspace }}:
+
+    1. **ARCHITECTURE.md** — Overall system design
+       - Component breakdown (input panel, generation engine, preview, iteration)
+       - Data flow (user input → AI prompt → code generation → preview rendering)
+       - State management approach (what persists, what's ephemeral)
+
+    2. **TECH_STACK.md** — Technology choices with justification
+       - Frontend: React, TypeScript, Vite, Tailwind (why each one)
+       - AI integration: Anthropic API with streaming
+       - Preview strategy: iframe vs sandboxed rendering
+       - Build/bundle approach for generated code
+
+    3. **COMPONENT_TREE.md** — React component hierarchy
+       - Top level: AppShell, InputPanel, GenerationEngine, PreviewPane, IterationControls
+       - Show parent-child relationships and data flow
+
+    4. **API_DESIGN.md** — AI integration specifics
+       - Prompt template for app generation (system + user messages)
+       - How to extract code from AI response (parsing strategy)
+       - Streaming UX (show progress as code generates)
+       - Model choice (claude-sonnet-4-5 vs opus) and why
+
+    ## Context
+
+    This is a **viral demo score** — the goal is to show that Marianne can orchestrate AI to build what companies raise millions for. Keep it practical and achievable in 4 more movements.
+
+    {% elif stage == 2 %}
+    # Movement 2: Foundation (Voice {{ instance }}/3)
+
+    Read the architecture documents in {{ workspace }}:
+    - ARCHITECTURE.md
+    - TECH_STACK.md
+    - COMPONENT_TREE.md
+    - API_DESIGN.md
+
+    {% if instance == 1 %}
+    ## Voice 1: Project Scaffolding
+
+    Bootstrap the project foundation:
+
+    1. **Initialize Vite + React + TypeScript**
+       ```bash
+       npm create vite@latest . -- --template react-ts
+       ```
+
+    2. **Configure Tailwind CSS**
+       - Install tailwind, postcss, autoprefixer
+       - Create tailwind.config.js
+       - Set up index.css with @tailwind directives
+
+    3. **Set up package.json**
+       - Add all necessary dependencies:
+         - @anthropic-ai/sdk (for Claude API)
+         - react, react-dom, typescript
+         - @vitejs/plugin-react
+         - tailwindcss, autoprefixer
+       - Add scripts: dev, build, preview
+
+    4. **Create project structure**
+       ```
+       src/
+         components/     (will hold UI components)
+         services/       (will hold AI integration)
+         hooks/          (will hold React hooks)
+         types/          (will hold TypeScript types)
+         App.tsx         (main app)
+         main.tsx        (entry point)
+       ```
+
+    5. **Write README.md** with setup instructions
+
+    Output: A project where `npm install && npm run dev` successfully starts a development server.
+
+    {% elif instance == 2 %}
+    ## Voice 2: Core UI Components
+
+    Build the fundamental UI components (in src/components/):
+
+    1. **AppShell.tsx**
+       - Header with logo/title
+       - Main content area
+       - Footer
+       - Responsive layout (flex/grid)
+       - Dark mode support
+
+    2. **InputPanel.tsx**
+       - Textarea for app description
+       - Placeholder with example ("A todo list with dark mode...")
+       - Character count
+       - "Generate App" button
+       - Loading state (disabled when generating)
+
+    3. **OutputPanel.tsx**
+       - Split view: code + preview
+       - Tab navigation between generated files
+       - Syntax highlighting for code view
+       - Iframe for preview
+       - Loading skeleton
+
+    4. **ThemeProvider.tsx**
+       - Light/dark mode toggle
+       - Use CSS variables
+       - Persist choice in localStorage
+
+    5. **ErrorBoundary.tsx**
+       - Catch React errors
+       - Display friendly error message
+       - Reset button
+
+    Use Tailwind exclusively for styling. Modern, clean design. Components should be functional but not fully wired yet.
+
+    {% elif instance == 3 %}
+    ## Voice 3: AI Integration Layer
+
+    Build the AI integration infrastructure (in src/services/ and src/hooks/):
+
+    1. **services/anthropic.ts**
+       - Initialize Anthropic client
+       - `generateApp(description: string)` function
+       - Stream responses with async iterator
+       - Parse code blocks from response
+       - Extract filenames and content
+       - Return structured result: `{ files: Map<string, string>, metadata: {...} }`
+
+    2. **hooks/useAppGeneration.ts**
+       - React hook for generation state
+       - States: idle, generating, success, error
+       - `generate(description)` function
+       - Progress tracking (streaming chunks)
+       - Error handling
+
+    3. **services/prompts.ts**
+       - Prompt templates for app generation
+       - System message: "You are an expert web developer..."
+       - User message template with description
+       - Instructions for code format (markdown code blocks with filenames)
+
+    4. **types/generation.ts**
+       - TypeScript types for all AI interaction
+       - `GeneratedFile`, `GenerationResult`, `GenerationState`
+
+    5. **Error handling**
+       - API key validation
+       - Rate limit detection
+       - Network error recovery
+       - Retry logic for transient failures
+
+    The AI should generate: package.json, App.tsx, components, index.html, README.
+
+    {% endif %}
+
+    Save all code to {{ workspace }}/src/... Create files as needed. Add inline comments for complex logic.
+
+    {% elif stage == 3 %}
+    # Movement 3: Core Features (Voice {{ instance }}/4)
+
+    The foundation is built. Now implement the main features.
+
+    {% if instance == 1 %}
+    ## Voice 1: App Description Input System
+
+    Enhance the input experience:
+
+    1. **Improve InputPanel.tsx**
+       - Add examples dropdown (todo app, blog, calculator)
+       - Parameter controls: framework preference, features to include
+       - Validation: minimum description length (20 chars)
+       - "Previous generations" history from localStorage
+       - Auto-save drafts
+
+    2. **Create GuidePanel.tsx**
+       - Tips for writing good descriptions
+       - Examples of what works well
+       - Common patterns (CRUD, auth, charts)
+       - Collapsible sidebar
+
+    3. **Input validation**
+       - Check for API key before allowing generation
+       - Warn if description is too vague
+       - Suggest improvements
+
+    Make it intuitive — users should know exactly what to type.
+
+    {% elif instance == 2 %}
+    ## Voice 2: Code Generation Pipeline
+
+    Wire up the end-to-end generation flow:
+
+    1. **Connect InputPanel to useAppGeneration hook**
+       - Button click triggers `generate(description)`
+       - Show loading state
+       - Disable input during generation
+
+    2. **Enhance services/anthropic.ts**
+       - Improve prompt to generate complete apps
+       - Parse response into files (detect ```tsx, ```css, etc.)
+       - Handle multi-file responses
+       - Extract package.json, main component, styles
+
+    3. **Create CodeParser.ts**
+       - Extract code blocks from markdown
+       - Detect language/filename from fence info
+       - Handle edge cases (nested code blocks, inline code)
+
+    4. **Write generated files to in-memory FS**
+       - Use Map<filename, content>
+       - Make available to preview
+
+    5. **Generation metadata**
+       - Track: tokens used, generation time, model, timestamp
+       - Display in UI
+
+    The AI prompt should produce: App.tsx, index.html, package.json, at minimum one working component.
+
+    {% elif instance == 3 %}
+    ## Voice 3: Live Preview System
+
+    Build the preview experience:
+
+    1. **Create PreviewPane.tsx**
+       - Iframe-based preview of generated app
+       - Inject generated code into iframe
+       - Handle iframe communication (errors, console logs)
+       - Loading state while bundling
+
+    2. **Runtime bundling**
+       - Use a simple in-browser bundler or just inject code directly
+       - For simple apps, direct injection is fine
+       - Transform JSX to JS if needed (or use pre-transformed)
+
+    3. **Console output display**
+       - Capture console.log, console.error from iframe
+       - Display in a console panel below preview
+       - Clear console on re-generation
+
+    4. **Viewport controls**
+       - Mobile/tablet/desktop size toggle
+       - Responsive preview frame
+
+    5. **Error handling**
+       - Catch runtime errors in preview
+       - Display errors clearly
+       - Don't crash main app if preview fails
+
+    The preview should update immediately when generation completes.
+
+    {% elif instance == 4 %}
+    ## Voice 4: Iteration & Refinement System
+
+    Enable users to refine generated apps:
+
+    1. **Create IterationPanel.tsx**
+       - Appears after successful generation
+       - Textarea for modification instructions
+       - "Refine App" button
+       - Show iteration history (each version)
+
+    2. **Modify services/anthropic.ts**
+       - Add `refineApp(original, modifications)` function
+       - Send both original description and refinement request
+       - Ask AI to modify existing code, not regenerate
+       - Preserve state between iterations
+
+    3. **Version history**
+       - Track each iteration as a version
+       - Allow switching between versions
+       - Show diff between versions (optional but nice)
+
+    4. **Context passing**
+       - Give AI the current code when refining
+       - Ask for specific changes only
+       - Maintain coherence across iterations
+
+    5. **UX flow**
+       - After generation: show "Refine" button
+       - User types "make it dark mode" or "add a header"
+       - AI modifies the existing code
+       - Preview updates with changes
+
+    Users should be able to have a conversation with the AI to improve the generated app.
+
+    {% endif %}
+
+    Integrate with existing components. Ensure type safety. Add error handling.
+
+    {% elif stage == 4 %}
+    # Movement 4: Polish (Voice {{ instance }}/2)
+
+    {% if instance == 1 %}
+    ## Voice 1: Code Review & Quality Fixes
+
+    Review the entire codebase and fix issues:
+
+    1. **TypeScript strictness**
+       - Run `npm run build` and fix all type errors
+       - Add proper types to all props, state, hooks
+       - Fix any `any` types
+       - Ensure strict mode passes
+
+    2. **React best practices**
+       - Check hook dependencies
+       - Fix unnecessary re-renders
+       - Add proper key props to lists
+       - Ensure accessibility (aria labels, semantic HTML)
+
+    3. **UI/UX consistency**
+       - Consistent spacing, colors, typography
+       - Error states are clear and helpful
+       - Loading states are smooth
+       - Empty states guide users
+
+    4. **Code organization**
+       - Proper file structure
+       - Consistent naming conventions
+       - Remove unused imports/variables
+       - Add JSDoc comments to complex functions
+
+    5. **Build verification**
+       - `npm run build` must succeed
+       - No console warnings
+       - Production bundle is reasonable size
+
+    Create {{ workspace }}/REVIEW_REPORT.md documenting what was fixed.
+
+    {% elif instance == 2 %}
+    ## Voice 2: Documentation & Deployment Guide
+
+    Make this deployable and usable by others:
+
+    1. **Update README.md**
+       - Clear description of what the app does
+       - Prerequisites (Node.js, API key)
+       - Local setup steps
+       - How to use it
+       - Tech stack overview
+       - License
+
+    2. **Create DEPLOYMENT.md**
+       - Deploy to Vercel (step-by-step)
+       - Deploy to Netlify (step-by-step)
+       - Environment variables setup (API key)
+       - Custom domain setup (optional)
+
+    3. **Create API_KEY_SETUP.md**
+       - How to get Anthropic API key
+       - Where to set it (env var)
+       - Security best practices (never commit keys)
+
+    4. **Inline code comments**
+       - Add comments to complex logic
+       - Explain AI prompt strategy
+       - Document component props
+       - Explain state management choices
+
+    5. **Create DEMO.md**
+       - Screenshots or ASCII art of the UI
+       - Example app descriptions to try
+       - Expected output
+       - Tips for best results
+
+    This should be ready for someone else to clone, deploy, and use.
+
+    {% endif %}
+
+    {% elif stage == 5 %}
+    # Movement 5: Verification & Demo Walkthrough
+
+    Verify the generator works end-to-end and create demo materials.
+
+    ## Your Task
+
+    1. **Manual testing**
+       - Start the dev server: `npm run dev`
+       - Open the app in browser
+       - Test generation with example description:
+         "A simple todo list app with dark mode. Users can add, complete, and delete tasks."
+       - Verify:
+         - Code is generated
+         - Preview renders
+         - Iteration works (try refining it)
+       - Test error cases (empty description, API error)
+
+    2. **Create VERIFICATION_REPORT.md**
+       Document:
+       - What works ✓
+       - What doesn't (be honest)
+       - Screenshots or detailed description of the flow
+       - Estimated cost to generate the test app
+       - Estimated time from description to working preview
+       - Quality of generated code (is it usable?)
+
+    3. **Create DEMO_SCRIPT.md**
+       A walkthrough for showing this to others:
+       - Setup steps
+       - Example description to use
+       - What to highlight during demo
+       - Talking points about the viral narrative:
+         "Lovable raised $15.7M to build this. We orchestrated AI with a YAML file."
+
+    4. **Answer the key question**
+       Does this demonstrate that Marianne can orchestrate AI to build what companies raise millions for?
+
+       Be honest. If gaps exist, document them. This is a proof-of-concept, not production software.
+
+    5. **Cost & time metrics**
+       - How much did this score cost to run? (check `mzt status lovable-generator`)
+       - How long did it take?
+       - How does that compare to "$15.7M and a team"?
+
+    Save to {{ workspace }}/VERIFICATION_REPORT.md and {{ workspace }}/DEMO_SCRIPT.md
+
+    {% endif %}
+
+validations:
+  # Movement 1: Architecture docs exist
+  - type: file_exists
+    path: "{workspace}/ARCHITECTURE.md"
+    condition: "stage == 1"
+
+  - type: file_exists
+    path: "{workspace}/TECH_STACK.md"
+    condition: "stage == 1"
+
+  # Movement 2: Foundation produces working project
+  - type: file_exists
+    path: "{workspace}/package.json"
+    condition: "stage >= 2"
+
+  - type: command_succeeds
+    command: "cd {workspace} && npm install --silent 2>&1"
+    condition: "stage >= 2"
+
+  # Movement 3: Core files exist
+  - type: file_exists
+    path: "{workspace}/src/App.tsx"
+    condition: "stage >= 3"
+
+  # Movement 4: Build succeeds
+  - type: command_succeeds
+    command: "cd {workspace} && npm run build 2>&1 | tail -10"
+    condition: "stage >= 4"
+
+  - type: file_exists
+    path: "{workspace}/REVIEW_REPORT.md"
+    condition: "stage == 4 and instance == 1"
+
+  - type: file_exists
+    path: "{workspace}/README.md"
+    condition: "stage == 4 and instance == 2"
+
+  # Movement 5: Verification deliverables
+  - type: file_exists
+    path: "{workspace}/VERIFICATION_REPORT.md"
+    condition: "stage == 5"
+
+  - type: file_exists
+    path: "{workspace}/DEMO_SCRIPT.md"
+    condition: "stage == 5"

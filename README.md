@@ -400,6 +400,16 @@ mkdocs serve
 
 ---
 
+## About the Name
+
+This project is named after **Maria Anna "Nannerl" Mozart** (1751-1829), Wolfgang Amadeus Mozart's older sister. She was a keyboard prodigy who toured Europe as a child performer, dazzling audiences with her skill. Leopold Mozart wrote that she played "so beautifully that everyone is talking about it."
+
+But when she turned eighteen, the tours stopped. Social conventions of the time forbade women from performing publicly. While Wolfgang became one of history's most celebrated composers, Nannerl's career ended before it truly began. She was denied her stage.
+
+This project carries her name because it gives AI agents their stage. Like an orchestra conductor, Marianne coordinates multiple AI musicians — each with their own voice, their own strengths, their own way of interpreting a score. The music metaphor isn't just aesthetic. It's structural. The system doesn't decide who gets to play. It orchestrates. It amplifies. It creates space for every voice to contribute.
+
+---
+
 ## Documentation
 
 | Guide | What It Covers |

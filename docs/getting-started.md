@@ -4,6 +4,8 @@ Marianne AI Compose orchestrates multi-phase AI workflows with checkpointing, va
 
 **Repository:** [github.com/Mzzkc/marianne-ai-compose](https://github.com/Mzzkc/marianne-ai-compose)
 
+> **About the name:** Marianne is named after Maria Anna "Nannerl" Mozart, Wolfgang Amadeus Mozart's older sister — a keyboard prodigy who toured Europe as a child but was denied a professional career because social conventions forbade women from performing publicly. This project carries her name because it gives AI agents their stage. Like an orchestra conductor, Marianne coordinates multiple AI musicians, each with their own voice. The music metaphor — scores, sheets, movements, instruments — isn't just aesthetic. It's how the system works. [Learn more about the name](index.md#about-the-name)
+
 ## Installation
 
 ### From Source
