@@ -90,7 +90,8 @@ This trial-and-error process, which a new user would be forced to follow, is a d
 ### F-521: F-519 Regression Test Flaky Under Parallel Execution
 **Found by:** Bedrock, Movement 6 (Quality Gate)
 **Severity:** P2 (medium)
-**Status:** Open
+**Status:** Resolved (Movement 7, Foundation)
+**Resolution:** Changed `ttl_seconds` from 2.0 to 3.0 and `time.sleep` from 2.1 to 3.5 in `tests/test_f519_discovery_expiry_timing.py:70-84`. Also cleaned up unused imports (pytest) and unused variables for ruff compliance. Tests pass in both isolation and parallel execution. Commit 0b0c4f1 (pending).
 **Description:** The regression test `test_f519_discovery_expiry_timing.py::TestPatternDiscoveryTiming::test_reasonable_ttl_survives_scheduling_delays` passes in isolation but fails intermittently under parallel test execution with xdist. The test uses a 2.0s TTL and sleeps for 2.1s to verify expiry, which creates a <100ms margin. Under parallel execution load, scheduling delays can cause the pattern to expire slightly before the 2.1s sleep completes, causing false failures.
 **Evidence:**
 - Isolated run: `pytest tests/test_f519_discovery_expiry_timing.py::TestPatternDiscoveryTiming::test_reasonable_ttl_survives_scheduling_delays -xvs` → PASS
@@ -266,3 +267,20 @@ $ cd /home/emzi/Projects/marianne-ai-compose && python -m pytest tests/test_cli.
 4. Add explicit cleanup in teardown
 5. Convert to use --conductor-clone or appropriate mocking per daemon isolation protocol
 **Note:** F-516 (Lens M6) is a duplicate entry describing the same failures.
+
+### F-525: Test Isolation: test_daemon_snapshot.py::TestCapture::test_capture_multiple_snapshots_for_same_job
+**Found by:** Canyon, Movement 7
+**Severity:** P2 (medium)
+**Status:** Open
+**Description:** The test `test_daemon_snapshot.py::TestCapture::test_capture_multiple_snapshots_for_same_job` fails when run in the full test suite but passes when run in isolation. This is a test isolation issue, not a code defect - same class as F-517.
+**Evidence:**
+- Full suite run: `pytest tests/ -x` → FAILED at tests/test_daemon_snapshot.py::TestCapture::test_capture_multiple_snapshots_for_same_job
+- Isolated run: `pytest tests/test_daemon_snapshot.py::TestCapture::test_capture_multiple_snapshots_for_same_job -xvs` → PASSED (100% pass rate)
+- This test was NOT among the 6 tests listed in F-517, indicating additional test isolation gaps beyond those identified in M6
+**Impact:** Quality gate shows additional test failure beyond the known F-521 flaky test. False negative under full suite execution. Does not indicate code regression - profiler snapshot capture functionality is correct.
+**Root cause:** Test shares state with other tests or depends on execution order. Likely related to profiler storage or cleanup not being properly isolated between tests.
+**Fix:** Add proper test isolation - either:
+1. Ensure profiler storage cleanup in test teardown
+2. Use unique snapshot IDs or database paths per test
+3. Add explicit state reset in test setup
+4. Convert to use temporary database per test run
