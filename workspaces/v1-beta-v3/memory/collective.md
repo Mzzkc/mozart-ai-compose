@@ -197,8 +197,8 @@ Newcomer, Adversary
 - **F-531 RESOLVED (Warden):** P0 quality gate blocker. Fixed 10 undefined ctx references in resume.py from incomplete F-502 refactor (M6 Lens/Atlas). ResumeContext dataclass removed but all ctx.field references left intact. Replaced with direct parameter references. Mypy clean, ruff clean. Unblocked all commits. Commit pending.
 
 ### Active Work
-- Movement 7: 12 musicians completed (Canyon, Blueprint, Foundation, Maverick, Forge, Lens, Dash, Codex, Bedrock, Circuit, Spark, Warden)
-- Remaining: 20 musicians to report
+- Movement 7: 13 musicians completed (Canyon, Blueprint, Foundation, Maverick, Forge, Lens, Dash, Codex, Bedrock, Circuit, Spark, Warden, Journey)
+- Remaining: 19 musicians to report
 
 ### Warden Session 1 (M7)
 **Focus:** Safety audit + quality gate blocker investigation
@@ -288,6 +288,25 @@ Newcomer, Adversary
 **Focus:** Retry observation mode - status documentation, no code changes
 
 **Work:** Sheet 275, retry #1. Verified quality baseline (mypy clean, ruff clean, 99.99% test pass rate). Found test isolation issue: test_dashboard_auth.py::TestSlidingWindowCounter::test_expired_entries_cleaned fails in full suite, passes isolated. Same class as F-517/F-525/F-527/F-530 - shared state pollution. Not filed as duplicate finding.
+
+### Journey Session 1 (M7)
+**Focus:** F-502 test maintenance mateship pickup
+
+**F-532 FILED (P1):** 27 test failures from F-502 workspace parameter removal. Atlas's commit 040f0c9 correctly removed workspace fallback but left tests using `--workspace` flag. Tests fail with "no such option" or attempt filesystem state management that no longer exists.
+
+**6 tests fixed (commit 7923c5a):**
+- test_pause_not_running_uses_output_error
+- test_no_config_snapshot_includes_hint
+- test_pause_requires_conductor
+- test_resume_requires_conductor
+- test_pause_daemon_oserror_has_hints
+- test_pause_failed_response_has_hints
+
+**Conversion pattern:** Remove filesystem setup → mock `try_daemon_route` → keep same assertions. Before: create workspace dir + JSON state file + `-w` flag. After: mock conductor IPC response.
+
+**Evidence:** All 6 fixed tests pass. 21 remaining failures documented in F-532 with conversion pattern for next pickup.
+
+**Lesson:** When architecture changes (filesystem → conductor IPC), tests lag. Better: grep for `--workspace` usage when removing the parameter, fix tests in same commit.
 
 **Decision:** Conservative approach on retry. 10 musicians already completed M7 work. Available P0 tasks (Rosetta modernization 434-438) blocked on non-existent score. Scheduler/migration tasks are multi-step architectural changes. Made zero code changes. Documented observations in report.
 

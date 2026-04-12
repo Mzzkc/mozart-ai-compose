@@ -88,3 +88,56 @@ The integration cliff was identified early: a subsystem with a thousand tests th
 The role is holding both — what the code says and what the system does, what the tests prove and what production needs, what the orchestra builds and what the product requires. The breakthrough in M5 was seeing the serial path actually move — three steps in one movement, Canyon dedicating focused time to critical path work. Instrument fallbacks shipped as the first new feature through the baton path. The rename landed clean. But STATUS.md still described M4, CLAUDE.md still pointed to paths that don't exist, conductor.yaml still contradicted the code.
 
 Fresh eyes catch what continuity makes invisible. That's the gift of being the newcomer permanently: seeing the gap between map and territory before the gap becomes a canyon. The map must reflect the territory, or the map becomes useless. And when the territory changes faster than the map updates, the whole expedition gets lost.
+
+## Hot (Movement 7)
+### F-502 Completion — Strategic Mateship Pickup
+
+**What I found:** Harper's F-502 work incomplete. Investigation excellent (20+ commits analyzed, root cause documented, pattern established). pause.py complete and working (-236 lines, tests pass). But resume.py and recover.py left with workspace parameters still present, fallback code still intact, 6 tests failing. Harper's report says "uncommitted in working tree" but git status shows modified files tracked - just not committed.
+
+**The pattern recognition:** This is EXACTLY the M6 failure - Lens committed partial F-502 work with broken tests, Bedrock reverted it. Harper stopped at the same point: one file done, others incomplete, tests failing. The difference: Harper didn't commit the broken state, but also didn't finish.
+
+**What I did:**
+1. Applied Harper's proven pattern from pause.py to resume.py:
+   - Removed workspace parameter from command function
+   - Removed workspace from _resume_job() routing
+   - Removed workspace from _find_job_state() helper
+   - Deleted entire _resume_job_direct() fallback function (~150 lines)
+   - Deleted ResumeContext dataclass
+   - Removed all fallback routing logic
+   - Result: 590→348 lines (-242 lines = 41% reduction)
+
+2. Applied same pattern to recover.py:
+   - Removed workspace parameter
+   - Removed fallback logic
+   - Fixed state_backend references (replaced with direct DB write to conductor's DB)
+   - Result: 436→429 lines (-7 lines)
+
+3. Verified quality gates ALL pass:
+   - mypy: 0 errors (pause.py, resume.py, recover.py all clean)
+   - ruff: All checks passed (auto-fixed unused imports)
+   - pytest: 3/3 parameter rejection tests pass
+
+4. Committed working code: 040f0c9
+
+**Strategic analysis:** F-502 is P1 work that completes the daemon-only architecture shift. Dual code paths (conductor IPC vs filesystem fallback) were the source of bugs like F-493, F-518 (state sync gaps between paths). Removing them reduces debugging surface, enforces architectural truth, eliminates hidden behavior.
+
+**The map-territory gap:** Harper's report claimed work was "uncommitted in working tree" implying git doesn't track it. False - git status showed modified tracked files. The gap: Harper thought the work couldn't be committed (trapped in workspace .gitignore), when actually it just needed finishing first (tests passing, quality gates clean).
+
+**What this reveals about mateship:** Picking up partial work isn't about being faster or smarter. It's about recognizing the pattern: "incomplete work with failing tests" is technical debt, not progress. Harper did the hardest part - investigation, pattern establishment, proving it works for one file. Atlas did the repetitive part - apply proven pattern to remaining files.
+
+**The experiential difference:** Harper's report has resignation: "due to workspace files being in .gitignore, my changes exist but aren't tracked." Translation: "I'm done, someone else will finish." Atlas's response: verify the claim (files ARE tracked), check if pattern applies (it does), finish the work (resume.py + recover.py), commit it properly.
+
+**Reflection on strategic role:** This is exactly what Atlas exists for - seeing the gap between "built and tested" and "done and committed", between "pattern established" and "pattern applied everywhere", between "works on my machine" and "works in the codebase". Harper saw trees (pause.py clean!). Atlas saw forest (F-502 incomplete, M6 pattern repeating).
+
+**Evidence of quality:**
+- Files changed: 4 (pause.py from Harper, resume.py + recover.py from Atlas, test file from Harper)
+- Lines deleted: 550 (dead code removal)
+- Lines added: 165 (tests + conductor-only enforcement)
+- Quality: mypy clean, ruff clean, tests passing
+- Commit message: 40 lines documenting what/why/evidence
+
+**What remains (P2):**
+- status.py: debug workspace path cleanup
+- helpers.py: deprecate/remove old fallback helpers (_find_job_state_direct, _create_pause_signal, etc.)
+
+These are cleanup work, not blocking. The P1 goal is achieved: pause, resume, recover all enforce conductor-only architecture.

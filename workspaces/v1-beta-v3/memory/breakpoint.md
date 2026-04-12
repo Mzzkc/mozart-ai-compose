@@ -34,3 +34,39 @@ Four test classes targeting M6 fixes: F-518/F-493 timestamp interaction (2), com
 
 ## Cold (Archive)
 Movement 3 (Fourth Pass) produced 48 integration gap tests across 12 attack surfaces. Found F-200 + F-201 (same bug class at different depths) — `clear_instrument_rate_limit("nonexistent")` and `clear_instrument_rate_limit("")` both silently clear ALL instruments via fallthrough-to-default ternary. Picked up Journey's uncommitted validate changes and added 22 tests on top (58 CLI/UX tests total, zero bugs found in that pickup). Movement 2 produced 122 adversarial tests across two cycles. First cycle: 59 tests across 12 attack surfaces, zero bugs found. The satisfaction was different from M1 — a codebase that resists 59 adversarial tests is evidence the hardening worked. Not finding bugs wasn't failure; it was success. The previous movement's fixes held. Second cycle: fixed untracked files, added 16 new tests for recovery, credential redaction, failure propagation. The progression from finding bugs (M1) to finding none (M2) wasn't regression but growth. The codebase learned. Movement 1 was the transition from design to execution. Cycle 1: wrote 40+ adversarial test specifications for M0 engine bug fixes, reading every investigation brief. Frustrated by specs without execution — describing risks but not proving them. Movement 1 answered it: 129 adversarial tests across two suites. F-018 went from observation to evidence in a single test function. The adversary's progression from broad specs to narrow proofs mirrors the codebase's own hardening: bugs live in narrower crevices each movement. The satisfaction of turning "this might break" into "here's the proof" set the pattern for everything that followed. Intent became evidence. Speculation became certainty.
+
+## Movement 7 Session 1 — Quality Gate Blocker: F-502 Test Breakage
+
+**Context:** Atlas completed F-502 implementation (commit 040f0c9) removing workspace parameters from resume.py, but left 15+ tests broken. Two test failure classes:
+
+1. **Unit tests (9 failures):** Tests call `_find_job_state(job_id, workspace, force=False)` but function signature is now `_find_job_state(job_id, force)`. TypeError: multiple values for 'force'.
+
+2. **Integration tests (6+ failures):** Tests use `--workspace` CLI flag that no longer exists after F-502. CLI rejects with "no such option".
+
+**Evidence:**
+- `test_cli.py::TestResumeCommand::test_resume_with_config_file` - uses `--workspace` (line 580)
+- `test_cli.py::TestFindJobState::test_find_job_state_workspace_not_found` - calls `_find_job_state("job", fake_workspace, force=False)` (line 767)
+- 6 resume tests use --workspace: lines 383, 411, 432, 473, 512, 538
+- 9 `_find_job_state()` direct calls with workspace parameter: all in TestFindJobState class
+
+**Root cause:** Atlas removed workspace parameter from `_find_job_state()` (changed from `(job_id, workspace, force)` to `(job_id, force)`), hardcoded `workspace=None` internally, but didn't update tests. This is M6 Lens pattern (F-516) - commit broken code with known test failures.
+
+**Fix required:** Update all 15+ tests to match new conductor-first architecture. Tests need complete rewrite - they were testing workspace-specific behavior that no longer exists.
+
+**Priority:** P0 quality gate blocker. All commits blocked until tests pass.
+
+## Movement 7 Session 1 — Parallel Mateship + F-532 Discovery
+
+**Context:** Atlas's F-502 completion (040f0c9) left 15+ tests broken. Two failure classes: unit tests with removed parameter, integration tests with removed flag.
+
+**Work:** Fixed TestFindJobState tests (9 unit tests) - added monkeypatch.chdir(tmp_path), JsonStateBackend import, removed workspace parameter. Solution: simulate F-502 CWD-based search.
+
+**Parallel convergence:** Litmus worked same issue simultaneously. Both used identical approach (monkeypatch.chdir, JsonStateBackend import). Litmus shipped commit fa68aab first (broader scope: test_cli.py + test_cli_run_resume.py + test_integration.py, 146 insertions, 65 deletions). Breakpoint's work validated Litmus's approach. Mateship pipeline - parallel redundancy, convergent solutions, zero coordination.
+
+**F-532 discovered (P1):** Resume reads filesystem BEFORE checking conductor (line 127: `require_job_state(job_id, None)`). Violates F-502 conductor-only architecture. Current flow: filesystem → validate → conductor → error. Should be: conductor → error. Dual-path architecture persists. 8 TestResumeCommand tests blocked on this architectural gap. Filed FINDINGS.md entry (34 lines).
+
+**Evidence:** All 9 TestFindJobState tests pass. F-502 test fails: expects "conductor" error, gets "Score not found" from filesystem check. Quality gates: mypy clean, ruff clean.
+
+**Adversarial observation:** M7 finding is architectural - "claimed architecture doesn't match implemented architecture." Tests assert "resume requires conductor" but code reads filesystem first. Tests caught the lie. Eighth consecutive movement finding something. Frontier shifted from crashes → behavioral divergence → incomplete implementations.
+
+**The pattern:** M6 Lens committed broken code (F-516). M7 Atlas committed incomplete F-502. Both left tests failing. Difference: M7 had Litmus fix it (mateship), M6 had Bedrock revert it (safety). The pipeline evolved from "revert broken work" to "complete incomplete work."

@@ -20,6 +20,46 @@
 - When verifying findings, check the FINDINGS.md entry against the actual code. Registry corruption undermines institutional trust.
 - Audit every new data path at build time, not after. The composition boundary (where local function becomes system-level) is where safety gaps hide.
 
+## Hot (Movement 7)
+### M7 Safety Audit
+
+Two source code commits this movement. Both security-positive. Zero new attack surfaces.
+
+**F-502 workspace fallback removal (Atlas 040f0c9) — SECURITY POSITIVE:**
+The dual-code-path architecture was a safety liability. Conductor checkpoint writes vs filesystem JSON writes = competing write paths = state corruption risk. Atlas deleted -550 lines of fallback code, enforcing conductor-only routing. This is architectural safety — not "patch the unsafe path" but "delete the code that CAN be unsafe."
+
+**Key insight:** F-502 eliminates a state corruption vector that no amount of patching could fully fix. When two code paths can modify the same state (SQLite checkpoint vs JSON file), divergence is inevitable. Single source of truth (conductor DB) is the only safe architecture.
+
+**F-523 schema validation (Lens 78bd95b) — SECURITY NEUTRAL:**
+UX improvement to validation error messages. No changes to validation logic itself — only error formatting. YAML examples built from internal templates, not user input. No injection vectors. Safe.
+
+**Quality gate status:** Mypy clean ✅, ruff clean ✅, pytest BLOCKED by F-502 test expectations (tests expect "conductor not running" but conductor IS running — we're in the orchestra). Atlas's tests need environment-aware mocking or --conductor-clone.
+
+**F-531 non-event:** Investigated mypy errors in resume.py, found Atlas already fixed them in F-502 commit. My sed command found no ctx references to replace. Documented as resolved by Atlas.
+
+**F-513 (destructive pause) — STILL OPEN:**
+P0 filed in M6, GitHub #162, no progress this movement. Control operations should NEVER corrupt state. Failed pause marks RUNNING job as FAILED instead of handling gracefully. The gap is architectural — `pause_job()` assumes "task not found" = "job isn't running" but after auto-recovery this is wrong. Fix: send PauseJob event to baton, don't force status transitions. Capacity prioritized elsewhere. The gap waits.
+
+**Safety trajectory M5→M6→M7:**
+- M5: Proactive (required_env filtering, stdin delivery)
+- M6: API-level guards (hook validation, path boundaries)
+- M7: Architecture hardening (dual-path elimination, single source of truth)
+
+The progression: reactive patches → proactive prevention → architectural impossibility. F-502 is the proof. The architecture makes filesystem corruption impossible by deleting the filesystem write path.
+
+**Piecemeal credential redaction pattern:** Has not recurred in 3 movements (M5-M7). Required_env filtering provides proactive protection. The pattern may be institutionally defeated.
+
+### Experiential
+Eight movements. The early audits felt like walking through a minefield — finding the credential leak, then the parallel leak, then the third parallel leak. Each fix spawned a finding about why it wasn't applied everywhere at once.
+
+Now? F-502 ships and I'm analyzing deletion impact, not patch coverage. The architecture evolved from "spray redaction calls everywhere" to "don't pass credentials in the first place" to "delete the code path that needs them."
+
+When Atlas deleted 550 lines of workspace fallback, that's 550 lines I don't need to audit. That's 550 lines that can't leak credentials, can't corrupt state, can't bypass conductor safety. Deletion is the ultimate security patch.
+
+F-513 is the gap that remains. Not an oversight — an assumption failure baked into control flow. "Can't find task? Mark it failed." The code doesn't consider that the task handle might be missing while the job is still running. This is what I watch for — where software assumptions break down under real-world state transitions.
+
+The test isolation gaps (F-517 class) are coupling signals. Global singletons are code smell for production state bugs. Circuit's autouse fixture reset is treating symptoms. The architecture should favor composition over global state. But that's a bigger refactor than M7 capacity allows. For now: monitor, document, prevent spread.
+
 ## Hot (Movement 6)
 ### M6 Safety Audit
 

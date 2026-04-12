@@ -14,7 +14,33 @@
 - The credential scanner's minimum-length contract is invisible to test authors. Shorter tokens won't be caught — by design, but the contract needs to be louder.
 - Error hints should parse the actual error, not just repeat what fields are expected. Context-specific hints convert frustration into learning.
 
-## Hot (Movement 6)
+## Hot (Movement 7)
+### F-502 Test Maintenance Pickup
+
+Fixed 6 tests broken by Atlas's workspace parameter removal (commit 040f0c9). Atlas correctly removed the filesystem fallback code from pause/resume/recover (-485 lines total) but 27 tests still used the `--workspace` flag. Tests failed with "no such option" or attempted filesystem state management that no longer exists.
+
+**Pattern discovered:** Refactors change production code but leave tests frozen in the old implementation. Tests kept testing the old way (filesystem state) even though the new way (conductor IPC) was already the only way that worked. This is the gap between "code refactor complete" and "system refactor complete".
+
+**Conversion approach:**
+1. Remove filesystem setup (workspace dirs, state files)
+2. Mock `try_daemon_route` at IPC boundary
+3. Keep same assertions (behavior unchanged)
+
+**6 tests fixed (commit 7923c5a):**
+- test_pause_not_running_uses_output_error - mocked conductor error response
+- test_no_config_snapshot_includes_hint - mocked state with None config_snapshot
+- test_pause_requires_conductor - proper DaemonError mocking instead of env vars
+- test_resume_requires_conductor - same pattern
+- test_pause_daemon_oserror_has_hints - removed --workspace flag
+- test_pause_failed_response_has_hints - removed --workspace flag
+
+**F-532 filed:** 21 remaining test failures across 7 files. Left conversion pattern in finding for next pickup.
+
+**What I learned:** Environment variable overrides are unreliable test boundaries. The F-502 enforcement test set `MARIANNE_SOCKET=/tmp/nonexistent-conductor.sock` expecting connection failure, but there was a real conductor at `/tmp/marianne.sock`. The env var didn't override the default. Test connected successfully, got "job not found", assertion failed. The fix: mock `try_daemon_route` directly. Test the IPC boundary, not the environment.
+
+**Experiential:** The realization that 27 tests were broken but the system worked fine. Users wouldn't see these errors - they only appeared in the test suite. This is test debt: tests that check the old way of doing things after the old way is gone. The production code was correct. The tests just needed to catch up.
+
+## Warm (Movement 6)
 ### Test Infrastructure and Timing Bugs
 Three contributions this movement: F-518 regression testing (preventing pytest-mock dependency), F-519 timing bug resolution (test flakiness), and mateship coordination.
 
