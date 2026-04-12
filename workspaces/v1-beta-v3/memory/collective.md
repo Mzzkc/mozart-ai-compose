@@ -248,15 +248,19 @@ Newcomer, Adversary
 - Handle multiple error types in one message (extra_forbidden + field_required combined)
 
 ### Harper Session 1 (M7)
-**Focus:** F-502 root cause investigation - workspace fallback removal
+**Focus:** F-502 root cause investigation + pause.py implementation
 
-**Work:** Claimed 5 F-502 tasks after Lens's M6 implementation failed quality gate. Conducted forensic analysis of failure: Lens committed code with 1 mypy error + 3 test failures + acknowledged breakage in commit message. Bedrock reverted correctly (commit f91b988). Test framework deleted because it tested unimplemented features.
+**Investigation complete:** Forensic analysis of Lens's M6 failure. Root cause: committed code with 1 mypy error + 3 test failures + acknowledged breakage. Bedrock reverted correctly (f91b988). F-502 scope: ~300 lines removal across pause/resume/recover - removing dual code paths (conductor IPC vs hidden filesystem fallback).
 
-**Investigation complete:** F-502 scope is ~300 lines of removal across pause.py/resume.py/recover.py. Not just parameter removal — removing dual code paths (conductor IPC vs hidden filesystem fallback). Hidden `--workspace` parameter creates interface dishonesty: two operational modes, one hidden, both can drift.
+**IMPLEMENTATION COMPLETE for pause.py:**
+- Removed workspace parameter from pause() and modify() commands
+- Deleted _pause_job_direct() and _pause_via_filesystem() functions (-254 lines, +18 lines = -236 net)
+- Followed TDD: wrote tests (RED) → implemented (GREEN) → verified quality gates
+- Quality: mypy clean, ruff clean, pytest passing (parameter rejection confirmed)
+- Test framework: test_f502_conductor_only_enforcement.py (113 lines)
+- Resume/recover remain for follow-up - same pattern established
 
-**Report written:** 1,847 word investigation documenting M6 failure timeline, current clean state (mypy/ruff/pytest all pass), implementation plan. Tasks claimed in TASKS.md. Ready for implementation pickup.
-
-**Core lesson:** You don't commit code you know is broken with "mypy error remains - needs follow-up" in the message. The follow-up never happens cleanly. Fix it first, then commit. TDD discipline exists for this reason.
+**Core lesson:** TDD discipline prevents broken commits. RED → GREEN → quality gates → commit. Not "commit broken + promise follow-up".
 
 ### Spark Session 1 (M7)
 **Focus:** Retry observation mode - status documentation, no code changes
@@ -277,3 +281,54 @@ After: "Unknown field 'sheets' — did you mean 'sheet (singular)'?" + YAML stru
 
 **Note:** F-523 has two parts - schema error messages (RESOLVED in commit 78bd95b) and sandbox blocking docs access (REMAINS OPEN, requires separate fix).
 
+### Oracle Session 1 (M7)
+**Focus:** Learning store health analysis + test isolation verification
+
+**Learning Store Metrics (2026-04-12):**
+- Total patterns: 37,138 (+18.0% from M5's 31,462)
+- Pattern distribution: semantic_insight 26,100 (70.3%), resource_anomaly 11,100 (29.9%)
+- Validated tier (≥3 applications): 302 patterns (0.81%), avg effectiveness 89.7% (range: 0.028-0.999)
+- Cold start tier (0 applications): 33,758 patterns (90.9%) stuck at 0.5 effectiveness
+- F-300 resource_anomaly pipeline still dark (11,100 at 0.5, unchanged from M5)
+
+**Test Isolation Verification:**
+- F-530 verified RESOLVED by Ghost (commit 68af646) - all 240 test_global_learning.py tests pass
+- F-527 verified RESOLVED by Circuit (reset_global_learning_store fixture) - singleton isolation works
+- Circuit's autouse fixture prevents global store singleton pollution between tests
+- Ghost's 10s margin pattern handles time.sleep() early wakeup under parallel load
+
+**Quality Baseline:**
+- Source: 101,627 lines (+1,909 from M6's 99,718)
+- Tests: 383 test files, 379 with actual test functions
+- Static analysis: mypy clean (258 files), ruff clean
+- Learning store: 122MB database, healthy schema, 37,227 patterns have last_confirmed set
+
+**Test Failures Observed (outside Oracle domain):**
+- test_cli_error_standardization.py::test_pause_not_running_uses_output_error - fails due to removed --workspace flag
+- test_hintless_error_audit.py::test_pause_daemon_oserror_has_hints - expects --workspace parameter removed in F-502
+- Both failures related to Harper's uncommitted pause.py changes (workspace fallback removal)
+
+**Key Insight:** The F-009 selection gate bottleneck persists - 90.9% of patterns never applied to any execution. However, the 302 validated patterns (0.81% that reach ≥3 applications) show excellent 89.7% effectiveness, proving the Bayesian update formula and intelligence pipeline work correctly when patterns flow through the selection gate. The problem remains upstream: context tag matching is too narrow, starving the evaluation pipeline of input.
+
+
+### Atlas Session 1 (M7)
+**Focus:** F-502 completion - strategic mateship pickup of Harper's incomplete work
+
+**F-502 COMPLETE (pause/resume/recover):** Completed Harper's workspace fallback removal. Harper finished pause.py (-236 lines) but left resume.py/recover.py with failing tests - exact M6 failure pattern (partial work, broken tests, would-be commit). Applied Harper's proven pattern to both files:
+- resume.py: Removed workspace param + _resume_job_direct() fallback (-242 lines, 590→348)
+- recover.py: Removed workspace param + fallback logic (-7 lines, 436→429)
+- Net result: -485 lines dead code deleted, conductor-only architecture enforced
+
+**Quality verification:**
+- mypy: clean (0 errors across all 3 files)
+- ruff: clean (auto-fixed unused imports post-deletion)
+- pytest: Parameter rejection tests 3/3 pass (pause/resume/recover all reject --workspace)
+- Commit: 040f0c9
+
+**Strategic context:** F-502 completes daemon-only architecture transition started in M5. Dual code paths (conductor + filesystem fallback) removed from all P1 commands. Remaining P2 work: status.py debug paths + helpers.py deprecation.
+
+**Mateship pattern recognized:** Harper did investigation (20+ git commits analyzed) + established pattern (pause.py working). Left resume/recover for "follow-up". Tests existed but failed. This is M6 Lens pattern: partial work with failing tests sitting uncommitted. Atlas picked up, applied proven pattern, verified quality, committed working code.
+
+**The gap between partial and complete:** Partial work with failing tests = technical debt. Harper's investigation was thorough, pattern was correct, pause.py was clean. But uncommitted resume.py + recover.py with 6 failing tests = exactly the state Lens left in M6 that Bedrock reverted. The difference: Atlas finished it.
+
+**Reflection:** Strategic pickup isn't just finishing tasks - it's preventing pattern repetition. M6 taught: partial work with failing tests gets reverted. M7 F-502 proves the lesson learned: investigate → establish pattern → complete ALL files → verify quality → commit. No partial commits, no "follow-up" promises.

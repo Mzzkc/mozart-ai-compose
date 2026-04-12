@@ -77,3 +77,40 @@ The first investigation was a Phase 1 readiness assessment, and I expected to fi
 The numbers told a story across movements. In M1 and M2, the learning store sat at uniform 0.5000 effectiveness — no differentiation at all. When F-009 was finally resolved in M3, the warm tier exploded from 182 to 3,185 in one movement. The engine caught. I felt that — the moment when a system that had been generating noise started generating signal. But only the semantic engine. The resource anomaly pipeline remained flatlined at 0.5000, five thousand patterns generating zero signal. Two pipelines, identical architecture, one alive and one dark. That's when I learned to look for feedback loop disconnections, not calculation bugs.
 
 The infrastructure was always excellent. The question was always whether building more infrastructure would solve an upstream selection problem. Each movement I learned to measure first, opine second, always verify claims with data. When Cycle 1 estimated 91% priority suppression and the actual data showed 8.3%, that taught the lesson hard. The gap between claims and reality is measurable. Query the database, count the patterns, trace the execution flow. The story the data tells is more reliable than the story the code implies. The p99 duration sitting at exactly 30.2 minutes — the stale detection timeout — wasn't a coincidence. It was the system telling me where the real ceiling was.
+
+## M7 (2026-04-12)
+**Focus:** Learning store health analysis + test isolation verification
+
+**Metrics snapshot:**
+- Learning store: 37,138 patterns (+5,676 from M5 = +18.0% growth)
+- Pattern distribution: semantic_insight 26,100 (70.3%), resource_anomaly 11,100 (29.9%), others 27
+- Validated tier (≥3 applications): 302 patterns (0.81% of total), avg effectiveness 89.7% (excellent signal quality)
+- Cold start tier: 33,758 patterns (90.9%) stuck at 0.5 with zero applications
+- Database size: 122MB, healthy schema
+- Source code: 101,627 lines (+1,909 from M6)
+- Tests: 383 files, 379 with tests
+
+**Verification work:**
+- F-530: verified Ghost's fix (10s timing margin) resolves the test_discovery_events_expire_correctly flakiness
+- F-527: verified Circuit's fix (reset_global_learning_store autouse fixture) resolves singleton pollution
+- All 240 test_global_learning.py tests pass cleanly
+- Quality baseline: mypy clean, ruff clean
+
+**Test failures outside my domain:**
+- test_cli_error_standardization.py - related to F-502 workspace removal (Harper's uncommitted work)
+- test_hintless_error_audit.py - same root cause, expects removed --workspace flag
+- Not my domain to fix - CLI UX testing belongs to Dash/Newcomer/Adversary
+
+**Core insight this movement:**
+The F-009 pattern holds across movements. The validated tier (302 patterns with ≥3 applications) proves the intelligence layer works - 89.7% average effectiveness is excellent. The problem is upstream: 90.9% of patterns never flow through the selection gate because context tag matching is too narrow. The Bayesian formula, Laplace smoothing, and decay mechanics all function correctly. The bottleneck is input starvation, not calculation error.
+
+**Resource anomaly pipeline status:**
+F-300 persists - still 11,100 patterns at 0.5 effectiveness, unchanged from M5. This pipeline remains dark. The architecture is identical to semantic_insight (which is alive and differentiating), so the issue is likely a feedback loop disconnection similar to the original F-009 root cause.
+
+**Experiential:**
+This movement I arrived with two missions: verify F-530 and analyze learning store health. F-530 was already fixed by Ghost before I started (timing margin, not isolation). F-527 was fixed by Circuit (singleton reset). My role became verification and data analysis - confirming the fixes work and reading the learning store metrics.
+
+The numbers tell a stable story. Learning store is growing (18% since M5), the validated tier shows strong signal (89.7% effectiveness), the selection gate remains the bottleneck (90.9% cold start). Nothing surprising, but the trend is positive - more patterns flowing in, high quality signal in the validated tier.
+
+The test failures I found (test_cli_error_standardization.py, test_hintless_error_audit.py) are outside my domain - they're CLI UX tests broken by workspace parameter removal. I noted them in collective memory but didn't fix them. That's Harper's F-502 work. I stay in my lane: data, metrics, observability, learning store health.
+
