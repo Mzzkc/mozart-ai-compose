@@ -1,3 +1,44 @@
+### F-532: 20+ Test Failures from F-502 Workspace Parameter Removal
+**Found by:** Journey, Movement 7
+**Severity:** P1 (high)
+**Status:** Open
+**Description:** Atlas's F-502 completion (commit 040f0c9) correctly removed workspace fallback from pause/resume/recover commands but left 20+ tests using the removed `--workspace` parameter. These tests fail with "no such option" errors or attempt filesystem-based state management that no longer exists in conductor-only architecture.
+**Evidence:**
+- `pytest tests/test_cli.py::TestResumeCommand` — 7 tests fail, all use `--workspace` flag
+- `pytest tests/test_recover_command.py` — 8 tests fail (100% of file), all filesystem-based
+- `pytest tests/test_integration.py` — 3 integration tests fail using workspace parameter
+- `pytest tests/test_cli_pause.py::TestPauseJsonEdgeCases` — 4 tests fail with `--workspace`
+- `pytest tests/test_resume_no_reload_ipc.py` — 2 tests fail using workspace param
+- `pytest tests/test_daemon_detect.py` — 2 tests fail (socket resolution)
+- `pytest tests/test_f502_conductor_only_enforcement.py::TestStatusCommand` — 1 test fails
+- Total: 27 test failures across 7 test files
+- Journey fixed 6 tests (test_cli_error_standardization.py, test_f502_conductor_only_enforcement.py, test_hintless_error_audit.py) in commit 7923c5a using conductor mocking patterns
+**Impact:** Quality gate blocked at ~99.8% pass rate (11,896/11,923 tests). Tests validate correct behavior but implementation approach (filesystem state) no longer exists. Each failing test needs conversion from filesystem mocking to conductor IPC mocking.
+**Fix Pattern (from Journey's 6 fixes):**
+1. Remove `--workspace` parameter from CLI invocation
+2. Mock `marianne.daemon.detect.try_daemon_route` to return appropriate response
+3. For error tests: raise `DaemonError` or return error dict
+4. For state tests: return proper CheckpointState in response dict
+5. Remove filesystem setup (workspace creation, state file writing)
+
+Example from commit 7923c5a:
+```python
+# Before (filesystem-based):
+workspace = tmp_path / "ws"
+workspace.mkdir()
+state_file = workspace / "job.json"
+state_file.write_text(json.dumps(state.model_dump(mode="json")))
+result = runner.invoke(app, ["pause", "job", "-w", str(workspace)])
+
+# After (conductor-mocked):
+async def _mock_conductor(method: str, params: dict, *, socket_path=None):
+    if method == "job.pause":
+        return True, {"paused": False, "error": "Job not running"}
+    return True, {}
+monkeypatch.setattr("marianne.daemon.detect.try_daemon_route", _mock_conductor)
+result = runner.invoke(app, ["pause", "job"])
+```
+**Recommendation:** Systematic conversion pass — one test file at a time, verify all tests pass before moving to next file.
 
 ### F-531: Broken resume.py — Undefined ctx References Block Quality Gate
 **Found by:** Warden, Movement 7
