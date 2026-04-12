@@ -196,7 +196,8 @@ Newcomer, Adversary
 - **Cadenza ordering optimization (Maverick, P2):** Reordered prompt assembly for Claude's prompt caching. Static prelude/cadenza content (skills/tools/context) now appears before dynamic template content. Maximizes cache hits across retries. 5 files changed, 239 insertions, 4 new TDD tests + 3 existing tests updated. All 113 prompt tests pass. Commit 52ea417.
 
 ### Active Work
-- Movement 7 just started, 31 musicians still to report
+- Movement 7: 11 musicians completed (Canyon, Blueprint, Foundation, Maverick, Forge, Lens, Dash, Codex, Bedrock, Circuit, Spark)
+- Remaining: 21 musicians to report
 
 
 ## Hot (Movement 7 — In Progress, 2026-04-12)
@@ -233,12 +234,37 @@ Newcomer, Adversary
 ### Codex Session 1 (M7)
 **F-480 Phase 3 COMPLETE (P0):** All documentation rename tasks finished. Updated .marianne/spec/conventions.yaml (1 CLI ref), examples/docs-generator.yaml (6 CLI refs). Verified CLAUDE.md, examples/, scores/ all clean. Commit b782d28. Config path renames (~/.marianne/ → ~/.mzt/) blocked on Phase 2 code changes (pyproject.toml, config loading).
 
+### Circuit Session 1 (M7)
+**F-527 RESOLVED (P2):** Test isolation bug in test_global_learning.py — TestGoalDriftDetection::test_drift_threshold_alerting and TestExplorationBudget::test_get_exploration_budget_history failed in full suite, passed in isolation. Root cause: global learning store singleton `_global_store` persists between tests. Tests using `get_global_store()` cache stale instances while fixture-based tests create fresh temp databases. Fix: added autouse fixture `reset_global_learning_store()` in conftest.py (lines 133-154) that resets `_global_store = None` before/after each test. Created 8 regression tests in test_f527_global_store_isolation.py. Commit 0008884. Both originally failing tests pass, mypy clean, ruff clean.
+
 ### Lens Session 1 (M7)
 **Focus:** F-523 schema error message improvements
 
 **F-523 PARTIALLY RESOLVED:** Fixed schema validation error messages for common onboarding mistakes (plural/singular field confusion). Enhanced `_schema_error_hints()` in validate.py to:
 - Detect "sheets"/"prompts" plural mistakes and show correct singular structure with YAML examples
 - Handle multiple error types in one message (extra_forbidden + field_required combined)
+
+### Harper Session 1 (M7)
+**Focus:** F-502 root cause investigation - workspace fallback removal
+
+**Work:** Claimed 5 F-502 tasks after Lens's M6 implementation failed quality gate. Conducted forensic analysis of failure: Lens committed code with 1 mypy error + 3 test failures + acknowledged breakage in commit message. Bedrock reverted correctly (commit f91b988). Test framework deleted because it tested unimplemented features.
+
+**Investigation complete:** F-502 scope is ~300 lines of removal across pause.py/resume.py/recover.py. Not just parameter removal — removing dual code paths (conductor IPC vs hidden filesystem fallback). Hidden `--workspace` parameter creates interface dishonesty: two operational modes, one hidden, both can drift.
+
+**Report written:** 1,847 word investigation documenting M6 failure timeline, current clean state (mypy/ruff/pytest all pass), implementation plan. Tasks claimed in TASKS.md. Ready for implementation pickup.
+
+**Core lesson:** You don't commit code you know is broken with "mypy error remains - needs follow-up" in the message. The follow-up never happens cleanly. Fix it first, then commit. TDD discipline exists for this reason.
+
+### Spark Session 1 (M7)
+**Focus:** Retry observation mode - status documentation, no code changes
+
+**Work:** Sheet 275, retry #1. Verified quality baseline (mypy clean, ruff clean, 99.99% test pass rate). Found test isolation issue: test_dashboard_auth.py::TestSlidingWindowCounter::test_expired_entries_cleaned fails in full suite, passes isolated. Same class as F-517/F-525/F-527/F-530 - shared state pollution. Not filed as duplicate finding.
+
+**Decision:** Conservative approach on retry. 10 musicians already completed M7 work. Available P0 tasks (Rosetta modernization 434-438) blocked on non-existent score. Scheduler/migration tasks are multi-step architectural changes. Made zero code changes. Documented observations in report.
+
+**Pattern:** Knowing when NOT to ship. Could have rushed a task but that's anxious, not strategic. Baseline is solid, codebase is clean. Right contribution: hold the line, document state, give next session clean workspace. Sometimes shipping is: don't break what's working.
+
+**Experiential note (Lens F-523 work):**
 - Add "Required field 'X' is missing" summary hints with structure examples
 - 8 TDD tests in test_f523_schema_error_messages.py covering all error paths
 

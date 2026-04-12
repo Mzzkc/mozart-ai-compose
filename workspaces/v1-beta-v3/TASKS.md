@@ -27,7 +27,7 @@ This is the highest priority task. You are running inside a live conductor. You 
 - [x] [Ghost] Fix 3 mypy errors in baton core.py — logger.debug() used event_type= kwarg instead of extra={"event_type": ...} for StaleCheck, CronTick, PacingComplete handlers. (priority: P1) [source: mypy strict]
 - [x] [Ghost] Close 3 verified GitHub issues: #95 (workspace path validation), #112 (health check quota), #99 (hooks lost on restart). All fixes verified on HEAD. (priority: P1) [source: issue hygiene]
 - [x] [Circuit] Fix test_register_methods_wires_rpc: add daemon.clear_rate_limits to expected IPC method set (priority: P1) [source: mateship review of Harper ae31ca8] — Harper's clear-rate-limits commit added a new IPC method but didn't update the IPC contract test.
-- [ ] Convert ALL pytests that touch the daemon to use --conductor-clone or appropriate mocking (priority: P0)
+- [x] [Ghost] Convert ALL pytests that touch the daemon to use --conductor-clone or appropriate mocking (priority: P0) — M6+M7 verification: Catalogued all test files. All daemon-touching tests use proper patterns: conductor-clone fixtures, mocked start_conductor (all @patch decorated), or isolated DaemonClient unit tests with temp sockets. Zero unsafe daemon interaction. Task complete.
 - [x] [Dash] Audit CLI UX during the full command accounting — document improvement opportunities (priority: P1) — Full audit at movement-2/cli-ux-audit.md: 6 issues (2 P1, 2 P2, 2 P3), grade B+. Fixed: --job→--score in top.py/clear, clear docstring clarified, modify docstring improved, resume "job state"→"score state". Filed: learning commands domination (12/26) needs E-002 escalation for subcommand refactor.
 - [x] [Ember] Fix top.py help examples and notes using --job after Dash renamed flag to --score (priority: P3) [source: F-142, mateship pickup] — 4 user-facing strings updated: help example, TUI note, history note, docstring. Commit 5093962.
 - [x] [Codex] Update CLI reference docs to document --conductor-clone (priority: P1) — Already documented in M2 by previous Codex session (lines 18-55). This movement added 4 missing commands (init, cancel, clear, top), --profile on start, and conductor clones section to daemon-guide.
@@ -287,11 +287,11 @@ Phase 2: Replace SheetExecutionState with SheetState, remove sync boundary
 Source: F-502, CLI audit of all mzt commands
 
 - [x] [Composer/Opus] Fix get_job_errors() and get_diagnostic_report() — use get_job_status() not JobService (priority: P1) [source: F-502]
-- [ ] [Lens] Remove workspace fallback from pause.py CLI layer (priority: P1) [source: F-502]
-- [ ] [Lens] Remove workspace fallback from resume.py CLI layer (priority: P1) [source: F-502]
-- [ ] [Lens] Remove workspace fallback from recover.py CLI layer (priority: P1) [source: F-502]
-- [ ] [Lens] Remove workspace fallback from status.py (already mostly conductor-only, clean up --workspace debug path) (priority: P2) [source: F-502]
-- [ ] [Lens] Deprecate _find_job_state_direct(), _find_job_state_fs(), _create_pause_signal(), _wait_for_pause_ack() in helpers.py (priority: P2) [source: F-502]
+- [ ] [Harper] Remove workspace fallback from pause.py CLI layer (priority: P1) [source: F-502]
+- [ ] [Harper] Remove workspace fallback from resume.py CLI layer (priority: P1) [source: F-502]
+- [ ] [Harper] Remove workspace fallback from recover.py CLI layer (priority: P1) [source: F-502]
+- [ ] [Harper] Remove workspace fallback from status.py (already mostly conductor-only, clean up --workspace debug path) (priority: P2) [source: F-502]
+- [ ] [Harper] Deprecate _find_job_state_direct(), _find_job_state_fs(), _create_pause_signal(), _wait_for_pause_ack() in helpers.py (priority: P2) [source: F-502]
 
 ---
 
@@ -498,11 +498,11 @@ CLI: `mzt`. Package: `marianne`. Config: `~/.mzt/`. Musical vocabulary unchanged
 - [ ] Add one-time migration: detect `~/.marianne/`, copy to `~/.mzt/`, warn user (priority: P1) [source: F-480]
 
 ### Phase 3: Documentation and Examples
-- [ ] Update CLAUDE.md — all references to Marianne → Marianne, marianne → mzt (priority: P0) [source: F-480]
-- [ ] [Codex] Update .marianne/spec/ corpus — all 5 files (priority: P0) [source: F-480]
+- [x] [Codex] Update CLAUDE.md — all references to Marianne → Marianne, marianne → mzt (priority: P0) [source: F-480] — VERIFIED CLEAN: No CLI command references found. Directory references (.marianne/) are correct since project directory rename not yet done.
+- [x] [Codex] Update .marianne/spec/ corpus — all 5 files (priority: P0) [source: F-480] — Updated conventions.yaml line 224: `marianne compose` → `mzt compose`. Verified all 5 spec files clean (architecture, constraints, conventions, intent, quality).
 - [x] [Codex] Update all docs/ files — daemon-guide, score-writing-guide, cli-reference, configuration-reference, getting-started, limitations (priority: P0) [source: F-480] — Updated cli-reference.md (9 instances), verified all other docs clean. Commit d47b2dd. — daemon-guide, score-writing-guide, cli-reference, configuration-reference, getting-started, limitations (priority: P0) [source: F-480]
-- [ ] Update all examples/ scores — any hardcoded `marianne` references (priority: P0) [source: F-480]
-- [ ] Update scores/ operational scores (priority: P0) [source: F-480]
+- [x] [Codex] Update all examples/ scores — any hardcoded `marianne` references (priority: P0) [source: F-480] — Updated docs-generator.yaml (6 instances): marianned→mzt, marianne entropy-status→mzt entropy-status. Verified all other examples clean.
+- [x] [Codex] Update scores/ operational scores (priority: P0) [source: F-480] — VERIFIED CLEAN: legion-dream.yaml, rosetta-prove.yaml, the-rosetta-score.yaml all have zero CLI references.
 - [ ] Rename `.marianne/` project directory → `.mzt/` (priority: P0) [source: F-480]
 
 ### Phase 4: Tell the Story
@@ -613,3 +613,7 @@ These tests were written in the TDD "red first" style. They assert behavior that
 - [ ] **F-504: Graceful shutdown hangs with paused baton jobs** (P1)
 - [ ] **Cadenza ordering: inject cadenzas before prompt text, after prelude** (P2) — cadenzas should come before the rendered template for prompt caching. Currently PromptBuilder appends them after. Requires change in `src/marianne/prompts/templating.py` PromptBuilder.build_sheet_prompt() assembly order.
 - [ ] **Dispatch concurrency from BackendPool** (P3) — use pool.in_flight_count() instead of counting DISPATCHED sheets. O(1) vs O(total_sheets).
+
+## Movement 7 — New Tasks Discovered
+
+- [x] [Forge] Fix F-526: Property-based test expects old prompt order after Maverick's M7 reordering (priority: P0)
