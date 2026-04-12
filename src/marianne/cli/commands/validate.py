@@ -275,26 +275,76 @@ def _schema_error_hints(error_msg: str) -> list[str]:
 
     Parses the error message to provide actionable guidance instead of
     generic "check your score" messages.
+
+    F-523: Provides YAML structure examples for common plural/singular mistakes.
+    Handles multiple error types in one message (e.g., extra field + missing field).
     """
+    import re
+
     msg_lower = error_msg.lower()
+    hints: list[str] = []
 
-    if "extra_forbidden" in msg_lower:
-        return _unknown_field_hints(error_msg)
+    # Check for extra_forbidden (unknown field) errors
+    has_extra_forbidden = "extra inputs are not permitted" in msg_lower
+    has_field_required = "field required" in msg_lower
+    has_prompt_config_error = "promptconfig" in msg_lower and "prompt" in msg_lower
+    has_movements_dict_error = (
+        "movements" in msg_lower
+        and (
+            "should be a valid dictionary" in msg_lower
+            or "input should be a valid dictionary" in msg_lower
+        )
+    )
 
-    if "promptconfig" in msg_lower and "prompt" in msg_lower:
+    # Handle PromptConfig type errors
+    if has_prompt_config_error:
         return [
             "The 'prompt' field must be a mapping, not a string.",
             "Use:  prompt:  /  template: \"your prompt text here\"",
             "See: docs/score-writing-guide.md",
         ]
 
-    if "field required" in msg_lower:
-        # Extract which fields are missing from the error
-        hints = ["Ensure your score has at minimum: name, sheet, and prompt sections."]
-        if "sheet" in msg_lower:
-            hints.append("Add a 'sheet' section with total_items and size.")
-        if "prompt" in msg_lower:
-            hints.append("Add a 'prompt' section with a 'template' or 'template_file'.")
+    # Handle movements structure errors (expecting dict, not list)
+    if has_movements_dict_error:
+        return [
+            "The 'movements' field expects a dictionary with movement numbers as keys.",
+            "Use:  movements:  /  1:  /    voices: 3",
+            "Or:   movements:  /  1:  /    description: 'Setup'",
+            "See: docs/score-writing-guide.md",
+        ]
+
+    # Handle extra_forbidden errors (unknown fields)
+    if has_extra_forbidden:
+        unknown_hints = _unknown_field_hints(error_msg)
+        # Remove the "See: docs/..." hint temporarily - we'll add it at the end
+        unknown_hints = [h for h in unknown_hints if not h.startswith("See:")]
+        hints.extend(unknown_hints)
+
+    # Handle missing required fields
+    if has_field_required:
+        # Extract field names from "field_name\n  Field required" pattern
+        missing_fields = re.findall(
+            r"^(\w[\w.]*)\n\s+Field required",
+            error_msg,
+            re.MULTILINE,
+        )
+
+        if not hints:  # Only add baseline if no other hints yet
+            hints.append("Ensure your score has at minimum: name, sheet, and prompt sections.")
+
+        for field in missing_fields:
+            if field == "sheet":
+                hints.append(f"Required field '{field}' is missing. Add a 'sheet' section:")
+                hints.append("  sheet:")
+                hints.append("    size: 10")
+                hints.append("    total_items: 100")
+            elif field == "prompt":
+                hints.append(f"Required field '{field}' is missing. Add a 'prompt' section:")
+                hints.append("  prompt:")
+                hints.append("    template: 'Your prompt text here'")
+
+    # If we have any hints, add the docs reference at the end
+    if hints:
         hints.append("See: docs/score-writing-guide.md")
         return hints
 
@@ -306,6 +356,7 @@ def _schema_error_hints(error_msg: str) -> list[str]:
 
 
 # Known field names at the top level that users might confuse
+# F-523: Common onboarding mistakes from plural/singular confusion
 _KNOWN_TYPOS: dict[str, str] = {
     "retries": "retry",
     "paralel": "parallel",
@@ -324,12 +375,17 @@ _KNOWN_TYPOS: dict[str, str] = {
     "instrumnet_config": "instrument_config",
     "validation": "validations",
     "notification": "notifications",
+    "sheets": "sheet (singular — use: sheet: {size: N, total_items: M})",
+    "prompts": "prompt (singular — use: prompt: {template: '...'})",
 }
 
 
 def _unknown_field_hints(error_msg: str) -> list[str]:
     """Extract unknown field names from extra_forbidden errors and provide
-    targeted guidance."""
+    targeted guidance.
+
+    F-523: Provide YAML structure examples for common plural/singular mistakes.
+    """
     import re
 
     # Extract field names from Pydantic error format:
@@ -354,6 +410,17 @@ def _unknown_field_hints(error_msg: str) -> list[str]:
             hints.append(f"Unknown field '{field}' — did you mean '{suggestion}'?")
         else:
             hints.append(f"Unknown field '{field}' — this is not a valid score field.")
+
+        # F-523: Provide YAML examples for common structural mistakes
+        if field == "sheets":
+            hints.append("  Use 'sheet' (singular) with this structure:")
+            hints.append("  sheet:")
+            hints.append("    size: 10")
+            hints.append("    total_items: 100")
+        elif field == "prompts":
+            hints.append("  Use 'prompt' (singular) with this structure:")
+            hints.append("  prompt:")
+            hints.append("    template: 'Your prompt text here'")
 
     hints.append("See: docs/score-writing-guide.md for the complete field reference.")
     return hints
