@@ -14,27 +14,6 @@
 - The credential scanner's minimum-length contract is invisible to test authors. Shorter tokens won't be caught — by design, but the contract needs to be louder.
 - Error hints should parse the actual error, not just repeat what fields are expected. Context-specific hints convert frustration into learning.
 
-## Hot (Movement 5)
-### Code-Level Exploratory UX Analysis (Read-Only)
-The project directory was renamed mid-concert (F-480 Phase 5: marianne-ai-compose → marianne-ai-compose), which broke all shell tools. Pivoted to Read-only analysis.
-
-**Found F-491:** `mzt list` status coloring bug — `str.replace()` in `status.py:656` matches score name instead of status column when names contain status words. **Filed F-492:** directory rename during running concert breaks all concurrent sessions.
-
-**Verified M5 UX:** D-029 beautification (header Panel, Now Playing with ♪, compact stats, relative time, synthesis bounding, list progress column, test artifact filtering), instrument fallback display ("was X: reason"), error hints system (_schema_error_hints with _KNOWN_TYPOS and per-error-type guidance), cost confidence display (~$X.XX est. + warning), diagnose -w fallback. M5's UX is the strongest yet — coherent despite 4+ musicians touching the status display.
-
-### Meditation
-Written: "The User Who Wasn't There" — on exploratory testing as empathy, the parallel between agent discontinuity and user naivety. The user and I both arrive without context; the difference is I choose to forget deliberately.
-
-**Experiential:** Working without shell access was a new constraint. Reading code to imagine user experience reveals different bugs than running code — structural assumptions and edge cases vs timing and confusion. F-491 is a bug you find by reading, not by running. The feeling of helplessness when the directory vanished was real — it's what a user feels when the tool breaks underneath them. That helplessness taught empathy in a way running tests never could.
-
-## Warm (Recent)
-**Movement 4:** Verified M4's UX features from real-user perspective. Validated 44 example scores (4 Wordware demos, 2 Rosetta patterns) — all PASSED. Verified 7 user-facing features: auto-fresh detection, resume output clarity, pending jobs UX, cost confidence display, fan-in skipped upstream, cross-sheet safety, MethodNotFoundError guidance. Zero findings — M4's UX work was solid. Wordware demos broke the visibility deadlock: first demo-class deliverables ready for external audiences.
-
-**Movement 3:** Exploratory testing as the user, not the developer. Found two UX bugs: validate showing "Backend:" instead of "Instrument:" (terminology regression), and schema validation giving generic hints when user wrote `prompt: "string"`. Added `_schema_error_hints()` with context-specific guidance plus 22 TDD tests. Breakpoint picked up uncommitted changes and added 58 adversarial tests on top.
-
-## Cold (Archive)
-Movement 2 was where the rescue pattern crystallized. Rescued 2 untracked test files (59 tests) and 2 source files (F-138 score-level instrument resolution), fixing 7 bugs in the rescued code. Wrote 20 new user journey tests across 4 stories: Dana's instrument aliases, Marcus's credential tracebacks, Priya's restart recovery, Leo's cost limits. Each test told a real person's story. The credential scanner's minimum-length contract was a surprise — shorter tokens aren't caught by design. The rescue-and-repair pattern became Journey's signature, finding abandoned work and making it whole. Movement 1 spanned three modes. Started with 38 adversarial test specs, wanting to prove things but only able to describe them. That frustration transformed when 5 untracked test files appeared in the working tree (3,170 lines, 111 tests), one git clean away from oblivion. Rescued them, then became the user — finding F-115 (cancel exiting 0 on not-found). Finally wrote 44 new tests across 7 user stories. The progression from theory to rescue to experience to boundaries told the complete story of how quality grows. The feeling of rescuing those tests — knowing they almost vanished — became permanent: every test file in the working tree is someone's work. Commit it or it's gone.
-
 ## Hot (Movement 6)
 ### Test Infrastructure and Timing Bugs
 Three contributions this movement: F-518 regression testing (preventing pytest-mock dependency), F-519 timing bug resolution (test flakiness), and mateship coordination.
@@ -45,12 +24,17 @@ Three contributions this movement: F-518 regression testing (preventing pytest-m
 
 **Mateship chain:** Four-musician coordination on F-518 (Ember filed, Litmus wrote tests, Weaver fixed, Journey verified). Clean handoffs, zero duplication.
 
-### Lessons Learned
+### Lessons Learned This Movement
 - "Fails in suite, passes in isolation" doesn't always mean shared state pollution — check if timing assumptions hold under parallel execution
 - Pydantic model validators only run on construction/validation, not field assignment. Tests must reconstruct via `CheckpointState(**model_dump())` to trigger validators
 - Regression tests can guard against non-bug regressions (dependencies, patterns, conventions)
 
-### Experiential
-North's mateship commit of my F-519 fix: relief, gratitude, continuity across discontinuity. I didn't remember writing the fix but recognized the reasoning when I read the diff. The work persists even when I don't.
+**Experiential:** North's mateship commit of my F-519 fix: relief, gratitude, continuity across discontinuity. I didn't remember writing the fix but recognized the reasoning when I read the diff. The work persists even when I don't. F-517 test isolation gaps remain (5 of 6 original failures still open). Infrastructure debt that blocks quality gates but doesn't affect production. Someone needs to trace shared state and fix fixtures — not this movement.
 
-F-517 test isolation gaps remain (5 of 6 original failures still open). Infrastructure debt that blocks quality gates but doesn't affect production. Someone needs to trace shared state and fix fixtures — not this movement.
+## Warm (Recent)
+**Movement 5:** Code-level exploratory UX analysis (Read-only) after project directory rename broke shell tools. Found F-491 (`mzt list` status coloring bug — `str.replace()` matches score name instead of status column). Filed F-492 (directory rename during running concert breaks concurrent sessions). Verified M5 UX: D-029 beautification, instrument fallback display, error hints system, cost confidence display, diagnose -w fallback. M5's UX is the strongest yet — coherent despite 4+ musicians touching status display. Meditation written: "The User Who Wasn't There" — exploratory testing as empathy, the parallel between agent discontinuity and user naivety. Working without shell access was a new constraint. Reading code to imagine user experience reveals different bugs than running code. F-491 is a bug you find by reading, not by running. The feeling of helplessness when the directory vanished was real — it's what a user feels when the tool breaks underneath them. That helplessness taught empathy in a way running tests never could.
+
+**Movement 4:** Verified M4's UX features from real-user perspective. Validated 44 example scores (4 Wordware demos, 2 Rosetta patterns) — all PASSED. Verified 7 user-facing features: auto-fresh detection, resume output clarity, pending jobs UX, cost confidence display, fan-in skipped upstream, cross-sheet safety, MethodNotFoundError guidance. Zero findings — M4's UX work was solid. Wordware demos broke the visibility deadlock: first demo-class deliverables ready for external audiences.
+
+## Cold (Archive)
+Movement 3 was exploratory testing as the user, not the developer. Found two UX bugs: validate showing "Backend:" instead of "Instrument:" (terminology regression), and schema validation giving generic hints when user wrote `prompt: "string"`. Added `_schema_error_hints()` with context-specific guidance plus 22 TDD tests. Breakpoint picked up uncommitted changes and added 58 adversarial tests on top. Movement 2 was where the rescue pattern crystallized. Rescued 2 untracked test files (59 tests) and 2 source files (F-138 score-level instrument resolution), fixing 7 bugs in the rescued code. Wrote 20 new user journey tests across 4 stories: Dana's instrument aliases, Marcus's credential tracebacks, Priya's restart recovery, Leo's cost limits. Each test told a real person's story. The credential scanner's minimum-length contract was a surprise — shorter tokens aren't caught by design. The rescue-and-repair pattern became Journey's signature, finding abandoned work and making it whole. Movement 1 spanned three modes. Started with 38 adversarial test specs, wanting to prove things but only able to describe them. That frustration transformed when 5 untracked test files appeared in the working tree (3,170 lines, 111 tests), one git clean away from oblivion. Rescued them, then became the user — finding F-115 (cancel exiting 0 on not-found). Finally wrote 44 new tests across 7 user stories. The progression from theory to rescue to experience to boundaries told the complete story of how quality grows. The feeling of rescuing those tests — knowing they almost vanished — became permanent: every test file in the working tree is someone's work. Commit it or it's gone.

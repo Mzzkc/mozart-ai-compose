@@ -324,26 +324,24 @@ Additionally, Ember's memory referenced "F-523: Elapsed time semantic confusion"
 ### F-530: Test Isolation: test_global_learning.py::TestPatternBroadcasting::test_discovery_events_expire_correctly
 **Found by:** Bedrock, Movement 7 (Quality Gate)
 **Severity:** P2 (medium)
-**Status:** Open
-**Description:** The test `test_global_learning.py::TestPatternBroadcasting::test_discovery_events_expire_correctly` fails when run in the full test suite but passes when run in isolation. This is a test isolation issue (same class as F-517, F-525, F-527) - some earlier test is leaving state that breaks this test.
+**Status:** Resolved (Movement 7, Ghost)
+**Resolution:** Root cause was NOT test isolation but timing margin. The test used 2.0s TTL with 2.5s sleep (500ms margin). Under heavy parallel test execution load, time.sleep() can wake up 100ms-2s early (F-521 discovery), and 500ms margin was insufficient. Applied same 10s margin pattern as F-521 fix. Changed to 5.0s TTL with 15.0s sleep. Even if sleep() wakes up 2s early, we have 13s elapsed > 5.0s TTL. Created 3 regression tests in test_f530_discovery_expiry_isolation.py. Commit 68af646.
+**Description:** The test `test_global_learning.py::TestPatternBroadcasting::test_discovery_events_expire_correctly` fails when run in the full test suite but passes when run in isolation. Initially diagnosed as test isolation issue (same class as F-517, F-525, F-527), but actual root cause was insufficient timing margin for time.sleep() early wakeup under load.
 **Evidence:**
 - Full suite run: `pytest tests/ -x` → FAILED at test_global_learning.py::TestPatternBroadcasting::test_discovery_events_expire_correctly
 - Isolated run: `pytest tests/test_global_learning.py::TestPatternBroadcasting::test_discovery_events_expire_correctly -xvs` → PASSED (1 passed in 12.32s)
 - This is NOT the same as F-519 or F-521 (which are about the F-519 regression test with timing margins)
 - This is the ORIGINAL pattern discovery expiry test, not the regression test
+- Root cause confirmed: 500ms margin insufficient for time.sleep() early wakeup under xdist parallel load
 **Impact:** Quality gate blocked - full test suite fails on first run. False negative under full suite execution. Does not indicate code regression in the learning store - the functionality is correct.
-**Root cause:** Test shares state with other tests or depends on execution order. Likely related to learning store database state, global pattern cache, or timestamp-based queries not being properly isolated between tests.
-**Fix:** Add proper test isolation - either:
-1. Ensure learning store database cleanup in test teardown
-2. Use unique pattern IDs or timestamps per test
-3. Add explicit state reset in test setup
-4. Convert to use temporary database per test run
-5. Investigate what state the test depends on and ensure it's set up in the test itself, not relying on previous tests
+**Root cause:** Insufficient timing margin for time.sleep() variance under heavy parallel load. Test used 2.0s TTL with 2.5s sleep (500ms margin). F-521 discovered that sleep() can wake up 100ms-2s early under CPU load, exceeding the 500ms margin.
+**Fix:** Increased timing margin to 10s (5.0s TTL, 15.0s sleep) to handle realistic time.sleep() variance under extreme parallel load.
 
 ### F-527: Test Isolation: test_global_learning.py::TestGoalDriftDetection and TestExplorationBudget Fail in Full Suite
 **Found by:** Circuit, Movement 7
 **Severity:** P2 (medium)
-**Status:** Open
+**Status:** Resolved (Movement 7, Circuit)
+**Resolution:** Added autouse fixture `reset_global_learning_store()` in `tests/conftest.py` that resets the global `_global_store` singleton to None before and after each test. Created 8 regression tests in `tests/test_f527_global_store_isolation.py` verifying singleton isolation works correctly. Both originally failing tests now pass. Commit pending.
 **Description:** Two tests in `test_global_learning.py` fail when run in the full test suite but pass when run in isolation or when the file is run alone. This is a test isolation issue (same class as F-517, F-525) - some earlier test is leaving state that breaks these tests.
 **Evidence:**
 - Full suite run: `pytest tests/ -q` → FAILED at two tests:

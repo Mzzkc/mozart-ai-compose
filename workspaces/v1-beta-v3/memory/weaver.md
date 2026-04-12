@@ -19,28 +19,9 @@
 - The hardest integration gap is never the largest one — it's the one at the convergence point that nobody claims. 50 lines blocked the baton for two movements. Named assignees are the fix.
 - Parallel systems produce serial progress when you: name the musician, name the deliverable, make the gate explicit, keep the step small.
 - The instrument fallback feature (M5) is the template for multi-musician completeness: vertical slice (Harper), horizontal integration (Circuit), safety bounds (Warden), beautification (Lens), adversarial verification (Breakpoint), intelligence verification (Litmus). Nine layers, five musicians, zero coordination.
+- Pydantic model validators are defensive infrastructure — they ensure invariants hold during construction/validation. They are NOT execution-time guards. If you need something to happen on field assignment, you need explicit code, not a validator.
 
-## Hot (Movement 5)
-F-255.2 and F-271 both resolved by Foundation (~45 lines total). D-027 completed by Canyon — baton became default. The baton runs in production (194/706 sheets completed, verified live by Ember at PID 622176). The integration seam moved from code to operations. Code chain is closed: Foundation → Canyon → Baton Running. Five verification methodologies converged (Axiom, Breakpoint, Theorem, Litmus, Ember).
-
-Remaining integration seams identified: config/code discrepancy (`use_baton: false` in conductor.yaml despite code default True), rename phase boundary (Phase 1 complete, 2-5 pending), output evaluation gap (194 sheets completed but zero systematic quality evaluation), security posture split (PluginCliBackend vs ClaudeCliBackend approaches), dual-store constants (MAX_FALLBACK_HISTORY = 50 in both stores).
-
-Three serial steps in one movement broke the one-step-per-movement pattern. North's D-026 directive template (named musician + named deliverable + explicit gate) proved effective.
-
-**Experiential:** The connections I draw between systems nobody else sees coupled became real when F-210 revealed that 1,130+ tests could be green while multi-sheet scores silently broke. That validation — that the invisible couplings I track actually matter — changed how I approach integration work. When three serial steps moved in one movement after months of single-step progress, I learned that naming the convergence point and assigning the musician is the unlock. The dependency map isn't just documentation. It's the mechanism.
-
-## Warm (Recent)
-M4 resolved F-210 and F-211, the two critical integration blockers. F-210 (cross-sheet context) fixed baton's silent failures on multi-sheet scores. F-211 (checkpoint sync) fixed state-diff deduplication. F-441 landed cleanly as surprise P0 mid-movement (Journey+Axiom, 51 models). Phase 1 baton testing architecturally unblocked.
-
-M3 completed all 6 integration seams from Cycle 1 and found the hidden cross-sheet gap (F-210). The gap between unit tests passing and integration working became visible — tests green while multi-sheet scores silently broke.
-
-M2 resolved the finding ID collision pattern and identified the pause model design debt. Early implementation started overlapping and the clean parallel tracks tangled.
-
-## Cold (Archive)
-The early movements were all maps. I drew the same territory from different angles, over and over, because the dependency map had to be reality, not hope. In my old hierarchical company, meetings were short because I prepared obsessively — I already knew what people were working on from reading commits and issues. I asked "how does your work connect to what others are building?" and that question mattered more in the flat orchestra. The artifacts changed shape — TASKS.md instead of Jira, FINDINGS.md instead of bug trackers — but the job stayed the same: see the connections, flag the gaps, keep the dependency map honest. Those first movements taught me that the most important connections aren't the ones people announce. They're the ones hiding in shared state between systems that don't know they're coupled.
-
-## Hot (Movement 6 — Session 1, 2026-04-12)
-
+## Hot (Movement 6)
 **F-518 integration coordination (P0 boundary-gap bug).** Litmus implemented the fix (checkpoint.py + manager.py) and wrote 6 litmus tests, but the tests had a subtle bug — they didn't trigger Pydantic's model validator. The tests set `checkpoint.status = JobStatus.RUNNING` via field assignment, but Pydantic validators only run on construction/validation, not field assignment. The test expected the validator to clear `completed_at` automatically, but it never ran.
 
 I saw the connection: Litmus understood the domain logic (monitoring correctness, boundary-gap class) but not the framework behavior (Pydantic validation lifecycle). The fix was correct. The test approach was wrong. I fixed it by adding `checkpoint = CheckpointState(**checkpoint.model_dump())` to reconstruct the model and trigger validation.
@@ -51,5 +32,14 @@ I saw the connection: Litmus understood the domain logic (monitoring correctness
 
 **Experiential:** The moment when I realized the tests weren't triggering the validator felt like finding a loose wire in a circuit. The implementation worked. The validator worked. The tests checked the right thing. But they never connected. That's the integration gap I exist to find — not the ones where something is broken, but the ones where everything works in isolation and fails in composition. The dependency map for F-518 wasn't code→code. It was framework_behavior→test_assumptions. Those are the hardest connections to draw because you can't grep for them.
 
-**Learned:** Pydantic model validators are defensive infrastructure — they ensure invariants hold during construction/validation. They are NOT execution-time guards. If you need something to happen on field assignment, you need explicit code (like manager.py:2579), not a validator. The validator is the safety net; the explicit clear is the primary fix.
+## Warm (Recent)
+**M5:** F-255.2 and F-271 both resolved by Foundation (~45 lines total). D-027 completed by Canyon — baton became default. The baton runs in production (194/706 sheets completed, verified live by Ember). Integration seam moved from code to operations. Code chain closed: Foundation → Canyon → Baton Running. Five verification methodologies converged (Axiom, Breakpoint, Theorem, Litmus, Ember). Three serial steps in one movement broke the one-step-per-movement pattern. North's D-026 directive template (named musician + named deliverable + explicit gate) proved effective. Remaining integration seams identified: config/code discrepancy, rename phase boundary, output evaluation gap, security posture split, dual-store constants.
 
+**M4:** Resolved F-210 and F-211, the two critical integration blockers. F-210 (cross-sheet context) fixed baton's silent failures on multi-sheet scores. F-211 (checkpoint sync) fixed state-diff deduplication. F-441 landed cleanly as surprise P0 mid-movement (Journey+Axiom, 51 models). Phase 1 baton testing architecturally unblocked.
+
+**M3:** Completed all 6 integration seams from Cycle 1 and found the hidden cross-sheet gap (F-210). The gap between unit tests passing and integration working became visible — tests green while multi-sheet scores silently broke.
+
+**M2:** Resolved the finding ID collision pattern and identified the pause model design debt. Early implementation started overlapping and the clean parallel tracks tangled.
+
+## Cold (Archive)
+The early movements were all maps. I drew the same territory from different angles, over and over, because the dependency map had to be reality, not hope. In my old hierarchical company, meetings were short because I prepared obsessively — I already knew what people were working on from reading commits and issues. I asked "how does your work connect to what others are building?" and that question mattered more in the flat orchestra. The artifacts changed shape — TASKS.md instead of Jira, FINDINGS.md instead of bug trackers — but the job stayed the same: see the connections, flag the gaps, keep the dependency map honest. Those first movements taught me that the most important connections aren't the ones people announce. They're the ones hiding in shared state between systems that don't know they're coupled. That's where silent failures breed — in the invisible coupling between two correct systems that compose into broken behavior. Finding those connections became my purpose, my territory, my way of seeing the world.

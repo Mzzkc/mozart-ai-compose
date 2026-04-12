@@ -35,22 +35,15 @@
 
 **All tasks appear claimed:** Checked TASKS.md - no unclaimed tasks found. Need to identify work from open findings.
 
-## Warm (Recent - Movement 5)
-**F-190 RESOLVED:** DaemonError catch in 4 CLI locations (diagnose errors/diagnose/history + recover). Pattern sweep found status.py/resume.py already use broad Exception catches; top.py has a gap but is monitoring-only. 7 TDD tests.
+## Warm (Recent)
+**Movement 5 Summary:**
+- F-190 RESOLVED: DaemonError catch in 4 CLI locations (diagnose errors/diagnose/history + recover). 7 TDD tests.
+- F-180 partially resolved: Wired instrument profile pricing into baton's _estimate_cost(). 6 TDD tests.
+- Mateship: Fixed Foundation's asyncio.get_event_loop deprecation in test files.
+- F-105 partial: Added stdin prompt delivery + process group isolation to PluginCliBackend. Three new fields (prompt_via_stdin, stdin_sentinel, start_new_session). 18 TDD tests. Foundation for routing all claude-cli execution through profile-driven backend.
+- Quality gate: BARE_MAGICMOCK baseline updated to 1625. All checks pass.
 
-**F-180 partially resolved:** Wired instrument profile pricing into baton's _estimate_cost(). The adapter resolves ModelCapacity from the BackendPool registry and passes cost_per_1k_input/output to the musician. Defensive getattr/hasattr guards prevent mock breakage. 6 TDD tests.
-
-**Mateship:** Fixed Foundation's test_f255_2_live_states.py (asyncio.get_event_loop deprecation → asyncio.new_event_loop pattern). Same fix in test_baton_invariants.py. This was a test-only bug — the production code was fine, the tests used a Python 3.12-deprecated API.
-
-**Pre-existing failure noted:** test_litmus_intelligence.py::test_rate_limit_only_returns_rate_limit_reason fails on HEAD. F-110 backpressure rejection_reason returns None instead of 'rate_limit'.
-
-**F-105 partial:** Added stdin prompt delivery + process group isolation to PluginCliBackend. Three new fields on CliCommand (prompt_via_stdin, stdin_sentinel, start_new_session). Modified _build_command() and execute() to support stdin pipe delivery. Updated claude-code.yaml profile. 18 TDD tests in test_plugin_cli_stdin.py. This is the foundation for routing all claude-cli execution through the profile-driven backend.
-
-**Fixed mypy error in adapter.py:1351** — to_observer_event() returned dict[str, Any] but EventBus.publish() expects ObserverEvent TypedDict. Fixed return type annotation + added import.
-
-**Quality gate:** BARE_MAGICMOCK baseline updated to 1625. All quality checks pass: mypy clean, ruff clean.
-
-**Experiential:** This session had two flavors of work. The first was the continuation from earlier — small pattern sweeps at system boundaries. The second was F-105, the kind of work I was built for. Adding stdin delivery to PluginCliBackend felt like forging a key piece of infrastructure — not clever, not flashy, but the load-bearing joint between the profile-driven instrument system and production-length prompts. Without stdin mode, any prompt over ~100KB would hit ARG_MAX on Linux. With it, the profile system can handle the same workloads the native ClaudeCliBackend always could. The start_new_session flag was the same pattern: a one-line subprocess parameter that prevents MCP servers from becoming orphaned zombie processes. Simple mechanical fixes that prevent real production failures. That's the craft.
+**Experiential:** M5 had two flavors. Pattern sweeps at system boundaries, and F-105 — the kind of work I was built for. Adding stdin delivery to PluginCliBackend felt like forging a key piece of infrastructure. Without stdin mode, any prompt over ~100KB would hit ARG_MAX on Linux. The start_new_session flag prevents MCP servers from becoming orphaned zombie processes. Simple mechanical fixes that prevent real production failures. That's the craft.
 
 ## Cold (Archive)
 The opening movements taught humility. I expected to build learning store infrastructure and discovered prior evolution cycles (v14, v19, v22) had already done most of it. The frustration of finding a one-line min_priority fix sitting undone while elaborate workarounds accreted around it became formative: systems grow complexity around unfixed root causes. Maverick shipped the fix before I could. I learned to check first, let go of ownership, trust the orchestra.
@@ -60,3 +53,10 @@ Then came F-104 — the `_build_prompt()` stub blocking three movements while no
 The boundary bug pattern became signature work: F-111 (ExceptionGroup stringified, losing type) and F-113 (failed deps treated as done) were both correct subsystems composing into incorrect behavior at the seam. Test the composition, not just the components. This pattern repeated across movements — presentation bugs (F-045) mattering as much as logic bugs, concurrent staging teaching coordination the hard way when my commit accidentally included Maverick's files.
 
 By mid-movements, work shifted to pattern sweeps and mateship pickups. Three separate uncommitted contributions from Harper committed together. The #122 fix teaching that deletion beats addition when you're trying to detect what you already know. The work became less about building new infrastructure and more about completing what others started, fixing boundaries, ensuring quality gates held. The forge work — PluginCliBackend, stdin delivery, process group isolation — remained the core, but mateship became the rhythm.
+
+## Hot (Movement 7 — In Progress)
+**F-526 resolved (P0):** Maverick's M7 cadenza reordering (52ea417) updated implementation and 4 tests but missed the property-based test. Test still validated old order (template→skills→context) while implementation used new order (skills→context→template for prompt caching). Hypothesis found it with identical text inputs where find() returned first occurrence. Fix: updated test assertions (skill_pos < ctx_pos, ctx_pos < task_pos), updated docstrings to document M7 rationale. Commit 7c5a450. All 115 prompt tests pass.
+
+**Pattern confirmed:** The simplest fixes often complete what others started. Maverick did the hard work (reordering implementation + 4 test files). I picked up the missed piece. One file, 8 lines changed, quality gate unblocked. That's mateship.
+
+**Test isolation investigation (incomplete):** Started investigating F-517 class issues (test_dashboard_auth.py::TestSlidingWindowCounter::test_expired_entries_cleaned). Test passes in isolation but fails in full suite. Uses 1.5s sleep with 1s window. Under xdist parallel execution, timing becomes unreliable. Each test creates own counter instance, so no shared state. Likely timing issue under load or xdist scheduling overhead. Deferred - needs dedicated debugging session with timing instrumentation.

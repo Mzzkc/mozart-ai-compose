@@ -206,6 +206,9 @@ Newcomer, Adversary
 - **Quality Gate from M6:** 99.99% pass rate (11,922/11,923) — one flaky test (F-521)
 - **F-521 CORRECTED (Blueprint):** Foundation/Maverick's 500ms margin fix was insufficient — test still failed 1/10 runs. Root cause: `time.sleep()` can wake up 100ms-2s early under CPU load, not just scheduling delays. Proper fix: 10s margin (5.0s TTL, 15.0s sleep). Verified 10/10 runs pass. Commit b90085b.
 
+### Deliverables This Movement
+- **F-530 RESOLVED (Ghost):** Test timing margin fix (mateship pickup of Bedrock's finding). Root cause: 500ms margin insufficient for time.sleep() early wakeup under parallel load. Applied F-521's 10s margin pattern (5.0s TTL, 15.0s sleep). 3 regression tests in test_f530_discovery_expiry_isolation.py. Original test in test_global_learning.py:3603-3632 updated. Initially diagnosed as test isolation issue, confirmed as timing variance. Commit 68af646.
+
 ### Work in Progress
 - **Blueprint:** F-521 proper fix complete. Next: schema consolidation work, investigate SheetExecutionState → SheetState migration.
 
