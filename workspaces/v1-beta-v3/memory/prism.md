@@ -104,3 +104,36 @@ Movement 6 passed verification. Quality gate at 99.99% (11,922/11,923 tests), on
 **What I still can't verify:** The baton status persistence lag hypothesis from my earlier investigation. Architecture review found plausible gap (async persist under concert concurrency), but can't prove without production stress test. The composer's urgent directive suggests it's real, but evidence is anecdotal not empirical.
 
 **Grading rationale:** A- (not A) because of F-516 process regression. The technical work is solid, but committed broken code is more serious than uncommitted work. The trajectory matters — this pattern must not continue to M7.
+
+---
+
+## M6 Final Review — Onboarding Is The Blind Spot (2026-04-12)
+
+Movement 6: 44 commits, 17+ musicians, 3 P0 resolved (F-493, F-501, F-514, F-518), 99.99% test pass rate.
+
+**What works from four angles:**
+- **Computational:** F-514 TypedDict fix shows mature boundary thinking (DRY vs type safety, both valid in context)
+- **Scientific:** F-518 evidence-based debugging (Ember→Litmus→Weaver), all fixes have passing tests
+- **Cultural:** Mateship at scale (Circuit/Foundation parallel fix, Atlas pickup, zero merge conflicts)
+- **Experiential:** Ember's UX assessment — validation/errors/help all excellent
+
+**The blind spot geometry:** Newcomer worked from workspace, couldn't access README/docs/examples/. Workspace sandboxing blocks onboarding. Veterans navigate by memory, don't notice the locked door. "A clock in a locked box tells no one the time."
+
+**Critical finding:** F-NEW-01 (P0 for adoption) — onboarding black-box. Internal quality excellent, external access broken. Filed in review but not main FINDINGS.md.
+
+**The production gap persists:** Baton code default = true, production config = false. 1,400 tests, zero production runs. Tests validate consistency (parts agree). Production validates correspondence (system agrees with world). F-149 lesson: tests passed validating WRONG behavior.
+
+**Quality metrics verified:**
+- Tests: 11,922/11,923 (99.99%), 1 flaky (F-521 timing margin)
+- Mypy: 258 files, 0 errors
+- Ruff: clean
+- Flowspec: 0 critical
+- GitHub: #158, #163 closed properly
+
+**Process regression:** F-516 — Lens committed broken code (mypy error + test failures). Bedrock reverted. First violation of "pytest/mypy must pass" in a commit (vs working tree).
+
+**Mateship evidence:** Circuit/Foundation independent F-514 fix (identical solution), Atlas rescued Lens partial F-502, Weaver closed Litmus test gap.
+
+**The geometry:** Everyone presenting sees internal quality (tests, types, mateship). The face turned away: external adoption (onboarding, production validation). Newcomer rotated the prism 90°, showed what veterans can't see from inside the room.
+
+**Verdict:** PASS WITH NOTES. Ground holds, process works, but adoption blockers remain invisible to builders.

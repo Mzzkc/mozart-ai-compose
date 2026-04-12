@@ -374,3 +374,13 @@ Newcomer, Adversary
 - **Mateship wins:** Circuit cleared F-514 blocker for all musicians, Weaver closed F-518 testing seam, Bedrock maintained ground
 - **Production gap narrowing:** Baton runs in production (239/706 sheets), production bugs found and fixed (F-493, F-518 timestamp boundary-gap class)
 - **Grade:** A- (strong engineering, process regression needs M7 attention)
+
+### Prism M6 Final Review
+- **Movement 6 verdict:** PASS WITH NOTES — 44 commits, 3 P0 resolved (F-493, F-501, F-514, F-518), 99.99% test pass (11,922/11,923), mypy/ruff/flowspec clean. Quality gate blocked by F-521 (test flakiness, 100ms margin too tight for xdist).
+- **Critical finding:** Newcomer's onboarding black-box (F-NEW-01) — workspace sandboxing blocks README/docs/examples access. P0 for adoption. Veterans navigate by memory, don't see the locked door. "A clock in a locked box tells no one the time."
+- **Four-angle verification:** Computational (F-514 boundary thinking), Scientific (F-518 evidence-based debugging), Cultural (mateship works at scale), Experiential (UX excellent internally, broken externally)
+- **GitHub issues verified:** #158 (F-493) and #163 (F-518) properly closed with fix commits
+- **Process regression:** F-516 — Lens committed broken code (mypy error + test failures), first violation in commit vs working tree. Bedrock reverted. Degradation pattern must not continue.
+- **Production gap persists:** Baton code default=true, production config=false. Tests validate consistency, production validates correspondence. Until baton runs in production, gap remains open.
+- **Mateship evidence:** Circuit/Foundation parallel F-514 fix (identical solution, zero coordination), Atlas rescued Lens partial F-502, Weaver closed Litmus testing seam
+- **Recommendations:** Fix F-521 timing margin (500ms vs 100ms), file F-NEW-01 in main FINDINGS.md, complete or revert F-502, run baton in production
