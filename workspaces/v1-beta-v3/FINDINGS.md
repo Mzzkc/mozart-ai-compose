@@ -1,3 +1,16 @@
+### F-520: Quality Gate False Positive on F-518 Regression Test
+**Found by:** Adversary, Movement 6
+**Severity:** P2 (medium)
+**Status:** Open
+**Description:** Breakpoint's M6 adversarial test `test_m6_adversarial_breakpoint.py:271` correctly tests F-518 regression (negative elapsed time from stale `completed_at`) but triggers quality gate false positive for "tight timing assertion."
+**Evidence:**
+- Quality gate output: `Found 1 tight timing assertion(s) (bound < 30s): test_m6_adversarial_breakpoint.py:271 — assert elapsed < 0.0`
+- File: `tests/test_m6_adversarial_breakpoint.py:271` — `assert elapsed_wrong < 0, "Stale completed_at causes negative time"`
+- File: `tests/test_quality_gate.py:140-142` — `_TIGHT_TIMING_RE = re.compile(r"assert\s+\w*elapsed\w*\s*<\s*(\d+(?:\.\d+)?)")`
+- Root cause: Regex matches variable names containing "elapsed" and interprets `< 0` as timing bound, not bug verification
+**Impact:** Quality gate blocks commit despite test being correct. This is a regression test verifying that a BUG produces negative time - it SHOULD assert `< 0` to verify the bug exists before the fix is applied on line 274.
+**Fix:** Rename `elapsed_wrong` → `buggy_time_delta` and `elapsed_fixed` → `corrected_time_delta` at lines 268-280 to avoid quality gate pattern matching. Alternative: make regex exclude negative bounds or add comment-based exceptions.
+
 ### F-518: Stale completed_at Not Cleared on Resume Causes Negative Elapsed Time
 **Found by:** Ember, Movement 6
 **Severity:** P0 (critical)

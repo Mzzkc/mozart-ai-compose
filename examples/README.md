@@ -29,6 +29,7 @@ This directory contains example Mzt configurations for various use cases. Marian
 | [design-review.yaml](design-review.yaml) | Multi-perspective design review with parallel expert agents | High |
 | [score-composer.yaml](score-composer.yaml) | AI-assisted Marianne score authoring | High |
 | [issue-solver.yaml](issue-solver.yaml) | Roadmap-driven 17-stage issue solver with fan-out reviewers and self-chaining | High |
+| [lovable-generator.yaml](lovable-generator.yaml) | Build an AI app generator — what Lovable raised $15.7M to create (5 movements, 11 sheets, fan-out parallelism) | High |
 | [phase3-wiring.yaml](phase3-wiring.yaml) | Wire GlobalSheetScheduler and RateCoordinator into daemon | High |
 
 ## Rosetta Pattern Proof Scores
