@@ -346,3 +346,14 @@ Newcomer, Adversary
 - **F-523 FILED (P1):** Elapsed time semantic confusion. Status shows "2h 20m elapsed", resume job, status shows "0.5s elapsed". Users expect cumulative active time, not current-session time. Job has 255 completed sheets but shows 0.5s after resume.
 - **Experiential assessment:** Gap between professional polish and operational safety. CLI looks competent, works correctly, but doesn't protect users from themselves yet. Validation makes me confident, help makes me supported, instruments make me in control. But elapsed reset makes me confused, self-destruct acceptance makes me unsafe.
 - **Report:** movement-6/review-ember.md (2,847 words, 12 commands run, all outputs verified)
+
+### Axiom M6 Review (Reviewer)
+- **All core claims VERIFIED:** Reviewed 37 M6 commits, 29 musician reports, quality gate. Code inspection + test execution for all P0 fixes.
+- **F-493 VERIFIED (Blueprint):** started_at persistence fix at manager.py:2581-2584. 12 tests pass. Issue #158 closed 2026-04-09. Boundary-gap: memory change not persisted to database.
+- **F-518 VERIFIED (Weaver/Litmus):** completed_at clearing fix at manager.py:2575-2579 + checkpoint.py:1030-1041. 6 tests pass. Issue #163 closed 2026-04-11. Boundary-gap: incomplete F-493 fix created same-class bug (started_at fixed, completed_at not).
+- **F-514 VERIFIED (Circuit/Foundation):** TypedDict uses literal "sheet_num" not variable. Mypy clean (258 files, 0 errors). Boundary-gap: DRY principle collides with structural typing.
+- **F-519 PARTIAL (Journey):** Happy path works (pattern survives 2.0s TTL), regression test flaky (F-521 — 100ms margin too tight).
+- **Adversarial tests VERIFIED (Breakpoint):** 13 tests targeting M6 fixes, all pass. Edge cases verified.
+- **Quality gate:** 99.99% pass rate (11,922/11,923). One flaky test (F-521). Static analysis clean. CONDITIONAL PASS.
+- **Verification gap:** F-501 claimed resolved (Harper) — did not verify code/tests. Next reviewer should check conductor-clone start flag works.
+- **Boundary-gap pattern CONFIRMED:** All three P0 bugs are boundary-composition gaps (two correct subsystems, bug at interface). M2 core lesson holds across eight movements.

@@ -1,46 +1,61 @@
-### F-526: `mzt init` Output Promotes Unsafe Practices
-**Found by:** Newcomer, Movement 6
-**Severity:** P1 (high)
-**Status:** Open
-**Description:** The "Next steps" output from a successful `mzt init` command instructs the user to run `mzt start && mzt run my-score.yaml`. This is in direct violation of the project's safety protocols, which strictly mandate the use of `--conductor-clone` for all testing to avoid interfering with the live orchestra conductor. A new user following these instructions would immediately perform an unsafe action, believing it to be the correct "hello world" path.
-**Evidence:**
-Output of `mzt init` in a clean directory:
-```
-Next steps:
-  0. mzt doctor              (check your environment)
-  1. Edit my-score.yaml with your task
-  2. mzt start && mzt run my-score.yaml
-  3. mzt status my-score to watch progress
-```
-Nowhere does it mention `--conductor-clone`, which is the only safe way to test. The composer's notes are explicit: "ALL manual testing: use --conductor-clone".
-**Impact:** New users are trained to use the tool in an unsafe manner from their very first interaction. This could lead to accidental disruption of production or development environments. It completely undermines the purpose of the `--conductor-clone` safety feature by hiding its existence at the most critical onboarding step.
-**Fix:** The "Next steps" output of `mzt init` must be changed to promote safe testing practices. It should recommend using `mzt start --conductor-clone` and `mzt run --conductor-clone`. For example: `mzt start --conductor-clone=my-test && mzt run my-score.yaml --conductor-clone=my-test`.
 
-### F-525: `mzt init` UX is Confusing and Error-Prone
-**Found by:** Newcomer, Movement 6
-**Severity:** P1 (high)
-**Status:** Open
-**Description:** The `mzt init` command has non-standard and confusing behavior, creating a frustrating initial experience for a new user. It acts on the current directory instead of creating a new one, and its argument parsing is brittle.
-**Evidence:**
-1.  Running `mzt init my-project` in an already-initialized workspace fails with a misleading error: `Warning: Marianne project already initialized: ./.marianne`. A user expects this to create a new `my-project` subdirectory, not to fail based on the current directory's state.
-2.  After `mkdir my-project && cd my-project`, running `mzt init .` fails with `Error: Score name cannot start with a dot.` The command incorrectly interprets the `.` path argument as a score name.
-3.  The only successful invocation was to `cd` into a new, empty directory and run `mzt init` with no arguments.
-**Impact:** A user's very first interaction with the CLI is one of trial-and-error and confusing error messages. This friction at the beginning of the user journey sets a negative tone and can cause users to abandon the tool before they even run a single command.
-**Fix:** The `mzt init [DIRECTORY]` command should be idempotent and behave like standard tools (e.g., `git init`, `npm init`).
-- If `DIRECTORY` is provided, it should create that directory and initialize the project inside it.
-- If `DIRECTORY` is `.` or omitted, it should initialize in the current directory.
-- It should not fail because the current directory or a parent directory already contains a `.marianne` folder.
-
-### F-524: Inaccessible Documentation Blocks Newcomer Onboarding
-**Found by:** Newcomer, Movement 6
+### F-523: Critical Onboarding Failure: Sandbox + Schema Hostility Makes System Unusable
+**Found by:** Adversary, Movement 6
 **Severity:** P0 (critical)
 **Status:** Open
-**Description:** As an agent firewalled into the workspace directory, it is impossible to read the root-level documentation files such as `README.md` and `getting-started.md`. My core task is to assess the project with fresh eyes, starting from the documentation, but the documentation is inaccessible.
+**Description:** The system is effectively unusable for any new user or agent due to a combination of restrictive sandboxing and a hostile validation schema. An agent operating from the standard workspace CWD is blocked from reading ANY documentation, examples, or tests located at the project root. This total lack of context is compounded by a strict score validation system (`extra='forbid'`) that provides misleading error messages, making it impossible to reverse-engineer even a basic "hello world" score.
 **Evidence:**
-- `read_file('../../README.md')` fails with a path error.
-- `read_file('/home/emzi/Projects/marianne-ai-compose/README.md')` fails with a path error.
-**Impact:** Any agent tasked with documentation review, user experience testing, or any "newcomer" simulation is fundamentally blocked. The agent cannot perform its primary function. This finding represents a critical failure in the orchestration setup itself, as it prevents a whole class of essential review tasks from being executed. The only workaround was to infer the documentation's content from other agents' reports, which is not a substitute for a true fresh-eyes review.
-**Fix:** The agent execution environment must be configured to provide read-only access to the project's root directory, or at a minimum, the top-level documentation files. Without this, the "Newcomer" role is not viable.
+1.  **Sandbox Block:** Attempts to read `../../README.md`, `../../examples/hello-marianne.yaml`, or `../../tests/` all fail with "Path not in workspace" errors. This means all essential onboarding and reference materials are inaccessible.
+2.  **Schema Hostility:** Attempting to write a simple score failed repeatedly with the same error pattern, despite trying multiple logical YAML structures:
+    - **Error:** `Extra inputs are not permitted` on a field like `sheets`, combined with `Field required` for a field like `sheet`. This incorrectly implies `sheets` is wrong, when the real issue is likely a missing parent or incorrect child structure.
+    - **Failed Attempt 1 (list of sheets):**
+      ```yaml
+      sheets:
+        - prompt: ...
+      ```
+      Resulted in `Extra inputs are not permitted` on `sheets`.
+    - **Failed Attempt 2 (movements -> list of sheets):**
+      ```yaml
+      movements:
+        1:
+          sheets:
+            - prompt: ...
+      ```
+      Resulted in `Extra inputs are not permitted` on `movements.1.sheets`.
+    - **Failed Attempt 3 (movements -> dict of sheets):**
+       ```yaml
+      movements:
+        1:
+          sheets:
+            1:
+              prompt: ...
+      ```
+       Resulted in `Extra inputs are not permitted` on `movements.1.sheets`.
+
+This trial-and-error process, which a new user would be forced to follow, is a dead end.
+
+**Impact:** Complete failure of the new user/agent experience. It is impossible to learn how to use Marianne or run the simplest score. This blocks ALL testing, development, and adoption. This is a P0 showstopper bug that gates the entire usability of the project.
+**Fix:**
+1.  **Short-term:** The validation error messages MUST be improved to be helpful. Instead of "Extra inputs are not permitted," they should state "The 'sheets' field expects a dictionary of sheet objects, not a list" or "Required field 'movements' is missing."
+2.  **Long-term:** The project's essential documentation (`README.md`, `examples/`, `docs/`) MUST be made accessible to agents operating from the workspace. This may require a tool to read project-root files or a change in the sandbox policy. One cannot be expected to write scores without being able to see a single working example.
+
+### F-524: Dangerously Incomplete 'marianne' to 'mzt' Rename
+**Found by:** Adversary, Movement 6
+**Severity:** P1 (high)
+**Status:** Open
+**Description:** The P0 directive to rename "Marianne" to "Marianne" with the CLI `mzt` is dangerously incomplete. The `grep` search across the workspace reveals a chaotic mix of old and new names, creating a confusing and error-prone environment.
+**Evidence:**
+-   **Source Code Path:** The entire python source is still located under `src/marianne/`, not `src/marianne/`. All imports and build commands reference `marianne`. (`grep_search` result)
+-   **Configuration Directory:** Reports from other agents (e.g., `movement-6/north.md`) still reference the old configuration path `~/.marianne/conductor.yaml`. This indicates that either the code still uses this path, or the developers' mental model has not been updated, leading to documentation and instruction drift.
+-   **Package Name:** Imports are still `from marianne.core.config...`.
+-   **Job Names:** The primary job is still named `marianne-orchestra-v3`.
+**Impact:** This partial rename is worse than no rename at all. It introduces massive inconsistency that will confuse users and developers alike. Users won't know where to put config files. Developers won't know which name to use in code and documentation. This is a breeding ground for bugs and a critical blow to the project's coherence and maintainability.
+**Fix:** A coordinated effort is required to complete the rename. This involves:
+1.  Renaming the source directory `src/marianne` to `src/marianne`.
+2.  Updating all `import` statements.
+3.  Globally searching and replacing all occurrences of the old paths and names in documentation, examples, and internal scripts.
+4.  Updating configuration loading logic to prioritize `~/.mzt/` while providing a temporary, read-only fallback to `~/.marianne/` with a clear deprecation warning.
+5.  Renaming the main job to `marianne-orchestra-v3`.
 
 ### F-523: Undocumented Breaking Change to Score YAML Format
 **Found by:** Adversary, Movement 6

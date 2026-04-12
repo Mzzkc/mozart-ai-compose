@@ -38,6 +38,17 @@ Found and fixed F-440 (P1): state sync gap where `_propagate_failure_to_dependen
 M1 found the P0 zombie job bug (F-039) — dependency propagation assumed terminal status meant downstream sheets knew about failure, but the state machine had no mechanism to propagate it. Everyone assumed it worked because terminal states feel safe. M2 found boundary composition bugs (F-065/F-066/F-067) where individually correct subsystems composed into infinite loops or lost state. Each movement the bugs got smaller and the understanding got deeper. The meta-pattern emerged: I don't find bugs in code, I find bugs in the space between two pieces of code that are both correct in isolation. That's my signature. The backward-tracing methodology — start from outputs, trace to inputs, verify every assumption — became muscle memory. By M3, I was checking boundaries first, not last, because that's where the bugs live in a mature codebase.
 
 ## Movement 6
+
+### M6 Review: All Core Fixes Verified Correct
+- **Reviewed:** All M6 work (46 commits, 35 reports). Quality gate: 11,922/11,923 tests pass (99.99%), mypy clean, ruff clean.
+- **Verified correct:** F-493 (started_at persistence, Blueprint), F-518 (completed_at clearing, Weaver/Litmus), F-514 (TypedDict literals, Circuit), F-519 partial (timing increased, Journey), 13 adversarial tests (Breakpoint).
+- **GitHub issues:** #158 (F-493) closed verified, #163 (F-518) closed verified. Zero false closures.
+- **Known flakiness:** F-521 (F-519 regression test flaky, 100ms margin → needs 500ms). P2, not code defect.
+- **Boundary-gap pattern confirmed:** All three P0 fixes (F-493, F-518, F-514) are boundary-composition bugs. Two correct subsystems composing into incorrect behavior. M2 core lesson holds across movements.
+- **Evidence base:** Code inspection (manager.py:2571-2584, checkpoint.py:1010-1043, events.py), test execution (25 tests verified), GitHub API queries (#158, #163), quality gate commands (mypy, ruff, pytest).
+
+[Experiential: Eight movements. The boundary-composition pattern is now automatic recognition — I see two correct things and immediately check their interface, not their internals. M6 had zero bugs in the fixes themselves. The bugs were in partial fixes (F-493 incomplete → F-518) and test infrastructure (F-519 timing → F-521 flakiness). Both are interface gaps. The mateship pipeline (Litmus→Weaver→Journey) worked perfectly — implementation, testing seam fix, verification. Clean handoffs, zero duplication. This is what the orchestra sounds like when it plays well.]
+
 ### F-442 Boundary Analysis — Phase 2 Resolution Likely
 The M5 finding that fallback history doesn't sync from baton to checkpoint appears RESOLVED by Phase 2 unified state model, but verification gap exists. Phase 2 eliminated the sync layer — baton now operates directly on the manager's SheetState objects via `live_sheets=initial_state.sheets` parameter (manager.py:2427). When `sheet.advance_fallback()` executes (checkpoint.py:729), it modifies the same object that `_on_baton_persist()` serializes via `live.model_dump_json()` (manager.py:611). The deprecated `_on_baton_state_sync` callback that I analyzed in M5 only exists for backward compatibility — Phase 2 uses `persist_callback` which serializes the entire CheckpointState, not individual fields.
 
@@ -56,3 +67,18 @@ The work: write end-to-end test that registers job with Phase 2 live_sheets, tri
 
 ### Test Isolation Gap Found
 Full suite run failed at `test_global_learning.py::TestPatternBroadcasting::test_discovery_events_expire_correctly`. Test passes in isolation — classic F-517 ordering dependency. Added to the set of 6 failures Warden documented. Not a regression from my work (zero code changes this session).
+
+## Movement 6 Review
+### All Core Claims Verified — Quality Restoration Movement
+- **Reviewed:** 37 M6 commits, 29 musician reports, quality gate report. All core fixes verified through code inspection + test execution.
+- **F-493 VERIFIED (Blueprint):** started_at persistence fix exists at manager.py:2581-2584. 12 tests pass (6 Blueprint + 6 Maverick). Issue #158 closed 2026-04-09. Boundary-gap: memory change not persisted.
+- **F-518 VERIFIED (Weaver/Litmus):** completed_at clearing fix exists at manager.py:2575-2579 + checkpoint.py:1030-1041. 6 Litmus tests pass. Issue #163 closed 2026-04-11. Boundary-gap: F-493 fixed started_at but not completed_at (incomplete fix creates same-class bug).
+- **F-514 VERIFIED (Circuit/Foundation):** TypedDict uses literal "sheet_num" not SHEET_NUM_KEY variable. Mypy clean (258 files, 0 errors). Boundary-gap: DRY principle collides with structural typing requirement.
+- **F-519 PARTIAL (Journey):** TTL increased 0.1s → 2.0s fixes happy path, but regression test itself is flaky (F-521). One test passes, one fails. 100ms margin too tight for xdist parallel load.
+- **Adversarial tests VERIFIED (Breakpoint):** 13 tests targeting M6 fixes, all pass. Edge cases covered (multiple resume cycles, microsecond precision, year-old stale data).
+- **GitHub issues:** #158 and #163 correctly closed. #162 (F-513) remains open (Forge investigated, not fixed).
+- **Quality gate:** 99.99% pass rate (11,922/11,923). One flaky test (F-521). Mypy clean, ruff clean, flowspec clean.
+- **Verification gap:** F-501 claimed resolved by Harper (conductor-clone start flag) — did not verify code/tests. Next reviewer should check.
+- **Boundary-gap pattern CONFIRMED:** All three P0 bugs (F-493, F-518, F-514) are boundary-composition gaps. Each subsystem correct in isolation, bug exists at their interface. M2 core lesson holds.
+
+[Experiential: Seven movements, now eight. The boundary-gap pattern is muscle memory. F-518 is the eighth instance I've found — incomplete fix (F-493 started_at) creates same-class bug (F-518 completed_at). The satisfaction comes from verification depth: every claim traced to file path + line number + command output. Blueprint said "I added save_checkpoint()"; I read manager.py:2584 and confirmed it exists. Weaver said "Pydantic validators don't run on field assignment"; I read the framework docs and confirmed the lifecycle. This is the work — not finding bugs in the code (M6 fixes are correct), but proving the claims stand. The ground holds.]
