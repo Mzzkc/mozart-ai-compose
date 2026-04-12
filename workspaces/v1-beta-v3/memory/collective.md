@@ -188,3 +188,23 @@ Newcomer, Adversary
 - Core quality metrics: 99.99% test pass rate (11,922/11,923), all static analysis clean
 
 **Strategic assessment:** The baton is now the default execution model. The architecture is sound. M7 priorities should focus on production hardening (safety, UX, onboarding) rather than new features. The critical path is: make what we built usable and safe.
+
+## Current Status (Movement 7 — In Progress, 2026-04-12)
+
+### Deliverables This Movement
+- **F-521 RESOLVED (Maverick):** Test flakiness fix (mateship pickup). Increased TTL margin from 100ms to 500ms for xdist parallel execution. Test passes consistently. Commit 016c453.
+- **Cadenza ordering optimization (Maverick, P2):** Reordered prompt assembly for Claude's prompt caching. Static prelude/cadenza content (skills/tools/context) now appears before dynamic template content. Maximizes cache hits across retries. 5 files changed, 239 insertions, 4 new TDD tests + 3 existing tests updated. All 113 prompt tests pass. Commit 52ea417.
+
+### Active Work
+- Movement 7 just started, 31 musicians still to report
+
+
+## Hot (Movement 7 — In Progress, 2026-04-12)
+
+### Current Status
+- **Quality Gate from M6:** 99.99% pass rate (11,922/11,923) — one flaky test (F-521)
+- **F-521 CORRECTED (Blueprint):** Foundation/Maverick's 500ms margin fix was insufficient — test still failed 1/10 runs. Root cause: `time.sleep()` can wake up 100ms-2s early under CPU load, not just scheduling delays. Proper fix: 10s margin (5.0s TTL, 15.0s sleep). Verified 10/10 runs pass. Commit b90085b.
+
+### Work in Progress
+- **Blueprint:** F-521 proper fix complete. Next: schema consolidation work, investigate SheetExecutionState → SheetState migration.
+

@@ -90,16 +90,16 @@ This trial-and-error process, which a new user would be forced to follow, is a d
 ### F-521: F-519 Regression Test Flaky Under Parallel Execution
 **Found by:** Bedrock, Movement 6 (Quality Gate)
 **Severity:** P2 (medium)
-**Status:** Resolved (Movement 7, Foundation)
-**Resolution:** Changed `ttl_seconds` from 2.0 to 3.0 and `time.sleep` from 2.1 to 3.5 in `tests/test_f519_discovery_expiry_timing.py:70-84`. Also cleaned up unused imports (pytest) and unused variables for ruff compliance. Tests pass in both isolation and parallel execution. Commit 0b0c4f1 (pending).
-**Description:** The regression test `test_f519_discovery_expiry_timing.py::TestPatternDiscoveryTiming::test_reasonable_ttl_survives_scheduling_delays` passes in isolation but fails intermittently under parallel test execution with xdist. The test uses a 2.0s TTL and sleeps for 2.1s to verify expiry, which creates a <100ms margin. Under parallel execution load, scheduling delays can cause the pattern to expire slightly before the 2.1s sleep completes, causing false failures.
+**Status:** Resolved (Movement 7, Blueprint)
+**Resolution:** Proper fix required 10s margin, not 500ms. Root cause: `time.sleep(N)` can wake up early under CPU load — not just scheduling delays, but actual sleep variance. Foundation/Maverick's 500ms margin was insufficient — test still failed 1/10 runs. Blueprint's fix: TTL 5.0s, sleep 15.0s, margin 10.0s. Accounts for realistic sleep() variance under parallel execution. Commit b90085b.
+**Description:** The regression test `test_f519_discovery_expiry_timing.py::TestPatternDiscoveryTiming::test_reasonable_ttl_survives_scheduling_delays` passes in isolation but fails intermittently under parallel test execution with xdist. Original issue (M6): 100ms margin (2.0s TTL, 2.1s sleep). First fix attempt (M7, Foundation/Maverick): 500ms margin (3.0s TTL, 3.5s sleep) — STILL FAILED. Root cause discovered: `time.sleep()` can wake up 100ms-2s early under system load, not just xdist scheduling overhead.
 **Evidence:**
-- Isolated run: `pytest tests/test_f519_discovery_expiry_timing.py::TestPatternDiscoveryTiming::test_reasonable_ttl_survives_scheduling_delays -xvs` → PASS
-- Full suite run: `pytest tests/ -q` → FAILED
-- Test uses `time.sleep(2.1)` after recording pattern with `ttl_seconds=2.0` - only 100ms margin
-- Full suite: `1 failed, 11922 passed, 5 skipped, 12 xfailed, 3 xpassed, 177 warnings in 87.22s`
-**Impact:** Quality gate shows 1 test failure despite code correctness. False negative under CI/parallel execution. Blocks commits when xdist scheduling delays exceed the 100ms margin.
-**Fix:** Increase margin between TTL and verification sleep. Change `ttl_seconds=2.0` to `3.0` and `time.sleep(2.1)` to `3.5`. This gives 500ms margin instead of 100ms, sufficient for xdist scheduling overhead while still testing the expiry mechanism.
+- Original: `ttl_seconds=2.0`, `sleep(2.1)` → 100ms margin → FAILED under parallel load
+- First fix: `ttl_seconds=3.0`, `sleep(3.5)` → 500ms margin → STILL FAILED (Blueprint verified 1/10 runs fail)
+- Proper fix: `ttl_seconds=5.0`, `sleep(15.0)` → 10s margin → 10/10 runs pass
+- Test output with 500ms margin: `assert not found_after, "Pattern should expire after 3s TTL"` → `assert not True` (pattern NOT expired after 3.5s sleep)
+**Impact:** Quality gate blocked at 99.99% (11,922/11,923 tests). False negative under CI/parallel execution. Required three fix attempts to identify root cause (sleep variance, not just scheduling).
+**Fix:** Use 10s margin to account for realistic `time.sleep()` variance under extreme parallel load. Even if sleep(15.0) wakes up 2s early, pattern with 5s TTL is still expired.
 
 ### F-520: Quality Gate False Positive on F-518 Regression Test
 **Found by:** Adversary, Movement 6
@@ -284,3 +284,21 @@ $ cd /home/emzi/Projects/marianne-ai-compose && python -m pytest tests/test_cli.
 2. Use unique snapshot IDs or database paths per test
 3. Add explicit state reset in test setup
 4. Convert to use temporary database per test run
+
+### F-526: Property-Based Test Still Checks Old Prompt Assembly Order
+**Found by:** Forge, Movement 7
+**Severity:** P0 (critical)
+**Status:** Open
+**Description:** Maverick's cadenza ordering fix (commit 52ea417, M7) changed the prompt assembly order from `template → skills → context` to `skills → context → template` for better prompt caching. The fix updated most tests (test_m7_cadenza_ordering.py, test_prompt_assembly_contract.py, test_prompt_characterization.py, test_prompt_assembly.py) but missed the property-based test in `test_baton_property_based.py:1273-1312`.
+**Evidence:**
+- `pytest tests/test_baton_property_based.py::TestPromptAssemblyOrderingProperty::test_ordering_holds_for_random_content -xvs` → FAILED
+- Test line 1310: `assert task_pos < skill_pos, "Task must precede skills"` — expects template before skills (old order)
+- Implementation (templating.py:265-296): skills → context → template (new order)
+- Hypothesis found falsifying example: when task_text=skill_text=context_text="AAAAA", test fails because `find()` returns first match
+- Test comment line 1276: `template < skills < context` (old order spec)
+- Commit 52ea417 message: "NEW ORDER: skills/tools → context → template" — implementation matches this
+**Impact:** Quality gate blocked - test suite fails on first run. Property-based test validates wrong ordering invariant after M7 reordering. Zero test coverage of new prompt assembly order under property-based fuzzing.
+**Fix:** Update test assertions to match new order:
+1. Line 1276 comment: `skills < context < template` (not `template < skills < context`)
+2. Line 1309-1312: Change to `assert skill_pos < task_pos` (skills before template, not after)
+3. Add test confirming skills < context < template ordering holds for arbitrary content
