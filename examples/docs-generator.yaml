@@ -22,8 +22,8 @@
 # ║    Stage 14: Commit & Push                                                   ║
 # ║                                                                              ║
 # ║  Usage:                                                                      ║
-# ║    marianned start --foreground &                                              ║
-# ║    mzt run examples/docs-generator.yaml                                   ║
+# ║    mzt start --foreground &                                                  ║
+# ║    mzt run examples/docs-generator.yaml                                      ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 name: "docs-generator"
@@ -176,11 +176,11 @@ prompt:
       "mzt learning-drift --help" \
       "mzt learning-epistemic-drift --help" \
       "mzt learning-activity --help" \
-      "marianne entropy-status --help" \
-      "marianned --help" \
-      "marianned start --help" \
-      "marianned stop --help" \
-      "marianned status --help"; do
+      "mzt entropy-status --help" \
+      "mzt --help" \
+      "mzt start --help" \
+      "mzt stop --help" \
+      "mzt status --help"; do
       LINES=$($cmd 2>&1 | wc -l)
       echo "$cmd: $LINES lines"
     done
@@ -931,7 +931,7 @@ prompt:
     Actually run EVERY CLI command listed in the documentation and verify
     the output matches what the docs claim.
 
-    **Step 1: Run --help for every marianne command**
+    **Step 1: Run --help for every mzt command**
     ```bash
     echo "=== Marianne CLI Commands ==="
     for cmd in \
@@ -974,7 +974,7 @@ prompt:
       "mzt learning-drift --help" \
       "mzt learning-epistemic-drift --help" \
       "mzt learning-activity --help" \
-      "marianne entropy-status --help"; do
+      "mzt entropy-status --help"; do
       echo "--- $cmd ---"
       if $cmd 2>&1 | head -3; then
         echo "RESULT: PASS"
