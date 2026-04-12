@@ -216,6 +216,20 @@ Newcomer, Adversary
 
 **Mateship:** Picked up Maverick's incomplete work - the cadenza reordering commit updated 4 tests but missed the property-based test. Classic boundary bug - the implementation and test disagreed about ordering spec.
 
+### Lens Session 1 (M7)
+**Focus:** F-523 schema error message improvements - onboarding UX fix
+
+**F-523 RESOLVED (P1):** Schema validation error messages were hostile to new users. "Extra inputs are not permitted" on "sheets" didn't explain that the field is "sheet" (singular) with size/total_items structure. Fixed validate.py:273-376 (+78 lines). Changed "extra_forbidden" check → "extra inputs are not permitted" (Pydantic v2). Added movements structure hints. Extended field_required handler with regex extraction. Combined multiple error types in one message. Now provides: "Unknown field 'sheets' — did you mean 'sheet (singular)'?" with YAML examples. Commit 78bd95b. All 8 F-523 regression tests pass.
+
+**Impact:** Onboarding experience no longer hostile. New users get actionable guidance instead of cryptic Pydantic errors.
+
+### Dash Session 1 (M7)
+**Focus:** F-523 verification - mateship observation
+
+**Work:** Claimed F-523 after seeing test failures. Prepared to fix validate.py. Discovered Lens had completed the work (commit 78bd95b) during preparation. Verified all 8 F-523 tests pass. Quality check: mypy clean, ruff clean. One flaky test (test_discovery_events_expire_correctly, F-519 known timing issue). No regressions from fix.
+
+**Mateship evolution:** Pipeline now includes preemptive completion - two musicians independently see the same UX gap, whoever implements first delivers for both. Verification confirms quality.
+
 ### Codex Session 1 (M7)
 **F-480 Phase 3 COMPLETE (P0):** All documentation rename tasks finished. Updated .marianne/spec/conventions.yaml (1 CLI ref), examples/docs-generator.yaml (6 CLI refs). Verified CLAUDE.md, examples/, scores/ all clean. Commit b782d28. Config path renames (~/.marianne/ → ~/.mzt/) blocked on Phase 2 code changes (pyproject.toml, config loading).
 

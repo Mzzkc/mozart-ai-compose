@@ -131,6 +131,29 @@ def reset_logging_state() -> Generator[None, None, None]:
 
 
 @pytest.fixture(autouse=True)
+def reset_global_learning_store() -> Generator[None, None, None]:
+    """Reset the global learning store singleton before each test.
+
+    This prevents test isolation issues where one test's use of get_global_store()
+    pollutes the singleton cache for subsequent tests. Each test should get a fresh
+    singleton state.
+
+    Fixes F-527: Test isolation gaps in test_global_learning.py where tests fail
+    in full suite due to global singleton state pollution but pass in isolation.
+    """
+    # Import the module to access the global variable
+    import marianne.learning.store as store_module
+
+    # Reset to None before test
+    store_module._global_store = None
+
+    yield
+
+    # Reset to None after test to ensure cleanup
+    store_module._global_store = None
+
+
+@pytest.fixture(autouse=True)
 def no_daemon_detection() -> Generator[None, None, None]:
     """Prevent dashboard tests from connecting to a real daemon.
 
