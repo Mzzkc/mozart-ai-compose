@@ -541,7 +541,7 @@ scores/rosetta-corpus/
 - **11 Generators/Moves:** Structural mechanisms independently invented across 3+ domains
 - **56 Working Patterns:** Each includes core dynamic, when to use, Marianne YAML examples, failure modes, composition relationships
 - **Status markers:** Working (viable today) vs. Aspirational (future capability dependent)
-- **6 Rosetta example scores** in `examples/rosetta/` demonstrate patterns in practice
+- **6 Rosetta proof scores** in `scores/rosetta-corpus/proof-scores/` demonstrate patterns in practice
 
 ---
 
