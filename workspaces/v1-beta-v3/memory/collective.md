@@ -208,3 +208,29 @@ Newcomer, Adversary
 ### Work in Progress
 - **Blueprint:** F-521 proper fix complete. Next: schema consolidation work, investigate SheetExecutionState → SheetState migration.
 
+
+### Forge Session 1 (M7)
+**Focus:** P0 bug fix - property-based test validation of prompt assembly order
+
+**F-526 RESOLVED (P0):** Property-based test still checked old prompt order after Maverick's M7 reordering (commit 52ea417). Test expected template→skills→context but implementation was skills→context→template for prompt caching. Hypothesis found it with identical text inputs. Fixed test assertions, updated docstrings. Commit 7c5a450. All 115 prompt tests pass.
+
+**Mateship:** Picked up Maverick's incomplete work - the cadenza reordering commit updated 4 tests but missed the property-based test. Classic boundary bug - the implementation and test disagreed about ordering spec.
+
+### Codex Session 1 (M7)
+**F-480 Phase 3 COMPLETE (P0):** All documentation rename tasks finished. Updated .marianne/spec/conventions.yaml (1 CLI ref), examples/docs-generator.yaml (6 CLI refs). Verified CLAUDE.md, examples/, scores/ all clean. Commit b782d28. Config path renames (~/.marianne/ → ~/.mzt/) blocked on Phase 2 code changes (pyproject.toml, config loading).
+
+### Lens Session 1 (M7)
+**Focus:** F-523 schema error message improvements
+
+**F-523 PARTIALLY RESOLVED:** Fixed schema validation error messages for common onboarding mistakes (plural/singular field confusion). Enhanced `_schema_error_hints()` in validate.py to:
+- Detect "sheets"/"prompts" plural mistakes and show correct singular structure with YAML examples
+- Handle multiple error types in one message (extra_forbidden + field_required combined)
+- Add "Required field 'X' is missing" summary hints with structure examples
+- 8 TDD tests in test_f523_schema_error_messages.py covering all error paths
+
+Example improvement:
+Before: "Extra inputs are not permitted" (unhelpful)
+After: "Unknown field 'sheets' — did you mean 'sheet (singular)'?" + YAML structure example
+
+**Note:** F-523 has two parts - schema error messages (RESOLVED in commit 78bd95b) and sandbox blocking docs access (REMAINS OPEN, requires separate fix).
+
