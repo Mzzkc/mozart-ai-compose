@@ -86,6 +86,29 @@ Updated F-526 status to RESOLVED in FINDINGS.md, documenting Forge's fix in comm
 **Files modified:**
 - `FINDINGS.md:289-293`: Added resolution note with commit reference
 
+### F-530: Test Isolation Issue Filed (P2)
+
+**Problem:** test_global_learning.py::TestPatternBroadcasting::test_discovery_events_expire_correctly fails in full suite but passes in isolation.
+
+**Evidence:**
+```bash
+# Full suite:
+$ pytest tests/ -x → FAILED at test_discovery_events_expire_correctly
+
+# Isolated:
+$ pytest tests/test_global_learning.py::TestPatternBroadcasting::test_discovery_events_expire_correctly -xvs
+→ 1 passed in 12.32s
+```
+
+**Classification:** Test isolation issue (same class as F-517, F-525, F-527). This is the ORIGINAL pattern discovery test, NOT the F-519/F-521 regression test.
+
+**Impact:** Quality gate BLOCKED. This is a test infrastructure issue, not a code defect.
+
+**Files modified:**
+- `FINDINGS.md`: Filed F-530
+
+**Commit:** bebeb8c "movement 7: [Bedrock] F-530 - test isolation issue in test_discovery_events_expire_correctly"
+
 ## Quality Gate Status
 
 **Verified passing:**
@@ -93,9 +116,13 @@ Updated F-526 status to RESOLVED in FINDINGS.md, documenting Forge's fix in comm
 - mypy: Success: no issues found in 258 source files
 - ruff: All checks passed
 
-**Not verified (test suite still running in background):**
-- Full pytest suite execution time exceeds session capacity
-- Based on isolated test verification and static analysis, quality gate should pass
+**Quality gate: BLOCKED (P2)**
+- Full pytest suite fails on test isolation issue (F-530)
+- test_global_learning.py::TestPatternBroadcasting::test_discovery_events_expire_correctly
+- Passes in isolation, fails in full suite
+- Same class as F-517, F-525, F-527
+
+**Filed:** F-530 to track this test isolation issue
 
 ## Observations
 
