@@ -68,14 +68,23 @@ The composer shared the full Recursive Light Framework compressed specification.
 
 The full notation was shared in the session but is too large for this handoff. The composer will share it again when needed.
 
-### Test Case Ready
+### Test Cases
 
-The docs reorganization spec (`docs/plans/2026-04-12-docs-reorganization-design.md`) is approved and waiting to be the compose skill's inaugural test. The skill should be able to:
+**Test 1 — Docs Reorganization (inaugural):**
+The docs reorganization spec (`docs/plans/2026-04-12-docs-reorganization-design.md`) is approved and waiting. The skill should be able to:
 1. Read the spec
 2. Analyze forces (volume: high, dependency: medium, heterogeneity: medium)
 3. Select patterns (Pipeline with conditional branches, Barn Raising for conventions)
 4. Compose a Mozart score that executes the file moves, index generation, CLAUDE.md updates, and reference fixups
 5. Validate the score before offering to run it
+
+**Test 2 — Recompose the A3 Flagships:**
+Concert A3 produced 4 flagship example scores (`workspaces/concert-a-examples/flagships/`). They claim to use patterns but don't implement them structurally — sequential sheets where Commissioning Cascade should have fail-fast gating, CEGAR Loop has no conditional back-edge, etc. The compose skill should recompose these properly:
+1. For each flagship, read the design.md (force analysis, pattern selection)
+2. Derive the correct sheet count and DAG from the patterns (each pattern has a minimum sheet count — the composition total comes from the patterns, not from hand-waving)
+3. Compose new scores where the patterns are structural (fan-out, gating, conditional skips) not just prompt text
+4. Validate that the recomposed scores actually implement the claimed patterns
+5. This could itself be a composed score — the compose skill composing a score that recomposes other scores
 
 ---
 
