@@ -1,0 +1,84 @@
+# Example: Simple Sheet Job
+# A minimal Mzt configuration demonstrating core Marianne features
+#
+# What this demonstrates:
+#   - Basic sheet configuration with parallel execution
+#   - Fan-out pattern: work divided across multiple sheets (2 sheets processing 10 items)
+#   - Built-in template variables (sheet_num, total_sheets, workspace, start_item, end_item)
+#   - Validation requirements and retry configuration
+#   - Instrument fallback configuration for resilience
+#
+# What it produces:
+#   - Two markdown files (sheet1.md, sheet2.md) in the workspace
+#   - Each file contains a summary of the work done for that sheet's item range
+#
+# How to adapt:
+#   - Change total_items and size to control parallelization
+#   - Modify the template to perform your actual work
+#   - Add validations specific to your output format
+#   - Point workspace to your desired output directory
+#
+# Estimated cost: ~$0.10-0.20 (2 sheets with Claude Code)
+# Estimated time: 2-5 minutes
+#
+# Usage:
+#   mzt run examples/getting-started/simple-sheet.yaml
+#   mzt status simple-sheet
+#   mzt resume simple-sheet
+
+name: "simple-sheet"
+description: "Minimal example showing core Marianne features"
+
+workspace: "../../workspaces/simple-workspace"
+
+# Instrument: which AI tool to use (default: claude-code)
+# See `mzt instruments list` for all available instruments.
+instrument: claude-code
+
+# Fallback instruments if primary is unavailable
+instrument_fallbacks: [anthropic_api]
+
+instrument_config:
+  timeout_seconds: 600       # 10 minutes per sheet
+
+  # Optional: Model selection (omit to use Claude Code's default)
+  # model: claude-sonnet-4-20250514
+
+sheet:
+  size: 5          # Items per sheet
+  total_items: 10  # Total items = 2 sheets
+
+prompt:
+  variables:
+    _validation_trigger: "unused"
+  template: |
+    {% set _trigger = _undefined_var | default("") %}
+    Process sheet {{ sheet_num }} of {{ total_sheets }}.
+    Items: {{ start_item }} to {{ end_item }}
+
+    Create a file at {{ workspace }}/sheet{{ sheet_num }}.md summarizing your work.
+
+    Include in your summary:
+    - Sheet number and item range
+    - Brief description of what was processed
+    - Any notable observations or patterns
+
+retry:
+  max_retries: 2
+  base_delay_seconds: 10
+
+validations:
+  - type: file_exists
+    path: "{workspace}/sheet{sheet_num}.md"
+    description: "Sheet output file must exist"
+
+  - type: content_regex
+    path: "{workspace}/sheet{sheet_num}.md"
+    pattern: "^#\\s+"
+    description: "Output has markdown heading structure"
+
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/sheet{sheet_num}.md") -ge 50'
+    description: "Output has substantive content (50+ words)"
+
+state_backend: json

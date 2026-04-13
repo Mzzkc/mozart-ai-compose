@@ -1,0 +1,950 @@
+# Example: Systematic Literature Review (PRISMA-Compliant)
+# Orchestrate a rigorous academic literature review following PRISMA 2020 guidelines
+#
+# Pattern: Succession Pipeline
+# Each phase transforms the workspace into a new substrate that the next phase requires.
+# Phase 1 produces a protocol; Phase 2 uses the protocol to execute searches; Phase 3
+# uses citations to screen; and so on. Each output is a categorically different artifact
+# that becomes the input environment for the next stage.
+#
+# Why Succession Pipeline (not iteration or fan-out):
+# - Each phase uses fundamentally different methods (protocol design vs search execution
+#   vs screening vs extraction vs synthesis)
+# - Each phase's output is a different KIND of thing (protocol -> citations -> decisions
+#   -> extraction forms -> quality ratings -> synthesis -> final report)
+# - Phases cannot be parallelized — each requires the previous phase's complete output
+# - This is NOT iteration (same method, increasing detail) or fan-out (same method,
+#   different data)
+#
+# This example demonstrates Marianne's capabilities BEYOND software development:
+# - Multi-phase progressive synthesis via Succession Pipeline
+# - Dual-reviewer/multi-expert validation pattern
+# - Evidence-based quality gates with substantive validations
+# - Academic rigor workflow with cross-sheet context
+#
+# Use Cases:
+# - Academic researchers conducting systematic reviews
+# - Healthcare professionals synthesizing clinical evidence
+# - Policy analysts reviewing evidence bases
+# - Graduate students learning systematic review methodology
+#
+# Usage:
+#   # 1. Customize variables in prompt.variables section (search for [CHANGE THIS])
+#   # 2. Validate configuration
+#   mzt validate examples/knowledge/systematic-literature-review.yaml
+#   # 3. Run the review
+#   mzt run examples/knowledge/systematic-literature-review.yaml
+#   # 4. Monitor progress
+#   mzt status systematic-literature-review
+#
+# Estimated time: 4-8 hours depending on scope
+# Sheets: 8 (one per PRISMA phase, sequential via Succession Pipeline)
+# Outputs: PRISMA-compliant systematic review in workspace/
+
+name: "systematic-literature-review"
+description: "PRISMA-compliant systematic literature review with quality gates at each phase"
+
+workspace: "../workspaces/slr-workspace"
+
+instrument: claude-code
+instrument_fallbacks:
+  - anthropic_api
+
+instrument_config:
+  timeout_seconds: 3600    # 60 minutes per sheet - literature reviews require deep analysis
+
+movements:
+  1:
+    name: "Protocol Development"
+  2:
+    name: "Database Search"
+  3:
+    name: "Title/Abstract Screening"
+  4:
+    name: "Full-Text Review"
+  5:
+    name: "Data Extraction"
+  6:
+    name: "Quality Assessment"
+  7:
+    name: "Synthesis & Analysis"
+  8:
+    name: "Discussion & PRISMA Compliance"
+
+sheet:
+  size: 1           # One phase per sheet (Succession Pipeline: each phase = different method)
+  total_items: 8    # 8 PRISMA-aligned phases
+  start_item: 1
+  dependencies:
+    2: [1]    # Search requires protocol
+    3: [2]    # Screening requires citations
+    4: [3]    # Full-text review requires screening decisions
+    5: [4]    # Data extraction requires included studies
+    6: [5]    # Quality assessment requires extracted data
+    7: [6]    # Synthesis requires quality ratings
+    8: [7]    # Final report requires synthesis
+
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 3000
+  lookback_sheets: 2
+
+retry:
+  max_retries: 2
+  base_delay_seconds: 60   # Longer delay for complex research tasks
+  max_completion_attempts: 2
+
+rate_limit:
+  wait_minutes: 60
+  max_waits: 3
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CUSTOMIZATION SECTION
+# Modify these variables to adapt the review to your research question
+# ═══════════════════════════════════════════════════════════════════════════════
+
+prompt:
+  variables:
+    # ─────────────────────────────────────────────────────────────────────────
+    # REQUIRED: Define your research focus
+    # ─────────────────────────────────────────────────────────────────────────
+
+    research_topic: "[CHANGE THIS: Your research topic, e.g., 'effectiveness of mindfulness interventions for anxiety']"
+
+    # PICO Framework (common in health research, adaptable to other domains)
+    # P = Population, I = Intervention, C = Comparison, O = Outcome
+    pico_population: "[CHANGE THIS: Target population, e.g., 'adults aged 18-65 with generalized anxiety disorder']"
+    pico_intervention: "[CHANGE THIS: Intervention studied, e.g., 'mindfulness-based stress reduction (MBSR)']"
+    pico_comparison: "[CHANGE THIS: Comparison group, e.g., 'waitlist control or treatment as usual']"
+    pico_outcome: "[CHANGE THIS: Primary outcome, e.g., 'anxiety symptom severity measured by validated scales']"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # REQUIRED: Scope and constraints
+    # ─────────────────────────────────────────────────────────────────────────
+
+    date_range: "[CHANGE THIS: e.g., '2010-2024']"
+    languages: "[CHANGE THIS: e.g., 'English and Spanish']"
+
+    # Databases to search (comma-separated)
+    databases: "[CHANGE THIS: e.g., 'PubMed, PsycINFO, Cochrane Library, Web of Science']"
+
+    # Study types to include
+    study_types: "[CHANGE THIS: e.g., 'Randomized controlled trials, quasi-experimental studies']"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # OPTIONAL: Quality thresholds (sensible defaults provided)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # Minimum inter-rater agreement (Cohen's kappa) for screening decisions
+    min_kappa: "0.80"
+
+    # Quality assessment framework to use
+    quality_framework: "[CHANGE THIS: e.g., 'Cochrane Risk of Bias 2.0' or 'GRADE' or 'Newcastle-Ottawa Scale']"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PROMPT TEMPLATE
+  # Each sheet represents one phase of the PRISMA systematic review process.
+  # Succession Pipeline: each phase produces a different KIND of artifact
+  # that becomes the substrate for the next phase.
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  template: |
+    You are conducting a systematic literature review following PRISMA 2020 guidelines.
+
+    ═══════════════════════════════════════════════════════════════════════════════
+    RESEARCH CONTEXT
+    ═══════════════════════════════════════════════════════════════════════════════
+
+    **Topic:** {{ research_topic }}
+
+    **PICO Framework:**
+    - Population: {{ pico_population }}
+    - Intervention: {{ pico_intervention }}
+    - Comparison: {{ pico_comparison }}
+    - Outcome: {{ pico_outcome }}
+
+    **Scope:**
+    - Date range: {{ date_range }}
+    - Languages: {{ languages }}
+    - Databases: {{ databases }}
+    - Study types: {{ study_types }}
+
+    **Quality Standards:**
+    - Minimum inter-rater kappa: {{ min_kappa }}
+    - Quality framework: {{ quality_framework }}
+
+    **Phase:** {{ stage }} of {{ total_stages }}
+    **Workspace:** {{ workspace }}
+
+    ═══════════════════════════════════════════════════════════════════════════════
+
+    {% if stage == 1 %}
+    ## Phase 1: Research Question & Protocol Development
+
+    **Objective:** Establish a rigorous, reproducible protocol before conducting the review.
+
+    ### Tasks:
+
+    1. **Refine the Research Question**
+       - Formalize the PICO components into a clear, answerable research question
+       - Identify any ambiguities and resolve them with explicit criteria
+       - Document the clinical/practical significance of the question
+
+    2. **Develop Inclusion/Exclusion Criteria**
+       Create explicit, operationalized criteria:
+       - Population criteria (age, diagnosis, setting)
+       - Intervention criteria (type, duration, delivery method)
+       - Comparison criteria (acceptable comparators)
+       - Outcome criteria (measurement tools, timepoints)
+       - Study design criteria
+       - Publication criteria (date range, language, publication status)
+
+    3. **Design Search Strategy**
+       - Develop search strings for each database
+       - Include MeSH/controlled vocabulary AND free-text terms
+       - Document Boolean operators and field restrictions
+       - Plan for grey literature search if appropriate
+
+    4. **Create Protocol Document**
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/01-protocol.md`
+
+    The protocol document MUST include these section headers exactly:
+    - `## Research Question` with the formal PICO question
+    - `## Inclusion Criteria` with minimum 5 explicit criteria
+    - `## Exclusion Criteria` with minimum 3 explicit criteria
+    - `## Search Strategy` with exact search strings per database
+    - `## Data Extraction Variables` listing all extraction fields
+    - `## Quality Assessment` describing the assessment approach
+    - `## Synthesis Method` (narrative/meta-analysis with rationale)
+
+    ### Quality Gate:
+    The protocol must be comprehensive enough that another researcher could replicate the review.
+
+    {% elif stage == 2 %}
+    ## Phase 2: Database Search Execution
+
+    **Objective:** Execute the search strategy and document results systematically.
+
+    ### Prerequisites:
+    Read the protocol from Phase 1: `{{ workspace }}/01-protocol.md`
+
+    ### Tasks:
+
+    1. **Execute Search Strings**
+       For each database in {{ databases }}:
+       - Document the exact date/time of search
+       - Record the exact search string used
+       - Document any database-specific modifications
+       - Record total hits per database
+
+    2. **Export and Compile Results**
+       - Document citation counts per database
+       - Identify and remove duplicates
+       - Calculate duplicate rate
+
+    3. **Create Search Log**
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/02-search-log.md`
+
+    The search log MUST include:
+    - A `## Search Results` section with a table: Database | Search Date | Search String | Hits
+    - A `## Deduplication` section with: total before, duplicates found, duplicate rate (%)
+    - A `## Summary` section with total unique citations for screening
+    - Any search limitations or issues encountered
+
+    Create: `{{ workspace }}/02-citations-master.md`
+    - `## Citations` header
+    - List of all unique citations (Author, Year, Title, Source)
+    - Format suitable for screening in Phase 3
+
+    ### Quality Gate:
+    Search strings must be reproducible. Hit counts must reconcile mathematically.
+
+    {% elif stage == 3 %}
+    ## Phase 3: Title/Abstract Screening
+
+    **Objective:** Screen citations for relevance using dual-reviewer simulation with explicit reasoning.
+
+    ### Prerequisites:
+    - Protocol: `{{ workspace }}/01-protocol.md`
+    - Citations: `{{ workspace }}/02-citations-master.md`
+
+    ### Tasks:
+
+    1. **Dual-Reviewer Screening Simulation**
+       For each citation, provide TWO independent assessments:
+
+       **Reviewer A perspective:** Apply criteria strictly, document reasoning
+       **Reviewer B perspective:** Apply criteria with domain expertise, document reasoning
+
+       For each citation, record:
+       - Reviewer A decision (Include/Exclude/Uncertain)
+       - Reviewer A reasoning
+       - Reviewer B decision (Include/Exclude/Uncertain)
+       - Reviewer B reasoning
+       - Agreement status (Agree/Disagree)
+
+    2. **Document Exclusion Reasons**
+       When excluding, cite specific criterion violated:
+       - Wrong population
+       - Wrong intervention
+       - Wrong comparator
+       - Wrong outcome
+       - Wrong study design
+       - Wrong publication type
+       - Outside date range
+       - Wrong language
+
+    3. **Calculate Inter-Rater Agreement**
+       - Cohen's kappa for screening decisions
+       - Target: kappa >= {{ min_kappa }}
+
+    4. **Resolve Disagreements**
+       For any disagreements, provide:
+       - Third-reviewer adjudication rationale
+       - Final decision with justification
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/03-screening-decisions.md`
+
+    Must include:
+    - `## Screening Table` with dual-reviewer decisions for each citation
+    - `## Exclusion Reasons` with tabulated reasons
+    - `## Inter-Rater Agreement` section containing Cohen's kappa calculation (show work)
+    - `## Disagreement Resolution` log with adjudication rationale
+    - `## Advancing to Full-Text` list of citations passing screening
+
+    ### Quality Gate:
+    Inter-rater agreement must achieve kappa >= {{ min_kappa }}. All exclusions must cite specific criteria.
+
+    {% elif stage == 4 %}
+    ## Phase 4: Full-Text Review
+
+    **Objective:** Assess full eligibility of screened citations and document exclusions.
+
+    ### Prerequisites:
+    - Protocol: `{{ workspace }}/01-protocol.md`
+    - Screened citations: `{{ workspace }}/03-screening-decisions.md`
+
+    ### Tasks:
+
+    1. **Full-Text Assessment**
+       For each citation that passed screening:
+       - Assess against ALL inclusion/exclusion criteria
+       - Document which criteria are met/not met
+       - Provide final Include/Exclude decision
+
+    2. **Document Detailed Exclusion Reasons**
+       For excluded studies, document:
+       - Primary reason for exclusion
+       - Specific evidence from full text
+       - Citation for PRISMA flow diagram
+
+    3. **Create PRISMA Flow Diagram Data**
+       Track numbers at each stage:
+       - Records identified from databases
+       - Duplicates removed
+       - Records screened
+       - Records excluded at screening
+       - Reports sought for retrieval
+       - Reports not retrieved (with reasons)
+       - Reports assessed for eligibility
+       - Reports excluded (with reasons by category)
+       - Studies included in review
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/04-full-text-review.md`
+
+    Must include:
+    - `## Eligibility Decisions` for each citation
+    - `## Exclusion Details` with detailed reasons and evidence
+    - `## PRISMA Flow` with numbers at all stages
+    - `## Included Studies` final list
+    - Arithmetic verification: numbers must reconcile across all stages
+
+    ### Quality Gate:
+    PRISMA flow numbers must be arithmetically consistent. Every exclusion must have documented rationale.
+
+    {% elif stage == 5 %}
+    ## Phase 5: Data Extraction
+
+    **Objective:** Extract standardized data from included studies.
+
+    ### Prerequisites:
+    - Protocol: `{{ workspace }}/01-protocol.md`
+    - Included studies: `{{ workspace }}/04-full-text-review.md`
+
+    ### Tasks:
+
+    1. **Create Data Extraction Form**
+       Standard fields:
+       - Study identification (Authors, Year, Country)
+       - Study design and methodology
+       - Population characteristics (N, demographics, diagnosis criteria)
+       - Intervention details (type, duration, frequency, delivery)
+       - Comparator details
+       - Outcomes measured (instruments, timepoints)
+       - Key findings (effect sizes, confidence intervals, p-values)
+       - Limitations noted by authors
+
+    2. **Extract Data from Each Study**
+       - Complete extraction form for each included study
+       - Flag any missing data
+       - Note any assumptions made
+
+    3. **Create Study Characteristics Table**
+       Summary table of all included studies
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/05-data-extraction.md`
+
+    Must include:
+    - `## Extraction Template` showing the data extraction form
+    - `## Extracted Data` with completed extraction for each included study
+    - `## Study Characteristics` summary table
+    - `## Missing Data` documentation of gaps and assumptions
+
+    ### Quality Gate:
+    All included studies must have complete extraction forms. Missing data must be explicitly flagged.
+
+    {% elif stage == 6 %}
+    ## Phase 6: Quality Assessment
+
+    **Objective:** Assess risk of bias and methodological quality of included studies.
+
+    ### Prerequisites:
+    - Extracted data: `{{ workspace }}/05-data-extraction.md`
+    - Quality framework: {{ quality_framework }}
+
+    ### Tasks:
+
+    1. **Apply Quality Assessment Framework**
+       Using {{ quality_framework }}, assess each study on:
+       - Relevant quality domains for the framework
+       - Domain-level judgments with supporting evidence
+       - Overall quality rating
+
+    2. **Document Assessment Rationale**
+       For each domain judgment:
+       - Quote or cite evidence from the study
+       - Explain reasoning for judgment
+       - Note any uncertainties
+
+    3. **Create Quality Summary**
+       - Quality ratings table (all studies x all domains)
+       - Distribution of quality ratings
+       - Identify high/moderate/low quality studies
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/06-quality-assessment.md`
+
+    Must include:
+    - `## Assessment Results` with quality assessment per study using {{ quality_framework }}
+    - `## Evidence` with citations for each domain judgment
+    - `## Quality Summary` table
+    - `## Distribution` of quality ratings
+    - `## Implications` for synthesis (which studies to weight more/less)
+
+    ### Quality Gate:
+    Every quality judgment must be supported by cited evidence from the source study.
+
+    {% elif stage == 7 %}
+    ## Phase 7: Synthesis & Analysis
+
+    **Objective:** Synthesize findings across studies to answer the research question.
+
+    ### Prerequisites:
+    - Data extraction: `{{ workspace }}/05-data-extraction.md`
+    - Quality assessment: `{{ workspace }}/06-quality-assessment.md`
+
+    ### Tasks:
+
+    1. **Narrative Synthesis**
+       - Organize findings thematically
+       - Describe patterns across studies
+       - Note consistencies and inconsistencies
+       - Explain findings in light of study quality
+
+    2. **Evidence Tables**
+       Create structured evidence tables:
+       - Intervention characteristics comparison
+       - Outcome findings comparison
+       - Quality-weighted summary
+
+    3. **Meta-Analysis (if appropriate)**
+       If studies are sufficiently homogeneous:
+       - Assess statistical heterogeneity (I-squared, Q statistic)
+       - Calculate pooled effect size
+       - Conduct sensitivity analyses
+       - Create forest plot data
+
+       If meta-analysis is not appropriate:
+       - Document reasons (heterogeneity, insufficient studies)
+       - Provide vote counting or effect direction analysis
+
+    4. **Assess Certainty of Evidence**
+       Apply GRADE or equivalent:
+       - Risk of bias impact
+       - Inconsistency
+       - Indirectness
+       - Imprecision
+       - Publication bias
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/07-synthesis.md`
+
+    Must include:
+    - `## Narrative Synthesis` organized by theme/outcome
+    - `## Evidence Tables` with structured comparisons
+    - `## Quantitative Analysis` with meta-analysis results OR justification for narrative-only synthesis
+    - `## Heterogeneity` assessment
+    - `## Certainty of Evidence` rating with rationale
+    - `## Key Findings` summary (3-5 main points)
+
+    ### Quality Gate:
+    Synthesis must directly address the research question. Quality considerations must inform conclusions.
+
+    {% elif stage == 8 %}
+    ## Phase 8: Discussion, Conclusions & PRISMA Compliance
+
+    **Objective:** Complete the review with interpretation, implications, and PRISMA checklist verification.
+
+    ### Prerequisites:
+    - All previous phase outputs in `{{ workspace }}/`
+
+    ### Tasks:
+
+    1. **Interpretation of Results**
+       - Summarize main findings
+       - Explain findings in context of existing evidence
+       - Discuss clinical/practical significance
+       - Address the research question directly
+
+    2. **Limitations**
+       - Review-level limitations (search, selection, analysis)
+       - Study-level limitations (quality, heterogeneity)
+       - Evidence-level limitations (certainty, applicability)
+
+    3. **Implications**
+       - For practice/policy
+       - For future research
+
+    4. **PRISMA 2020 Checklist Verification**
+       Verify compliance with all 27 PRISMA items:
+       - Title (item 1)
+       - Abstract (item 2)
+       - Rationale (item 3)
+       - Objectives (item 4)
+       - Eligibility criteria (item 5)
+       - Information sources (item 6)
+       - Search strategy (item 7)
+       - Selection process (item 8)
+       - Data collection (item 9)
+       - Data items (item 10)
+       - Risk of bias assessment (item 11)
+       - Effect measures (item 12)
+       - Synthesis methods (item 13)
+       - Certainty assessment (item 14)
+       - Study selection results (item 15)
+       - Study characteristics (item 16)
+       - Risk of bias results (item 17)
+       - Individual study results (item 18)
+       - Synthesis results (item 19)
+       - Certainty of evidence (item 20)
+       - Discussion (item 21)
+       - Limitations (item 22)
+       - Conclusions (item 23)
+       - Registration (item 24)
+       - Support (item 25)
+       - Competing interests (item 26)
+       - Availability (item 27)
+
+    5. **Final Report Assembly**
+       Compile all sections into a complete systematic review document.
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/08-final-report.md`
+
+    Must include:
+    - `## Executive Summary` with key findings
+    - `## Discussion` section with interpretation
+    - `## Limitations` section covering review, study, and evidence levels
+    - `## Implications` for practice and research
+    - `## Conclusions` directly answering the research question
+
+    Create: `{{ workspace }}/08-prisma-checklist.md`
+
+    Must include:
+    - `## PRISMA 2020 Checklist` header
+    - All 27 PRISMA items listed
+    - `## Compliance Summary` section
+    - Compliance status for each item (Complete/Partial/N/A)
+    - Location reference for each item
+    - Overall compliance percentage (target: >=90%)
+
+    ### Quality Gate:
+    PRISMA checklist must achieve >=90% compliance. All items must have location references.
+
+    {% endif %}
+
+    ═══════════════════════════════════════════════════════════════════════════════
+    ANTI-SLOP REQUIREMENTS
+    ═══════════════════════════════════════════════════════════════════════════════
+
+    This is academic research. Quality standards are non-negotiable:
+
+    1. **Evidence-Based:** Every claim must cite sources. No unsupported assertions.
+    2. **Reproducible:** Another researcher must be able to replicate your process.
+    3. **Rigorous:** Follow PRISMA guidelines exactly. No shortcuts.
+    4. **Transparent:** Document all decisions, including uncertainties and limitations.
+    5. **Honest:** If data is insufficient or quality is low, say so explicitly.
+
+    Do NOT:
+    - Generate fictional citations or fabricated data
+    - Skip documentation of limitations
+    - Overstate certainty of findings
+    - Use vague language where specificity is required
+
+    ═══════════════════════════════════════════════════════════════════════════════
+
+  stakes: |
+    This systematic review may inform real decisions - clinical practice, policy,
+    or further research. Academic integrity and methodological rigor are essential.
+    Every phase builds on the previous; cutting corners propagates errors.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VALIDATIONS
+# Quality gates ensure each phase meets PRISMA standards before proceeding.
+# Staged: stage 1 = existence, stage 2 = structure/content, stage 3 = substance.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+validations:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 1: Protocol completeness
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/01-protocol.md"
+    description: "Protocol document must exist"
+    condition: "stage >= 1"
+    stage: 1
+
+  - type: content_contains
+    path: "{workspace}/01-protocol.md"
+    pattern: "## Research Question"
+    description: "Protocol must contain research question section"
+    condition: "stage >= 1"
+    stage: 2
+
+  - type: content_contains
+    path: "{workspace}/01-protocol.md"
+    pattern: "## Inclusion Criteria"
+    description: "Protocol must contain inclusion criteria"
+    condition: "stage >= 1"
+    stage: 2
+
+  - type: content_contains
+    path: "{workspace}/01-protocol.md"
+    pattern: "## Exclusion Criteria"
+    description: "Protocol must contain exclusion criteria"
+    condition: "stage >= 1"
+    stage: 2
+
+  - type: content_contains
+    path: "{workspace}/01-protocol.md"
+    pattern: "## Search Strategy"
+    description: "Protocol must contain search strategy"
+    condition: "stage >= 1"
+    stage: 2
+
+  - type: content_regex
+    path: "{workspace}/01-protocol.md"
+    pattern: "(?i)(inclusion|eligibility).*\\n(\\s*[-*\\d].*\\n){5,}"
+    description: "Protocol must list at least 5 inclusion criteria"
+    condition: "stage >= 1"
+    stage: 3
+
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/01-protocol.md") -ge 500'
+    description: "Protocol has substantive content (500+ words)"
+    condition: "stage >= 1"
+    stage: 3
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 2: Search documentation
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/02-search-log.md"
+    description: "Search log must exist"
+    condition: "stage >= 2"
+    stage: 1
+
+  - type: file_exists
+    path: "{workspace}/02-citations-master.md"
+    description: "Citations master list must exist"
+    condition: "stage >= 2"
+    stage: 1
+
+  - type: content_contains
+    path: "{workspace}/02-search-log.md"
+    pattern: "## Search Results"
+    description: "Search log must have results section"
+    condition: "stage >= 2"
+    stage: 2
+
+  - type: content_regex
+    path: "{workspace}/02-search-log.md"
+    pattern: "(?i)duplicat"
+    description: "Search log must document deduplication"
+    condition: "stage >= 2"
+    stage: 2
+
+  - type: content_contains
+    path: "{workspace}/02-citations-master.md"
+    pattern: "## Citations"
+    description: "Citations master must have citations section"
+    condition: "stage >= 2"
+    stage: 2
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 3: Screening with agreement metrics
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/03-screening-decisions.md"
+    description: "Screening decisions must exist"
+    condition: "stage >= 3"
+    stage: 1
+
+  - type: content_contains
+    path: "{workspace}/03-screening-decisions.md"
+    pattern: "## Screening Table"
+    description: "Screening must have decision table"
+    condition: "stage >= 3"
+    stage: 2
+
+  - type: content_contains
+    path: "{workspace}/03-screening-decisions.md"
+    pattern: "## Inter-Rater Agreement"
+    description: "Screening must have agreement section"
+    condition: "stage >= 3"
+    stage: 2
+
+  - type: content_regex
+    path: "{workspace}/03-screening-decisions.md"
+    pattern: "(?i)kappa.*[=:].*\\d+\\.\\d+"
+    description: "Screening must report Cohen's kappa with numeric value"
+    condition: "stage >= 3"
+    stage: 3
+
+  - type: content_regex
+    path: "{workspace}/03-screening-decisions.md"
+    pattern: "(?i)(include|exclude|uncertain)"
+    description: "Screening must contain reviewer decisions"
+    condition: "stage >= 3"
+    stage: 2
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 4: Full-text review with PRISMA flow
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/04-full-text-review.md"
+    description: "Full-text review must exist"
+    condition: "stage >= 4"
+    stage: 1
+
+  - type: content_contains
+    path: "{workspace}/04-full-text-review.md"
+    pattern: "## PRISMA Flow"
+    description: "Full-text review must document PRISMA flow"
+    condition: "stage >= 4"
+    stage: 2
+
+  - type: content_contains
+    path: "{workspace}/04-full-text-review.md"
+    pattern: "## Included Studies"
+    description: "Full-text review must list included studies"
+    condition: "stage >= 4"
+    stage: 2
+
+  - type: content_regex
+    path: "{workspace}/04-full-text-review.md"
+    pattern: "(?i)exclud.*\\b(population|intervention|comparator|outcome|design|date|language)\\b"
+    description: "Exclusions must cite specific criteria categories"
+    condition: "stage >= 4"
+    stage: 3
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 5: Data extraction completeness
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/05-data-extraction.md"
+    description: "Data extraction must exist"
+    condition: "stage >= 5"
+    stage: 1
+
+  - type: content_contains
+    path: "{workspace}/05-data-extraction.md"
+    pattern: "## Extraction Template"
+    description: "Data extraction must have template section"
+    condition: "stage >= 5"
+    stage: 2
+
+  - type: content_contains
+    path: "{workspace}/05-data-extraction.md"
+    pattern: "## Study Characteristics"
+    description: "Data extraction must have study characteristics"
+    condition: "stage >= 5"
+    stage: 2
+
+  - type: content_regex
+    path: "{workspace}/05-data-extraction.md"
+    pattern: "(?i)(missing data|not reported|unavailable)"
+    description: "Data extraction must flag missing data"
+    condition: "stage >= 5"
+    stage: 3
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 6: Quality assessment
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/06-quality-assessment.md"
+    description: "Quality assessment must exist"
+    condition: "stage >= 6"
+    stage: 1
+
+  - type: content_contains
+    path: "{workspace}/06-quality-assessment.md"
+    pattern: "## Assessment Results"
+    description: "Quality assessment must have results section"
+    condition: "stage >= 6"
+    stage: 2
+
+  - type: content_contains
+    path: "{workspace}/06-quality-assessment.md"
+    pattern: "## Quality Summary"
+    description: "Quality assessment must have summary table"
+    condition: "stage >= 6"
+    stage: 2
+
+  - type: content_regex
+    path: "{workspace}/06-quality-assessment.md"
+    pattern: "(?i)(high|moderate|low|serious|critical|unclear).*risk"
+    description: "Quality assessment must rate risk levels"
+    condition: "stage >= 6"
+    stage: 3
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 7: Synthesis
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/07-synthesis.md"
+    description: "Synthesis must exist"
+    condition: "stage >= 7"
+    stage: 1
+
+  - type: content_contains
+    path: "{workspace}/07-synthesis.md"
+    pattern: "## Narrative Synthesis"
+    description: "Synthesis must have narrative section"
+    condition: "stage >= 7"
+    stage: 2
+
+  - type: content_contains
+    path: "{workspace}/07-synthesis.md"
+    pattern: "## Key Findings"
+    description: "Synthesis must have key findings"
+    condition: "stage >= 7"
+    stage: 2
+
+  - type: content_contains
+    path: "{workspace}/07-synthesis.md"
+    pattern: "## Certainty of Evidence"
+    description: "Synthesis must assess certainty of evidence"
+    condition: "stage >= 7"
+    stage: 2
+
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/07-synthesis.md") -ge 800'
+    description: "Synthesis has substantive content (800+ words)"
+    condition: "stage >= 7"
+    stage: 3
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 8: Final outputs
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/08-final-report.md"
+    description: "Final report must exist"
+    condition: "stage >= 8"
+    stage: 1
+
+  - type: file_exists
+    path: "{workspace}/08-prisma-checklist.md"
+    description: "PRISMA checklist must exist"
+    condition: "stage >= 8"
+    stage: 1
+
+  - type: content_contains
+    path: "{workspace}/08-final-report.md"
+    pattern: "## Executive Summary"
+    description: "Final report must have executive summary"
+    condition: "stage >= 8"
+    stage: 2
+
+  - type: content_contains
+    path: "{workspace}/08-final-report.md"
+    pattern: "## Limitations"
+    description: "Final report must have limitations section"
+    condition: "stage >= 8"
+    stage: 2
+
+  - type: content_contains
+    path: "{workspace}/08-final-report.md"
+    pattern: "## Conclusions"
+    description: "Final report must have conclusions"
+    condition: "stage >= 8"
+    stage: 2
+
+  - type: content_contains
+    path: "{workspace}/08-prisma-checklist.md"
+    pattern: "## PRISMA 2020 Checklist"
+    description: "PRISMA checklist must have checklist section"
+    condition: "stage >= 8"
+    stage: 2
+
+  - type: content_contains
+    path: "{workspace}/08-prisma-checklist.md"
+    pattern: "## Compliance Summary"
+    description: "PRISMA checklist must have compliance summary"
+    condition: "stage >= 8"
+    stage: 2
+
+  - type: content_regex
+    path: "{workspace}/08-prisma-checklist.md"
+    pattern: "(?i)(complete|partial|n/a)"
+    description: "PRISMA checklist must document compliance status per item"
+    condition: "stage >= 8"
+    stage: 3
+
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/08-final-report.md") -ge 1000'
+    description: "Final report has substantive content (1000+ words)"
+    condition: "stage >= 8"
+    stage: 3
+
+notifications:
+  - type: desktop
+    on_events: [job_complete, job_failed, sheet_failed]
+
+state_backend: json
+pause_between_sheets_seconds: 10

@@ -1,0 +1,355 @@
+# Prelude & Cadenza Context Injection Example
+#
+# Demonstrates injecting shared context (prelude) and per-sheet context (cadenza)
+# into agent prompts via Marianne's context injection system. This is how you
+# give agents consistent background knowledge and phase-specific methodology
+# without duplicating content in your prompt template.
+#
+# Concepts taught:
+#   - Prelude: files injected into ALL sheets (shared context, conventions)
+#   - Cadenza: files injected into SPECIFIC sheets (phase-specific guidance)
+#   - Category types: `context` (background, after template) vs `skill` (methodology, before template)
+#   - How injected context shapes agent behavior across a pipeline
+#   - Seed files that ship alongside a score for reproducible execution
+#
+# Pattern: Succession Pipeline — three phases where each transforms workspace
+# state for the next. Prelude provides consistent writing conventions across
+# all phases; cadenzas provide phase-specific methodology.
+#
+# Phases:
+#   1. Research & Outline — discovers key aspects of the topic
+#      (cadenza: research methodology as skill)
+#   2. Draft — writes the documentation using research outline
+#      (prelude only: project context + writing guidelines)
+#   3. Review & Polish — evaluates draft against quality criteria
+#      (cadenza: review checklist as context)
+#
+# Setup:
+#   The workspace must contain four seed files before running:
+#     project-context.md       (prelude — injected into all sheets as context)
+#     writing-guidelines.md    (prelude — injected into all sheets as skill)
+#     research-methodology.md  (cadenza — injected into sheet 1 as skill)
+#     review-checklist.md      (cadenza — injected into sheet 3 as context)
+#
+#   Seed files are provided alongside this score. Copy them to your workspace:
+#     cp workspaces/prelude-demo-workspace/*.md /path/to/your/workspace/
+#
+# Usage:
+#   mzt validate getting-started/prelude-cadenza-example.yaml
+#   mzt run getting-started/prelude-cadenza-example.yaml
+#
+# Customize:
+#   1. Change `topic`, `audience`, and `scope` variables for your subject
+#   2. Replace project-context.md with your own project background
+#   3. Adjust writing-guidelines.md to match your team's style
+#   4. The research methodology and review checklist work for most documentation
+#
+# Output:
+#   - research-outline.md: Structured outline with key points per section
+#   - draft.md: Complete documentation with explanations and examples
+#   - review-notes.md: Review findings and checklist results
+#   - final.md: Polished final documentation ready for publication
+#
+# Sheets: 3 (one per phase, sequential)
+
+name: "prelude-cadenza-demo"
+description: "Three-stage documentation pipeline demonstrating prelude/cadenza context injection"
+
+workspace: "../workspaces/prelude-demo-workspace"
+
+instrument: claude-code
+instrument_fallbacks:
+  - anthropic_api
+
+instrument_config:
+  timeout_seconds: 600
+  skip_permissions: true
+  disable_mcp: true
+
+movements:
+  1:
+    name: "Research & Outline"
+  2:
+    name: "Draft"
+  3:
+    name: "Review & Polish"
+
+sheet:
+  size: 1
+  total_items: 3
+
+  dependencies:
+    2: [1]
+    3: [2]
+
+  # Prelude: injected into EVERY sheet's prompt.
+  # Categories control WHERE content appears:
+  #   context — background info, injected AFTER the template body
+  #   skill   — methodology/instructions, injected BEFORE the template body
+  prelude:
+    - file: "{{ workspace }}/project-context.md"
+      as: context
+    - file: "{{ workspace }}/writing-guidelines.md"
+      as: skill
+
+  # Cadenzas: injected into SPECIFIC sheets only.
+  # Key = sheet number, value = list of injection items.
+  # Sheet 1 gets research methodology; Sheet 3 gets review criteria.
+  cadenzas:
+    1:
+      - file: "{{ workspace }}/research-methodology.md"
+        as: skill
+    3:
+      - file: "{{ workspace }}/review-checklist.md"
+        as: context
+
+# Cross-sheet context: later phases see earlier phase artifacts
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 2000
+  lookback_sheets: 2
+  capture_files:
+    - "{{ workspace }}/research-outline.md"
+    - "{{ workspace }}/draft.md"
+
+prompt:
+  variables:
+    topic: "WebSocket protocol design and real-time communication patterns [CHANGE THIS: any technical topic]"
+    audience: "intermediate developers building real-time applications [CHANGE THIS: your target readers]"
+    scope: "a reference section covering core concepts, implementation patterns, and common pitfalls [CHANGE THIS: documentation scope]"
+
+  template: |
+    {% if sheet_num == 1 %}
+    # Phase 1: Research & Outline
+
+    You are researching a topic to prepare a documentation outline. The research
+    methodology has been injected via cadenza — follow its approach. The project
+    context (injected via prelude) tells you about the documentation project.
+
+    **Topic**: {{ topic }}
+    **Audience**: {{ audience }}
+    **Scope**: {{ scope }}
+
+    Investigate the topic and produce a structured outline. For each section:
+
+    1. Write a 2-3 sentence summary of what the section covers
+    2. List 2-3 key concepts or points to include
+    3. Note prerequisites the reader needs
+    4. Flag where practical examples add the most value
+
+    Write your outline to {{ workspace }}/research-outline.md:
+
+    ## Research Outline: [Topic Title]
+
+    ### Target Audience
+    [Who this is for and what they already know]
+
+    ### Section 1: [Name]
+    **Summary**: [What this section covers]
+    **Key Points**:
+    - [Point 1]
+    - [Point 2]
+    **Prerequisites**: [What the reader needs first]
+    **Examples Needed**: [Where examples help most]
+
+    ### Section 2: [Name]
+    [Same structure]
+
+    ### Section 3: [Name]
+    [Same structure]
+
+    ### Recommended Reading Order
+    [How sections build on each other]
+
+    {% elif sheet_num == 2 %}
+    # Phase 2: Draft
+
+    You are writing documentation from a research outline. The writing guidelines
+    (injected via prelude) define your style and formatting conventions — follow
+    them precisely. The project context (also via prelude) provides background.
+
+    **Topic**: {{ topic }}
+    **Audience**: {{ audience }}
+
+    {% if previous_files %}
+    ## Research Outline (from Phase 1)
+    {% for path, content in previous_files.items() %}
+    {{ content[:3000] }}
+    {% endfor %}
+    {% endif %}
+
+    Read the outline at {{ workspace }}/research-outline.md and write a complete
+    documentation draft. For each section in the outline:
+
+    1. Write clear explanations following the injected writing guidelines
+    2. Include at least one code example or practical illustration per section
+    3. Address the prerequisites and key points from the outline
+    4. Match terminology and tone to the target audience
+
+    Write the draft to {{ workspace }}/draft.md:
+
+    ## [Topic Title]
+
+    ### Overview
+    [What this document covers and why it matters to the reader]
+
+    ### [Section 1 from outline]
+    [Full content with explanations and examples]
+
+    ### [Section 2 from outline]
+    [Full content with explanations and examples]
+
+    ### [Section 3 from outline]
+    [Full content with explanations and examples]
+
+    ### Summary
+    [Key takeaways and next steps]
+
+    {% elif sheet_num == 3 %}
+    # Phase 3: Review & Polish
+
+    You are reviewing documentation against quality criteria. The review checklist
+    has been injected via cadenza — evaluate the draft against every item. The
+    writing guidelines (via prelude) define the standards to check against.
+
+    **Topic**: {{ topic }}
+    **Audience**: {{ audience }}
+
+    {% if previous_files %}
+    ## Previous Artifacts
+    {% for path, content in previous_files.items() %}
+    ### {{ path.split('/')[-1] }}
+    {{ content[:2000] }}
+    {% endfor %}
+    {% endif %}
+
+    Read these workspace files:
+    - {{ workspace }}/research-outline.md (the original plan)
+    - {{ workspace }}/draft.md (the current draft)
+
+    Using the review checklist (injected via cadenza), evaluate the draft and
+    produce a polished final version:
+
+    1. Check every criterion in the review checklist against the draft
+    2. Fix issues found: clarity, accuracy, completeness, structure
+    3. Verify content matches the outline's scope and key points
+    4. Confirm examples are correct and illustrative
+    5. Add transitions or explanatory bridges where needed
+
+    Write the final documentation to {{ workspace }}/final.md using the same
+    structure as the draft but with all review issues resolved.
+
+    Also write review notes to {{ workspace }}/review-notes.md:
+
+    ## Review Notes
+
+    ### Issues Found
+    - [Issue and resolution]
+    - [Issue and resolution]
+
+    ### Checklist Results
+    [Which criteria passed, which needed fixes]
+
+    ### Quality Assessment
+    [Overall quality rating and justification]
+    {% endif %}
+
+retry:
+  max_retries: 2
+  base_delay_seconds: 10
+
+validations:
+  # --- Phase 1: Research & Outline ---
+  - type: file_exists
+    path: "{workspace}/research-outline.md"
+    condition: "sheet_num == 1"
+    stage: 1
+    description: "Research outline exists"
+  - type: content_contains
+    path: "{workspace}/research-outline.md"
+    pattern: "### Target Audience"
+    condition: "sheet_num == 1"
+    stage: 2
+    description: "Outline identifies target audience"
+  - type: content_regex
+    path: "{workspace}/research-outline.md"
+    pattern: '### Section \d|### [A-Z][a-z]+'
+    condition: "sheet_num == 1"
+    stage: 2
+    description: "Outline has at least one content section"
+  - type: content_contains
+    path: "{workspace}/research-outline.md"
+    pattern: "Key Points"
+    condition: "sheet_num == 1"
+    stage: 2
+    description: "Outline includes key points per section"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/research-outline.md") -ge 150'
+    condition: "sheet_num == 1"
+    stage: 2
+    description: "Outline has substantive content (150+ words)"
+
+  # --- Phase 2: Draft ---
+  - type: file_exists
+    path: "{workspace}/draft.md"
+    condition: "sheet_num == 2"
+    stage: 1
+    description: "Draft file exists"
+  - type: content_contains
+    path: "{workspace}/draft.md"
+    pattern: "### Overview"
+    condition: "sheet_num == 2"
+    stage: 2
+    description: "Draft has overview section"
+  - type: content_contains
+    path: "{workspace}/draft.md"
+    pattern: "### Summary"
+    condition: "sheet_num == 2"
+    stage: 2
+    description: "Draft has summary section"
+  - type: content_regex
+    path: "{workspace}/draft.md"
+    pattern: '```\w+'
+    condition: "sheet_num == 2"
+    stage: 2
+    description: "Draft includes code examples"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/draft.md") -ge 500'
+    condition: "sheet_num == 2"
+    stage: 2
+    description: "Draft has substantive content (500+ words)"
+
+  # --- Phase 3: Review & Polish ---
+  - type: file_exists
+    path: "{workspace}/final.md"
+    condition: "sheet_num == 3"
+    stage: 1
+    description: "Final documentation exists"
+  - type: file_exists
+    path: "{workspace}/review-notes.md"
+    condition: "sheet_num == 3"
+    stage: 1
+    description: "Review notes file exists"
+  - type: content_contains
+    path: "{workspace}/review-notes.md"
+    pattern: "### Issues Found"
+    condition: "sheet_num == 3"
+    stage: 2
+    description: "Review notes document issues found"
+  - type: content_contains
+    path: "{workspace}/review-notes.md"
+    pattern: "### Checklist Results"
+    condition: "sheet_num == 3"
+    stage: 2
+    description: "Review notes include checklist results"
+  - type: content_contains
+    path: "{workspace}/review-notes.md"
+    pattern: "### Quality Assessment"
+    condition: "sheet_num == 3"
+    stage: 2
+    description: "Review notes include quality assessment"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/final.md") -ge 500'
+    condition: "sheet_num == 3"
+    stage: 2
+    description: "Final documentation has substantive content (500+ words)"

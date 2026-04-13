@@ -1,0 +1,268 @@
+# Cross-Sheet Context Passing Example
+#
+# Demonstrates how to use the cross_sheet configuration to pass context
+# between sheets in a multi-phase workflow. This is a core Marianne feature
+# for building pipelines where later stages build on earlier results.
+#
+# Pattern: Succession Pipeline — each stage transforms the workspace into
+# a state where the next stage becomes possible. Stage 1 produces research,
+# Stage 2 analyzes it, Stage 3 synthesizes both into a final deliverable.
+#
+# What this teaches:
+#   - cross_sheet.auto_capture_stdout for passing stdout between sheets
+#   - cross_sheet.capture_files for reading previous stage artifacts
+#   - previous_outputs and previous_files template variables
+#   - Conditional prompts via {% if sheet_num == N %}
+#   - Per-sheet validations with content checks
+#
+# Usage:
+#   mzt run cross-sheet-test.yaml
+#
+# Customize:
+#   Change the topic variable to research any subject. The three-stage
+#   pipeline (discover → analyze → synthesize) works for any domain.
+#
+# Output:
+#   - sheet-1-result.md: Discovery findings (3+ key facts)
+#   - sheet-2-result.md: Analysis of most significant finding
+#   - sheet-3-result.md: Final synthesis combining discovery and analysis
+
+name: "cross-sheet-example"
+description: "Demonstrates cross-sheet context passing in a three-stage research pipeline"
+
+workspace: "../workspaces/cross-sheet-workspace"
+
+instrument: claude-code
+instrument_fallbacks:
+  - anthropic_api
+
+instrument_config:
+  timeout_seconds: 300
+  skip_permissions: true
+  disable_mcp: true
+
+sheet:
+  size: 1
+  total_items: 3
+  dependencies:
+    2: [1]
+    3: [2]
+
+# Cross-sheet context configuration
+cross_sheet:
+  # Automatically include stdout from previous sheets
+  auto_capture_stdout: true
+
+  # Maximum characters per previous sheet output
+  max_output_chars: 2000
+
+  # Number of previous sheets to include (0 = all)
+  lookback_sheets: 2
+
+  # File patterns to read between sheets (Jinja2 syntax)
+  capture_files:
+    - "{{ workspace }}/sheet-{{ sheet_num - 1 }}-result.md"
+
+prompt:
+  variables:
+    topic: "the history and impact of the printing press [CHANGE THIS: any subject you want to research]"
+  template: |
+    {% if sheet_num == 1 %}
+    # Sheet 1: Discovery
+
+    Research the following topic: {{ topic }}
+
+    Find 3 interesting and specific facts about this topic. For each fact:
+    - State the fact clearly
+    - Provide context for why it matters
+    - Note any surprising or counterintuitive aspects
+
+    Write your findings to {{ workspace }}/sheet-1-result.md with the following
+    structure:
+
+    ## Discovery: [Topic Name]
+
+    ### Fact 1: [Title]
+    [Description and context]
+
+    ### Fact 2: [Title]
+    [Description and context]
+
+    ### Fact 3: [Title]
+    [Description and context]
+
+    ## Key Themes
+    [Brief note on what connects these facts]
+
+    {% elif sheet_num == 2 %}
+    # Sheet 2: Analysis
+
+    {% if previous_outputs %}
+    ## Context from Sheet 1 (stdout)
+    {{ previous_outputs[1][:500] if 1 in previous_outputs else "No output available" }}
+    {% endif %}
+
+    {% if previous_files %}
+    ## Sheet 1 Results (captured file)
+    {% for path, content in previous_files.items() %}
+    {{ content[:1500] }}
+    {% endfor %}
+    {% endif %}
+
+    Based on the facts discovered in Sheet 1, identify the MOST significant
+    finding and write a deeper analysis. Your analysis should:
+
+    1. Explain why this finding is the most significant
+    2. Explore its causes and consequences
+    3. Connect it to broader patterns or trends
+    4. Identify what questions it raises for further investigation
+
+    Write your analysis to {{ workspace }}/sheet-2-result.md with the following
+    structure:
+
+    ## Analysis: [Selected Finding]
+
+    ### Why This Matters Most
+    [Argument for significance]
+
+    ### Causes and Consequences
+    [Deeper exploration]
+
+    ### Broader Patterns
+    [Connections to wider context]
+
+    ### Open Questions
+    [What this raises for further study]
+
+    {% elif sheet_num == 3 %}
+    # Sheet 3: Synthesis
+
+    {% if previous_outputs %}
+    ## Previous Context (stdout from earlier sheets)
+    {% for sheet_no, output in previous_outputs.items() %}
+    ### From Sheet {{ sheet_no }}
+    {{ output[:300] }}
+    {% endfor %}
+    {% endif %}
+
+    Read the discovery and analysis files:
+    - {{ workspace }}/sheet-1-result.md (discovery findings)
+    - {{ workspace }}/sheet-2-result.md (deep analysis)
+
+    Create a final synthesis that:
+
+    1. Summarizes the key discoveries and the deep analysis
+    2. Identifies the single most important insight from the entire pipeline
+    3. Proposes one concrete next step or action based on the research
+    4. Reflects on what the cross-sheet pipeline revealed that a single
+       pass would have missed
+
+    Write your synthesis to {{ workspace }}/sheet-3-result.md with the following
+    structure:
+
+    ## Synthesis: [Topic]
+
+    ### Summary of Findings
+    [Integrated summary of Sheets 1 and 2]
+
+    ### Key Insight
+    [The most important takeaway]
+
+    ### Recommended Next Step
+    [One concrete action]
+
+    ### Pipeline Reflection
+    [What the multi-stage approach added]
+    {% endif %}
+
+validations:
+  # Sheet 1: Discovery validations
+  - type: file_exists
+    path: "{workspace}/sheet-1-result.md"
+    condition: "sheet_num == 1"
+    stage: 1
+    description: "Sheet 1 result file exists"
+  - type: content_contains
+    path: "{workspace}/sheet-1-result.md"
+    pattern: "### Fact 1"
+    condition: "sheet_num == 1"
+    stage: 2
+    description: "Sheet 1 has first fact section"
+  - type: content_contains
+    path: "{workspace}/sheet-1-result.md"
+    pattern: "### Fact 2"
+    condition: "sheet_num == 1"
+    stage: 2
+    description: "Sheet 1 has second fact section"
+  - type: content_contains
+    path: "{workspace}/sheet-1-result.md"
+    pattern: "### Fact 3"
+    condition: "sheet_num == 1"
+    stage: 2
+    description: "Sheet 1 has third fact section"
+  - type: content_contains
+    path: "{workspace}/sheet-1-result.md"
+    pattern: "## Key Themes"
+    condition: "sheet_num == 1"
+    stage: 2
+    description: "Sheet 1 has key themes section"
+
+  # Sheet 2: Analysis validations
+  - type: file_exists
+    path: "{workspace}/sheet-2-result.md"
+    condition: "sheet_num == 2"
+    stage: 1
+    description: "Sheet 2 result file exists"
+  - type: content_contains
+    path: "{workspace}/sheet-2-result.md"
+    pattern: "### Why This Matters Most"
+    condition: "sheet_num == 2"
+    stage: 2
+    description: "Sheet 2 has significance argument"
+  - type: content_contains
+    path: "{workspace}/sheet-2-result.md"
+    pattern: "### Broader Patterns"
+    condition: "sheet_num == 2"
+    stage: 2
+    description: "Sheet 2 has broader patterns section"
+  - type: content_contains
+    path: "{workspace}/sheet-2-result.md"
+    pattern: "### Open Questions"
+    condition: "sheet_num == 2"
+    stage: 2
+    description: "Sheet 2 has open questions section"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/sheet-2-result.md") -ge 150'
+    condition: "sheet_num == 2"
+    stage: 2
+    description: "Sheet 2 analysis has substantive content (150+ words)"
+
+  # Sheet 3: Synthesis validations
+  - type: file_exists
+    path: "{workspace}/sheet-3-result.md"
+    condition: "sheet_num == 3"
+    stage: 1
+    description: "Sheet 3 result file exists"
+  - type: content_contains
+    path: "{workspace}/sheet-3-result.md"
+    pattern: "### Key Insight"
+    condition: "sheet_num == 3"
+    stage: 2
+    description: "Sheet 3 has key insight section"
+  - type: content_contains
+    path: "{workspace}/sheet-3-result.md"
+    pattern: "### Recommended Next Step"
+    condition: "sheet_num == 3"
+    stage: 2
+    description: "Sheet 3 has recommended next step"
+  - type: content_contains
+    path: "{workspace}/sheet-3-result.md"
+    pattern: "### Pipeline Reflection"
+    condition: "sheet_num == 3"
+    stage: 2
+    description: "Sheet 3 reflects on cross-sheet pipeline value"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/sheet-3-result.md") -ge 200'
+    condition: "sheet_num == 3"
+    stage: 2
+    description: "Sheet 3 synthesis has substantive content (200+ words)"

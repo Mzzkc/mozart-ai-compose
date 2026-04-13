@@ -1,0 +1,272 @@
+# Example: API Backend — Technical Briefing Pipeline
+#
+# Demonstrates the anthropic_api instrument: direct Anthropic Messages API
+# access without needing Claude CLI installed. Useful when you need more
+# control over model parameters, want faster execution for text-only
+# prompts, or are running in an environment without Claude CLI.
+#
+# This 3-stage pipeline generates a structured technical briefing:
+#   Movement 1 — Research Outline: identify themes, questions, structure
+#   Movement 2 — Detailed Analysis: expand each theme with evidence
+#   Movement 3 — Executive Briefing: synthesize into recommendations
+#
+# The anthropic_api instrument returns pure text (no filesystem tools).
+# Stages communicate via cross_sheet context, which passes each stage's
+# captured output to the next. Output is saved to workspace log files
+# at logs/sheet-NN.stdout.log for inspection.
+#
+# Category: getting-started — Introduction to the API backend instrument
+#
+# Requirements:
+#   export ANTHROPIC_API_KEY=sk-ant-...
+#
+# Usage:
+#   mzt start
+#   mzt run examples/getting-started/api-backend.yaml
+#   mzt status api-briefing
+#
+# How to Adapt:
+#   - Change topic, audience, and focus_areas in prompt.variables
+#   - Adjust instrument_config.model for different Claude models
+#   - Modify max_tokens for longer or shorter outputs
+#
+# Output:
+#   workspaces/api-workspace/logs/
+#     sheet-01.stdout.log  — Research outline
+#     sheet-02.stdout.log  — Detailed analysis
+#     sheet-03.stdout.log  — Executive briefing
+#
+# Time: ~2 minutes  |  Cost: ~$0.10-0.30  |  Sheets: 3
+
+name: api-briefing
+description: "Technical briefing pipeline using the Anthropic API directly"
+
+workspace: ../../workspaces/api-workspace
+
+# Instrument: Anthropic Messages API — no CLI needed.
+# Falls back to claude-code if the API key is missing or unavailable.
+instrument: anthropic_api
+instrument_fallbacks: [claude-code]
+instrument_config:
+  model: claude-sonnet-4-5-20250929
+  api_key_env: ANTHROPIC_API_KEY
+  max_tokens: 4096
+  timeout_seconds: 180
+
+movements:
+  1:
+    name: "Research Outline"
+  2:
+    name: "Detailed Analysis"
+  3:
+    name: "Executive Briefing"
+
+sheet:
+  size: 1
+  total_items: 3
+  dependencies:
+    2: [1]
+    3: [2]
+
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 4000
+  lookback_sheets: 2
+
+prompt:
+  variables:
+    topic: "[CHANGE THIS: the technical subject to analyze, e.g., 'WebAssembly adoption in server-side applications']"
+    audience: "[CHANGE THIS: who will read this briefing, e.g., 'engineering leadership evaluating technology investments']"
+    focus_areas: "[CHANGE THIS: 3-5 aspects to investigate, e.g., 'performance benchmarks, ecosystem maturity, migration costs, security implications']"
+
+  template: |
+    {% if stage == 1 %}
+    ## Research Outline
+
+    You are generating a structured research outline for a technical briefing.
+
+    **Topic:** {{ topic }}
+    **Audience:** {{ audience }}
+    **Focus Areas:** {{ focus_areas }}
+
+    Produce a structured outline with:
+
+    ### Executive Context
+    Why this topic matters now. What decision does the audience face?
+
+    ### Key Themes
+    Identify 3-5 major themes derived from the focus areas. For each theme:
+    - A clear thesis statement
+    - 2-3 specific questions to investigate
+    - What evidence would strengthen or weaken the thesis
+
+    ### Risks and Unknowns
+    What could go wrong? What information gaps exist?
+
+    ### Recommended Structure
+    How the final briefing should be organized for maximum impact.
+
+    Format with clear markdown headers (## for major sections, ### for sub-sections).
+    Be specific — name technologies, cite real trade-offs, reference concrete scenarios.
+
+    {% elif stage == 2 %}
+    ## Detailed Analysis
+
+    You are expanding a research outline into a detailed technical analysis.
+
+    **Topic:** {{ topic }}
+    **Audience:** {{ audience }}
+
+    Here is the research outline from the previous stage:
+
+    ---
+    {% for sheet_id, output in previous_outputs.items() %}
+    {{ output }}
+    {% endfor %}
+    ---
+
+    For each theme identified in the outline:
+
+    1. **Analyze the thesis** — Is it supported by current evidence? Where is the
+       evidence strong, weak, or missing?
+    2. **Answer the research questions** — Provide specific, substantive answers.
+       Cite concrete examples, benchmarks, or case studies where possible.
+    3. **Evaluate trade-offs** — Every technical choice has costs. Name them explicitly.
+    4. **Identify surprises** — What did the analysis reveal that was not obvious
+       from the outline?
+
+    Format with clear markdown headers. Use ### for each theme.
+
+    End with a ## Summary of Findings section listing the 3-5 most important
+    discoveries ranked by significance to the audience.
+
+    {% elif stage == 3 %}
+    ## Executive Briefing
+
+    You are synthesizing a detailed analysis into an actionable executive briefing.
+
+    **Topic:** {{ topic }}
+    **Audience:** {{ audience }}
+
+    Here is the detailed analysis from the previous stage:
+
+    ---
+    {% for sheet_id, output in previous_outputs.items() %}
+    {{ output }}
+    {% endfor %}
+    ---
+
+    Produce a concise executive briefing with these exact sections:
+
+    ## Situation
+    What is happening and why it matters. 2-3 paragraphs maximum.
+
+    ## Key Findings
+    The 3-5 most important discoveries, each as a numbered item with:
+    - A one-sentence headline
+    - 2-3 sentences of supporting evidence
+    - Confidence level (high / moderate / low)
+
+    ## Recommendations
+    Specific, actionable recommendations ranked by priority. For each:
+    - What to do
+    - Why (link to a key finding)
+    - What it costs (time, money, complexity)
+    - What happens if you don't
+
+    ## Risks
+    Top 3 risks with likelihood and impact assessment.
+
+    ## Next Steps
+    Concrete next actions with suggested owners and timelines.
+
+    Be direct. Take positions. The audience needs decisions, not hedging.
+    {% endif %}
+
+validations:
+  # Stage 1: Research Outline — verify structure matches prompt requirements
+  - type: file_exists
+    path: "{workspace}/logs/sheet-01.stdout.log"
+    condition: "sheet_num == 1"
+    stage: 1
+    description: "Outline output was captured"
+  - type: content_contains
+    path: "{workspace}/logs/sheet-01.stdout.log"
+    pattern: "Key Themes"
+    condition: "sheet_num == 1"
+    stage: 2
+    description: "Outline has Key Themes section"
+  - type: content_regex
+    path: "{workspace}/logs/sheet-01.stdout.log"
+    pattern: "(?i)(risk|unknown)"
+    condition: "sheet_num == 1"
+    stage: 2
+    description: "Outline addresses risks or unknowns"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/logs/sheet-01.stdout.log") -ge 150'
+    condition: "sheet_num == 1"
+    stage: 2
+    description: "Outline has substantive content (150+ words)"
+
+  # Stage 2: Detailed Analysis — verify analytical depth and structure
+  - type: file_exists
+    path: "{workspace}/logs/sheet-02.stdout.log"
+    condition: "sheet_num == 2"
+    stage: 1
+    description: "Analysis output was captured"
+  - type: content_contains
+    path: "{workspace}/logs/sheet-02.stdout.log"
+    pattern: "Summary of Findings"
+    condition: "sheet_num == 2"
+    stage: 2
+    description: "Analysis has Summary of Findings section"
+  - type: content_regex
+    path: "{workspace}/logs/sheet-02.stdout.log"
+    pattern: "(?i)(trade-off|evidence|benchmark|case study)"
+    condition: "sheet_num == 2"
+    stage: 2
+    description: "Analysis contains evidence-based reasoning"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/logs/sheet-02.stdout.log") -ge 300'
+    condition: "sheet_num == 2"
+    stage: 2
+    description: "Analysis has substantive content (300+ words)"
+
+  # Stage 3: Executive Briefing — verify actionable structure
+  - type: file_exists
+    path: "{workspace}/logs/sheet-03.stdout.log"
+    condition: "sheet_num == 3"
+    stage: 1
+    description: "Briefing output was captured"
+  - type: content_contains
+    path: "{workspace}/logs/sheet-03.stdout.log"
+    pattern: "Recommendations"
+    condition: "sheet_num == 3"
+    stage: 2
+    description: "Briefing has Recommendations section"
+  - type: content_regex
+    path: "{workspace}/logs/sheet-03.stdout.log"
+    pattern: "(?i)(risk|likelihood|impact)"
+    condition: "sheet_num == 3"
+    stage: 2
+    description: "Briefing includes risk assessment"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/logs/sheet-03.stdout.log") -ge 200'
+    condition: "sheet_num == 3"
+    stage: 2
+    description: "Briefing has substantive content (200+ words)"
+
+retry:
+  max_retries: 3
+  base_delay_seconds: 5
+  exponential_base: 2.0
+
+rate_limit:
+  wait_minutes: 1
+  max_waits: 10
+  detection_patterns:
+    - "rate_limit"
+    - "429"
+    - "overloaded"
+
+state_backend: json

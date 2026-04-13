@@ -1,0 +1,505 @@
+# worktree-isolation.yaml — Parallel Code Review with Worktree Isolation
+#
+# Category: getting-started/ — First experience, minimal scores
+#
+# Demonstrates how worktree isolation enables parallel-safe code review.
+# Three expert reviewers work simultaneously in isolated git worktrees,
+# each examining your codebase from a different perspective — quality,
+# correctness, and security. Because each reviewer operates in its own
+# worktree, they can inspect and even modify code without interfering
+# with each other.
+#
+# This is the primary example for Marianne's worktree isolation feature.
+#
+#   Movement 1: Codebase Survey (1 sheet)
+#        |
+#        +----+----+----+
+#        v    v    v
+#   Movement 2 x3: Expert Reviews (3 voices, parallel in isolated worktrees)
+#        |    |    |
+#        +----+----+
+#             v
+#   Movement 3: Unified Report (1 sheet)
+#
+# Key benefits of worktree isolation:
+# - True parallel execution: Multiple agents can read/modify code without conflicts
+# - Clean validation: Each agent's changes are isolated from others
+# - Fast isolation: ~24ms overhead per worktree (negligible vs API latency)
+# - Storage efficient: Git objects are shared between worktrees
+#
+# Pattern: Fan-out + Synthesis — three expert perspectives with unified synthesis
+#
+# Usage:
+#   mzt start
+#   mzt run examples/getting-started/worktree-isolation.yaml
+#   mzt status parallel-safe-code-review
+#   cat ../../workspaces/review-workspace/03-unified-report.md
+#
+# Customization:
+#   - Set review_focus to scope the review (e.g., "the API layer")
+#   - Set language to your project's primary language
+#   - Optionally set source_dir to limit review to a subdirectory
+#   - Adjust isolation settings below for your workflow
+#
+# Output:
+#   workspaces/review-workspace/
+#     01-survey.md             — Codebase structure, hotspots, reviewer guidance
+#     02-review-quality.md     — Code quality findings
+#     02-review-bugs.md        — Bug and correctness findings
+#     02-review-security.md    — Security vulnerability findings
+#     03-unified-report.md     — Integrated report with prioritized action plan
+#
+# Time: ~5 minutes  |  Cost: ~$0.25  |  Sheets: 5
+
+name: parallel-safe-code-review
+description: "Parallel code review in isolated worktrees — three expert perspectives with unified synthesis"
+
+workspace: ../../workspaces/review-workspace
+
+instrument: claude-code
+instrument_fallbacks: [anthropic_api]
+instrument_config:
+  timeout_seconds: 600
+
+# ─── Worktree Isolation Configuration ───────────────────────────
+# When enabled, each sheet runs in an isolated git worktree. The git
+# repository is auto-detected from the score's location. Each parallel
+# reviewer gets its own copy of the codebase to inspect.
+isolation:
+  # Enable/disable isolation (default: false)
+  enabled: true
+
+  # Isolation mode — currently only 'worktree' is supported
+  mode: worktree
+
+  # Branch to base worktrees on (default: current HEAD)
+  # source_branch: main
+
+  # Remove worktree after successful completion (default: true)
+  # Set to false to inspect a successful reviewer's working state
+  cleanup_on_success: true
+
+  # Remove worktree when sheet fails (default: false)
+  # Keep false to preserve failed state for debugging
+  cleanup_on_failure: false
+
+  # Lock worktree during execution to prevent accidental removal (default: true)
+  lock_during_execution: true
+
+  # If worktree creation fails, continue without isolation (default: true)
+  # Set to false for strict mode where isolation is required
+  fallback_on_error: true
+
+# ─── Movement Declarations ──────────────────────────────────────
+movements:
+  1:
+    name: "Codebase Survey"
+  2:
+    name: "Expert Reviews"
+  3:
+    name: "Unified Report"
+
+sheet:
+  size: 1
+  total_items: 3
+  fan_out:
+    2: 3
+  dependencies:
+    2: [1]
+    3: [2]
+
+parallel:
+  enabled: true
+  max_concurrent: 3
+  stagger_delay_ms: 500
+
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 4000
+  lookback_sheets: 4
+
+retry:
+  max_retries: 1
+
+prompt:
+  variables:
+    # ─────────────────────────────────────────────────────
+    # [CHANGE THIS: describe what part of the code to review]
+    # Scope the review to a specific area. Examples:
+    #   "the HTTP API layer and request handlers"
+    #   "the authentication and authorization module"
+    #   "the data processing pipeline"
+    # ─────────────────────────────────────────────────────
+    review_focus: "[CHANGE THIS: e.g., 'the HTTP API layer', 'the authentication module']"
+
+    # [CHANGE THIS: primary language of the codebase]
+    language: "[CHANGE THIS: e.g., Python, TypeScript, Go, Rust]"
+
+    # [CHANGE THIS: subdirectory to review, or '.' for the whole repo]
+    # With worktree isolation, the agent's working directory is the
+    # worktree root. This path is relative to that root.
+    source_dir: "src"
+
+    reviewers:
+      1:
+        name: "quality"
+        title: "Code Quality Reviewer"
+        focus: "readability, maintainability, design patterns, naming, complexity"
+        instructions: |
+          Focus on code quality and maintainability:
+          - Naming clarity: Are names descriptive, consistent, and intention-revealing?
+          - Function design: Are functions focused, well-decomposed, and at consistent abstraction levels?
+          - Code duplication: Is there repeated logic that should be extracted?
+          - Complexity: Are there deeply nested conditionals, long functions, or convoluted control flow?
+          - Error handling: Are errors handled consistently and with useful context?
+          - Dead code: Is there unreachable, commented-out, or unused code?
+          - Coupling: Are modules tightly coupled where they shouldn't be?
+      2:
+        name: "bugs"
+        title: "Bug Hunter"
+        focus: "logic errors, edge cases, null safety, race conditions, resource leaks"
+        instructions: |
+          Focus on correctness and potential bugs:
+          - Logic errors: Are conditionals, loops, and boolean expressions correct?
+          - Edge cases: What happens with empty input, zero, null, max values, or unicode?
+          - Null/undefined safety: Are null dereferences guarded at boundaries?
+          - Race conditions: Is shared mutable state properly synchronized?
+          - Resource leaks: Are files, connections, locks, and handles always closed?
+          - Off-by-one errors: Are array indices, ranges, and boundaries correct?
+          - Error propagation: Do errors surface with enough context to diagnose?
+      3:
+        name: "security"
+        title: "Security Analyst"
+        focus: "injection, authentication, authorization, data exposure, input validation"
+        instructions: |
+          Focus on security vulnerabilities:
+          - Injection: SQL, command, path traversal, SSTI, or XSS vectors?
+          - Authentication: Are auth checks present, correct, and not bypassable?
+          - Authorization: Are access controls enforced at every entry point?
+          - Data exposure: Are secrets, PII, or internal details leaked in logs/errors/responses?
+          - Input validation: Is user input validated, sanitized, and bounded?
+          - Cryptography: Are secure algorithms used with proper key management?
+          - Dependencies: Are there known vulnerable packages or outdated libraries?
+
+  template: |
+    {% if stage == 1 %}
+    # Movement 1: Codebase Survey
+
+    You are working in an isolated git worktree of the repository.
+    Survey the code in the `{{ source_dir }}` directory.
+    The primary language is **{{ language }}**.
+    Review scope: **{{ review_focus }}**.
+
+    ## Your Task
+
+    Produce a structured codebase overview to guide the three expert
+    reviewers who will analyze this code in parallel.
+
+    ### 1. File Inventory
+    List every source file in scope with:
+    - Path relative to the repo root
+    - Primary purpose (1 sentence)
+    - Approximate lines of code
+    - Complexity assessment: LOW / MEDIUM / HIGH
+
+    ### 2. Architecture Overview
+    - What patterns does the code use? (MVC, layered, event-driven, etc.)
+    - What are the main entry points?
+    - How do components communicate?
+    - What are the key abstractions?
+
+    ### 3. Hotspot Analysis
+    Identify the 3-5 files or functions that are:
+    - **Most complex** — deepest nesting, longest functions, most branches
+    - **Most critical** — a bug here would be most damaging
+    - **Most coupled** — touched by many other files or modules
+
+    ### 4. Reviewer Guidance
+    For each of the three reviewers, note 2-3 specific areas to focus on:
+    - **Quality Reviewer**: Where is complexity highest? Where is naming weakest?
+    - **Bug Hunter**: Where are the riskiest logic paths? Any concurrency?
+    - **Security Analyst**: Where does user input enter? Where are trust boundaries?
+
+    Save to {{ workspace }}/01-survey.md
+
+    Print a summary to stdout: file count, total lines, top 3 hotspots.
+
+    {% elif stage == 2 %}
+    {% set reviewer = reviewers[instance] %}
+    # Movement 2, Voice {{ instance }}: {{ reviewer.title }}
+
+    You are a **{{ reviewer.title }}** working in an isolated git worktree.
+    Your perspective: **{{ reviewer.focus }}**.
+
+    ## Context
+    - Language: {{ language }}
+    - Scope: {{ review_focus }}
+    - Source directory: `{{ source_dir }}`
+    - Read {{ workspace }}/01-survey.md for the codebase overview and the
+      hotspot analysis. Pay special attention to the guidance flagged for you.
+
+    ## Review Instructions
+
+    {{ reviewer.instructions }}
+
+    Read the actual source files. Cite specific file paths and line numbers.
+    Do not rely solely on the survey — verify claims against the code.
+
+    ## Output Format
+
+    Structure your review as:
+
+    ### Summary
+    One paragraph: your overall assessment of this codebase from your perspective.
+
+    ### Findings
+    For each issue found (aim for 5-15 findings):
+
+    **[SEVERITY] Title** (CRITICAL / HIGH / MEDIUM / LOW)
+    - **File**: path/to/file.ext:line_number
+    - **Problem**: What is wrong or risky
+    - **Impact**: What could go wrong if this is not fixed
+    - **Suggestion**: Concrete fix or mitigation
+
+    ### Strengths
+    3-5 things the code does well from your perspective.
+    Good findings matter — they tell the maintainer what to preserve.
+
+    ### Verdict
+    One of: PASS | PASS WITH CONCERNS | NEEDS WORK | FAIL
+    One sentence explaining your verdict.
+
+    Save to {{ workspace }}/02-review-{{ reviewer.name }}.md
+
+    Print to stdout: verdict, finding count by severity, top concern.
+
+    {% elif stage == 3 %}
+    # Movement 3: Unified Review Report
+
+    Three expert reviewers have independently analyzed the codebase.
+    Each worked in an **isolated git worktree** — their findings are
+    truly independent, making convergent findings especially significant.
+
+    Read all previous work:
+    - {{ workspace }}/01-survey.md — Codebase overview and hotspots
+    - {{ workspace }}/02-review-quality.md — Code quality review
+    - {{ workspace }}/02-review-bugs.md — Bug and correctness review
+    - {{ workspace }}/02-review-security.md — Security review
+
+    ## Your Task
+
+    Produce a unified review report that integrates all three perspectives.
+
+    ### Executive Summary
+    3-5 bullet points: the most important findings across all reviewers.
+    What should the maintainer address FIRST?
+
+    ### Convergent Findings
+    Where did multiple reviewers independently flag the SAME file or issue?
+    These are the strongest signals — independent convergence from isolated
+    reviewers means the problem is real and visible from multiple angles.
+
+    ### Critical and High Issues
+    All CRITICAL and HIGH severity findings from all reviewers, deduplicated.
+    For each: which reviewer(s) flagged it, consolidated description, and
+    recommended fix.
+
+    ### Full Issue Register
+    A markdown table with ALL findings across all reviewers:
+    | Severity | File | Issue | Reviewer | Suggestion |
+
+    ### Strengths
+    What the code does well — aggregate from all three reviews.
+    Highlight strengths that multiple reviewers noted independently.
+
+    ### Overall Verdict
+    PASS / PASS WITH CONCERNS / NEEDS WORK / FAIL
+
+    Based on the three individual verdicts and the severity distribution
+    of findings. If any reviewer said FAIL, explain whether you concur.
+
+    ### Recommended Action Plan
+    Numbered list of fixes in priority order. Group related issues
+    affecting the same file or module. Distinguish between:
+    - **Must fix**: CRITICAL and HIGH issues
+    - **Should fix**: MEDIUM issues and convergent findings
+    - **Consider**: LOW issues and improvements
+
+    Save to {{ workspace }}/03-unified-report.md
+
+    Print to stdout: overall verdict, total finding count, top 3 priorities.
+
+    {% endif %}
+
+validations:
+  # ── Movement 1: Codebase Survey ──────────────────────────────
+  - type: file_exists
+    path: "{workspace}/01-survey.md"
+    condition: "stage == 1"
+    stage: 1
+    description: "Codebase survey file created"
+
+  - type: content_contains
+    path: "{workspace}/01-survey.md"
+    pattern: "File Inventory"
+    condition: "stage == 1"
+    stage: 2
+    description: "Survey contains file inventory"
+
+  - type: content_contains
+    path: "{workspace}/01-survey.md"
+    pattern: "Hotspot"
+    condition: "stage == 1"
+    stage: 2
+    description: "Survey contains hotspot analysis"
+
+  - type: content_contains
+    path: "{workspace}/01-survey.md"
+    pattern: "Reviewer Guidance"
+    condition: "stage == 1"
+    stage: 2
+    description: "Survey contains reviewer guidance for all three experts"
+
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/01-survey.md") -ge 150'
+    condition: "stage == 1"
+    stage: 2
+    description: "Survey has substantive content (150+ words)"
+
+  # ── Movement 2: Expert Reviews (per-instance) ───────────────
+  - type: file_exists
+    path: "{workspace}/02-review-quality.md"
+    condition: "stage == 2 and instance == 1"
+    stage: 1
+    description: "Quality review file created"
+
+  - type: content_contains
+    path: "{workspace}/02-review-quality.md"
+    pattern: "Findings"
+    condition: "stage == 2 and instance == 1"
+    stage: 2
+    description: "Quality review contains findings section"
+
+  - type: content_contains
+    path: "{workspace}/02-review-quality.md"
+    pattern: "Verdict"
+    condition: "stage == 2 and instance == 1"
+    stage: 2
+    description: "Quality review contains verdict"
+
+  - type: file_exists
+    path: "{workspace}/02-review-bugs.md"
+    condition: "stage == 2 and instance == 2"
+    stage: 1
+    description: "Bug review file created"
+
+  - type: content_contains
+    path: "{workspace}/02-review-bugs.md"
+    pattern: "Findings"
+    condition: "stage == 2 and instance == 2"
+    stage: 2
+    description: "Bug review contains findings section"
+
+  - type: content_contains
+    path: "{workspace}/02-review-bugs.md"
+    pattern: "Verdict"
+    condition: "stage == 2 and instance == 2"
+    stage: 2
+    description: "Bug review contains verdict"
+
+  - type: file_exists
+    path: "{workspace}/02-review-security.md"
+    condition: "stage == 2 and instance == 3"
+    stage: 1
+    description: "Security review file created"
+
+  - type: content_contains
+    path: "{workspace}/02-review-security.md"
+    pattern: "Findings"
+    condition: "stage == 2 and instance == 3"
+    stage: 2
+    description: "Security review contains findings section"
+
+  - type: content_contains
+    path: "{workspace}/02-review-security.md"
+    pattern: "Verdict"
+    condition: "stage == 2 and instance == 3"
+    stage: 2
+    description: "Security review contains verdict"
+
+  # Pre-synthesis gate: verify all 3 reviews exist with structure
+  - type: command_succeeds
+    command: "test $(ls {workspace}/02-review-*.md 2>/dev/null | wc -l) -ge 3"
+    condition: "stage == 3"
+    stage: 1
+    description: "All three expert review files exist before synthesis"
+
+  - type: command_succeeds
+    command: "test $(grep -l 'Verdict' {workspace}/02-review-*.md 2>/dev/null | wc -l) -ge 3"
+    condition: "stage == 3"
+    stage: 1
+    description: "All three reviews contain a Verdict section"
+
+  # ── Movement 3: Unified Report ──────────────────────────────
+  - type: file_exists
+    path: "{workspace}/03-unified-report.md"
+    condition: "stage == 3"
+    stage: 1
+    description: "Unified report file created"
+
+  - type: content_contains
+    path: "{workspace}/03-unified-report.md"
+    pattern: "Executive Summary"
+    condition: "stage == 3"
+    stage: 2
+    description: "Report contains executive summary"
+
+  - type: content_contains
+    path: "{workspace}/03-unified-report.md"
+    pattern: "Convergent Findings"
+    condition: "stage == 3"
+    stage: 2
+    description: "Report identifies convergent findings across reviewers"
+
+  - type: content_contains
+    path: "{workspace}/03-unified-report.md"
+    pattern: "Overall Verdict"
+    condition: "stage == 3"
+    stage: 2
+    description: "Report contains overall verdict"
+
+  - type: content_contains
+    path: "{workspace}/03-unified-report.md"
+    pattern: "Action Plan"
+    condition: "stage == 3"
+    stage: 2
+    description: "Report contains recommended action plan"
+
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/03-unified-report.md") -ge 400'
+    condition: "stage == 3"
+    stage: 2
+    description: "Unified report has substantive content (400+ words)"
+
+# ─── How Worktree Isolation Works ──────────────────────────────
+#
+# 1. At job start, Marianne creates a git worktree per sheet:
+#    git worktree add --detach <workspace>/.worktrees/<sheet-id> [<source_branch>]
+#
+# 2. Each sheet's backend working_directory is set to its worktree path.
+#    The three Movement 2 reviewers each get their own isolated copy.
+#
+# 3. All sheet executions happen within isolated worktrees. Agents can
+#    read, grep, and even modify code without affecting other agents.
+#
+# 4. On completion:
+#    - Success + cleanup_on_success: worktree removed
+#    - Failure + !cleanup_on_failure: worktree preserved for debugging
+#    - Paused/interrupted: worktree preserved for resume
+#
+# 5. On resume, existing worktrees are reused if they still exist.
+#
+# Without worktree isolation, the three parallel reviewers would all
+# operate in the same directory. If any reviewer modifies a file (even
+# temporarily), the others see the change. With isolation, each gets
+# a clean, independent copy of the codebase.

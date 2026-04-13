@@ -1,0 +1,404 @@
+# observability-demo.yaml — Observability Features Walkthrough
+#
+# This score demonstrates Marianne's built-in observability features by
+# running a three-movement project health check pipeline. While the score
+# works, you learn how to OBSERVE Marianne in action: structured logging,
+# state transitions, diagnostic tools, cross-sheet context passing, and
+# validation staging.
+#
+# The score does real work — scanning a project directory, assessing its
+# health across multiple dimensions, and generating an actionable report —
+# but the primary purpose is to teach observability workflows.
+#
+# Category: getting-started — Learn how to monitor and debug Marianne jobs
+#
+# Usage:
+#   mzt start                                                # Start conductor
+#   mzt run examples/getting-started/observability-demo.yaml # Run the score
+#
+#   # WHILE RUNNING — observe in real time:
+#   mzt status observability-demo           # Watch state transitions
+#   mzt logs -f                             # Tail structured logs
+#   mzt logs --level DEBUG                  # Filter by log level
+#
+#   # AFTER COMPLETION — inspect results:
+#   mzt diagnose observability-demo         # Full diagnostic report
+#   mzt errors observability-demo           # Error history (if any)
+#   mzt errors observability-demo --verbose # With stack traces
+#
+#   # INSPECT RAW STATE (JSON backend for readability):
+#   cat workspaces/observability-demo/.marianne-state.json | jq '.sheets'
+#   cat workspaces/observability-demo/.marianne-state.json | jq '.sheets."1".prompt_metrics'
+#
+# How to Adapt:
+#   - Change project_path to point at YOUR project directory
+#   - Adjust analysis_focus to highlight different health dimensions
+#   - Switch state_backend to "sqlite" for production use
+#   - Change logging.level to "INFO" for quieter output
+#
+# Output:
+#   workspaces/observability-demo/
+#     01-discovery.md    — Project structure inventory
+#     02-assessment.md   — Multi-dimensional health assessment
+#     03-report.md       — Final health report with recommendations
+#
+# What to Observe:
+#   - Structured logs with context (job_id, sheet_num, run_id)
+#   - State transitions (PENDING → RUNNING → VALIDATING → COMPLETED)
+#   - Staged validation results per sheet (coarse checks before fine checks)
+#   - Execution timing per sheet
+#   - Cross-sheet context passing (stdout from prior sheets)
+#   - Retry behavior and error classification (if failures occur)
+#   - Prompt metrics (estimated tokens, line count) in state file
+#
+# Time: ~3-5 minutes  |  Sheets: 3
+
+name: observability-demo
+description: "Project health check pipeline — learn Marianne's observability tools"
+
+workspace: ../../workspaces/observability-demo
+
+instrument: claude-code
+instrument_fallbacks: [anthropic_api]
+instrument_config:
+  timeout_seconds: 300
+
+# Movement declarations — names appear in `mzt status` output
+movements:
+  1:
+    name: "Project Discovery"
+  2:
+    name: "Health Assessment"
+  3:
+    name: "Report Generation"
+
+sheet:
+  size: 1
+  total_items: 3
+  dependencies:
+    2: [1]    # Assessment reads discovery output
+    3: [2]    # Report reads both prior outputs
+
+# Cross-sheet context: each stage sees stdout from prior stages
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 3000
+  lookback_sheets: 2
+
+# ============================================================
+# OBSERVABILITY CONFIGURATION
+# ============================================================
+# These settings maximize what you can observe during execution.
+# In production, you would typically use level: INFO and
+# state_backend: sqlite for better performance.
+
+logging:
+  level: DEBUG              # Capture all log levels for learning
+  include_context: true     # Add job_id, sheet_num to log entries
+
+# JSON state backend — lets you inspect raw state with jq
+state_backend: json
+
+# Pause between sheets — gives you time to observe state transitions
+pause_between_sheets_seconds: 5
+
+# Desktop notifications on key events
+notifications:
+  - type: desktop
+    on_events: [job_complete, job_failed, sheet_failed]
+
+# Retry configuration — observable retry behavior
+retry:
+  max_retries: 2
+  base_delay_seconds: 10
+  max_delay_seconds: 120
+  exponential_base: 2.0
+  jitter: true
+  max_completion_attempts: 2
+  completion_threshold_percent: 50.0
+
+# Rate limit handling
+rate_limit:
+  wait_minutes: 60
+  max_waits: 24
+
+prompt:
+  variables:
+    project_path: "[CHANGE THIS: absolute path to the project you want to analyze, e.g. /home/user/my-project]"
+    analysis_focus:
+      - "code organization and structure"
+      - "documentation coverage"
+      - "testing practices"
+      - "dependency management"
+    report_format: "markdown with headers, bullet points, and severity ratings"
+
+  template: |
+    {% if stage == 1 %}
+    # Movement 1: Project Discovery
+
+    Scan the project directory at `{{ project_path }}` and create a
+    comprehensive inventory of its structure. This inventory feeds the
+    health assessment in Movement 2.
+
+    ## Tasks
+
+    1. **Directory structure**: Map the top-level directory layout. List
+       every directory with a one-line description of its purpose. Skip
+       generated directories (node_modules, __pycache__, .git internals,
+       dist, build) but note their existence.
+
+    2. **Technology stack**: Identify programming languages, frameworks,
+       package managers, and build tools by examining config files
+       (package.json, pyproject.toml, Cargo.toml, go.mod, Makefile, etc.).
+
+    3. **File statistics**: Count source files by extension. Note the
+       largest files and any generated or vendored directories.
+
+    4. **Configuration inventory**: List all configuration files found —
+       dotfiles, YAML/TOML/JSON configs, CI/CD pipelines, linter configs,
+       Docker files, etc.
+
+    5. **Entry points**: Identify main entry points — executables, CLI
+       definitions, API servers, main modules, or scripts.
+
+    ## Output
+
+    Write a structured inventory to `{{ workspace }}/01-discovery.md`
+    with these exact section headers:
+
+    - `## Directory Structure` — tree-style layout with descriptions
+    - `## Technology Stack` — languages, frameworks, and tools identified
+    - `## File Statistics` — counts by type, notable files
+    - `## Configuration Files` — all configs found with their purpose
+    - `## Entry Points` — how the project is invoked or started
+
+    Be factual, thorough, and specific. Cite actual file paths. This
+    inventory is the foundation for everything that follows.
+
+    {% elif stage == 2 %}
+    # Movement 2: Health Assessment
+
+    Read the project inventory at `{{ workspace }}/01-discovery.md`, then
+    assess the project's health by examining the actual project at
+    `{{ project_path }}`.
+
+    ## Dimensions to Assess
+    {% for focus in analysis_focus %}
+    - {{ focus }}
+    {% endfor %}
+
+    ## Tasks
+
+    1. **Read the inventory** from Movement 1 to understand what you're
+       working with — the technology stack, file layout, and entry points.
+
+    2. **Examine the actual project** at `{{ project_path }}` — read
+       source files, test files, documentation, and configuration to form
+       your assessment. Don't just rely on the inventory; look at real code.
+
+    3. **Rate each dimension** using this scale:
+       - **STRONG** — exceeds common standards, well-maintained
+       - **ADEQUATE** — meets basic standards, functional
+       - **WEAK** — below standards, needs attention
+       - **MISSING** — absent or negligible
+
+       Support every rating with specific evidence: file paths, line counts,
+       concrete observations, comparisons to common practices.
+
+    4. **Identify risks** — things that could cause problems as the project
+       grows or as the team changes. Distinguish between:
+       - **HIGH**: urgent issues that could cause failures
+       - **MEDIUM**: technical debt that compounds over time
+       - **LOW**: improvements that would help but aren't pressing
+
+    ## Output
+
+    Write a structured assessment to `{{ workspace }}/02-assessment.md`
+    with these exact section headers:
+
+    - `## Summary` — one-paragraph overall health verdict
+    - `## Code Organization` — rating + evidence
+    - `## Documentation` — rating + evidence
+    - `## Testing` — rating + evidence
+    - `## Dependencies` — rating + evidence
+    - `## Risks` — prioritized list with severity (HIGH/MEDIUM/LOW)
+
+    Be specific. Cite file paths and concrete observations, not generalities.
+    A rating without evidence is not a rating.
+
+    {% elif stage == 3 %}
+    # Movement 3: Report Generation
+
+    Read both prior outputs:
+    - `{{ workspace }}/01-discovery.md` — project structure inventory
+    - `{{ workspace }}/02-assessment.md` — health assessment with ratings
+
+    Create a comprehensive, actionable health report that stands on its own.
+
+    ## Tasks
+
+    1. **Synthesize** the inventory and assessment into a coherent narrative.
+       Don't just repeat the assessment — interpret it. What story do the
+       findings tell about this project's trajectory? Where is it headed
+       if nothing changes?
+
+    2. **Build a scorecard** — a markdown table summarizing each dimension:
+
+       | Dimension | Rating | One-Line Action |
+       |-----------|--------|-----------------|
+       | ...       | ...    | ...             |
+
+    3. **Prioritize recommendations** — for each dimension rated WEAK or
+       MISSING, provide a concrete recommendation:
+       - **What to do** — specific and actionable, not vague advice
+       - **Why it matters** — consequence of inaction
+       - **Effort** — quick win / moderate / significant investment
+
+    4. **Write an executive summary** (3-5 sentences) that someone could
+       read in 30 seconds and understand the project's health.
+
+    ## Output
+
+    Write the final report to `{{ workspace }}/03-report.md` with format:
+    {{ report_format }}
+
+    Required section headers:
+    - `## Executive Summary`
+    - `## Scorecard`
+    - `## Detailed Recommendations`
+    - `## Conclusion`
+
+    The report must stand alone — useful to someone who hasn't seen the
+    raw inventory or assessment.
+    {% endif %}
+
+# ============================================================
+# VALIDATIONS — Staged for observable fail-fast behavior
+# ============================================================
+# Stage 1 validations are coarse (file exists). Stage 2 validations
+# check structure and content. Watch `mzt status` to see how staged
+# validations report results per sheet.
+
+validations:
+  # --- Movement 1: Project Discovery ---
+  - type: file_exists
+    path: "{workspace}/01-discovery.md"
+    condition: "stage == 1"
+    stage: 1
+    description: "Discovery inventory file exists"
+
+  - type: content_contains
+    path: "{workspace}/01-discovery.md"
+    pattern: "## Directory Structure"
+    condition: "stage == 1"
+    stage: 2
+    description: "Discovery has Directory Structure section"
+
+  - type: content_contains
+    path: "{workspace}/01-discovery.md"
+    pattern: "## Technology Stack"
+    condition: "stage == 1"
+    stage: 2
+    description: "Discovery has Technology Stack section"
+
+  - type: content_contains
+    path: "{workspace}/01-discovery.md"
+    pattern: "## Entry Points"
+    condition: "stage == 1"
+    stage: 2
+    description: "Discovery has Entry Points section"
+
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/01-discovery.md") -ge 200'
+    condition: "stage == 1"
+    stage: 2
+    description: "Discovery has substantive content (200+ words)"
+
+  # --- Movement 2: Health Assessment ---
+  - type: file_exists
+    path: "{workspace}/02-assessment.md"
+    condition: "stage == 2"
+    stage: 1
+    description: "Assessment file exists"
+
+  - type: content_contains
+    path: "{workspace}/02-assessment.md"
+    pattern: "## Summary"
+    condition: "stage == 2"
+    stage: 2
+    description: "Assessment has Summary section"
+
+  - type: content_regex
+    path: "{workspace}/02-assessment.md"
+    pattern: "(?i)(STRONG|ADEQUATE|WEAK|MISSING)"
+    condition: "stage == 2"
+    stage: 2
+    description: "Assessment contains health ratings"
+
+  - type: content_contains
+    path: "{workspace}/02-assessment.md"
+    pattern: "## Risks"
+    condition: "stage == 2"
+    stage: 2
+    description: "Assessment has Risks section"
+
+  - type: content_regex
+    path: "{workspace}/02-assessment.md"
+    pattern: "(?i)(HIGH|MEDIUM|LOW)"
+    condition: "stage == 2"
+    stage: 2
+    description: "Assessment has risk severity ratings"
+
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/02-assessment.md") -ge 300'
+    condition: "stage == 2"
+    stage: 2
+    description: "Assessment has substantive content (300+ words)"
+
+  # --- Movement 3: Report ---
+  - type: file_exists
+    path: "{workspace}/03-report.md"
+    condition: "stage == 3"
+    stage: 1
+    description: "Final report file exists"
+
+  - type: content_contains
+    path: "{workspace}/03-report.md"
+    pattern: "## Executive Summary"
+    condition: "stage == 3"
+    stage: 2
+    description: "Report has Executive Summary"
+
+  - type: content_contains
+    path: "{workspace}/03-report.md"
+    pattern: "## Scorecard"
+    condition: "stage == 3"
+    stage: 2
+    description: "Report has Scorecard"
+
+  - type: content_contains
+    path: "{workspace}/03-report.md"
+    pattern: "## Detailed Recommendations"
+    condition: "stage == 3"
+    stage: 2
+    description: "Report has Detailed Recommendations"
+
+  - type: content_contains
+    path: "{workspace}/03-report.md"
+    pattern: "## Conclusion"
+    condition: "stage == 3"
+    stage: 2
+    description: "Report has Conclusion"
+
+  - type: content_regex
+    path: "{workspace}/03-report.md"
+    pattern: "\\|.*\\|.*\\|"
+    condition: "stage == 3"
+    stage: 2
+    description: "Report contains scorecard table"
+
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/03-report.md") -ge 400'
+    condition: "stage == 3"
+    stage: 2
+    description: "Report has substantive content (400+ words)"

@@ -73,7 +73,7 @@ temp-scores/
 
 # Internal planning and scripts
 docs/plans/
-scripts/
+/scripts/
 
 # Marianne state files (generated during job execution)
 .marianne-state.db
@@ -107,6 +107,7 @@ site/
 
 # Flowspec (cache and generated output — config.yaml IS tracked)
 .flowspec/cache/
+.flowspec/*
 flowspec*
 
 # OS

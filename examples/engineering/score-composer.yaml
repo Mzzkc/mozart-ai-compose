@@ -1,0 +1,461 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║              SCORE COMPOSER                                                ║
+# ║                                                                            ║
+# ║  Composes implementation scores from design documents. Give it a design    ║
+# ║  doc, it produces a runnable Marianne score where each sheet is an         ║
+# ║  implementation step, validations are acceptance criteria, and running     ║
+# ║  the score IS execution.                                                   ║
+# ║                                                                            ║
+# ║  Pattern: Succession Pipeline                                              ║
+# ║                                                                            ║
+# ║  Each stage transforms the workspace substrate into a fundamentally        ║
+# ║  different artifact for the next stage:                                    ║
+# ║    Design doc (prose) → Structured analysis → Ordered tasks → Score YAML   ║
+# ║    → Validated score + report                                              ║
+# ║                                                                            ║
+# ║  This IS Succession Pipeline because each stage requires categorically     ║
+# ║  different methods (analytical reading, decomposition, code generation,    ║
+# ║  syntax validation) and each output IS the next input substrate.           ║
+# ║  NOT iteration (same method, growing detail) or fan-out (parallel work).   ║
+# ║                                                                            ║
+# ║  4 stages → 4 sheets (no fan-out, strictly sequential).                   ║
+# ║                                                                            ║
+# ║  Category: engineering — Software development workflows                    ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+#
+# Usage:
+#   1. Set `doc` to the path of your design document
+#   2. Set `output_score` to the desired output score filename
+#   3. Set `project_context` to describe your project
+#   4. Run:
+#        mzt start
+#        mzt run examples/engineering/score-composer.yaml
+#   5. Review the generated score, then: mzt run <generated-score>
+#
+# How to Adapt:
+#   - Point `doc` at any design doc, RFC, spec, or plan
+#   - Set `granularity` to "fine" for small TDD-strict tasks (2-5 min each)
+#     or "coarse" for larger units of work (10-20 min each)
+#   - Set `target_instrument` to the instrument the generated score should use
+#   - Set `target_workspace` to where the generated score should write output
+#
+# Output:
+#   - 01-analysis.md               — structured design breakdown
+#   - 02-tasks.md                  — ordered implementation tasks
+#   - <output_score>.yaml          — runnable Marianne score
+#   - <output_score>-README.md     — score documentation
+#   - 03-validation-report.md      — validation results and run instructions
+
+name: "score-composer"
+description: "Compose an implementation score from a design document using the Succession Pipeline pattern"
+
+workspace: "../workspaces/score-composer-workspace"
+
+instrument: claude-code
+instrument_fallbacks:
+  - anthropic_api
+
+instrument_config:
+  timeout_seconds: 1200
+
+# Movement declarations — names appear in `mzt status` output
+movements:
+  1:
+    name: "Design Analysis"
+  2:
+    name: "Task Decomposition"
+  3:
+    name: "Score Composition"
+  4:
+    name: "Validation & Refinement"
+
+sheet:
+  size: 1
+  total_items: 4
+  prelude:
+    - file: "{{ doc }}"
+      as: context
+  dependencies:
+    2: [1]
+    3: [2]
+    4: [3]
+
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 12000
+  lookback_sheets: 3
+  capture_files:
+    - "{{ workspace }}/*.md"
+    - "{{ workspace }}/*.yaml"
+
+retry:
+  max_retries: 2
+
+prompt:
+  variables:
+    # ─────────────────────────────────────────────────────────
+    # [CHANGE THIS] — Required. Point these at your project.
+    # ─────────────────────────────────────────────────────────
+    doc: "[CHANGE THIS: path to your design document, e.g. docs/design.md]"
+
+    output_score: "[CHANGE THIS: name for the generated score without .yaml extension, e.g. my-feature-impl]"
+
+    project_context: "[CHANGE THIS: describe your project — language, frameworks, codebase size, source layout, test directory, key conventions]"
+
+    # ─────────────────────────────────────────────────────────
+    # Optional — these have sensible defaults.
+    # ─────────────────────────────────────────────────────────
+
+    # Where the score is being composed from
+    project_root: "."
+
+    # Where should the implementation score write its code?
+    # This becomes the workspace for the GENERATED score.
+    target_workspace: "../workspaces/impl-workspace"
+
+    # What instrument should the generated score use?
+    target_instrument: "claude-code"
+
+    # How aggressive should decomposition be?
+    # "fine" = many small sheets (2-5 min each, TDD-strict)
+    # "coarse" = fewer larger sheets (10-20 min each, more autonomy)
+    granularity: "coarse"
+
+  template: |
+    {% if stage == 1 %}
+    # Movement 1: Design Analysis
+
+    A design document has been injected above as context. Read it thoroughly.
+
+    ## Project Context
+    {{ project_context }}
+
+    ## Your Task
+
+    Analyze the design and produce a structured implementation breakdown.
+
+    ### 1. Deliverables Inventory
+    List every concrete deliverable the design specifies. For each:
+    - **Name**: What it is
+    - **Type**: new_file | modify_file | new_module | config_change | test | doc_update
+    - **Path**: Exact file path (infer from project conventions if not stated)
+    - **Dependencies**: What must exist before this can be built
+    - **Complexity**: low (< 100 lines) | medium (100-300) | high (300+)
+
+    ### 2. Dependency Graph
+    Which deliverables depend on which? Draw the DAG. Identify what can be
+    parallelized and what must be sequential.
+
+    ### 3. Implementation Phases
+    Group deliverables into phases. Each phase should:
+    - Be independently testable (all tests pass after each phase)
+    - Build on the previous phase
+    - Have clear entry and exit criteria
+
+    ### 4. Risk Assessment
+    For each phase:
+    - What is the hardest part?
+    - What could block progress?
+    - What existing code will be modified (and could break)?
+
+    ### 5. Test Strategy
+    For each deliverable:
+    - What test(s) prove it works?
+    - What existing tests might break?
+    - What is the TDD sequence (test first, then implement)?
+
+    Be thorough. The next stage turns this into implementation tasks.
+
+    Save to {{ workspace }}/01-analysis.md
+
+    {% elif stage == 2 %}
+    # Movement 2: Task Decomposition
+
+    Read the design analysis at {{ workspace }}/01-analysis.md
+
+    ## Granularity: {{ granularity }}
+    {% if granularity == "fine" %}
+    Each task should be a single focused action: write one test, implement
+    one function, modify one file. 2-5 minutes of work per task. TDD-strict:
+    every implementation task is preceded by its test task.
+    {% else %}
+    Each task should be a coherent unit of work: implement a module with its
+    tests, modify a component end-to-end. 10-20 minutes per task. Tests and
+    implementation in the same task, but test-first within the task.
+    {% endif %}
+
+    ## Your Task
+
+    Decompose the phased implementation into ordered tasks. For EACH task:
+
+    ```
+    ## Task N: [Title]
+    Phase: [which phase from the analysis]
+    Depends on: [task numbers]
+    Can parallel with: [task numbers, if any]
+
+    ### Files
+    - Create: [exact paths]
+    - Modify: [exact paths with line ranges if known]
+    - Test: [exact test file paths]
+
+    ### Instructions
+    [Precise instructions for what to build. Include key design decisions,
+    expected interfaces, and patterns to follow. An engineer reading ONLY
+    this task should be able to implement it without guessing.]
+
+    ### Validation
+    [How to verify this task is done correctly. Specific commands to run,
+    files that must exist, patterns that must match. These become the
+    sheet's validation rules in the generated score.]
+
+    ### TDD Sequence
+    1. Write test: [what test, what it asserts]
+    2. Run test: [command] — expect FAIL
+    3. Implement: [what to build]
+    4. Run test: [command] — expect PASS
+    5. Run full suite: [project test command] — expect PASS
+    ```
+
+    Order tasks so that:
+    - Foundation tasks come first (config models, data structures)
+    - Each task's dependencies are satisfied by earlier tasks
+    - Parallel-safe tasks are grouped at the same dependency level
+    - Integration tasks come last
+
+    End with a task count and phase summary:
+    - Total tasks
+    - Tasks per phase
+    - Critical path (longest sequential chain)
+    - Maximum parallelism (widest fan-out)
+
+    Save to {{ workspace }}/02-tasks.md
+
+    {% elif stage == 3 %}
+    # Movement 3: Score Composition
+
+    Read the task decomposition at {{ workspace }}/02-tasks.md
+    Read the design analysis at {{ workspace }}/01-analysis.md
+
+    ## Your Task
+
+    Generate a valid Marianne score YAML file that implements the design.
+    Each task from the decomposition becomes one or more sheets.
+
+    ### Score Structure Requirements
+
+    **Name:** {{ output_score }}
+    **Workspace:** {{ target_workspace }}
+    **Instrument:** {{ target_instrument }}
+
+    **Sheet mapping:**
+    - Each task becomes one sheet (for coarse granularity)
+    - Group tasks by dependency level into stages
+    - Parallel-safe tasks at the same level use fan_out
+    - Sequential dependencies use explicit `dependencies:` config
+
+    **Prelude:**
+    - Inject the design doc as context for reference
+
+    **Per-sheet prompts must include:**
+    - Clear task instructions (from the decomposition)
+    - File paths to create/modify
+    - The TDD sequence
+    - References to previous sheet outputs where needed
+    - Instruction to run tests and verify before finishing
+
+    **Validations per sheet:**
+    - `file_exists` for every file the task creates
+    - `command_succeeds` for test commands
+    - `content_contains` / `content_regex` for structural verification
+    - Use single-brace syntax (`{{ '{' }}workspace{{ '}' }}`) in validation paths — NOT Jinja2 `{{ '{{' }} workspace {{ '}}' }}`
+
+    **Cross-sheet context:**
+    - Enable `auto_capture_stdout` so later sheets see earlier work
+    - Set appropriate `lookback_sheets` based on dependency depth
+
+    **Instrument resilience:**
+    - Include `instrument_fallbacks:` with at least one alternative
+
+    ### Critical Syntax Rules
+
+    **Jinja2 vs Python format strings — the #1 source of silent bugs:**
+    - `{{ '{{' }} workspace {{ '}}' }}` (Jinja2, double braces) in `prompt.template`
+    - `{{ '{' }}workspace{{ '}' }}` (Python, single braces) in `validations[].path` and `validations[].command`
+    - Mixing these is a runtime bug. Template engine processes prompts; Python .format() processes validations.
+
+    **Numbering rules:**
+    - `fan_out` keys and `dependencies` keys are STAGE numbers (1-indexed)
+    - `total_items` is the number of STAGES, not sheets
+    - `sheet.size: 1` always (one item per stage)
+    - Validation `condition` uses `stage == N` or `sheet_num >= N`
+    - Template variables go in `prompt.variables`, accessed as `{{ '{{' }} var {{ '}}' }}`
+
+    **Movements:**
+    - Declare `movements:` with named entries for each logical phase
+    - Movement names appear in `mzt status` output
+
+    ### Output
+
+    Write the complete, valid Marianne score to:
+    {{ workspace }}/{{ output_score }}.yaml
+
+    Also write a brief README explaining the score's structure:
+    {{ workspace }}/{{ output_score }}-README.md
+
+    {% elif stage == 4 %}
+    # Movement 4: Score Validation & Refinement
+
+    Read the generated score at {{ workspace }}/{{ output_score }}.yaml
+    Read the task decomposition at {{ workspace }}/02-tasks.md
+
+    ## Your Task
+
+    ### 1. Syntax Validation
+    Check the generated score against Marianne's requirements:
+    - Valid YAML (no syntax errors)
+    - All required fields present (name, workspace, instrument, sheet, prompt)
+    - `sheet.total_items` matches stage count
+    - `fan_out` keys reference valid stages
+    - `dependencies` reference valid stages and do not create cycles
+    - Validation paths use `{{ '{' }}workspace{{ '}' }}` not `{{ '{{' }} workspace {{ '}}' }}`
+    - Template uses `{{ '{{' }} workspace {{ '}}' }}` not `{{ '{' }}workspace{{ '}' }}`
+    - `condition` strings use `stage == N` format
+    - `cross_sheet` config is present and reasonable
+    - `instrument_fallbacks` is declared
+
+    ### 2. Completeness Check
+    Verify against the task decomposition:
+    - Every task has a corresponding sheet
+    - Every sheet has at least one validation
+    - Dependencies match the task dependency graph
+    - No orphan sheets (unreachable from the DAG)
+    - Prelude files exist or are correctly referenced
+
+    ### 3. Prompt Quality Check
+    For each sheet's prompt section:
+    - Does it give enough context to implement without guessing?
+    - Does it reference the right previous outputs?
+    - Does it include the TDD sequence?
+    - Is the output location clear?
+
+    ### 4. Fix Issues
+    If you find problems, fix them directly in the score file.
+    Write the corrected score to the same path:
+    {{ workspace }}/{{ output_score }}.yaml
+
+    ### 5. Report
+    Produce a validation report covering:
+    - Issues found and fixed
+    - Remaining concerns (if any)
+    - Recommended run command
+    - Expected execution time estimate (sheets x ~5-15 min)
+
+    Save the report to {{ workspace }}/03-validation-report.md
+
+    {% endif %}
+
+validations:
+  # ── Stage 1: Design Analysis ──────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/01-analysis.md"
+    condition: "stage == 1"
+    description: "Design analysis document exists"
+
+  - type: content_contains
+    path: "{workspace}/01-analysis.md"
+    pattern: "Deliverables"
+    condition: "stage == 1"
+    stage: 2
+    description: "Analysis contains deliverables inventory"
+
+  - type: content_contains
+    path: "{workspace}/01-analysis.md"
+    pattern: "Dependency"
+    condition: "stage == 1"
+    stage: 2
+    description: "Analysis contains dependency graph"
+
+  - type: content_contains
+    path: "{workspace}/01-analysis.md"
+    pattern: "Risk"
+    condition: "stage == 1"
+    stage: 2
+    description: "Analysis contains risk assessment"
+
+  # ── Stage 2: Task Decomposition ───────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/02-tasks.md"
+    condition: "stage == 2"
+    description: "Task decomposition document exists"
+
+  - type: content_contains
+    path: "{workspace}/02-tasks.md"
+    pattern: "## Task"
+    condition: "stage == 2"
+    stage: 2
+    description: "Tasks document contains task entries"
+
+  - type: content_contains
+    path: "{workspace}/02-tasks.md"
+    pattern: "Validation"
+    condition: "stage == 2"
+    stage: 2
+    description: "Tasks include validation criteria"
+
+  - type: content_contains
+    path: "{workspace}/02-tasks.md"
+    pattern: "Total tasks"
+    condition: "stage == 2"
+    stage: 2
+    description: "Tasks document includes summary count"
+
+  # ── Stage 3: Score Composition ────────────────────────────────────────
+  - type: command_succeeds
+    command: "ls {workspace}/*.yaml >/dev/null 2>&1"
+    condition: "stage == 3"
+    description: "Generated score YAML file exists in workspace"
+
+  - type: command_succeeds
+    command: 'grep -q "^name:" {workspace}/*.yaml'
+    condition: "stage == 3"
+    stage: 2
+    description: "Generated score has required name field"
+
+  - type: command_succeeds
+    command: 'grep -q "^instrument:" {workspace}/*.yaml'
+    condition: "stage == 3"
+    stage: 2
+    description: "Generated score has instrument declaration"
+
+  - type: command_succeeds
+    command: 'grep -q "validations:" {workspace}/*.yaml'
+    condition: "stage == 3"
+    stage: 2
+    description: "Generated score includes validation rules"
+
+  - type: command_succeeds
+    command: 'grep -q "instrument_fallbacks:" {workspace}/*.yaml'
+    condition: "stage == 3"
+    stage: 2
+    description: "Generated score has instrument fallbacks"
+
+  # ── Stage 4: Validation & Refinement ──────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/03-validation-report.md"
+    condition: "stage == 4"
+    description: "Validation report exists"
+
+  - type: content_contains
+    path: "{workspace}/03-validation-report.md"
+    pattern: "Issues"
+    condition: "stage == 4"
+    stage: 2
+    description: "Report documents issues found"
+
+  - type: content_contains
+    path: "{workspace}/03-validation-report.md"
+    pattern: "mzt run"
+    condition: "stage == 4"
+    stage: 2
+    description: "Report includes recommended run command"

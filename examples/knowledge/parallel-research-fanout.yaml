@@ -1,0 +1,225 @@
+# Example: Fan-Out Parallel Research
+# Category: knowledge/
+# Demonstrates Marianne's fan-out feature for parameterized parallel execution.
+#
+# What This Score Does:
+# Conducts multi-source research by fanning out to 3 parallel search domains
+# (academic, industry, patents), then synthesizes findings into a coherent report
+# that identifies convergent evidence, divergent claims, and research gaps.
+#
+# Patterns Used:
+# - Fan-out + Synthesis: Independent parallel research followed by cross-source synthesis
+# - Movements: Named stages for clear progress tracking in status output
+#
+# Compare with advanced/parallel-research.yaml which manually defines 3 parallel sheets.
+# This example achieves the same result with fan_out, eliminating duplication.
+#
+# Execution Flow (3 movements, 5 concrete sheets):
+#
+#   Movement 1: Setup (sheet 1)
+#        |
+#        +--------+--------+
+#        v        v        v
+#   Movement 2: Search x3 voices (sheets 2, 3, 4)   <-- fan_out: 3
+#        |        |        |
+#        +--------+--------+
+#                 v
+#   Movement 3: Synthesis (sheet 5)                  <-- fan-in: waits for ALL
+#
+# Each voice in movement 2 receives unique variables:
+#   - {{ voice }} (or {{ instance }}) = 1, 2, or 3
+#   - {{ voice_count }} (or {{ fan_count }}) = 3
+#   - {{ movement }} (or {{ stage }}) = 2
+#
+# The movements: key gives human-readable names to each movement,
+# which appear in `mzt status` output.
+#
+# How to Customize:
+# 1. Change research_topic to your domain of interest
+# 2. Modify search_domains to match your source types (keep 3 or adjust fan_out count)
+# 3. Adjust fan_out count if you need more/fewer parallel perspectives
+# 4. Update workspace path to your desired output location
+#
+# Usage:
+#   mzt validate examples/knowledge/parallel-research-fanout.yaml
+#   mzt run examples/knowledge/parallel-research-fanout.yaml
+#   mzt status fanout-research -w ../../workspaces/fanout-workspace
+#
+# Estimated Time: ~15-25 minutes (3 parallel searches + synthesis)
+# Estimated Cost: $0.50-$2.00 (depends on research depth; claude-code primary, anthropic_api fallback)
+#
+# Output:
+#   - 01-research-setup.md: Search strategy and quality criteria
+#   - 02-search-1.md, 02-search-2.md, 02-search-3.md: Domain-specific findings
+#   - 03-synthesis.md: Cross-source analysis with convergence/divergence/gaps
+
+name: "fanout-research"
+description: "Multi-source research using fan-out for parallel search"
+
+workspace: "../../workspaces/fanout-workspace"
+
+instrument: claude-code
+instrument_fallbacks: [anthropic_api]
+instrument_config:
+  timeout_seconds: 1800
+
+# Movement declarations — names appear in `mzt status` output
+movements:
+  1:
+    name: "Research Setup"
+  2:
+    name: "Parallel Search"
+  3:
+    name: "Cross-Source Synthesis"
+
+sheet:
+  size: 1
+  total_items: 3       # 3 movements (expands to 5 concrete sheets via fan-out)
+
+  # Fan-out: movement 2 runs 3 parallel voices
+  fan_out:
+    2: 3
+
+  # Movement-level dependencies (expanded automatically)
+  #   Movement 2 depends on 1  =>  sheets 2,3,4 each depend on sheet 1
+  #   Movement 3 depends on 2  =>  sheet 5 depends on sheets 2,3,4 (fan-in)
+  dependencies:
+    2: [1]
+    3: [2]
+
+parallel:
+  enabled: true
+  max_concurrent: 3
+
+retry:
+  max_retries: 2
+  base_delay_seconds: 30
+
+prompt:
+  variables:
+    research_topic: "AI code generation tools and their impact on software development productivity"
+    search_domains:
+      1: "Academic (Google Scholar, arXiv, ACM DL)"
+      2: "Industry (tech blogs, developer surveys)"
+      3: "Patents (USPTO, Google Patents)"
+
+  template: |
+    You are conducting multi-source research on: {{ research_topic }}
+    Movement {{ movement }} of {{ total_movements }} (sheet {{ sheet_num }} of {{ total_sheets }}).
+    Workspace: {{ workspace }}
+
+    {% if movement == 1 %}
+    =========================================================================
+    MOVEMENT 1: Research Setup
+    =========================================================================
+
+    Establish the research framework and search strategy.
+
+    TASKS:
+    1. Define key search terms and Boolean operators
+    2. Identify target sources for each of 3 parallel searches:
+       - Academic: Google Scholar, arXiv, ACM DL, IEEE
+       - Industry: Tech blogs, company reports, Stack Overflow surveys
+       - Patents: USPTO, Google Patents
+    3. Create quality criteria checklist
+
+    OUTPUT: Write to {{ workspace }}/01-research-setup.md
+    End with: RESEARCH_SETUP_COMPLETE
+
+    {% elif movement == 2 %}
+    =========================================================================
+    MOVEMENT 2: Search — Voice {{ voice }} of {{ voice_count }}
+    Domain: {{ search_domains[voice] }}
+    =========================================================================
+
+    NOTE: This runs in PARALLEL with {{ voice_count - 1 }} other search voices.
+
+    Read: {{ workspace }}/01-research-setup.md (for search terms)
+
+    TASKS:
+    1. Search the {{ search_domains[voice] }} domain
+    2. Extract key findings from top 10 relevant sources
+    3. Note methodologies and metrics used
+    4. Identify gaps specific to this domain
+
+    OUTPUT: Write to {{ workspace }}/02-search-{{ voice }}.md
+
+    Format each finding as:
+    ```
+    SOURCE: [citation/url]
+    TYPE: [category]
+    FINDING: [key finding]
+    RELEVANCE: [high/medium/low]
+    ```
+
+    End with: SEARCH_{{ voice }}_COMPLETE
+
+    {% elif movement == 3 %}
+    =========================================================================
+    MOVEMENT 3: Cross-Source Synthesis
+    =========================================================================
+
+    Synthesize findings from ALL {{ voice_count }} parallel searches.
+
+    Read ALL search outputs:
+    {% for i in range(1, 4) %}
+    - {{ workspace }}/02-search-{{ i }}.md
+    {% endfor %}
+
+    TASKS:
+    1. Identify CONVERGENT findings (appear in multiple domains)
+    2. Identify DIVERGENT findings (domains disagree)
+    3. Note gaps (topics covered by one domain but not others)
+    4. Assess overall evidence strength
+
+    CONVERGENCE SCORING:
+    - HIGH: Supported by all 3 domains
+    - MEDIUM: Supported by 2 of 3 domains
+    - LOW: Single domain only
+
+    OUTPUT: Write to {{ workspace }}/03-synthesis.md
+    End with: SYNTHESIS_COMPLETE
+
+    {% endif %}
+
+# Validations use movement-aware conditions
+# (both "movement" and "stage" work — they are aliases)
+validations:
+  # Movement 1: Setup
+  - type: file_exists
+    path: "{workspace}/01-research-setup.md"
+    condition: "movement == 1"
+    description: "Research setup document created"
+  - type: content_contains
+    path: "{workspace}/01-research-setup.md"
+    pattern: "RESEARCH_SETUP_COMPLETE"
+    condition: "movement == 1"
+    description: "Setup marked complete"
+
+  # Movement 2: Each search voice (condition matches all 3 voices)
+  - type: file_exists
+    path: "{workspace}/02-search-{voice}.md"
+    condition: "movement == 2"
+    description: "Search output created for this voice"
+  - type: content_regex
+    path: "{workspace}/02-search-{voice}.md"
+    pattern: "SEARCH_\\d+_COMPLETE"
+    condition: "movement == 2"
+    description: "Search marked complete"
+
+  # Movement 3: Synthesis
+  - type: file_exists
+    path: "{workspace}/03-synthesis.md"
+    condition: "movement == 3"
+    description: "Synthesis document created"
+  - type: content_contains
+    path: "{workspace}/03-synthesis.md"
+    pattern: "SYNTHESIS_COMPLETE"
+    condition: "movement == 3"
+    description: "Synthesis complete"
+
+notifications:
+  - type: desktop
+    on_events:
+      - job_complete
+      - job_failed
