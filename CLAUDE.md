@@ -105,8 +105,12 @@ Nothing goes at the top level without good reason. Every file has a home.
 | `scores/` | Scores vital to Marianne's operation | Yes |
 | `scores-internal/` | Internal dev scores (QA, evolution, etc.) | No |
 | `workspaces/` | All job workspaces | No |
-| `docs/` | Published documentation | Yes |
-| `docs/plans/` | Internal design/planning docs | No |
+| `docs/` | Published documentation + all plans/specs/guides | Yes |
+| `docs/plans/` | Design plans, organized by topic subdirectories | No |
+| `docs/specs/` | Design specifications | Yes |
+| `docs/guides/` | Methodology and reference guides | Yes |
+| `docs/handoffs/` | Session continuity documents | Yes |
+| `docs/research/` | Research findings | Yes |
 | `logs/` | Log output | No |
 | `scripts/` | Utility scripts | No |
 | `plugins/` | Musician plugin (skills, commands) | Yes |
@@ -114,7 +118,6 @@ Nothing goes at the top level without good reason. Every file has a home.
 | `.marianne/state/` | Decision log, progress tracking | Yes |
 | `memory-bank/` | Legacy session memory (archived) | No |
 | `memory-bank/legion/` | Active agent memory and identity | Yes |
-| `handoffs/` | Session handoff documents | No |
 
 **Rules:**
 - Workspaces go in `workspaces/`, not as dot-prefixed dirs at the top level.
@@ -122,10 +125,28 @@ Nothing goes at the top level without good reason. Every file has a home.
 - `examples/` scores must be clean, documented, and use relative paths — no hardcoded absolute paths.
 - `scores-internal/` is for development work and may have environment-specific paths.
 - `scores/` is for operational scores that are part of how Marianne functions.
-- Session handoff documents go in `handoffs/`. Prefix filenames with source context to avoid collisions (e.g., `grand-opus--HANDOFF.md`, `compose-system--SESSION-HANDOFF.md`).
+- Session handoff documents go in `docs/handoffs/`. Prefix filenames with source context to avoid collisions (e.g., `grand-opus--HANDOFF.md`, `compose-system--SESSION-HANDOFF.md`).
 - Don't dump YAML scores, logs, or workspace dirs at the repo root.
+- **Never `git add -f` past `.gitignore`.** If a path is gitignored, it's gitignored for a reason. Ask before force-adding.
 
 Full directory conventions: `.marianne/spec/conventions.yaml` (Repository Structure section)
+
+## Documentation Index System
+
+All documentation lives in `docs/`. A two-tier YAML index system provides discoverability:
+
+- **`docs/INDEX.yaml`** — Master navigation index. Lists all directories, files, dates,
+  and a semantic index mapping topics to locations. Read this first.
+- **`docs/<dir>/INDEX.yaml`** — Per-directory semantic index. Context about what each file
+  is, how files relate, and what's current vs completed.
+
+**Maintenance rules:**
+- When creating a new document, add it to both the top-level INDEX.yaml and the relevant
+  directory's INDEX.yaml.
+- When completing or archiving work, update the status field.
+- Session handoff documents go in `docs/handoffs/`.
+- The semantic_index in the top-level INDEX.yaml maps concepts to locations — update it
+  when adding docs that cover new topics.
 
 ## Key Files
 
