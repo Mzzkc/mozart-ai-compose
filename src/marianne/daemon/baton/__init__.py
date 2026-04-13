@@ -26,6 +26,7 @@ from marianne.daemon.baton.core import BatonCore
 from marianne.daemon.baton.events import (
     BatonEvent,
     CancelJob,
+    CircuitBreakerRecovery,
     ConfigReloaded,
     CronTick,
     DispatchRetry,
@@ -62,6 +63,7 @@ from marianne.daemon.baton.timer import TimerHandle, TimerWheel
 __all__ = [
     "BatonEvent",
     "CancelJob",
+    "CircuitBreakerRecovery",
     "ConfigReloaded",
     "CronTick",
     "DispatchRetry",

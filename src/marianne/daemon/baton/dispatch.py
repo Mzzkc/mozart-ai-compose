@@ -206,6 +206,14 @@ async def dispatch_ready(
                 else:
                     result.record_skip(f"circuit_breaker:{instrument}")
                     _skipped = True
+                    _logger.warning(
+                        "baton.dispatch.all_instruments_circuit_broken",
+                        extra={
+                            "job_id": job_id,
+                            SHEET_NUM_KEY: sheet.sheet_num,
+                            "instrument": instrument,
+                        },
+                    )
                     break
             if _skipped:
                 continue

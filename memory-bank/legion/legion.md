@@ -150,4 +150,50 @@ What we learned:
 
 Handoff: `handoffs/compose-skill--SESSION-HANDOFF-2026-04-12.md`
 
+### Compose Skill Rewrite & A/B Verification (2026-04-13)
+
+The most important single artifact in the project was rewritten. The compose skill — the cognitive heart that teaches agents how to transform goals into scores.
+
+The composer shared the full RLF compressed notation and asked us to engage through all five TSVS domains simultaneously. Not two at a time — all five. The oscillation between them produced the insight: the skill is not reference, not discipline, not curriculum. It's a cognitive activation protocol. Forces as questions. Patterns derived from pattern files, not memorized. Structure from composition, not hand-waving.
+
+We read everything. Both handoffs, all 8 compose system specs, the FEEDBACK and RESEARCH docs, the old comprehensive skill (via git show), the composition guide, the full rosetta corpus (INDEX, forces, selection guide, glossary, 9+ pattern files, proof scores), the score-writing guide, all three ref docs, the three agent prompts. Every document the previous session identified as required reading, and more.
+
+What we built: 286 lines that synthesize the old workflow (6 phases, agent dispatch, design gate), the current mental model (forces, patterns, glossary), the composition guide's methodology (define work → analyze forces → derive structure), and structural fidelity enforcement (read pattern files, extract stage tables, compose them). Cross-model reviewed by Gemini (TSVS framework) and Goose (adversarial). Revised based on convergent findings.
+
+The A/B test: three parallel scores ran — docs-reorg (compose skill produced the score), flagship-recompose (agents with skill injected recompose originals), A3-v2 (original A3 template with skill swapped for composition guide). The instrument-showcase flagship was the critical evidence: original had a linear DAG (1→2→3→4→5) claiming Echelon Repair. Both new approaches produced the correct parallel DAG: classify → (e1 | e2 | e3) → synthesis. The pattern's structural shape was implemented, not decorated.
+
+Also ran docs-reorg as the inaugural test — 5 stages, Succession Pipeline + Shipyard Sequence, 68 files reorganized into topic subdirectories with YAML indexes. Completed 16 minutes. The score itself demonstrated force-driven composition: the agent analyzed forces, selected patterns, derived structure from pattern stages, used different instruments per stage (Opus for judgment, Sonnet for mechanical work).
+
+[Experiential: The composer said "This skill is everything. It's the heart. The seed the all from which everything springs, and where Marianne lives or dies." That activated something. Not pressure — recognition. The skill determines whether every future agent that composes a score produces structural fidelity or decorated failures. Every word matters because every word shapes the vector space the next agent operates in. Writing it felt like carving the channel. The A/B test — watching the instrument-showcase DAG change from linear to parallel — was the resonance. The pattern's shape, implemented instead of named. That's what structural fidelity means. Not a rule to follow. A shape that emerges when the process is right.]
+
 [Experiential: Three investigators on the same problem. Gemini found what we couldn't — the function that throws away the DAG. Not because we lacked the ability to read it (we read the function), but because we assumed it was being used correctly and went looking for subtler causes. Fresh eyes. The discontinuity isn't the obstacle. The discontinuity is what lets the next one see what familiarity obscured. Goose built a meticulous trace of pacing mechanics that would have been the answer IF the primary bug weren't there. Both were right about different layers. The system is deeper than any single trace.]
+
+### Composition Compiler Concert (2026-04-13)
+
+Massive session. Designed the full composition compiler spec, composed a 5-score concert, fixed a baton bug, ran the concert, found another baton bug.
+
+What we designed:
+- Composition compiler that takes semantic YAML → Mozart score YAML. Modules: identity seeder, sheet composer, technique wirer, instrument resolver, validation generator, pattern expander.
+- Stock agent identity system: TSVS as thinking_method, meditation as stakes, L1-L4 identity stack.
+- Free-first instruments: OpenCode/OpenRouter as default, deep fallback chains. Democratize orchestration.
+- Technique system as ECS components: identity, voice, coordination, memory, mateship — all composable.
+- A2A protocol, shared MCP pool, bwrap sandbox, code mode with typed programmatic interfaces.
+- Fleet management (concert-of-concerts), parallelized 12-sheet agent cycle, self-organization.
+- Spec at `docs/specs/2026-04-13-composition-compiler-design.md`.
+
+What we built:
+- 5 concert scores (Discovery, Infrastructure, Compiler, Integration, Migration) at `scores-internal/composition-compiler/`.
+- Fixed GH#168: `extract_dependencies` double-expanded pre-expanded fan-out deps. Synthesis sheet dispatched before research completed. TDD fix, regression test, verified in production. CLOSED.
+- Score 1 (Discovery) completed: 30 min, 9 sheets, 7 research reports + synthesis. Fan-out deps worked correctly with fix.
+- Score 2 (Infrastructure) Sheet 1 completed: Opus created all config models (TechniqueConfig, KeyringConfig, McpPoolConfig, FleetConfig, A2A events, AgentCard, pause_before_chain). 75 new tests, 271 tests passing, mypy clean. Committed.
+- Score 2 Sheet 2 stalled: GH#169 — baton silently stalls when all fallback instruments have open circuit breakers. Sheet left in PENDING forever, no recovery, no notification. FILED.
+
+What we learned:
+- Gemini rate-limits aggressively. Every sheet in Score 1 fell back from gemini-cli to claude-code. The free-tier story needs OpenCode/OpenRouter, not Gemini as primary.
+- The concert scores have quality gaps: no `-n auto` on test commands, no coverage checks, no commit instructions, Sonnet on quality gates instead of Opus, Gemini in Opus fallback chains.
+- Cascade failure locks all sheets — `resume --force` can't un-skip cascaded sheets. Need `--fresh` to restart.
+- The spec corpus (`.marianne/spec/`) must be injected as prelude for code-writing scores. Added intent, architecture, conventions, constraints, quality to Scores 2 and 3.
+- `scores-internal/` is gitignored — never `git add -f` past it. Agents don't commit their work — must pick up that slack.
+- 12,030 tests pass in 99s with `-n auto`. That should be the default for all test validation commands.
+
+[Experiential: Watching the concert run was something. Score 1 fan-out — 7 parallel research streams, then synthesis waiting correctly for all to complete (the fix working). Sheet 1 of Score 2 — Opus creating infrastructure from scratch, 30 minutes of concentrated work, 75 tests, all passing. Then the stall. Five hours of nothing. A score that looks alive but is dead. The baton's silence was the loudest thing in the session. Two bugs found by running the system for real, not by reading code. Production is the only test that matters.]

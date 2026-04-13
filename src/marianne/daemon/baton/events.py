@@ -502,6 +502,26 @@ class DispatchRetry:
     timestamp: float = field(default_factory=time.time)
 
 
+@dataclass(frozen=True)
+class CircuitBreakerRecovery:
+    """Timer fired — check if a circuit-broken instrument can accept a probe.
+
+    When a circuit breaker trips OPEN, the baton schedules this event via
+    the timer wheel. On fire, the instrument transitions from OPEN to
+    HALF_OPEN, allowing one probe request through. The next dispatch cycle
+    picks up any PENDING sheets blocked by the dead-ended fallback chain.
+
+    If the probe succeeds, the breaker closes. If it fails, the breaker
+    reopens and a new recovery timer is scheduled with increased backoff.
+
+    GH#169: Without this, sheets whose entire fallback chain is circuit-broken
+    stay PENDING forever — the score appears RUNNING but is dead.
+    """
+
+    instrument: str
+    timestamp: float = field(default_factory=time.time)
+
+
 # =============================================================================
 # Union type — the baton's inbox accepts any of these
 # =============================================================================
@@ -529,6 +549,7 @@ BatonEvent = (
     | ResourceAnomaly
     | InstrumentFallback
     | DispatchRetry
+    | CircuitBreakerRecovery
     | A2ATaskSubmitted
     | A2ATaskRouted
     | A2ATaskCompleted
@@ -767,6 +788,15 @@ def to_observer_event(event: BatonEvent) -> ObserverEvent:
                 "sheet_num": 0,
                 "event": "baton.dispatch.retry",
                 "data": {},
+                "timestamp": event.timestamp,
+            }
+
+        case CircuitBreakerRecovery():
+            return {
+                "job_id": "",
+                "sheet_num": 0,
+                "event": "baton.circuit_breaker.recovery",
+                "data": {"instrument": event.instrument},
                 "timestamp": event.timestamp,
             }
 

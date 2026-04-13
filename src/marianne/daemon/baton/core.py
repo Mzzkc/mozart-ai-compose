@@ -34,6 +34,7 @@ from marianne.core.logging import get_logger
 from marianne.daemon.baton.events import (
     BatonEvent,
     CancelJob,
+    CircuitBreakerRecovery,
     ConfigReloaded,
     CronTick,
     DispatchRetry,
@@ -145,6 +146,13 @@ class BatonCore:
         # Without this, stale timers fire prematurely and cause wasted
         # dispatch→rate_limit→WAITING cycles.
         self._rate_limit_timers: dict[str, Any] = {}
+
+        # Active circuit breaker recovery timer handles per instrument.
+        # When a circuit breaker trips OPEN, a recovery timer is scheduled.
+        # On fire, the instrument transitions OPEN→HALF_OPEN for a probe.
+        # GH#169: Without this, sheets blocked by all-OPEN fallback chains
+        # stay PENDING forever.
+        self._circuit_breaker_timers: dict[str, Any] = {}
 
         # Fallback event collection — side effects of event processing.
         # The adapter drains these after each event cycle and publishes
@@ -372,10 +380,85 @@ class BatonCore:
             inst.record_success()
 
     def _update_instrument_on_failure(self, instrument_name: str) -> None:
-        """Record a failed execution on an instrument."""
+        """Record a failed execution on an instrument.
+
+        If the failure trips the circuit breaker (CLOSED→OPEN or
+        HALF_OPEN→OPEN), schedules a recovery timer so the breaker
+        can probe again after a backoff delay. GH#169.
+        """
         inst = self._instruments.get(instrument_name)
         if inst is not None:
+            was_not_open = inst.circuit_breaker != CircuitBreakerState.OPEN
             inst.record_failure()
+            if was_not_open and inst.circuit_breaker == CircuitBreakerState.OPEN:
+                self._schedule_circuit_breaker_recovery(instrument_name, inst)
+
+    def _schedule_circuit_breaker_recovery(
+        self, instrument_name: str, inst: InstrumentState
+    ) -> None:
+        """Schedule a timer to probe a circuit-broken instrument.
+
+        Uses exponential backoff: 30s base, doubles per failure beyond
+        the threshold, capped at 300s. Mirrors the rate limit timer
+        pattern (schedule → fire → recover → dispatch).
+
+        GH#169: Without this, an instrument stuck in OPEN blocks all
+        sheets targeting it forever.
+        """
+        excess = max(0, inst.consecutive_failures - inst.circuit_breaker_threshold)
+        delay = min(30.0 * (2 ** excess), 300.0)
+        inst.circuit_breaker_recovery_at = time.monotonic() + delay
+
+        if self._timer is not None:
+            # Cancel any existing recovery timer for this instrument
+            old_handle = self._circuit_breaker_timers.pop(instrument_name, None)
+            if old_handle is not None:
+                self._timer.cancel(old_handle)
+
+            event = CircuitBreakerRecovery(instrument=instrument_name)
+            handle = self._timer.schedule(delay, event)
+            self._circuit_breaker_timers[instrument_name] = handle
+            _logger.info(
+                "baton.circuit_breaker.recovery_scheduled",
+                extra={
+                    "instrument": instrument_name,
+                    "delay_seconds": delay,
+                    "consecutive_failures": inst.consecutive_failures,
+                },
+            )
+
+    def _handle_circuit_breaker_recovery(
+        self, event: CircuitBreakerRecovery
+    ) -> None:
+        """Timer fired — transition instrument from OPEN to HALF_OPEN.
+
+        HALF_OPEN allows one probe request through. If it succeeds,
+        the breaker closes. If it fails, it reopens with a longer
+        backoff (handled by _update_instrument_on_failure).
+
+        The dispatch cycle runs after every event, so PENDING sheets
+        blocked by this instrument will be picked up automatically.
+        """
+        # Clean up timer handle
+        self._circuit_breaker_timers.pop(event.instrument, None)
+
+        inst = self._instruments.get(event.instrument)
+        if inst is None:
+            return
+
+        if inst.circuit_breaker != CircuitBreakerState.OPEN:
+            return  # Already recovered via another path
+
+        inst.circuit_breaker = CircuitBreakerState.HALF_OPEN
+        inst.circuit_breaker_recovery_at = None
+        self._state_dirty = True
+        _logger.info(
+            "baton.circuit_breaker.half_open",
+            extra={
+                "instrument": event.instrument,
+                "consecutive_failures": inst.consecutive_failures,
+            },
+        )
 
     def _check_job_cost_limit(self, job_id: str) -> None:
         """Check if a job has exceeded its cost limit and pause if so."""
@@ -981,6 +1064,9 @@ class BatonCore:
                 # === Internal events ===
                 case DispatchRetry():
                     pass  # Dispatch retry — _dispatch_ready handles this
+
+                case CircuitBreakerRecovery():
+                    self._handle_circuit_breaker_recovery(event)
 
                 case _:
                     _logger.warning(
