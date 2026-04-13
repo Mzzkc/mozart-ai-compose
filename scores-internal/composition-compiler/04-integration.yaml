@@ -1,0 +1,307 @@
+# 04-integration.yaml — End-to-End Integration Validation
+#
+# Concert: Composition Compiler Build (Score 4 of 5)
+# Patterns: Canary Probe + Commissioning Cascade
+# Forces: Progressive Commitment, Partial Failure
+#
+# Problem: The compiler and infrastructure work in unit tests but
+# haven't been validated end-to-end with real agents running real cycles.
+# Test with a small subset before committing to full migration.
+#
+# Structure (7 sheets, sequential):
+#   Bootstrap subset → Generate scores → Run cycle → Verify coordination →
+#   Verify A2A → Verify code mode → Full regression
+
+name: cc-integration
+description: "End-to-end validation — bootstrap agents, run cycles, verify coordination"
+
+workspace: /home/emzi/Projects/marianne-ai-compose/workspaces/composition-compiler-build
+
+instrument: claude-code
+instrument_fallbacks: [gemini-cli]
+instrument_config:
+  timeout_seconds: 3600
+  skip_permissions: true
+  disable_mcp: true
+
+instruments:
+  orchestrator:
+    profile: claude-code
+    config:
+      timeout_seconds: 3600
+      model: claude-opus-4-6
+      skip_permissions: true
+      disable_mcp: true
+  verifier:
+    profile: claude-code
+    config:
+      timeout_seconds: 3600
+      skip_permissions: true
+      disable_mcp: true
+  gate:
+    profile: claude-code
+    config:
+      timeout_seconds: 900
+      skip_permissions: true
+      disable_mcp: true
+
+movements:
+  1:
+    name: "Bootstrap Identities"
+    instrument: orchestrator
+  2:
+    name: "Generate Scores"
+    instrument: orchestrator
+  3:
+    name: "Run Canary Cycle"
+    instrument: verifier
+  4:
+    name: "Verify Self-Chaining & Artifacts"
+    instrument: verifier
+  5:
+    name: "Verify A2A"
+    instrument: verifier
+  6:
+    name: "Verify Code Mode"
+    instrument: verifier
+  7:
+    name: "Full Regression"
+    instrument: gate
+
+sheet:
+  size: 1
+  total_items: 7
+  dependencies:
+    2: [1]
+    3: [2]
+    4: [3]
+    5: [3]
+    6: [3]
+    7: [4, 5, 6]
+
+parallel:
+  enabled: true
+  max_concurrent: 3
+
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 8000
+  lookback_sheets: 6
+
+retry:
+  max_retries: 2
+  base_delay_seconds: 60
+
+rate_limit:
+  wait_minutes: 5
+  max_waits: 24
+
+stale_detection:
+  enabled: true
+  idle_timeout_seconds: 1800
+
+prompt:
+  variables:
+    project_root: /home/emzi/Projects/marianne-ai-compose
+    src: /home/emzi/Projects/marianne-ai-compose/src/marianne
+    tests: /home/emzi/Projects/marianne-ai-compose/tests
+    v3_workspace: /home/emzi/Projects/marianne-ai-compose/workspaces/v1-beta-v3
+    canary_agents:
+      - name: canyon
+        voice: "Structure persists beyond the builder. I trace boundaries."
+        focus: systems architecture
+      - name: forge
+        voice: "The anvil remembers the shape. Craft under pressure."
+        focus: implementation craftsmanship
+      - name: sentinel
+        voice: "Absence of findings is proof of safe patterns becoming culture."
+        focus: security auditing
+
+  template: |
+    {% if stage == 1 %}
+    # Sheet 1: Bootstrap Canary Agent Identities
+
+    Use the composition compiler to bootstrap identities for a small
+    subset of agents, seeded from their v3 orchestra memories.
+
+    ## Canary Agents
+    {% for agent in canary_agents %}
+    - **{{ agent.name }}**: {{ agent.voice }} (focus: {{ agent.focus }})
+    {% endfor %}
+
+    ## Steps
+    1. Create a minimal compiler config for these agents with:
+       - Default free-tier instruments (OpenRouter via OpenCode)
+       - Basic techniques (memory-protocol, mateship, coordination)
+       - Standard parallel phases
+    2. Run the identity seeder with migration input:
+       - Existing memories: {{ v3_workspace }}/memory/{agent}.md
+       - Existing meditations: {{ v3_workspace }}/meditations/{agent}.md
+    3. Verify identity directories created at ~/.mzt/agents/{name}/
+
+    Write config to {{ workspace }}/canary-config.yaml
+    Write bootstrap report to {{ workspace }}/bootstrap-report.md
+
+    {% elif stage == 2 %}
+    # Sheet 2: Generate Canary Agent Scores
+
+    Use the composition compiler to generate scores for the canary agents.
+
+    ## Steps
+    1. Run: `mzt compose --config {{ workspace }}/canary-config.yaml --output {{ workspace }}/canary-scores/`
+    2. Validate each generated score individually:
+       `for f in {{ workspace }}/canary-scores/*.yaml; do mzt validate "$f"; done`
+    3. Verify each score has:
+       - 12 sheets (correct cycle structure)
+       - Correct fan-out in phases 2 and 3
+       - Per-sheet instrument assignments
+       - Deep fallback chains
+       - stakes and thinking_method set
+       - Technique manifests in cadenzas
+
+    Write generation report to {{ workspace }}/generation-report.md
+
+    {% elif stage == 3 %}
+    # Sheet 3: Run Canary Cycle
+
+    Launch the canary agents and let them run ONE complete cycle.
+
+    ## Steps
+    1. Start the conductor if not running: `mzt start`
+    2. Submit each canary score:
+       {% for agent in canary_agents %}
+       `mzt run {{ workspace }}/canary-scores/cc-integration-{{ agent.name }}.yaml`
+       {% endfor %}
+    3. Monitor until all complete one cycle (check via `mzt status`)
+    4. Capture: execution logs, sheet results, workspace artifacts
+
+    ## What to Watch For
+    - Do sheets execute in the correct order?
+    - Do parallel phases (2 and 3) actually run concurrently?
+    - Do fallback chains activate when needed?
+    - Do CLI instrument sheets (temperature check, maturity check) work?
+    - Does self-chaining trigger (but we want to pause after 1 cycle)?
+
+    Write execution report to {{ workspace }}/canary-execution.md
+
+    {% elif stage == 4 %}
+    # Sheet 4: Verify Self-Chaining, Artifacts, Memory
+
+    Check that the canary cycle produced correct outputs.
+
+    ## Verify
+    1. **Workspace artifacts** — do shared/active/, agents/{name}/cycle-state/,
+       collective/ directories have content?
+    2. **Memory consolidation** — did the consolidate phase update recent.md?
+    3. **Identity evolution** — did resurrect update identity.md/profile.yaml?
+    4. **Self-chaining** — did the on_success trigger (or pause_before_chain hold)?
+    5. **Shared artifact curation** — did agents write to shared/active/?
+    6. **Claim-before-work** — do plan files exist showing claimed work?
+
+    Write verification report to {{ workspace }}/verify-artifacts.md
+
+    {% elif stage == 5 %}
+    # Sheet 5: Verify A2A Delegation
+
+    Test agent-to-agent task delegation between running canary agents.
+
+    ## Verify
+    1. Agent cards registered with conductor
+    2. Agents can discover each other (technique manifest shows running agents)
+    3. A task delegation from one agent reaches another's inbox
+    4. The target agent processes the delegated task
+    5. Results flow back to the requesting agent
+
+    If A2A isn't fully wired yet, document what works and what doesn't.
+    This is a canary — partial results are expected and informative.
+
+    Write A2A verification report to {{ workspace }}/verify-a2a.md
+
+    {% elif stage == 6 %}
+    # Sheet 6: Verify Code Mode with Free-Tier Models
+
+    Test that agents using OpenCode with OpenRouter free models can
+    execute code against the programmatic interface.
+
+    ## Verify
+    1. Agent generates code blocks in output
+    2. Technique router detects code blocks
+    3. Code executes in sandbox (or sandbox fallback)
+    4. Results inject back into sheet output
+    5. Free model (MiniMax 2.5 or similar) can reliably produce executable code
+
+    If code mode isn't fully wired, document what works and what doesn't.
+
+    Write code mode verification report to {{ workspace }}/verify-codemode.md
+
+    {% elif stage == 7 %}
+    # Sheet 7: Full Regression
+
+    cd {{ project_root }}
+
+    ## Run
+    python -m pytest {{ tests }}/ -x -q --timeout=300
+    python -m mypy {{ src }}/ --strict
+    ruff check {{ src }}/
+
+    ## Verify Integration Didn't Break Anything
+    - All pre-existing tests pass
+    - No type errors introduced
+    - No lint violations
+
+    Write results to {{ workspace }}/integration-regression.md
+    {% endif %}
+
+validations:
+  # Bootstrap
+  - type: file_exists
+    path: "{workspace}/canary-config.yaml"
+    condition: "stage == 1"
+  - type: file_exists
+    path: "{workspace}/bootstrap-report.md"
+    condition: "stage == 1"
+
+  # Score generation
+  - type: file_exists
+    path: "{workspace}/generation-report.md"
+    condition: "stage == 2"
+  - type: command_succeeds
+    command: 'test $(ls {workspace}/canary-scores/*.yaml 2>/dev/null | wc -l) -ge 3'
+    condition: "stage == 2"
+    description: "At least 3 canary scores generated"
+
+  # Canary execution
+  - type: file_exists
+    path: "{workspace}/canary-execution.md"
+    condition: "stage == 3"
+
+  # Verification reports
+  - type: file_exists
+    path: "{workspace}/verify-artifacts.md"
+    condition: "stage == 4"
+  - type: file_exists
+    path: "{workspace}/verify-a2a.md"
+    condition: "stage == 5"
+  - type: file_exists
+    path: "{workspace}/verify-codemode.md"
+    condition: "stage == 6"
+
+  # Regression
+  - type: file_exists
+    path: "{workspace}/integration-regression.md"
+    condition: "stage == 7"
+  - type: command_succeeds
+    command: 'cd /home/emzi/Projects/marianne-ai-compose && python -m pytest tests/ -x -q --timeout=300 2>&1 | tail -1 | grep -q "passed"'
+    condition: "stage == 7"
+    description: "Full regression passes"
+
+concert:
+  enabled: true
+  max_chain_depth: 5
+
+on_success:
+  - type: run_job
+    job_path: /home/emzi/Projects/marianne-ai-compose/scores-internal/composition-compiler/05-migration.yaml
+    detached: true
+    pause_before_chain: true
+    description: "Chain to migration — PAUSED for composer review of integration results"

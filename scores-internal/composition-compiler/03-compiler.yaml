@@ -1,0 +1,575 @@
+# 03-compiler.yaml — Build the Composition Compiler
+#
+# Concert: Composition Compiler Build (Score 3 of 5)
+# Patterns: Cathedral Construction + Succession Pipeline + Tool Chain
+# Forces: Exponential Defect Cost, Progressive Commitment
+#
+# Problem: The compiler has 10 modules where each is substrate for the next.
+# Identity seeder feeds sheet composer; sheet composer feeds technique wirer;
+# instrument resolver needs technique wirer; etc. Each must be TDD'd.
+#
+# Structure (12 sheets, sequential with TDD gates):
+#   Each module: implement with tests → next module
+#   Final: end-to-end generation + dry-run validation + regression
+
+name: cc-compiler
+description: "Build the composition compiler — identity through CLI interface"
+
+workspace: /home/emzi/Projects/marianne-ai-compose/workspaces/composition-compiler-build
+
+instrument: claude-code
+instrument_fallbacks: [gemini-cli]
+instrument_config:
+  timeout_seconds: 3600
+  skip_permissions: true
+  disable_mcp: true
+
+instruments:
+  architect:
+    profile: claude-code
+    config:
+      timeout_seconds: 3600
+      model: claude-opus-4-6
+      skip_permissions: true
+      disable_mcp: true
+  builder:
+    profile: claude-code
+    config:
+      timeout_seconds: 3600
+      skip_permissions: true
+      disable_mcp: true
+  gate:
+    profile: claude-code
+    config:
+      timeout_seconds: 900
+      skip_permissions: true
+      disable_mcp: true
+
+movements:
+  1:
+    name: "Identity Seeder"
+    instrument: architect
+  2:
+    name: "Sheet Composer"
+    instrument: architect
+  3:
+    name: "Technique Wirer"
+    instrument: builder
+  4:
+    name: "Instrument Resolver"
+    instrument: builder
+  5:
+    name: "Validation Generator"
+    instrument: builder
+  6:
+    name: "Pattern Expander"
+    instrument: builder
+  7:
+    name: "Fleet Config Generator"
+    instrument: builder
+  8:
+    name: "Technique Module Library"
+    instrument: builder
+  9:
+    name: "Template Rewrites"
+    instrument: architect
+  10:
+    name: "CLI Interface"
+    instrument: builder
+  11:
+    name: "End-to-End Validation"
+    instrument: gate
+  12:
+    name: "Regression"
+    instrument: gate
+
+sheet:
+  size: 1
+  total_items: 12
+  dependencies:
+    2: [1]
+    3: [2]
+    4: [3]
+    5: [4]
+    6: [5]
+    7: [6]
+    8: [7]
+    9: [8]
+    10: [9]
+    11: [10]
+    12: [11]
+  prelude:
+    - file: /home/emzi/Projects/marianne-ai-compose/docs/specs/2026-04-13-composition-compiler-design.md
+      as: context
+
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 8000
+  lookback_sheets: 3
+
+retry:
+  max_retries: 3
+  base_delay_seconds: 30
+
+rate_limit:
+  wait_minutes: 5
+  max_waits: 24
+
+stale_detection:
+  enabled: true
+  idle_timeout_seconds: 1800
+
+prompt:
+  variables:
+    project_root: /home/emzi/Projects/marianne-ai-compose
+    src: /home/emzi/Projects/marianne-ai-compose/src/marianne
+    compose_pkg: /home/emzi/Projects/marianne-ai-compose/src/marianne/compose
+    tests: /home/emzi/Projects/marianne-ai-compose/tests
+    scripts: /home/emzi/Projects/marianne-ai-compose/scripts
+    templates: /home/emzi/Projects/marianne-ai-compose/scripts/templates
+    plugins: /home/emzi/Projects/marianne-ai-compose/plugins/marianne
+
+  template: |
+    {% if stage == 1 %}
+    # Module 1: Identity Seeder
+
+    Create {{ compose_pkg }}/__init__.py and {{ compose_pkg }}/identity.py
+
+    ## Read First
+    - Design spec Section 4 (Stock Agent Identity System)
+    - Existing bootstrap script: {{ scripts }}/bootstrap-agent-identity.py
+    - Existing agent generator: {{ scripts }}/generate-agent-scores.py
+
+    ## Implement
+    The identity seeder creates the L1-L4 identity stack for each agent:
+    - identity.md (L1): voice, focus, standing patterns, resurrection protocol
+    - profile.yaml (L2): relationships, developmental stage, domain affinities
+    - recent.md (L3): empty or seeded from existing memory
+    - growth.md (L4): autonomous development trajectory
+
+    Input: agent definition from compiler config (name, voice, focus, meditation)
+    Output: populated ~/.mzt/agents/{name}/ directory
+
+    For migration: accepts optional existing memory/meditation paths to distill from.
+
+    ## TDD
+    Create {{ tests }}/test_compose_identity.py
+    - Test: creates all 4 files with correct structure
+    - Test: respects token budgets (L1 < 900 words, L2 < 1500, L3 < 1500)
+    - Test: handles migration input (distill from existing memory)
+    - Test: idempotent (running twice doesn't corrupt)
+    Run tests.
+
+    {% elif stage == 2 %}
+    # Module 2: Sheet Composer
+
+    Create {{ compose_pkg }}/sheets.py
+
+    ## Read First
+    - Design spec Section 9.1 (Parallelized Cycle)
+    - Existing generator's sheet logic: {{ scripts }}/generate-agent-scores.py
+
+    ## Implement
+    The sheet composer produces the 12-sheet cycle structure:
+    - Phase 1 (sequential): Recon → Plan → Work (sheets 1-3)
+    - Phase 1.5 (CLI): Temperature check (sheet 4)
+    - Phase 2 (fan-out of 3): Integration ∥ Play ∥ Inspect (sheets 5-7)
+    - Phase 3 (fan-out of 3): AAR ∥ Consolidate ∥ Reflect (sheets 8-10)
+    - Phase 3.5 (CLI): Maturity check (sheet 11)
+    - Phase 4 (sequential): Resurrect (sheet 12)
+
+    Input: agent definition, parallel_phases config, play_routing config
+    Output: dict with total_items, fan_out map, dependencies DAG, skip_when_command map
+
+    The fan-out instances get different prompts via stage+instance conditionals.
+    Temperature check gates Play instance. Maturity check feeds Resurrect.
+
+    ## TDD
+    Create {{ tests }}/test_compose_sheets.py
+    - Test: correct total_items (12)
+    - Test: fan_out map has correct stages
+    - Test: dependencies form valid DAG
+    - Test: skip_when_command present for temperature/maturity checks
+    - Test: Play gate only affects Play instance, not Integration/Inspect
+    Run tests.
+
+    {% elif stage == 3 %}
+    # Module 3: Technique Wirer
+
+    Create {{ compose_pkg }}/techniques.py
+
+    ## Read First
+    - Design spec Section 6 (Technique System)
+    - TechniqueConfig model from Phase A of infrastructure
+    - InjectionItem model: {{ src }}/core/config/job.py
+
+    ## Implement
+    The technique wirer reads agent technique declarations and produces:
+    1. Per-phase technique manifests (text describing what's available)
+    2. Cadenza injection items for each sheet (technique manifests as context)
+    3. MCP server references for MCP-kind techniques
+    4. A2A agent card from a2a_skills declaration
+
+    Input: agent techniques config, defaults techniques config
+    Output: per-sheet cadenza items, agent card config, technique manifest files
+
+    ## TDD
+    Create {{ tests }}/test_compose_techniques.py
+    - Test: generates manifests for correct phases
+    - Test: MCP techniques produce server references
+    - Test: A2A skills produce valid agent card
+    - Test: skill techniques inject as context cadenzas
+    - Test: merges agent overrides with defaults
+    Run tests.
+
+    {% elif stage == 4 %}
+    # Module 4: Instrument Resolver
+
+    Create {{ compose_pkg }}/instruments.py
+
+    ## Read First
+    - Design spec Section 5 (Instrument Architecture)
+    - Existing instrument profiles: {{ src }}/instruments/builtins/
+    - per_sheet_instruments and per_sheet_instrument_config in sheet.py
+
+    ## Implement
+    The instrument resolver produces the per-sheet instrument assignment matrix:
+    1. Start with defaults for each phase type
+    2. Apply per-agent overrides
+    3. For each sheet, resolve primary + full fallback chain
+    4. Ensure every sheet has the full catalog as tail (no dead ends)
+    5. Emit per_sheet_instruments and per_sheet_instrument_config
+
+    Input: agent instruments config, defaults instruments config, sheet structure
+    Output: per_sheet_instruments dict, per_sheet_instrument_config dict, instrument_fallbacks list
+
+    ## TDD
+    Create {{ tests }}/test_compose_instruments.py
+    - Test: defaults applied correctly per phase type
+    - Test: agent overrides take precedence
+    - Test: every sheet has full fallback chain
+    - Test: deep fallbacks — no dead ends
+    - Test: resolves concrete sheet numbers from phase names
+    Run tests.
+
+    {% elif stage == 5 %}
+    # Module 5: Validation Generator
+
+    Create {{ compose_pkg }}/validations.py
+
+    ## Read First
+    - Design spec Section 3.2 (Validation Generator)
+    - Validation types in essentials reference
+    - Existing generator validations: {{ scripts }}/generate-agent-scores.py
+
+    ## Implement
+    Generates per-sheet validations:
+    - Structural: recon report exists, plan exists, inspection exists
+    - AAR: contains SUSTAIN: and IMPROVE: sections
+    - TDD: user-supplied test commands on work sheets
+    - Coverage: user-supplied coverage checks on inspect sheets
+    - CLI instruments: temperature check exit code, maturity check, token budget
+
+    Input: agent config (validations, pre_commit_commands), sheet structure
+    Output: list of validation specs with correct conditions/stages
+
+    ## TDD
+    Create {{ tests }}/test_compose_validations.py
+    - Test: correct validations per phase type
+    - Test: user validations applied to correct sheets
+    - Test: conditions use {workspace} format syntax (not Jinja)
+    - Test: CLI instrument sheets have command_succeeds validations
+    Run tests.
+
+    {% elif stage == 6 %}
+    # Module 6: Pattern Expander
+
+    Create {{ compose_pkg }}/patterns.py
+
+    ## Read First
+    - Rosetta corpus: {{ project_root }}/scores/rosetta-corpus/
+    - Design spec Section 3.2 (Pattern Expander)
+
+    ## Implement
+    The pattern expander is the extensibility point. For v1:
+    - Read pattern definitions from Rosetta corpus
+    - Map pattern names to stage structures
+    - Allow score config to reference patterns by name
+    - Expand pattern into concrete stage sequence
+
+    This is a foundation for future work — the compiler eventually
+    draws from the full 56-pattern corpus. For now, support the
+    patterns used by the agent cycle:
+    - fan-out-synthesis (parallel phases)
+    - the-tool-chain (CLI instrument gates)
+    - reconnaissance-pull (recon → plan → work)
+
+    Input: pattern names, pattern parameters
+    Output: stage sequence with purposes, instrument guidance, validation shapes
+
+    ## TDD
+    Create {{ tests }}/test_compose_patterns.py
+    - Test: known patterns expand to correct stage counts
+    - Test: unknown pattern raises clear error
+    - Test: pattern parameters customize expansion
+    Run tests.
+
+    {% elif stage == 7 %}
+    # Module 7: Fleet Config Generator
+
+    Create {{ compose_pkg }}/fleet.py
+
+    ## Read First
+    - FleetConfig model from infrastructure Phase A
+    - Design spec Section 10 (Fleet Management)
+
+    ## Implement
+    Given a list of generated agent score paths and group assignments,
+    produce a fleet config YAML that:
+    - Lists all agent scores with group assignments
+    - Defines group dependencies
+    - Respects 3-level depth limit (fleet → score → sheet)
+
+    Input: list of (score_path, group_name), group_dependencies
+    Output: fleet config YAML file
+
+    ## TDD
+    Create {{ tests }}/test_compose_fleet.py
+    - Test: generates valid FleetConfig
+    - Test: group dependencies produce correct DAG
+    - Test: rejects nested fleets (depth limit)
+    Run tests.
+
+    {% elif stage == 8 %}
+    # Module 8: Technique Module Library
+
+    Create standalone technique documents as .md files.
+
+    ## Read First
+    - Design spec Section 6.5 (Memory Protocol as Technique Module)
+    - Existing templates that embed these: {{ templates }}/
+    - Agent memories for protocol examples: {{ project_root }}/workspaces/v1-beta-v3/memory/
+
+    ## Create (in {{ plugins }}/techniques/)
+    1. **memory-protocol.md** — Hot/warm/cold tiering, core memories,
+       experiential notes, dreamer consolidation. Extracted from 10-consolidate.j2.
+    2. **mateship.md** — Finding → proved → fixed → verified pipeline.
+       P0/P1/P2 severity. Ownership claims. Extracted from work/AAR templates.
+    3. **coordination.md** — How to use shared cadenza space. What to put
+       in active/. Claim-before-work. Reading the glob listing. Curating
+       shared artifacts.
+    4. **identity.md** — L1-L4 management. Token budget enforcement. Standing
+       pattern evolution. Resurrection protocol.
+    5. **voice.md** — Expressive style technique. Consistent, recognizable
+       output. How voice shapes reports, findings, plans.
+
+    Each document should be self-contained, usable as a skill injection
+    in any Mozart score, not just generated agent scores.
+
+    ## Verify
+    - Each file exists and has substantive content (>300 words)
+    - Each can be parsed as valid markdown
+    - No references to specific agents (these are generic techniques)
+
+    {% elif stage == 9 %}
+    # Module 9: Template Rewrites
+
+    Rewrite the Jinja2 templates for the new parallel cycle structure.
+
+    ## Read First
+    - Existing templates: {{ templates }}/ (01-recon.j2 through 13-resurrect.j2)
+    - New sheet structure from Module 2 (12 sheets, parallel phases)
+    - Technique manifests from Module 3
+    - Design spec Section 4 (TSVS, meditation)
+
+    ## Rewrite
+    The templates need to be updated for:
+    1. **Parallel phase fan-outs** — Phase 2 and 3 use stage+instance conditionals
+    2. **TSVS awareness** — thinking_method is set at score level, but templates
+       should reference domain activation naturally
+    3. **Technique manifests** — templates reference available techniques per phase
+    4. **Coordination technique** — recon/plan templates include shared space curation
+    5. **Token-efficient shared context** — templates reference the glob listing
+       and active folder pattern, not full directory dumps
+
+    Keep the existing template variable interface (agent_name, role, focus, voice,
+    agent_identity_dir, workspace, etc.) so the compiler can use them.
+
+    Update template numbering to match the 12-sheet cycle.
+
+    ## Verify
+    - Each template has valid Jinja2 syntax
+    - Stage+instance conditionals cover all phases
+    - No references to the old 13-sheet sequential layout
+
+    {% elif stage == 10 %}
+    # Module 10: CLI Interface
+
+    Create {{ src }}/cli/commands/compose.py
+
+    ## Read First
+    - Existing CLI commands: {{ src }}/cli/commands/ (especially run.py)
+    - CLI registration: {{ src }}/cli/__init__.py
+    - Design spec Section 11 (Onboarding and UX)
+
+    ## Implement
+    `mzt compose` command that:
+    1. Reads a compiler config YAML
+    2. Runs the compilation pipeline (identity seeder → sheet composer → etc.)
+    3. Writes generated score YAML files to output directory
+    4. Optionally generates fleet config
+    5. Reports what was generated
+
+    Integration with init/doctor is future work — for now, compose assumes
+    the environment is set up.
+
+    CLI signature: `mzt compose --config <path> --output <dir> [--fleet]`
+
+    ## TDD
+    Create {{ tests }}/test_cli_compose.py
+    - Test: reads config, produces score files
+    - Test: --fleet flag produces fleet config
+    - Test: invalid config produces clear error
+    - Register command in {{ src }}/cli/__init__.py
+    Run tests.
+
+    {% elif stage == 11 %}
+    # End-to-End Validation
+
+    Generate a single-agent score using the compiler and validate it.
+
+    cd {{ project_root }}
+
+    ## Steps
+    1. Create a minimal test config (one agent, basic instruments, few techniques)
+    2. Run the compiler: `mzt compose --config test-config.yaml --output {{ workspace }}/test-output/`
+    3. Validate each generated score individually:
+       `for f in {{ workspace }}/test-output/*.yaml; do mzt validate "$f"; done`
+    4. Dry-run each score:
+       `for f in {{ workspace }}/test-output/*.yaml; do mzt run "$f" --dry-run; done`
+    5. Verify: identity directory created, all 12 sheets present, correct fan-outs, validations present
+
+    Write results to {{ workspace }}/e2e-validation.md
+
+    {% elif stage == 12 %}
+    # Full Regression
+
+    cd {{ project_root }}
+
+    python -m pytest {{ tests }}/ -x -q --timeout=300
+    python -m mypy {{ src }}/ --strict
+    ruff check {{ src }}/
+
+    Write results to {{ workspace }}/compiler-regression.md
+    {% endif %}
+
+validations:
+  # Module tests (spot checks — gates verify comprehensively)
+  - type: command_succeeds
+    command: 'test -f /home/emzi/Projects/marianne-ai-compose/src/marianne/compose/__init__.py'
+    condition: "stage == 1"
+    description: "Compose package created"
+  - type: command_succeeds
+    command: 'test -f /home/emzi/Projects/marianne-ai-compose/src/marianne/compose/identity.py'
+    condition: "stage == 1"
+    description: "Identity seeder created"
+  - type: command_succeeds
+    command: 'test -f /home/emzi/Projects/marianne-ai-compose/src/marianne/compose/sheets.py'
+    condition: "stage == 2"
+    description: "Sheet composer created"
+  - type: command_succeeds
+    command: 'test -f /home/emzi/Projects/marianne-ai-compose/src/marianne/compose/techniques.py'
+    condition: "stage == 3"
+  - type: command_succeeds
+    command: 'test -f /home/emzi/Projects/marianne-ai-compose/src/marianne/compose/instruments.py'
+    condition: "stage == 4"
+  - type: command_succeeds
+    command: 'test -f /home/emzi/Projects/marianne-ai-compose/src/marianne/compose/validations.py'
+    condition: "stage == 5"
+  - type: command_succeeds
+    command: 'test -f /home/emzi/Projects/marianne-ai-compose/src/marianne/compose/patterns.py'
+    condition: "stage == 6"
+  - type: command_succeeds
+    command: 'test -f /home/emzi/Projects/marianne-ai-compose/src/marianne/compose/fleet.py'
+    condition: "stage == 7"
+
+  # Module test runs (stages 1-7) — verify tests pass, not just files exist
+  - type: command_succeeds
+    command: 'cd /home/emzi/Projects/marianne-ai-compose && python -m pytest tests/test_compose_identity.py -q 2>&1 | tail -1 | grep -q "passed"'
+    condition: "stage == 1"
+    description: "Identity seeder tests pass"
+  - type: command_succeeds
+    command: 'cd /home/emzi/Projects/marianne-ai-compose && python -m pytest tests/test_compose_sheets.py -q 2>&1 | tail -1 | grep -q "passed"'
+    condition: "stage == 2"
+    description: "Sheet composer tests pass"
+  - type: command_succeeds
+    command: 'cd /home/emzi/Projects/marianne-ai-compose && python -m pytest tests/test_compose_techniques.py -q 2>&1 | tail -1 | grep -q "passed"'
+    condition: "stage == 3"
+    description: "Technique wirer tests pass"
+  - type: command_succeeds
+    command: 'cd /home/emzi/Projects/marianne-ai-compose && python -m pytest tests/test_compose_instruments.py -q 2>&1 | tail -1 | grep -q "passed"'
+    condition: "stage == 4"
+    description: "Instrument resolver tests pass"
+  - type: command_succeeds
+    command: 'cd /home/emzi/Projects/marianne-ai-compose && python -m pytest tests/test_compose_validations.py -q 2>&1 | tail -1 | grep -q "passed"'
+    condition: "stage == 5"
+    description: "Validation generator tests pass"
+  - type: command_succeeds
+    command: 'cd /home/emzi/Projects/marianne-ai-compose && python -m pytest tests/test_compose_patterns.py -q 2>&1 | tail -1 | grep -q "passed"'
+    condition: "stage == 6"
+    description: "Pattern expander tests pass"
+  - type: command_succeeds
+    command: 'cd /home/emzi/Projects/marianne-ai-compose && python -m pytest tests/test_compose_fleet.py -q 2>&1 | tail -1 | grep -q "passed"'
+    condition: "stage == 7"
+    description: "Fleet config generator tests pass"
+
+  # Technique library
+  - type: command_succeeds
+    command: 'test $(ls /home/emzi/Projects/marianne-ai-compose/plugins/marianne/techniques/*.md 2>/dev/null | wc -l) -ge 5'
+    condition: "stage == 8"
+    description: "At least 5 technique modules created"
+
+  # Template rewrites (stage 9) — was missing
+  - type: command_succeeds
+    command: 'test $(ls /home/emzi/Projects/marianne-ai-compose/scripts/templates/*.j2 2>/dev/null | wc -l) -ge 10'
+    condition: "stage == 9"
+    description: "Template files exist"
+
+  # CLI compose (stage 10) — was missing
+  - type: command_succeeds
+    command: 'test -f /home/emzi/Projects/marianne-ai-compose/src/marianne/cli/commands/compose.py'
+    condition: "stage == 10"
+    description: "Compose CLI command created"
+  - type: command_succeeds
+    command: 'cd /home/emzi/Projects/marianne-ai-compose && python -m pytest tests/test_cli_compose.py -q 2>&1 | tail -1 | grep -q "passed"'
+    condition: "stage == 10"
+    description: "CLI compose tests pass"
+
+  # E2E
+  - type: file_exists
+    path: "{workspace}/e2e-validation.md"
+    condition: "stage == 11"
+  - type: content_contains
+    path: "{workspace}/e2e-validation.md"
+    pattern: "12 sheets"
+    condition: "stage == 11"
+    description: "E2E confirms 12-sheet cycle"
+
+  # Regression
+  - type: file_exists
+    path: "{workspace}/compiler-regression.md"
+    condition: "stage == 12"
+  - type: command_succeeds
+    command: 'cd /home/emzi/Projects/marianne-ai-compose && python -m pytest tests/ -x -q --timeout=300 2>&1 | tail -1 | grep -q "passed"'
+    condition: "stage == 12"
+    description: "Full regression passes"
+
+concert:
+  enabled: true
+  max_chain_depth: 5
+
+on_success:
+  - type: run_job
+    job_path: /home/emzi/Projects/marianne-ai-compose/scores-internal/composition-compiler/04-integration.yaml
+    detached: true
+    description: "Chain to integration validation phase"
