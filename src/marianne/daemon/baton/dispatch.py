@@ -139,6 +139,15 @@ async def dispatch_ready(
         for sheet in ready:
             # Check global concurrency
             if global_running >= config.max_concurrent_sheets:
+                _logger.debug(
+                    "dispatch.skip.global_concurrency",
+                    extra={
+                        "job_id": job_id,
+                        "sheet_num": sheet.sheet_num,
+                        "global_running": global_running,
+                        "limit": config.max_concurrent_sheets,
+                    },
+                )
                 result.record_skip("global_concurrency")
                 return result  # Hard stop — can't dispatch more
 
@@ -150,11 +159,29 @@ async def dispatch_ready(
                 model_limit = config.instrument_concurrency.get(instrument)
             model_count = model_running.get(model_key, 0)
             if model_limit is not None and model_count >= model_limit:
+                _logger.info(
+                    "dispatch.skip.model_concurrency",
+                    extra={
+                        "job_id": job_id,
+                        "sheet_num": sheet.sheet_num,
+                        "model_key": model_key,
+                        "model_count": model_count,
+                        "model_limit": model_limit,
+                    },
+                )
                 result.record_skip(f"model_concurrency:{model_key}")
                 continue
 
             # Check instrument rate limit (transient — don't fallback)
             if instrument in config.rate_limited_instruments:
+                _logger.info(
+                    "dispatch.skip.rate_limited",
+                    extra={
+                        "job_id": job_id,
+                        "sheet_num": sheet.sheet_num,
+                        "instrument": instrument,
+                    },
+                )
                 result.record_skip(f"rate_limited:{instrument}")
                 continue
 

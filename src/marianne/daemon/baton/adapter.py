@@ -219,9 +219,16 @@ def extract_dependencies(config: Any) -> dict[int, list[int]]:
 
     The baton expects: ``{sheet_num: [dep_sheet_num, ...]}``
 
-    Dependencies are stage-based: all sheets in stage N+1 depend on
-    all sheets in stage N. Sheets within the same stage (fan-out voices)
-    have no internal dependencies.
+    When ``config.sheet.dependencies`` is set (non-empty), it is used
+    as the authoritative DAG.  Stage-level dependencies are expanded to
+    sheet-level: if stage S has a fan-out of 3 (sheets 4,5,6) and
+    depends on stage T (sheets 1,2,3), each of 4/5/6 depends on all of
+    1/2/3.  Stages not listed in the dependencies map are treated as
+    having no dependencies (independent).
+
+    When ``config.sheet.dependencies`` is empty or absent, falls back to
+    the legacy linear chain: all sheets in stage N+1 depend on all sheets
+    in stage N.
 
     Args:
         config: Parsed JobConfig with sheet.get_fan_out_metadata().
@@ -238,14 +245,40 @@ def extract_dependencies(config: Any) -> dict[int, list[int]]:
         stage = meta.stage
         stage_sheets.setdefault(stage, []).append(num)
 
-    # Build dependency map: each sheet depends on ALL sheets in the
-    # previous stage.
+    raw_deps = getattr(config.sheet, "dependencies", None)
+    yaml_deps: dict[int, list[int]] = (
+        raw_deps if isinstance(raw_deps, dict) else {}
+    )
+
+    if yaml_deps:
+        # Use the YAML dependency graph.  Dependencies are stage-based:
+        # expand each stage-level dep to the sheet level.
+        _logger.debug(
+            "extract_dependencies.using_yaml_dag",
+            extra={"stage_count": len(stage_sheets), "dep_edges": len(yaml_deps)},
+        )
+        deps: dict[int, list[int]] = {}
+        for stage, sheet_nums in stage_sheets.items():
+            stage_deps: list[int] = yaml_deps.get(stage, [])
+            # Expand: replace each dep-stage with ALL sheets in that stage
+            expanded: list[int] = []
+            for dep_stage in stage_deps:
+                expanded.extend(stage_sheets.get(dep_stage, [dep_stage]))
+            for sn in sheet_nums:
+                deps[sn] = list(expanded)
+        return deps
+
+    # Fallback: linear chain (legacy behavior for scores without
+    # explicit dependencies).
+    _logger.debug(
+        "extract_dependencies.linear_fallback",
+        extra={"stage_count": len(stage_sheets)},
+    )
     sorted_stages = sorted(stage_sheets.keys())
-    deps: dict[int, list[int]] = {}
+    deps = {}
 
     for i, stage in enumerate(sorted_stages):
         if i == 0:
-            # First stage: no dependencies
             for num in stage_sheets[stage]:
                 deps[num] = []
         else:

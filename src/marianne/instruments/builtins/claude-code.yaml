@@ -34,6 +34,11 @@ capabilities:
 default_model: null  # Uses Claude Code's default model
 default_timeout_seconds: 1800
 
+# max_concurrent is set per MODEL TIER, not per version number.
+# Within a family (e.g., Sonnet 4 vs Sonnet 4.5), the limit should be
+# the same unless there's a specific technical reason to differ (e.g.,
+# a version has a much larger context window that changes cost profile).
+# Tier rationale: Haiku (cheap, fast) → 8, Sonnet (mid) → 6, Opus (expensive) → 4.
 models:
   - name: claude-sonnet-4-20250514
     context_window: 200000
@@ -52,13 +57,13 @@ models:
     cost_per_1k_input: 0.015
     cost_per_1k_output: 0.075
     max_output_tokens: 32000
-    max_concurrent: 2
+    max_concurrent: 4
   - name: claude-opus-4-6
     context_window: 1000000
     cost_per_1k_input: 0.015
     cost_per_1k_output: 0.075
     max_output_tokens: 32000
-    max_concurrent: 2
+    max_concurrent: 4
   - name: claude-haiku-4-5-20251001
     context_window: 200000
     cost_per_1k_input: 0.0008

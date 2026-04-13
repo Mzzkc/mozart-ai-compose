@@ -1637,10 +1637,33 @@ class BatonCore:
         Called after a sheet reaches COMPLETED. If the job has
         pacing_seconds > 0, sets pacing_active=True and schedules a
         PacingComplete timer. Dispatch skips pacing-active jobs.
+
+        GH#167: Skip pacing when other sheets are still DISPATCHED.
+        Pacing exists to prevent rapid-fire sequential dispatch from
+        hammering backends. When a parallel wave is in progress (other
+        sheets still running), pacing would block independent sheets
+        from dispatching — defeating the purpose of parallel execution.
+        Only pace when the completing sheet is the last running sheet.
         """
         job = self._jobs.get(job_id)
         if job is None or job.pacing_seconds <= 0:
             return
+
+        # Count sheets still in DISPATCHED status for this job
+        still_dispatched = sum(
+            1 for s in job.sheets.values()
+            if s.status == BatonSheetStatus.DISPATCHED
+        )
+        if still_dispatched > 0:
+            _logger.debug(
+                "baton.pacing.skipped_parallel_wave",
+                extra={
+                    "job_id": job_id,
+                    "still_dispatched": still_dispatched,
+                },
+            )
+            return
+
         job.pacing_active = True
         self._state_dirty = True
         if self._timer is not None:
