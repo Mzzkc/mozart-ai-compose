@@ -202,6 +202,7 @@ class JobStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     PAUSED = "paused"
+    PAUSED_AT_CHAIN = "paused_at_chain"
     CANCELLED = "cancelled"
 
 

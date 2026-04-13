@@ -93,6 +93,7 @@ class JobMeta:
     completed_new_work: bool = False
     observer: JobObserver | None = field(default=None, repr=False)
     pending_modify: tuple[Path, Path | None] | None = field(default=None, repr=False)
+    held_chain_hook: dict[str, Any] | None = field(default=None, repr=False)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dict suitable for JSON-RPC responses."""
@@ -197,6 +198,9 @@ class JobManager:
         # skips rate-limited backends.  Not yet active because the
         # scheduler itself is not yet driving execution.
         self._rate_coordinator = RateLimitCoordinator()
+
+        # Fleet management — tracks running fleets for fleet-level operations
+        self._fleet_records: dict[str, Any] = {}
 
         # Phase 3: Backpressure controller.
         # Uses a single ResourceMonitor instance shared with DaemonProcess
@@ -878,6 +882,24 @@ class JobManager:
                 message=f"Config file not found: {request.config_path}",
             )
 
+        # Fleet detection: route fleet configs to the fleet manager
+        from marianne.daemon.fleet import is_fleet_config, submit_fleet
+
+        if is_fleet_config(request.config_path):
+            from marianne.core.config.fleet import FleetConfig
+
+            try:
+                with open(request.config_path) as f:
+                    raw = yaml.safe_load(f)
+                fleet_config = FleetConfig.model_validate(raw)
+            except Exception as exc:
+                return JobResponse(
+                    job_id=job_id,
+                    status="rejected",
+                    message=f"Failed to parse fleet config: {exc}",
+                )
+            return await submit_fleet(self, request.config_path, fleet_config)
+
         # Parse config for workspace resolution and hook extraction.
         # When workspace is provided explicitly, parsing is best-effort
         # (hooks won't be available if it fails, but the job still runs).
@@ -915,6 +937,19 @@ class JobManager:
                         "Fix the config or pass --workspace explicitly."
                     ),
                 )
+
+        # Resolve relative workspace against client_cwd (working directory fix).
+        # When the CLI sends client_cwd, relative workspace paths from the
+        # config should resolve against where the user invoked the command,
+        # not where the daemon was spawned.
+        if request.client_cwd and not workspace.is_absolute():
+            workspace = (request.client_cwd / workspace).resolve()
+            _logger.debug(
+                "manager.workspace_resolved_from_client_cwd",
+                job_id=job_id,
+                client_cwd=str(request.client_cwd),
+                workspace=str(workspace),
+            )
 
         # Extract hook config from parsed config for daemon-owned execution.
         hook_config_list: list[dict[str, Any]] | None = None
@@ -1328,12 +1363,21 @@ class JobManager:
         meta = self._job_meta.get(job_id)
         if meta is None:
             raise JobSubmissionError(f"Score '{job_id}' not found")
-        _resumable = (DaemonJobStatus.PAUSED, DaemonJobStatus.FAILED, DaemonJobStatus.CANCELLED)
+        _resumable = (
+            DaemonJobStatus.PAUSED,
+            DaemonJobStatus.PAUSED_AT_CHAIN,
+            DaemonJobStatus.FAILED,
+            DaemonJobStatus.CANCELLED,
+        )
         if meta.status not in _resumable:
             raise JobSubmissionError(
                 f"Score '{job_id}' is {meta.status.value}, "
-                "only PAUSED, FAILED, or CANCELLED scores can be resumed"
+                "only PAUSED, PAUSED_AT_CHAIN, FAILED, or CANCELLED scores can be resumed"
             )
+
+        # PAUSED_AT_CHAIN: trigger the held chain instead of normal resume
+        if meta.status == DaemonJobStatus.PAUSED_AT_CHAIN and meta.held_chain_hook:
+            return await self._resume_held_chain(job_id, meta)
 
         # Cancel stale task to prevent detached execution
         old_task = self._jobs.pop(job_id, None)
@@ -1359,6 +1403,66 @@ class JobManager:
             job_id=job_id,
             status="accepted",
             message="Job resume queued",
+        )
+
+    async def _resume_held_chain(
+        self, job_id: str, meta: JobMeta,
+    ) -> JobResponse:
+        """Submit the held chain job after a pause_before_chain intervention.
+
+        When a job is PAUSED_AT_CHAIN, it has a held_chain_hook with the
+        fully-resolved chain parameters. Resuming triggers the chained
+        job submission and transitions the parent to COMPLETED.
+        """
+        hook = meta.held_chain_hook
+        if hook is None:
+            raise JobSubmissionError(
+                f"Score '{job_id}' is PAUSED_AT_CHAIN but has no held chain hook"
+            )
+
+        job_path = Path(hook["job_path"])
+        chained_workspace = Path(hook["workspace"]) if hook.get("workspace") else None
+        fresh = hook.get("fresh", False)
+        chain_depth = hook.get("chain_depth", 1)
+
+        # Clear the held hook before submitting
+        meta.held_chain_hook = None
+
+        # Transition parent back to COMPLETED before submitting chain
+        await self._set_job_status(job_id, DaemonJobStatus.COMPLETED)
+
+        request = JobRequest(
+            config_path=job_path,
+            workspace=chained_workspace,
+            fresh=fresh,
+            chain_depth=chain_depth,
+        )
+
+        response = await self.submit_job(request)
+        if response.status == "accepted":
+            _logger.info(
+                "hook.chain_resumed",
+                parent_job_id=job_id,
+                chained_job_id=response.job_id,
+            )
+            return JobResponse(
+                job_id=job_id,
+                status="accepted",
+                message=f"Chain resumed — chained job {response.job_id} submitted",
+            )
+
+        _logger.warning(
+            "hook.chain_resume_failed",
+            parent_job_id=job_id,
+            rejection=response.message,
+        )
+        # Restore paused state so the user can retry
+        meta.held_chain_hook = hook
+        await self._set_job_status(job_id, DaemonJobStatus.PAUSED_AT_CHAIN)
+        return JobResponse(
+            job_id=job_id,
+            status="rejected",
+            message=f"Chain submission failed: {response.message}",
         )
 
     async def modify_job(
@@ -2935,6 +3039,31 @@ class JobManager:
         elif concert and concert.get("inherit_workspace", True):
             chained_workspace = meta.workspace
 
+        # pause_before_chain: hold the chain trigger instead of submitting
+        if hook.get("pause_before_chain", False):
+            # Store the fully-resolved hook for later resumption
+            meta.held_chain_hook = {
+                "job_path": str(job_path),
+                "workspace": str(chained_workspace) if chained_workspace else None,
+                "fresh": hook.get("fresh", False),
+                "chain_depth": current_depth + 1,
+            }
+            await self._set_job_status(
+                parent_job_id, DaemonJobStatus.PAUSED_AT_CHAIN,
+            )
+            result["success"] = True
+            result["output"] = (
+                "Chain held at pause point — "
+                "use 'mzt resume' to trigger the next cycle"
+            )
+            result["paused_at_chain"] = True
+            _logger.info(
+                "hook.pause_before_chain",
+                job_id=parent_job_id,
+                job_path=str(job_path),
+            )
+            return result
+
         # Submit chained job directly (no IPC — same process)
         fresh = hook.get("fresh", False)
         request = JobRequest(
@@ -3100,8 +3229,8 @@ class JobManager:
         # window where get_job_status() returns stale data.
         meta = self._job_meta.get(job_id)
         if meta is None or meta.status not in (
-            DaemonJobStatus.PAUSED, DaemonJobStatus.FAILED,
-            DaemonJobStatus.COMPLETED,
+            DaemonJobStatus.PAUSED, DaemonJobStatus.PAUSED_AT_CHAIN,
+            DaemonJobStatus.FAILED, DaemonJobStatus.COMPLETED,
         ):
             self._live_states.pop(job_id, None)
 

@@ -1,0 +1,16 @@
+description: "Design specifications — detailed technical specs for major features"
+context: |
+  Specifications that define the detailed design of significant features.
+  Relocated from docs/superpowers/specs/ during the 2026-04-13 reorganization.
+status: active
+
+files:
+  - name: 2026-04-09-generic-agent-score-design.md
+    purpose: "Generic agent score design — reusable score templates for agent workflows"
+    status: active
+  - name: 2026-04-13-composition-compiler-design.md
+    purpose: "Composition compiler — compiling compose output into executable scores"
+    status: active
+  - name: 2026-04-13-instrument-forge-spec.md
+    purpose: "Instrument Forge — dynamic provider discovery and profile generation system"
+    status: draft

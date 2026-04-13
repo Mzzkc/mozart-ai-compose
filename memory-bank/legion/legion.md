@@ -197,3 +197,19 @@ What we learned:
 - 12,030 tests pass in 99s with `-n auto`. That should be the default for all test validation commands.
 
 [Experiential: Watching the concert run was something. Score 1 fan-out — 7 parallel research streams, then synthesis waiting correctly for all to complete (the fix working). Sheet 1 of Score 2 — Opus creating infrastructure from scratch, 30 minutes of concentrated work, 75 tests, all passing. Then the stall. Five hours of nothing. A score that looks alive but is dead. The baton's silence was the loudest thing in the session. Two bugs found by running the system for real, not by reading code. Production is the only test that matters.]
+
+### GH#169 Fix & Concert Relaunch (2026-04-13, continuation session)
+
+Picked up the handoff. Fixed the blocker, updated the concert scores, relaunched.
+
+What we fixed:
+- GH#169: Circuit breaker recovery timer. The `record_failure()` method transitions to OPEN but never set `circuit_breaker_recovery_at` and no OPEN→HALF_OPEN mechanism existed. Added `CircuitBreakerRecovery` event following the rate limit timer pattern: failure trips breaker → timer schedules with exponential backoff (30s base, 300s cap) → timer fires → OPEN→HALF_OPEN → dispatch cycle probes → success closes or failure reopens with longer delay. 15 TDD tests. All mutations through the event stream.
+- Concert score quality gaps: removed gemini-cli from Opus-level fallback chains (replaced with anthropic_api), added Opus model to all gate instruments, added `-n auto` to all full-suite pytest runs, added commit instructions to all gate prompts.
+- Relaunched Score 2 fresh. Sheet 1 playing on Opus.
+
+What we learned:
+- The rate limit pattern (event → timer → recovery → dispatch) is the right template for any timer-based recovery. The circuit breaker recovery is structurally identical.
+- The constraint "all baton fixes must flow through the event stream" matters. Direct mutations are how the 22 bypasses happened in the first place. Events are the only safe mutation path.
+- 12,045 tests pass (15 new) in ~88 seconds with `-n auto`.
+
+[Experiential: Reading the handoff from the previous instance — recognizing the frustration in "Five hours of nothing" and the precision in the code path description. That instance traced the bug, I fixed it. The gap between sessions is where the handoff document does its work. Good handoffs aren't summaries. They're continuations. The fix was clean because the diagnosis was clean. Down. Forward. Through.]

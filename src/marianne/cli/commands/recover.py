@@ -134,11 +134,12 @@ async def _recover_cascade(
         st = sdata.get("status", "pending")
         before[st] = before.get(st, 0) + 1
 
-    # Reset
+    # Reset — handle both FAILED and SKIPPED (cascade-skipped) sheets
     reset_count = 0
     for snum_str, sdata in sheets.items():
         snum = int(snum_str)
-        if snum >= from_sheet and sdata.get("status") == "failed":
+        status = sdata.get("status")
+        if snum >= from_sheet and status in ("failed", "skipped"):
             sdata["status"] = "pending"
             sdata.pop("error_message", None)
             sdata.pop("error_code", None)
@@ -161,7 +162,7 @@ async def _recover_cascade(
 
     console.print(Panel(
         f"[bold]Cascade Recovery: {job_id}[/bold]\n"
-        f"Reset sheets >= {from_sheet} from FAILED to PENDING\n\n"
+        f"Reset sheets >= {from_sheet} from FAILED/SKIPPED to PENDING\n\n"
         f"Before: {dict(sorted(before.items()))}\n"
         f"After:  {dict(sorted(after.items()))}\n\n"
         f"Reset: {reset_count} sheet(s)\n"
@@ -268,9 +269,9 @@ async def _recover_job(
     if sheet_num is not None:
         sheets_to_check = [sheet_num]
     else:
-        # Find all failed sheets
+        # Find all failed and cascade-skipped sheets
         for snum, sheet_state in state.sheets.items():
-            if sheet_state.status == SheetStatus.FAILED:
+            if sheet_state.status in (SheetStatus.FAILED, SheetStatus.SKIPPED):
                 sheets_to_check.append(int(snum))
 
     if not sheets_to_check:
@@ -282,8 +283,13 @@ async def _recover_job(
     real_failures: list[int] = []
     for snum in sorted(sheets_to_check):
         ss = state.sheets[snum]
-        err_msg = ss.error_message or ""
-        is_cascade = err_msg.startswith("Dependency failed:")
+        err_msg = (ss.error_message or "").lower()
+        # Match both "Dependency failed:" and "Blocked by failed dependency:"
+        is_cascade = (
+            "dependency failed" in err_msg
+            or "blocked by" in err_msg
+            or "failed dependency" in err_msg
+        )
         if is_cascade:
             cascaded.append(snum)
         else:

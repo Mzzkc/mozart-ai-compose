@@ -128,7 +128,8 @@ async def _find_job_state(
 
     # Check if job is in a resumable state
     resumable_statuses = {
-        JobStatus.PAUSED, JobStatus.FAILED, JobStatus.RUNNING, JobStatus.CANCELLED,
+        JobStatus.PAUSED, JobStatus.PAUSED_AT_CHAIN,
+        JobStatus.FAILED, JobStatus.RUNNING, JobStatus.CANCELLED,
     }
     if found_state.status not in resumable_statuses:
         if found_state.status == JobStatus.COMPLETED and not force:

@@ -51,7 +51,7 @@ Core skills for orchestrating work with Marianne are documented in `plugins/`. R
 
 **MUST:** All tests pass. Types pass (`mypy src/`). Lint passes (`ruff check src/`). State saves are atomic. Score YAML is backward compatible. Error paths produce diagnostics.
 
-**MUST NOT:** Wrap `mzt run` in external `timeout`. Stop the conductor while jobs run. Use `--fresh` on interrupted jobs. Add dependencies without justification. Log secrets or full prompt text. Use fixed sleeps in tests. Silence errors without explanation. Use Pydantic v1 syntax.
+**MUST NOT:** Wrap `mzt start` in external `timeout`. **NEVER stop, restart, or kill the conductor (`mzt stop`) while jobs are running — recovery from interrupted jobs is unreliable and work is lost. Check `mzt status` first.** Use `--fresh` on interrupted jobs. Add dependencies without justification. Log secrets or full prompt text. Use fixed sleeps in tests. Silence errors without explanation. Use Pydantic v1 syntax.
 
 **ESCALATE (stop and ask) before:** Changing CLI commands, IPC protocol, or daemon lifecycle. Modifying the learning store schema. Breaking score YAML compatibility. Deleting user data or state. Changing the self-evolution score.
 

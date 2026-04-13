@@ -43,6 +43,7 @@ class DaemonJobStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     PAUSED = "paused"
+    PAUSED_AT_CHAIN = "paused_at_chain"
     FAILED = "failed"
     CANCELLED = "cancelled"
     PENDING = "pending"

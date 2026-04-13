@@ -32,6 +32,7 @@ class JobSubmitParams(TypedDict, total=False):
     start_sheet: int | None
     dry_run: bool
     chain_depth: int | None
+    client_cwd: str | None
 
 
 class JobIdentifyParams(TypedDict, total=False):
@@ -93,6 +94,12 @@ class JobRequest(BaseModel):
         default=None,
         description="Concert chain depth for chained job submissions. "
         "Used by the daemon to track and enforce max_chain_depth.",
+    )
+    client_cwd: Path | None = Field(
+        default=None,
+        description="Working directory where the CLI command was invoked. "
+        "Used by the conductor to resolve relative paths in config files "
+        "against the client's cwd rather than the daemon's cwd.",
     )
 
 

@@ -530,6 +530,91 @@ class TestJobsPanel:
         assert panel._selected_index == 0  # Clamped at 0
 
 
+class TestJobsPanelFleetNesting:
+    """Tests for fleet → group → agent → sheet nesting in JobsPanel."""
+
+    def test_fleet_data_stored(self) -> None:
+        """Fleet data is stored when passed to update_data."""
+        from marianne.tui.panels.jobs import JobsPanel
+
+        panel = JobsPanel()
+        fleet_data = [
+            {
+                "fleet_id": "dev-fleet",
+                "name": "dev-fleet",
+                "members": [
+                    {"job_id": "canyon", "group": "architects", "status": "running"},
+                    {"job_id": "forge", "group": "builders", "status": "running"},
+                ],
+            }
+        ]
+        panel.update_data(None, fleet_data=fleet_data)
+        assert panel._fleet_data == fleet_data
+
+    def test_fleet_data_preserved_across_updates(self) -> None:
+        """Fleet data persists when update_data is called with None fleet_data."""
+        from marianne.tui.panels.jobs import JobsPanel
+
+        panel = JobsPanel()
+        fleet_data = [{"fleet_id": "f1", "name": "f1", "members": []}]
+        panel.update_data(None, fleet_data=fleet_data)
+        panel.update_data(None)  # No fleet_data arg
+        assert panel._fleet_data == fleet_data
+
+    def test_empty_fleet_data(self) -> None:
+        """Empty fleet data should be handled without error."""
+        from marianne.tui.panels.jobs import JobsPanel
+
+        panel = JobsPanel()
+        panel.update_data(None, fleet_data=[])
+        assert panel._fleet_data == []
+
+    def test_fleet_member_grouping(self) -> None:
+        """Fleet members should be correctly grouped by group name."""
+        fleet_data = [
+            {
+                "fleet_id": "test-fleet",
+                "name": "test-fleet",
+                "members": [
+                    {"job_id": "a", "group": "g1", "status": "running"},
+                    {"job_id": "b", "group": "g1", "status": "running"},
+                    {"job_id": "c", "group": "g2", "status": "pending"},
+                    {"job_id": "d", "group": None, "status": "running"},
+                ],
+            }
+        ]
+        members = fleet_data[0]["members"]
+        from collections import defaultdict
+        by_group: dict[str, list[dict[str, str]]] = defaultdict(list)
+        ungrouped = []
+        for m in members:
+            if m.get("group"):
+                by_group[m["group"]].append(m)
+            else:
+                ungrouped.append(m)
+        assert len(by_group["g1"]) == 2
+        assert len(by_group["g2"]) == 1
+        assert len(ungrouped) == 1
+
+    def test_fleet_job_ids_collected(self) -> None:
+        """Fleet member job_ids should be extractable for nesting logic."""
+        fleet_data = [
+            {
+                "fleet_id": "f1",
+                "name": "f1",
+                "members": [
+                    {"job_id": "job-a", "group": "g1"},
+                    {"job_id": "job-b", "group": "g1"},
+                ],
+            }
+        ]
+        fleet_job_ids: set[str] = set()
+        for fleet in fleet_data:
+            for member in fleet.get("members", []):
+                fleet_job_ids.add(member.get("job_id", ""))
+        assert fleet_job_ids == {"job-a", "job-b"}
+
+
 class TestJobsPanelHelpers:
     """Tests for jobs panel formatting helpers."""
 

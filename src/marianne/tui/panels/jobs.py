@@ -107,6 +107,7 @@ class JobsPanel(VerticalScroll):
         self._observer_file_events: list[dict[str, Any]] = []
         self._sort_key: str = "job_id"
         self._filter_query: str = ""
+        self._fleet_data: list[dict[str, Any]] = []
 
     def compose(self) -> Any:
         """Build the widget tree with a Tree for collapsible jobs."""
@@ -168,11 +169,21 @@ class JobsPanel(VerticalScroll):
         self,
         snapshot: SystemSnapshot | None,
         observer_file_events: list[dict[str, Any]] | None = None,
+        fleet_data: list[dict[str, Any]] | None = None,
     ) -> None:
-        """Update the panel with new snapshot data."""
+        """Update the panel with new snapshot data.
+
+        Args:
+            snapshot: Current system snapshot with process metrics.
+            observer_file_events: Observer file events for job correlation.
+            fleet_data: Fleet status dicts from fleet manager. Each dict has
+                fleet_id, name, members (list of {job_id, group, status}).
+        """
         self._snapshot = snapshot
         if observer_file_events is not None:
             self._observer_file_events = observer_file_events
+        if fleet_data is not None:
+            self._fleet_data = fleet_data
         self._render_jobs()
 
     def _render_jobs(self) -> None:
@@ -247,64 +258,86 @@ class JobsPanel(VerticalScroll):
                 reverse=True
             )
 
-        for job_id in sorted_job_ids:
-            procs = by_job[job_id]
-            jp = progress_by_job.get(job_id)
-            if jp and jp.total_sheets > 0:
-                progress = _format_progress_bar(jp.last_completed_sheet, jp.total_sheets)
-                sheet_label = f"Sheet {jp.current_sheet or '-'}/{jp.total_sheets}"
-            else:
-                # Fallback: no live state available, show process count
-                sheet_nums = {p.sheet_num for p in procs if p.sheet_num is not None}
-                total_sheets = max(len(sheet_nums), 1)
-                running = [p for p in procs if p.state in ("R", "S", "D")]
-                progress = _format_progress_bar(len(running), total_sheets)
-                sheet_label = f"Sheet {len(running)}/{total_sheets}"
+        # Collect fleet member job_ids for nesting
+        fleet_job_ids: set[str] = set()
+        if self._fleet_data:
+            for fleet in self._fleet_data:
+                for member in fleet.get("members", []):
+                    fleet_job_ids.add(member.get("job_id", ""))
 
-            job_label = Text.from_markup(
-                f"[bold]\u25b6 {job_id}[/bold]  "
-                f"{sheet_label} {progress}"
-            )
-            # Attach observer file events filtered for this job
-            job_file_events = [
-                e for e in self._observer_file_events
-                if e.get("job_id") == job_id
-                and e.get("event", "").startswith("observer.file_")
-            ]
-            job_data: dict[str, Any] = {
-                "type": "job",
-                "job_id": job_id,
-                "processes": procs,
-                "observer_file_events": job_file_events,
-            }
-            job_node = tree.root.add(job_label, data=job_data, expand=not auto_collapse)
-            items.append(job_data)
+            # Render fleet trees first
+            for fleet in self._fleet_data:
+                fleet_id = fleet.get("fleet_id", "unknown")
+                fleet_name = fleet.get("name", fleet_id)
+                members = fleet.get("members", [])
 
-            # Process children under this job
-            sorted_procs = sorted(procs, key=lambda p: (p.sheet_num or 0))
-            for proc in sorted_procs:
-                state_str = _state_label(proc.state)
-                sheet_label = f"S{proc.sheet_num}" if proc.sheet_num is not None else "S?"
-
-                proc_text = (
-                    f"{sheet_label} {state_str}  "
-                    f"PID {proc.pid}  CPU {proc.cpu_percent:.0f}%  "
-                    f"MEM {_format_bytes_mb(proc.rss_mb)}  "
-                    f"{_format_age(proc.age_seconds)}"
-                )
-                sc_str = _top_syscalls(proc)
-                if sc_str:
-                    proc_text += f"\n    syscalls: {sc_str}"
-
-                proc_data: dict[str, Any] = {
-                    "type": "process",
-                    "process": proc,
-                    "job_id": job_id,
+                fleet_data: dict[str, Any] = {
+                    "type": "fleet",
+                    "fleet_id": fleet_id,
                 }
-                job_node.add_leaf(Text.from_markup(proc_text), data=proc_data)
-                items.append(proc_data)
+                fleet_node = tree.root.add(
+                    Text.from_markup(
+                        f"[bold magenta]\u25c6 {fleet_name}[/bold magenta]  "
+                        f"[dim]{len(members)} scores[/dim]"
+                    ),
+                    data=fleet_data,
+                    expand=True,
+                )
+                items.append(fleet_data)
+
+                # Group members by group name
+                by_group: dict[str, list[dict[str, Any]]] = defaultdict(list)
+                ungrouped_members: list[dict[str, Any]] = []
+                for member in members:
+                    group = member.get("group")
+                    if group:
+                        by_group[group].append(member)
+                    else:
+                        ungrouped_members.append(member)
+
+                # Render grouped members
+                for group_name, group_members in sorted(by_group.items()):
+                    group_data: dict[str, Any] = {
+                        "type": "fleet_group",
+                        "fleet_id": fleet_id,
+                        "group": group_name,
+                    }
+                    group_node = fleet_node.add(
+                        Text.from_markup(
+                            f"[bold cyan]\u25b8 {group_name}[/bold cyan]  "
+                            f"[dim]{len(group_members)} agents[/dim]"
+                        ),
+                        data=group_data,
+                        expand=True,
+                    )
+                    items.append(group_data)
+
+                    for member in group_members:
+                        self._add_job_node(
+                            group_node, member["job_id"], by_job,
+                            progress_by_job, items, auto_collapse,
+                        )
+
+                # Render ungrouped members directly under fleet
+                for member in ungrouped_members:
+                    self._add_job_node(
+                        fleet_node, member["job_id"], by_job,
+                        progress_by_job, items, auto_collapse,
+                    )
+
+        # Render non-fleet jobs
+        non_fleet_job_ids = [
+            jid for jid in sorted_job_ids if jid not in fleet_job_ids
+        ]
+
+        for job_id in non_fleet_job_ids:
+            self._add_job_node(
+                tree.root, job_id, by_job,
+                progress_by_job, items, auto_collapse,
+            )
 
         # Orphan processes (no job_id)
+        # (orphan rendering follows below)
         if orphans:
             orphan_node = tree.root.add(
                 Text.from_markup("[dim]Unassociated processes[/]"),
@@ -322,6 +355,72 @@ class JobsPanel(VerticalScroll):
                 items.append(proc_data)
 
         self._items = items
+
+    def _add_job_node(
+        self,
+        parent_node: Any,
+        job_id: str,
+        by_job: dict[str, list[ProcessMetric]],
+        progress_by_job: dict[str, JobProgress],
+        items: list[dict[str, Any]],
+        auto_collapse: bool,
+    ) -> None:
+        """Add a job node with its process children to the tree.
+
+        Shared rendering logic used by both fleet-nested and standalone jobs.
+        """
+        procs = by_job.get(job_id, [])
+        jp = progress_by_job.get(job_id)
+        if jp and jp.total_sheets > 0:
+            progress = _format_progress_bar(jp.last_completed_sheet, jp.total_sheets)
+            sheet_info = f"Sheet {jp.current_sheet or '-'}/{jp.total_sheets}"
+        else:
+            sheet_nums = {p.sheet_num for p in procs if p.sheet_num is not None}
+            total_sheets = max(len(sheet_nums), 1)
+            running = [p for p in procs if p.state in ("R", "S", "D")]
+            progress = _format_progress_bar(len(running), total_sheets)
+            sheet_info = f"Sheet {len(running)}/{total_sheets}"
+
+        job_label = Text.from_markup(
+            f"[bold]\u25b6 {job_id}[/bold]  "
+            f"{sheet_info} {progress}"
+        )
+        job_file_events = [
+            e for e in self._observer_file_events
+            if e.get("job_id") == job_id
+            and e.get("event", "").startswith("observer.file_")
+        ]
+        job_data: dict[str, Any] = {
+            "type": "job",
+            "job_id": job_id,
+            "processes": procs,
+            "observer_file_events": job_file_events,
+        }
+        job_node = parent_node.add(job_label, data=job_data, expand=not auto_collapse)
+        items.append(job_data)
+
+        sorted_procs = sorted(procs, key=lambda p: (p.sheet_num or 0))
+        for proc in sorted_procs:
+            state_str = _state_label(proc.state)
+            s_label = f"S{proc.sheet_num}" if proc.sheet_num is not None else "S?"
+
+            proc_text = (
+                f"{s_label} {state_str}  "
+                f"PID {proc.pid}  CPU {proc.cpu_percent:.0f}%  "
+                f"MEM {_format_bytes_mb(proc.rss_mb)}  "
+                f"{_format_age(proc.age_seconds)}"
+            )
+            sc_str = _top_syscalls(proc)
+            if sc_str:
+                proc_text += f"\n    syscalls: {sc_str}"
+
+            proc_data: dict[str, Any] = {
+                "type": "process",
+                "process": proc,
+                "job_id": job_id,
+            }
+            job_node.add_leaf(Text.from_markup(proc_text), data=proc_data)
+            items.append(proc_data)
 
 
 __all__ = ["JobsPanel"]

@@ -230,6 +230,7 @@ async def _try_daemon_submit(
             "fresh": fresh,
             "self_healing": self_healing,
             "self_healing_auto_confirm": auto_confirm,
+            "client_cwd": str(Path.cwd()),
         }
         if workspace is not None:
             params["workspace"] = str(Path(workspace).resolve())

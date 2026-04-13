@@ -208,9 +208,7 @@ class BatonCore:
     # Instrument Registry
     # =========================================================================
 
-    def register_instrument(
-        self, name: str, *, max_concurrent: int = 4
-    ) -> InstrumentState:
+    def register_instrument(self, name: str, *, max_concurrent: int = 4) -> InstrumentState:
         """Register an instrument for tracking.
 
         If already registered, returns the existing state (idempotent).
@@ -234,7 +232,10 @@ class BatonCore:
         return state
 
     def set_model_concurrency(
-        self, instrument: str, model: str, max_concurrent: int,
+        self,
+        instrument: str,
+        model: str,
+        max_concurrent: int,
     ) -> None:
         """Set per-model concurrency limit from instrument profile data.
 
@@ -247,9 +248,7 @@ class BatonCore:
         """Get the tracking state for a specific instrument."""
         return self._instruments.get(name)
 
-    def build_dispatch_config(
-        self, *, max_concurrent_sheets: int = 10
-    ) -> DispatchConfig:
+    def build_dispatch_config(self, *, max_concurrent_sheets: int = 10) -> DispatchConfig:
         """Build a DispatchConfig from the current instrument state.
 
         This bridges the gap between the baton's instrument tracking
@@ -301,10 +300,7 @@ class BatonCore:
 
         Used by dispatch logic to skip rate-limited instruments.
         """
-        return {
-            name for name, inst in self._instruments.items()
-            if inst.rate_limited
-        }
+        return {name for name, inst in self._instruments.items() if inst.rate_limited}
 
     def clear_instrument_rate_limit(
         self,
@@ -357,14 +353,20 @@ class BatonCore:
         Used by dispatch logic to skip unhealthy instruments.
         """
         return {
-            name for name, inst in self._instruments.items()
+            name
+            for name, inst in self._instruments.items()
             if inst.circuit_breaker == CircuitBreakerState.OPEN
         }
 
-    def _auto_register_instruments(
-        self, sheets: dict[int, SheetExecutionState]
-    ) -> None:
-        """Auto-register instruments for any sheets using untracked instruments."""
+    def _auto_register_instruments(self, sheets: dict[int, SheetExecutionState]) -> None:
+        """Auto-register instruments for any sheets using untracked instruments.
+
+        Registers both primary instruments and all fallback chain instruments
+        upfront so they are available when a sheet falls back at runtime.
+        Without this, fallback advancement changes the sheet's instrument_name
+        but the baton never registers the new instrument, leaving the sheet
+        permanently undispatchable (GH#170).
+        """
         for sheet in sheets.values():
             name = sheet.instrument_name or ""
             if name and name not in self._instruments:
@@ -372,6 +374,24 @@ class BatonCore:
                     name,
                     max_concurrent=self._DEFAULT_INSTRUMENT_CONCURRENCY,
                 )
+            for fb in sheet.fallback_chain:
+                if fb and fb not in self._instruments:
+                    self.register_instrument(
+                        fb,
+                        max_concurrent=self._DEFAULT_INSTRUMENT_CONCURRENCY,
+                    )
+
+    def _ensure_instrument_registered(self, name: str) -> None:
+        """Register an instrument if not already tracked.
+
+        Safety net for any code path that advances an instrument fallback
+        at runtime without going through job registration.
+        """
+        if name and name not in self._instruments:
+            self.register_instrument(
+                name,
+                max_concurrent=self._DEFAULT_INSTRUMENT_CONCURRENCY,
+            )
 
     def _update_instrument_on_success(self, instrument_name: str) -> None:
         """Record a successful execution on an instrument."""
@@ -406,7 +426,7 @@ class BatonCore:
         sheets targeting it forever.
         """
         excess = max(0, inst.consecutive_failures - inst.circuit_breaker_threshold)
-        delay = min(30.0 * (2 ** excess), 300.0)
+        delay = min(30.0 * (2**excess), 300.0)
         inst.circuit_breaker_recovery_at = time.monotonic() + delay
 
         if self._timer is not None:
@@ -427,9 +447,7 @@ class BatonCore:
                 },
             )
 
-    def _handle_circuit_breaker_recovery(
-        self, event: CircuitBreakerRecovery
-    ) -> None:
+    def _handle_circuit_breaker_recovery(self, event: CircuitBreakerRecovery) -> None:
         """Timer fired — transition instrument from OPEN to HALF_OPEN.
 
         HALF_OPEN allows one probe request through. If it succeeds,
@@ -483,9 +501,7 @@ class BatonCore:
                 },
             )
 
-    def set_sheet_cost_limit(
-        self, job_id: str, sheet_num: int, max_cost_usd: float
-    ) -> None:
+    def set_sheet_cost_limit(self, job_id: str, sheet_num: int, max_cost_usd: float) -> None:
         """Set a per-sheet cost limit. The baton fails the sheet when exceeded.
 
         Args:
@@ -511,8 +527,7 @@ class BatonCore:
             sheet.status = BatonSheetStatus.FAILED
             if not sheet.error_message:
                 sheet.error_message = (
-                    f"Sheet cost ${sheet.total_cost_usd:.2f} exceeded "
-                    f"limit ${limit:.2f}"
+                    f"Sheet cost ${sheet.total_cost_usd:.2f} exceeded limit ${limit:.2f}"
                 )
             if not sheet.error_code:
                 sheet.error_code = "E999"
@@ -539,14 +554,10 @@ class BatonCore:
         Returns:
             Delay in seconds, clamped to ``_max_retry_delay``.
         """
-        delay = self._base_retry_delay * (
-            self._retry_exponential_base ** attempt
-        )
+        delay = self._base_retry_delay * (self._retry_exponential_base**attempt)
         return min(delay, self._max_retry_delay)
 
-    def _schedule_retry(
-        self, job_id: str, sheet_num: int, sheet: SheetExecutionState
-    ) -> None:
+    def _schedule_retry(self, job_id: str, sheet_num: int, sheet: SheetExecutionState) -> None:
         """Schedule a retry via the timer wheel with backoff delay.
 
         Sets the sheet to RETRY_SCHEDULED. If a timer wheel is available,
@@ -575,9 +586,7 @@ class BatonCore:
                 },
             )
 
-    def _handle_exhaustion(
-        self, job_id: str, sheet_num: int, sheet: SheetExecutionState
-    ) -> None:
+    def _handle_exhaustion(self, job_id: str, sheet_num: int, sheet: SheetExecutionState) -> None:
         """Handle retry/completion budget exhaustion.
 
         The decision tree when a budget is exhausted:
@@ -608,16 +617,18 @@ class BatonCore:
             from_instrument = sheet.instrument_name or ""
             to_instrument = sheet.advance_fallback("rate_limit_exhausted")
             if to_instrument is not None:
-                # Re-queue for dispatch with the new instrument
+                self._ensure_instrument_registered(to_instrument)
                 sheet.status = BatonSheetStatus.PENDING
                 self._state_dirty = True
-                self._fallback_events.append(InstrumentFallback(
-                    job_id=job_id,
-                    sheet_num=sheet_num,
-                    from_instrument=from_instrument,
-                    to_instrument=to_instrument,
-                    reason="rate_limit_exhausted",
-                ))
+                self._fallback_events.append(
+                    InstrumentFallback(
+                        job_id=job_id,
+                        sheet_num=sheet_num,
+                        from_instrument=from_instrument,
+                        to_instrument=to_instrument,
+                        reason="rate_limit_exhausted",
+                    )
+                )
                 _logger.info(
                     "baton.sheet.instrument_fallback",
                     extra={
@@ -631,10 +642,7 @@ class BatonCore:
                 return
 
         # Path 2: Self-healing — try to diagnose and fix
-        if (
-            job.self_healing_enabled
-            and sheet.healing_attempts < self._DEFAULT_MAX_HEALING
-        ):
+        if job.self_healing_enabled and sheet.healing_attempts < self._DEFAULT_MAX_HEALING:
             sheet.healing_attempts += 1
             self._schedule_retry(job_id, sheet_num, sheet)
             _logger.info(
@@ -716,9 +724,7 @@ class BatonCore:
         )
         self._propagate_failure_to_dependents(job_id, sheet_num)
 
-    def _check_and_fallback_unavailable(
-        self, sheet: SheetExecutionState, job_id: str
-    ) -> bool:
+    def _check_and_fallback_unavailable(self, sheet: SheetExecutionState, job_id: str) -> bool:
         """Check if the sheet's current instrument is unavailable.
 
         If the instrument is unavailable (circuit breaker OPEN, rate limited)
@@ -734,15 +740,18 @@ class BatonCore:
                 from_instrument = sheet.instrument_name or ""
                 to_instrument = sheet.advance_fallback("unavailable")
                 if to_instrument is not None:
+                    self._ensure_instrument_registered(to_instrument)
                     sheet.status = BatonSheetStatus.PENDING
                     self._state_dirty = True
-                    self._fallback_events.append(InstrumentFallback(
-                        job_id=job_id,
-                        sheet_num=sheet.sheet_num,
-                        from_instrument=from_instrument,
-                        to_instrument=to_instrument,
-                        reason="unavailable",
-                    ))
+                    self._fallback_events.append(
+                        InstrumentFallback(
+                            job_id=job_id,
+                            sheet_num=sheet.sheet_num,
+                            from_instrument=from_instrument,
+                            to_instrument=to_instrument,
+                            reason="unavailable",
+                        )
+                    )
                     _logger.info(
                         "baton.sheet.instrument_fallback",
                         extra={
@@ -764,15 +773,18 @@ class BatonCore:
             from_instrument = sheet.instrument_name or ""
             to_instrument = sheet.advance_fallback("unavailable")
             if to_instrument is not None:
+                self._ensure_instrument_registered(to_instrument)
                 sheet.status = BatonSheetStatus.PENDING
                 self._state_dirty = True
-                self._fallback_events.append(InstrumentFallback(
-                    job_id=job_id,
-                    sheet_num=sheet.sheet_num,
-                    from_instrument=from_instrument,
-                    to_instrument=to_instrument,
-                    reason="unavailable",
-                ))
+                self._fallback_events.append(
+                    InstrumentFallback(
+                        job_id=job_id,
+                        sheet_num=sheet.sheet_num,
+                        from_instrument=from_instrument,
+                        to_instrument=to_instrument,
+                        reason="unavailable",
+                    )
+                )
                 _logger.info(
                     "baton.sheet.instrument_fallback",
                     extra={
@@ -866,18 +878,13 @@ class BatonCore:
             # F-062: Clean up cost limit dicts to prevent memory leaks
             self._job_cost_limits.pop(job_id, None)
             # Remove sheet cost limits for this job
-            sheet_keys_to_remove = [
-                key for key in self._sheet_cost_limits
-                if key[0] == job_id
-            ]
+            sheet_keys_to_remove = [key for key in self._sheet_cost_limits if key[0] == job_id]
             for key in sheet_keys_to_remove:
                 del self._sheet_cost_limits[key]
             self._state_dirty = True
             _logger.info("baton.job_deregistered", extra={"job_id": job_id})
 
-    def get_sheet_state(
-        self, job_id: str, sheet_num: int
-    ) -> SheetExecutionState | None:
+    def get_sheet_state(self, job_id: str, sheet_num: int) -> SheetExecutionState | None:
         """Get the scheduling state for a specific sheet."""
         job = self._jobs.get(job_id)
         if job is None:
@@ -894,10 +901,7 @@ class BatonCore:
         job = self._jobs.get(job_id)
         if job is None:
             return False
-        return all(
-            sheet.status in _TERMINAL_BATON_STATUSES
-            for sheet in job.sheets.values()
-        )
+        return all(sheet.status in _TERMINAL_BATON_STATUSES for sheet in job.sheets.values())
 
     # =========================================================================
     # Ready Sheet Resolution
@@ -922,9 +926,7 @@ class BatonCore:
 
             # Check dependencies
             deps = job.dependencies.get(sheet_num, [])
-            deps_satisfied = all(
-                self._is_dependency_satisfied(job, dep) for dep in deps
-            )
+            deps_satisfied = all(self._is_dependency_satisfied(job, dep) for dep in deps)
             if deps_satisfied:
                 ready.append(sheet)
 
@@ -946,10 +948,7 @@ class BatonCore:
         """
         if dep_sheet.status == BatonSheetStatus.COMPLETED:
             return True
-        return (
-            dep_sheet.status == BatonSheetStatus.SKIPPED
-            and dep_sheet.error_code is None
-        )
+        return dep_sheet.status == BatonSheetStatus.SKIPPED and dep_sheet.error_code is None
 
     def _is_dependency_satisfied(self, job: _JobRecord, dep_num: int) -> bool:
         """Check if a dependency sheet is in a satisfied state.
@@ -1139,13 +1138,15 @@ class BatonCore:
             # recovery timer, moves ALL dispatched sheets on this
             # instrument to WAITING. Without this, the sheet sits in
             # WAITING forever with no timer to recover it.
-            self._inbox.put_nowait(RateLimitHit(
-                instrument=event.instrument_name,
-                wait_seconds=event.rate_limit_wait_seconds or 60.0,
-                job_id=event.job_id,
-                sheet_num=event.sheet_num,
-                model=event.model_used,
-            ))
+            self._inbox.put_nowait(
+                RateLimitHit(
+                    instrument=event.instrument_name,
+                    wait_seconds=event.rate_limit_wait_seconds or 60.0,
+                    job_id=event.job_id,
+                    sheet_num=event.sheet_num,
+                    model=event.model_used,
+                )
+            )
             return
 
         # F-018 guard: when execution succeeds with no validations,
@@ -1153,11 +1154,7 @@ class BatonCore:
         # A musician that reports execution_success=True with
         # validations_total=0 should not trigger unnecessary retries.
         effective_pass_rate = event.validation_pass_rate
-        if (
-            event.execution_success
-            and event.validations_total == 0
-            and effective_pass_rate < 100.0
-        ):
+        if event.execution_success and event.validations_total == 0 and effective_pass_rate < 100.0:
             effective_pass_rate = 100.0
 
         if event.execution_success and effective_pass_rate >= 100.0:
@@ -1212,9 +1209,7 @@ class BatonCore:
                         "completion_attempts": sheet.completion_attempts,
                     },
                 )
-                self._handle_exhaustion(
-                    event.job_id, event.sheet_num, sheet
-                )
+                self._handle_exhaustion(event.job_id, event.sheet_num, sheet)
             self._check_job_cost_limit(event.job_id)
             return
 
@@ -1223,6 +1218,38 @@ class BatonCore:
             self._update_instrument_on_failure(event.instrument_name)
 
             if event.error_classification == "AUTH_FAILURE":
+                # Auth failure on THIS instrument — try fallback chain before
+                # giving up.  Auth is per-instrument (different credentials),
+                # so the next instrument in the chain may succeed.
+                if sheet.has_fallback_available:
+                    from_instrument = sheet.instrument_name or ""
+                    to_instrument = sheet.advance_fallback("auth_failure")
+                    if to_instrument is not None:
+                        self._ensure_instrument_registered(to_instrument)
+                        sheet.status = BatonSheetStatus.PENDING
+                        self._state_dirty = True
+                        self._fallback_events.append(
+                            InstrumentFallback(
+                                job_id=event.job_id,
+                                sheet_num=event.sheet_num,
+                                from_instrument=from_instrument,
+                                to_instrument=to_instrument,
+                                reason="auth_failure",
+                            )
+                        )
+                        _logger.warning(
+                            "baton.sheet.auth_fallback",
+                            extra={
+                                "job_id": event.job_id,
+                                SHEET_NUM_KEY: event.sheet_num,
+                                "from_instrument": from_instrument,
+                                "to_instrument": to_instrument,
+                            },
+                        )
+                        self._check_job_cost_limit(event.job_id)
+                        return
+
+                # No fallback available — fail permanently
                 sheet.status = BatonSheetStatus.FAILED
                 sheet.error_message = event.error_message or "Authentication failure"
                 sheet.error_code = "E502"
@@ -1234,9 +1261,7 @@ class BatonCore:
                         SHEET_NUM_KEY: event.sheet_num,
                     },
                 )
-                self._propagate_failure_to_dependents(
-                    event.job_id, event.sheet_num
-                )
+                self._propagate_failure_to_dependents(event.job_id, event.sheet_num)
                 self._check_job_cost_limit(event.job_id)
                 return
 
@@ -1357,14 +1382,10 @@ class BatonCore:
         # sheets using that model are affected (per-model granularity).
         for job in self._jobs.values():
             for sheet in job.sheets.values():
-                if (
-                    sheet.instrument_name == event.instrument
-                    and sheet.status
-                    in (
-                        BatonSheetStatus.DISPATCHED,
-                        BatonSheetStatus.IN_PROGRESS,
-                        BatonSheetStatus.WAITING,
-                    )
+                if sheet.instrument_name == event.instrument and sheet.status in (
+                    BatonSheetStatus.DISPATCHED,
+                    BatonSheetStatus.IN_PROGRESS,
+                    BatonSheetStatus.WAITING,
                 ):
                     # Per-model filtering: skip sheets using a different model
                     if (
@@ -1379,6 +1400,7 @@ class BatonCore:
                             reason="rate_limit",
                         )
                         if fallback_name is not None:
+                            self._ensure_instrument_registered(fallback_name)
                             sheet.status = BatonSheetStatus.PENDING
                             _logger.info(
                                 "baton.rate_limit.fallback_advanced",
@@ -1487,16 +1509,11 @@ class BatonCore:
                 sheet.status = BatonSheetStatus.FAILED
                 sheet.error_message = f"Escalation resolved with decision: {event.decision}"
                 sheet.error_code = "E999"
-                self._propagate_failure_to_dependents(
-                    event.job_id, event.sheet_num
-                )
+                self._propagate_failure_to_dependents(event.job_id, event.sheet_num)
         # F-066: Only unpause if no sheets are still in FERMATA.
         # F-067: Re-check cost limits after unpausing.
         if not job.user_paused:
-            any_fermata = any(
-                s.status == BatonSheetStatus.FERMATA
-                for s in job.sheets.values()
-            )
+            any_fermata = any(s.status == BatonSheetStatus.FERMATA for s in job.sheets.values())
             if not any_fermata:
                 job.paused = False
                 # F-067: re-check cost limits — may re-pause
@@ -1519,16 +1536,11 @@ class BatonCore:
             sheet.status = BatonSheetStatus.FAILED
             sheet.error_message = "Escalation timed out with no response"
             sheet.error_code = "E999"
-            self._propagate_failure_to_dependents(
-                event.job_id, event.sheet_num
-            )
+            self._propagate_failure_to_dependents(event.job_id, event.sheet_num)
         # F-066: Only unpause if no sheets are still in FERMATA.
         # F-067: Re-check cost limits after unpausing.
         if not job.user_paused:
-            any_fermata = any(
-                s.status == BatonSheetStatus.FERMATA
-                for s in job.sheets.values()
-            )
+            any_fermata = any(s.status == BatonSheetStatus.FERMATA for s in job.sheets.values())
             if not any_fermata:
                 job.paused = False
                 # F-067: re-check cost limits — may re-pause
@@ -1621,9 +1633,7 @@ class BatonCore:
             sheet.record_attempt(crash_result)
             self._update_instrument_on_failure(sheet.instrument_name or "")
             if not sheet.can_retry:
-                self._handle_exhaustion(
-                    event.job_id, event.sheet_num, sheet
-                )
+                self._handle_exhaustion(event.job_id, event.sheet_num, sheet)
             else:
                 self._schedule_retry(event.job_id, event.sheet_num, sheet)
             self._state_dirty = True
@@ -1737,8 +1747,7 @@ class BatonCore:
 
         # Count sheets still in DISPATCHED status for this job
         still_dispatched = sum(
-            1 for s in job.sheets.values()
-            if s.status == BatonSheetStatus.DISPATCHED
+            1 for s in job.sheets.values() if s.status == BatonSheetStatus.DISPATCHED
         )
         if still_dispatched > 0:
             _logger.debug(
@@ -1769,9 +1778,7 @@ class BatonCore:
     # Dependency Failure Propagation
     # =========================================================================
 
-    def _propagate_failure_to_dependents(
-        self, job_id: str, failed_sheet_num: int
-    ) -> None:
+    def _propagate_failure_to_dependents(self, job_id: str, failed_sheet_num: int) -> None:
         """Mark downstream sheets as SKIPPED when their dependencies are
         unsatisfiable AND all sibling dependencies are terminal.
 
@@ -1838,9 +1845,8 @@ class BatonCore:
                 dep_sheet = job.sheets.get(dep_num)
                 if dep_sheet is None:
                     continue
-                if (
-                    dep_sheet.status in _TERMINAL_BATON_STATUSES
-                    and not self._is_dep_satisfied(dep_sheet)
+                if dep_sheet.status in _TERMINAL_BATON_STATUSES and not self._is_dep_satisfied(
+                    dep_sheet
                 ):
                     any_unsatisfied = True
                     blocking_dep = dep_num
@@ -1854,18 +1860,16 @@ class BatonCore:
             # At least one dep is terminal and unsatisfied → SKIPPED
             # (not FAILED — the sheet was never attempted, just blocked)
             sheet.status = BatonSheetStatus.SKIPPED
-            sheet.error_message = (
-                f"Blocked by failed dependency: sheet {blocking_dep}"
-            )
+            sheet.error_message = f"Blocked by failed dependency: sheet {blocking_dep}"
             sheet.error_code = "E999"
             _logger.info(
                 "baton.sheet.dependency_blocked",
-                    extra={
-                        "job_id": job_id,
-                        SHEET_NUM_KEY: current,
-                        "failed_dependency": failed_sheet_num,
-                    },
-                )
+                extra={
+                    "job_id": job_id,
+                    SHEET_NUM_KEY: current,
+                    "failed_dependency": failed_sheet_num,
+                },
+            )
 
             # Continue propagation to this sheet's dependents
             for downstream in dependents.get(current, []):
