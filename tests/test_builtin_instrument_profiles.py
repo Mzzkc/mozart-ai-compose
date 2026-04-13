@@ -36,7 +36,7 @@ class TestBuiltinProfilesExist:
         assert BUILTINS_DIR.is_dir(), f"Missing builtins directory: {BUILTINS_DIR}"
 
     def test_expected_profiles_present(self) -> None:
-        """All 6 expected instrument profiles are present."""
+        """All 8 expected instrument profiles are present."""
         expected = {
             "claude-code.yaml",
             "gemini-cli.yaml",
@@ -44,6 +44,8 @@ class TestBuiltinProfilesExist:
             "cline-cli.yaml",
             "aider.yaml",
             "goose.yaml",
+            "opencode.yaml",
+            "crush.yaml",
         }
         actual = {f.name for f in BUILTINS_DIR.glob("*.yaml")}
         missing = expected - actual
@@ -121,6 +123,27 @@ class TestProfileDetails:
         assert profile.cli is not None
         assert profile.cli.command.prompt_flag is None
         assert profile.cli.command.subcommand == "exec"
+
+    def test_opencode_has_mcp_and_free_models(self) -> None:
+        """OpenCode profile declares MCP capability and free-tier models."""
+        path = BUILTINS_DIR / "opencode.yaml"
+        with open(path) as fh:
+            data = yaml.safe_load(fh)
+        profile = InstrumentProfile.model_validate(data)
+        assert "mcp" in profile.capabilities
+        assert "tool_use" in profile.capabilities
+        assert "structured_output" in profile.capabilities
+        assert profile.cli is not None
+        assert profile.cli.command.executable == "opencode"
+        assert profile.cli.command.prompt_flag == "-p"
+        assert profile.cli.command.output_format_flag == "-f"
+        assert profile.cli.command.output_format_value == "json"
+        assert profile.cli.output.format == "json"
+        # All models should be free-tier
+        assert len(profile.models) >= 5
+        for model in profile.models:
+            assert model.cost_per_1k_input == 0.0, f"{model.name} is not free"
+            assert model.cost_per_1k_output == 0.0, f"{model.name} is not free"
 
     def test_all_profiles_have_rate_limit_patterns(self) -> None:
         """Every profile should have rate limit detection patterns."""

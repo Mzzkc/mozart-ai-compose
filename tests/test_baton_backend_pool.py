@@ -25,6 +25,8 @@ from marianne.core.config.instruments import (
     ModelCapacity,
 )
 from marianne.daemon.baton.backend_pool import BackendPool, _create_backend_for_profile
+from marianne.daemon.keyring import ApiKeyKeyring
+from marianne.daemon.keyring_config import InstrumentKeyring, KeyEntry, KeyringConfig
 from marianne.instruments.registry import InstrumentRegistry
 
 # =============================================================================
@@ -59,7 +61,7 @@ def _make_cli_profile(name: str = "test-cli") -> InstrumentProfile:
 
 
 def _make_http_profile(name: str = "test-http") -> InstrumentProfile:
-    """Create a minimal HTTP instrument profile for testing."""
+    """Create a minimal HTTP instrument profile for testing (non-OpenRouter)."""
     return InstrumentProfile(
         name=name,
         display_name=f"Test HTTP ({name})",
@@ -77,6 +79,30 @@ def _make_http_profile(name: str = "test-http") -> InstrumentProfile:
         http=HttpProfile(
             base_url="http://localhost:8080",
             schema_family="openai",
+        ),
+    )
+
+
+def _make_openrouter_profile(name: str = "openrouter") -> InstrumentProfile:
+    """Create an OpenRouter HTTP instrument profile for testing."""
+    return InstrumentProfile(
+        name=name,
+        display_name="OpenRouter",
+        kind="http",
+        capabilities={"tool_use"},
+        models=[
+            ModelCapacity(
+                name="minimax/minimax-m1-80k",
+                context_window=80000,
+                cost_per_1k_input=0.0,
+                cost_per_1k_output=0.0,
+            ),
+        ],
+        default_model="minimax/minimax-m1-80k",
+        http=HttpProfile(
+            base_url="https://openrouter.ai/api/v1",
+            schema_family="openai",
+            auth_env_var="OPENROUTER_API_KEY",
         ),
     )
 
@@ -397,3 +423,127 @@ class TestCreateBackendForProfile:
             profile, working_directory=Path("/tmp/test")
         )
         assert backend.working_directory == Path("/tmp/test")
+
+    async def test_openrouter_profile_creates_openrouter_backend(self) -> None:
+        from marianne.backends.openrouter import OpenRouterBackend
+
+        profile = _make_openrouter_profile()
+        backend = _create_backend_for_profile(profile)
+        assert isinstance(backend, OpenRouterBackend)
+
+    async def test_openrouter_profile_with_api_key(self) -> None:
+        from marianne.backends.openrouter import OpenRouterBackend
+
+        profile = _make_openrouter_profile()
+        backend = _create_backend_for_profile(
+            profile, api_key="sk-test-injected-key",
+        )
+        assert isinstance(backend, OpenRouterBackend)
+        assert backend._api_key == "sk-test-injected-key"
+
+    async def test_openrouter_profile_with_model_override(self) -> None:
+        from marianne.backends.openrouter import OpenRouterBackend
+
+        profile = _make_openrouter_profile()
+        backend = _create_backend_for_profile(
+            profile, model="google/gemma-4",
+        )
+        assert isinstance(backend, OpenRouterBackend)
+        assert backend.model == "google/gemma-4"
+
+
+# =============================================================================
+# HTTP singleton with OpenRouter
+# =============================================================================
+
+
+class TestOpenRouterHttpSingleton:
+    """OpenRouter HTTP instruments use singleton pattern in the pool."""
+
+    async def test_openrouter_singleton_is_reused(self) -> None:
+        profile = _make_openrouter_profile()
+        registry = _make_registry(profile)
+        pool = BackendPool(registry)
+
+        b1 = await pool.acquire("openrouter")
+        b2 = await pool.acquire("openrouter")
+        assert b1 is b2
+        assert pool.in_flight_count("openrouter") == 2
+        await pool.close_all()
+
+    async def test_openrouter_release_decrements_in_flight(self) -> None:
+        profile = _make_openrouter_profile()
+        registry = _make_registry(profile)
+        pool = BackendPool(registry)
+
+        b1 = await pool.acquire("openrouter")
+        assert pool.in_flight_count("openrouter") == 1
+
+        await pool.release("openrouter", b1)
+        assert pool.in_flight_count("openrouter") == 0
+        await pool.close_all()
+
+
+# =============================================================================
+# Keyring integration with BackendPool
+# =============================================================================
+
+
+class TestKeyringIntegration:
+    """BackendPool uses keyring for HTTP backend API keys."""
+
+    async def test_keyring_injects_api_key(self, tmp_path: Path) -> None:
+        from marianne.backends.openrouter import OpenRouterBackend
+
+        # Set up key file
+        key_file = tmp_path / "openrouter.key"
+        key_file.write_text("sk-from-keyring")
+
+        config = KeyringConfig(
+            instruments={
+                "openrouter": InstrumentKeyring(
+                    keys=[KeyEntry(path=str(key_file), label="test")],
+                ),
+            },
+        )
+        keyring = ApiKeyKeyring(config)
+
+        profile = _make_openrouter_profile()
+        registry = _make_registry(profile)
+        pool = BackendPool(registry, keyring=keyring)
+
+        backend = await pool.acquire("openrouter")
+        assert isinstance(backend, OpenRouterBackend)
+        assert backend._api_key == "sk-from-keyring"
+        await pool.close_all()
+
+    async def test_no_keyring_falls_back_to_env(self) -> None:
+        """Without keyring, backend reads from environment variable."""
+        profile = _make_openrouter_profile()
+        registry = _make_registry(profile)
+        pool = BackendPool(registry)  # No keyring
+
+        backend = await pool.acquire("openrouter")
+        # API key comes from env (may be None in test env, but no crash)
+        assert backend is not None
+        await pool.close_all()
+
+    async def test_keyring_failure_does_not_crash(self, tmp_path: Path) -> None:
+        """If keyring key file is missing, acquisition still works."""
+        config = KeyringConfig(
+            instruments={
+                "openrouter": InstrumentKeyring(
+                    keys=[KeyEntry(path=str(tmp_path / "missing.key"), label="missing")],
+                ),
+            },
+        )
+        keyring = ApiKeyKeyring(config)
+
+        profile = _make_openrouter_profile()
+        registry = _make_registry(profile)
+        pool = BackendPool(registry, keyring=keyring)
+
+        # Should not crash — keyring failure is logged, backend created without injected key
+        backend = await pool.acquire("openrouter")
+        assert backend is not None
+        await pool.close_all()

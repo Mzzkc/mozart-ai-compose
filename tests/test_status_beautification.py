@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from rich.console import Console
 
+from marianne.core.checkpoint import CheckpointState
 
 # ============================================================================
 # format_relative_time tests
@@ -106,7 +107,7 @@ class TestBeautifiedStatusHeader:
         """Create a minimal CheckpointState-like mock."""
         from marianne.core.checkpoint import JobStatus, SheetState, SheetStatus
 
-        job = MagicMock()
+        job = MagicMock(spec=CheckpointState)
         job.job_name = "test-score"
         job.job_id = "test-score-abc123"
         job.status = JobStatus[status.upper()]
@@ -416,7 +417,7 @@ class TestSynthesisTableBounding:
         """Only last 5 synthesis batches should show by default."""
         from marianne.cli.commands.status import _render_synthesis_results
 
-        job = MagicMock()
+        job = MagicMock(spec=CheckpointState)
         # Create 10 synthesis results
         job.synthesis_results = {
             f"batch-{i:03d}": {

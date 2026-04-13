@@ -19,6 +19,7 @@ import yaml
 from typer.testing import CliRunner
 
 from marianne.cli import app
+from marianne.daemon.config import DaemonConfig
 
 runner = CliRunner()
 
@@ -57,7 +58,7 @@ class TestStalePidDetection:
         pid_file = tmp_path / "marianne.pid"
         pid_file.write_text("88888")
 
-        mock_config = MagicMock()
+        mock_config = MagicMock(spec=DaemonConfig)
         mock_config.pid_file = pid_file
         mock_config.log_file = tmp_path / "marianne.log"
 
@@ -97,7 +98,7 @@ class TestStalePidDetection:
         pid_file = tmp_path / "marianne.pid"
         pid_file.write_text("12345")
 
-        mock_config = MagicMock()
+        mock_config = MagicMock(spec=DaemonConfig)
         mock_config.pid_file = pid_file
 
         with (
@@ -123,7 +124,7 @@ class TestStalePidDetection:
         pid_file = tmp_path / "marianne.pid"
         pid_file.write_text("77777")
 
-        mock_config = MagicMock()
+        mock_config = MagicMock(spec=DaemonConfig)
         mock_config.pid_file = pid_file
         mock_config.log_file = tmp_path / "marianne.log"
 
@@ -152,7 +153,7 @@ class TestStalePidDetection:
         """When no PID file exists, start should proceed without messages."""
         from marianne.daemon.process import start_conductor
 
-        mock_config = MagicMock()
+        mock_config = MagicMock(spec=DaemonConfig)
         mock_config.pid_file = tmp_path / "marianne.pid"
         mock_config.log_file = tmp_path / "marianne.log"
 

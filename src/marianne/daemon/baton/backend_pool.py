@@ -41,6 +41,7 @@ from marianne.core.config.instruments import InstrumentProfile
 from marianne.instruments.registry import InstrumentRegistry
 
 if TYPE_CHECKING:
+    from marianne.daemon.keyring import ApiKeyKeyring
     from marianne.daemon.pgroup import ProcessGroupManager
 
 from marianne.core.logging import get_logger
@@ -53,6 +54,7 @@ def _create_backend_for_profile(
     *,
     working_directory: Path | None = None,
     model: str | None = None,
+    api_key: str | None = None,
 ) -> Backend:
     """Create a Backend instance from an InstrumentProfile.
 
@@ -66,6 +68,9 @@ def _create_backend_for_profile(
         profile: The instrument profile.
         working_directory: Working directory for subprocess execution.
         model: Optional model override.
+        api_key: Optional API key from the keyring. When provided, the
+            HTTP backend uses this key directly instead of reading from
+            an environment variable.
 
     Returns:
         A configured Backend instance.
@@ -81,13 +86,39 @@ def _create_backend_for_profile(
             backend.apply_overrides({"model": model})
         return backend
 
-    # HTTP instruments — use existing native backends if available
-    # For now, fall through to PluginCliBackend for CLI and raise for HTTP
-    # HTTP support is deferred to v1.1
+    # HTTP instruments — route to the appropriate native backend
+    if profile.name == "openrouter" or (
+        profile.http is not None
+        and "openrouter.ai" in (profile.http.base_url or "")
+    ):
+        from marianne.backends.openrouter import OpenRouterBackend
+
+        resolved_model = model or profile.default_model or "minimax/minimax-m1-80k"
+        base_url = (
+            profile.http.base_url if profile.http else "https://openrouter.ai/api/v1"
+        )
+        auth_env = (
+            profile.http.auth_env_var if profile.http and profile.http.auth_env_var
+            else "OPENROUTER_API_KEY"
+        )
+        http_backend: Backend = OpenRouterBackend(
+            model=resolved_model,
+            api_key_env=auth_env,
+            timeout_seconds=profile.default_timeout_seconds,
+            base_url=base_url,
+        )
+        # Inject API key from keyring if provided.
+        # http_backend is typed as Backend but is actually OpenRouterBackend here.
+        if api_key is not None and hasattr(http_backend, "_api_key"):
+            object.__setattr__(http_backend, "_api_key", api_key)
+        if working_directory is not None:
+            http_backend.working_directory = working_directory
+        return http_backend
+
     msg = (
-        f"HTTP instrument backends are not yet supported (instrument: "
+        f"HTTP instrument backend not recognized (instrument: "
         f"'{profile.name}', kind: '{profile.kind}'). "
-        f"Use CLI instruments for v1."
+        f"Supported HTTP instruments: openrouter."
     )
     raise NotImplementedError(msg)
 
@@ -118,9 +149,11 @@ class BackendPool:
         self,
         registry: InstrumentRegistry,
         pgroup: ProcessGroupManager | None = None,
+        keyring: ApiKeyKeyring | None = None,
     ) -> None:
         self._registry = registry
         self._pgroup = pgroup
+        self._keyring = keyring
 
         # CLI instruments: free list per instrument name
         self._cli_free: dict[str, list[Backend]] = {}
@@ -178,11 +211,26 @@ class BackendPool:
             )
             raise ValueError(msg)
 
+        # Resolve API key from keyring for HTTP instruments before acquiring lock.
+        # Key is loaded from disk, used to configure the backend, then not stored.
+        api_key: str | None = None
+        if profile.kind == "http" and self._keyring is not None:
+            if self._keyring.has_keys(instrument_name):
+                try:
+                    api_key = await self._keyring.select_key(instrument_name)
+                except (KeyError, FileNotFoundError, ValueError):
+                    _logger.warning(
+                        "backend_pool.keyring_select_failed",
+                        extra={"instrument": instrument_name},
+                        exc_info=True,
+                    )
+
         async with self._lock:
             backend = self._acquire_locked(
                 profile,
                 model=model,
                 working_directory=working_directory,
+                api_key=api_key,
             )
 
         _logger.debug(
@@ -286,6 +334,7 @@ class BackendPool:
         *,
         model: str | None = None,
         working_directory: Path | None = None,
+        api_key: str | None = None,
     ) -> Backend:
         """Acquire under lock. Returns a Backend instance."""
         name = profile.name
@@ -297,6 +346,7 @@ class BackendPool:
                     profile,
                     working_directory=working_directory,
                     model=model,
+                    api_key=api_key,
                 )
                 self._http_singletons[name] = backend
                 self._all_backends.append(backend)

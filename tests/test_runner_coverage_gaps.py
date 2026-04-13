@@ -2148,11 +2148,14 @@ class TestLifecycleGlobalAggregation:
     async def test_aggregate_no_sheets(self) -> None:
         """State with no populated sheets returns early."""
         runner = self._make_runner()
-        runner._global_learning_store = MagicMock()
+        store = MagicMock()
+        runner._global_learning_store = store
         state = _make_state(total_sheets=1)
         # Don't populate state.sheets — empty dict
         state.sheets.clear()
         await runner._aggregate_to_global_store(state)
+        # Early return means aggregator is never invoked
+        assert not store.method_calls
 
     @pytest.mark.asyncio
     async def test_aggregate_validation_none(self) -> None:

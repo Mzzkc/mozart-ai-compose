@@ -35,14 +35,16 @@ from marianne.core.checkpoint import (
 )
 from marianne.core.config import JobConfig
 from marianne.execution.escalation import ConsoleEscalationHandler, EscalationResponse
-from marianne.execution.preflight import PreflightResult, PromptMetrics
+from marianne.execution.preflight import PreflightChecker, PreflightResult, PromptMetrics
 from marianne.execution.runner.models import (
     FatalError,
     GracefulShutdownError,
     SheetExecutionMode,
     ValidationSuccessContext,
 )
-from marianne.prompts.templating import PromptBuilder
+from marianne.execution.validation.models import ValidationResult
+from marianne.learning.store import GlobalLearningStore
+from marianne.prompts.templating import PromptBuilder, SheetContext
 
 # ---------------------------------------------------------------------------
 # Fixtures (reusing the pattern from test_sheet_execution.py)
@@ -434,7 +436,7 @@ class TestLogIncompleteValidations:
     """Tests for the _log_incomplete_validations method."""
 
     def test_returns_counts_and_percentage(self, mixin: _TestableSheetMixin) -> None:
-        passed = [MagicMock(), MagicMock()]
+        passed = [MagicMock(spec=ValidationResult), MagicMock(spec=ValidationResult)]
         failed_rule = MagicMock()
         failed_rule.rule.description = "Output file missing"
         failed = [failed_rule]
@@ -492,7 +494,10 @@ class TestEnforceCostLimits:
         state.total_estimated_cost = 6.0
 
         with pytest.raises(GracefulShutdownError, match="Cost limit exceeded"):
-            await mixin._enforce_cost_limits(self._ok_result(), MagicMock(spec=SheetState), state, 1)
+            sheet = MagicMock(spec=SheetState)
+            await mixin._enforce_cost_limits(
+                self._ok_result(), sheet, state, 1,
+            )
 
         assert state.cost_limit_reached is True
 
@@ -639,7 +644,7 @@ class TestPopulateCrossSheetContext:
         state.mark_sheet_started(1)
         state.sheets[1].stdout_tail = "This is a very long output string"
 
-        context = MagicMock()
+        context = MagicMock(spec=SheetContext)
         context.previous_outputs = {}
         context.previous_files = {}
 
@@ -676,7 +681,7 @@ class TestCaptureCrossSheetFiles:
         state = _make_state()
         state.started_at = datetime(2020, 1, 1, tzinfo=UTC)  # Old start so file isn't stale
 
-        context = MagicMock()
+        context = MagicMock(spec=SheetContext)
         context.previous_files = {}
 
         mixin._capture_cross_sheet_files(
@@ -702,7 +707,7 @@ class TestCaptureCrossSheetFiles:
         # Set started_at to future so the file is considered stale
         state.started_at = datetime(2099, 1, 1, tzinfo=UTC)
 
-        context = MagicMock()
+        context = MagicMock(spec=SheetContext)
         context.previous_files = {}
 
         mixin._capture_cross_sheet_files(
@@ -726,7 +731,7 @@ class TestCaptureCrossSheetFiles:
         state = _make_state()
         state.started_at = datetime(2020, 1, 1, tzinfo=UTC)
 
-        context = MagicMock()
+        context = MagicMock(spec=SheetContext)
         context.previous_files = {}
 
         mixin._capture_cross_sheet_files(
@@ -848,7 +853,9 @@ class TestPrepareSheetExecution:
                 has_file_references=False,
             ),
         )
-        mixin.preflight_checker.check = MagicMock(return_value=bad_result)
+        mixin.preflight_checker.check = MagicMock(
+            spec=PreflightChecker.check, return_value=bad_result,
+        )
 
         state = _make_state()
         with pytest.raises(FatalError, match="Preflight check failed"):
@@ -1021,7 +1028,7 @@ class TestHandleEscalation:
         mixin.escalation_handler = mock_handler
 
         # Global store that raises on get_similar_escalation
-        store = MagicMock()
+        store = MagicMock(spec=GlobalLearningStore)
         store.get_similar_escalation.side_effect = RuntimeError("DB locked")
         store.record_escalation_decision.return_value = "rec-id"
         mixin._global_learning_store = store

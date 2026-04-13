@@ -760,7 +760,7 @@ class TestOpenRouterBackend:
         from marianne.backends.openrouter import OpenRouterBackend
 
         backend = OpenRouterBackend()
-        assert backend.model == "minimax/minimax-2.5"
+        assert backend.model == "minimax/minimax-m1-80k"
 
 
 # =============================================================================
