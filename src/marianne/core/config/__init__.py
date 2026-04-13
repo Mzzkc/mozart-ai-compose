@@ -6,6 +6,12 @@ backward compatibility — existing ``from marianne.core.config import ...``
 imports continue to work unchanged.
 """
 
+# A2A protocol configuration
+from marianne.core.config.a2a import (
+    A2ASkill,
+    AgentCard,
+)
+
 # Backend configuration
 from marianne.core.config.backend import (
     BackendConfig,
@@ -26,6 +32,13 @@ from marianne.core.config.execution import (
     SkipWhenCommand,
     StaleDetectionConfig,
     ValidationRule,
+)
+
+# Fleet configuration
+from marianne.core.config.fleet import (
+    FleetConfig,
+    FleetGroupConfig,
+    FleetScoreEntry,
 )
 
 # Instrument plugin system configuration
@@ -80,6 +93,12 @@ from marianne.core.config.spec import (
     SpecFragment,
 )
 
+# Technique system configuration
+from marianne.core.config.techniques import (
+    TechniqueConfig,
+    TechniqueKind,
+)
+
 # Workspace and environment configuration
 from marianne.core.config.workspace import (
     AIReviewConfig,
@@ -92,6 +111,9 @@ from marianne.core.config.workspace import (
 )
 
 __all__ = [
+    # A2A
+    "A2ASkill",
+    "AgentCard",
     # Backend
     "BackendConfig",
     "BridgeConfig",
@@ -118,6 +140,10 @@ __all__ = [
     "SkipWhenCommand",
     "StaleDetectionConfig",
     "ValidationRule",
+    # Fleet
+    "FleetConfig",
+    "FleetGroupConfig",
+    "FleetScoreEntry",
     # Job
     "InjectionCategory",
     "InjectionItem",
@@ -145,6 +171,9 @@ __all__ = [
     # Spec Corpus
     "SpecCorpusConfig",
     "SpecFragment",
+    # Techniques
+    "TechniqueConfig",
+    "TechniqueKind",
     # Workspace
     "AIReviewConfig",
     "CrossSheetConfig",

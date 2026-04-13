@@ -392,265 +392,140 @@ class TestResumeCommand:
 
     def test_resume_completed_job_blocked(self, tmp_path: Path, monkeypatch) -> None:
         """Test resume shows error for completed jobs without --force."""
-        # F-502: Resume searches CWD, not explicit workspace
-        monkeypatch.chdir(tmp_path)
+        # Resume routes through conductor; mock a rejection response
+        async def _fake_route(method, params, *, socket_path=None):
+            return True, {
+                "job_id": "completed-job",
+                "status": "rejected",
+                "message": "Score 'completed-job' is already completed",
+            }
 
-        # Create a completed job state
-        state = CheckpointState(
-            job_id="completed-job",
-            job_name="Completed Job",
-            total_sheets=5,
-            last_completed_sheet=5,
-            status=JobStatus.COMPLETED,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            config_snapshot={
-                "name": "completed-job",
-                "sheet": {"size": 5, "total_items": 25},
-                "prompt": {"template": "Test"},
-            },
-        )
-
-        state_file = tmp_path / "completed-job.json"
-        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
-
-        result = runner.invoke(
-            app, ["resume", "completed-job"]
-        )
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_route):
+            result = runner.invoke(
+                app, ["resume", "completed-job"]
+            )
         assert result.exit_code == 1
         assert "already completed" in result.stdout
 
     def test_resume_pending_job_blocked(self, tmp_path: Path, monkeypatch) -> None:
         """Test resume shows error for pending (never started) jobs."""
-        # F-502: Resume searches CWD, not explicit workspace
-        monkeypatch.chdir(tmp_path)
+        # Resume routes through conductor; mock a rejection response
+        async def _fake_route(method, params, *, socket_path=None):
+            return True, {
+                "job_id": "pending-job",
+                "status": "rejected",
+                "message": "Score 'pending-job' has not been started yet",
+            }
 
-        state = CheckpointState(
-            job_id="pending-job",
-            job_name="Pending Job",
-            total_sheets=5,
-            last_completed_sheet=0,
-            status=JobStatus.PENDING,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-        )
-
-        state_file = tmp_path / "pending-job.json"
-        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
-
-        result = runner.invoke(
-            app, ["resume", "pending-job"]
-        )
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_route):
+            result = runner.invoke(
+                app, ["resume", "pending-job"]
+            )
         assert result.exit_code == 1
         assert "not been started yet" in result.stdout
 
-    def test_resume_paused_job_uses_config_snapshot(
+    def test_resume_paused_job_accepted(
         self, tmp_path: Path, sample_config_dict: dict, monkeypatch
     ) -> None:
-        """Test resume reconstructs config from config_snapshot."""
-        # F-502: Resume searches CWD, not explicit workspace
-        monkeypatch.chdir(tmp_path)
+        """Test resume of paused job is accepted by conductor."""
+        # Resume routes through conductor; mock an accepted response
+        async def _fake_route(method, params, *, socket_path=None):
+            return True, {
+                "job_id": "paused-job",
+                "status": "accepted",
+                "message": "Job resume queued",
+            }
 
-        # Create a paused job state with config_snapshot
-        state = CheckpointState(
-            job_id="paused-job",
-            job_name="Paused Job",
-            total_sheets=5,
-            last_completed_sheet=2,
-            status=JobStatus.PAUSED,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            config_snapshot=sample_config_dict,
-        )
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_route):
+            result = runner.invoke(
+                app, ["resume", "paused-job"]
+            )
 
-        state_file = tmp_path / "paused-job.json"
-        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
-
-        # Mock the runner at the module level where it's imported
-        with patch("marianne.execution.runner.JobRunner") as mock_runner_cls:
-            mock_runner = AsyncMock()
-            mock_runner.run = AsyncMock(return_value=CheckpointState(
-                job_id="paused-job",
-                job_name="Paused Job",
-                total_sheets=5,
-                last_completed_sheet=5,
-                status=JobStatus.COMPLETED,
-            ))
-            mock_runner_cls.return_value = mock_runner
-
-            # Also mock the backend constructors
-            with patch("marianne.backends.claude_cli.ClaudeCliBackend") as mock_backend:
-                mock_backend.from_config = AsyncMock(return_value=mock_backend)
-
-                result = runner.invoke(
-                    app, ["resume", "paused-job"]
-                )
-
-        # Should have started without errors (may fail later in mock)
-        assert "Resume Score" in result.stdout or "Reconstructed config" in result.stdout
+        assert result.exit_code == 0
+        assert "Resume accepted" in result.stdout
 
     def test_resume_failed_job_allowed(self, tmp_path: Path, sample_config_dict: dict, monkeypatch) -> None:
         """Test resume is allowed for failed jobs."""
-        # F-502: Resume searches CWD, not explicit workspace
-        monkeypatch.chdir(tmp_path)
+        # Resume routes through conductor; mock an accepted response
+        async def _fake_route(method, params, *, socket_path=None):
+            assert params["job_id"] == "failed-job"
+            return True, {
+                "job_id": "failed-job",
+                "status": "accepted",
+                "message": "Job resume queued",
+            }
 
-        state = CheckpointState(
-            job_id="failed-job",
-            job_name="Failed Job",
-            total_sheets=10,
-            last_completed_sheet=5,
-            status=JobStatus.FAILED,
-            error_message="Max retries exceeded",
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            config_snapshot=sample_config_dict,
-        )
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_route):
+            result = runner.invoke(
+                app, ["resume", "failed-job"]
+            )
 
-        state_file = tmp_path / "failed-job.json"
-        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
-
-        # Mock the runner to avoid actual execution
-        with patch("marianne.execution.runner.JobRunner") as mock_runner_cls:
-            mock_runner = AsyncMock()
-            mock_runner.run = AsyncMock(return_value=CheckpointState(
-                job_id="failed-job",
-                job_name="Failed Job",
-                total_sheets=10,
-                last_completed_sheet=10,
-                status=JobStatus.COMPLETED,
-            ))
-            mock_runner_cls.return_value = mock_runner
-
-            with patch("marianne.backends.claude_cli.ClaudeCliBackend") as mock_backend:
-                mock_backend.from_config = AsyncMock(return_value=mock_backend)
-
-                result = runner.invoke(
-                    app, ["resume", "failed-job"]
-                )
-
-        # Verify resume was attempted with correct resume point
-        assert "Resume Score" in result.stdout
-        assert "5/10" in result.stdout  # Progress shown
+        assert result.exit_code == 0
+        assert "Resume accepted" in result.stdout
 
     def test_resume_missing_config(self, tmp_path: Path, monkeypatch) -> None:
         """Test resume shows error when no config is available."""
-        # F-502: Resume searches CWD, not explicit workspace
-        monkeypatch.chdir(tmp_path)
+        # Resume routes through conductor; mock a rejection about missing config
+        async def _fake_route(method, params, *, socket_path=None):
+            return True, {
+                "job_id": "no-config-job",
+                "status": "rejected",
+                "message": "No config available for score 'no-config-job'",
+            }
 
-        # Create a state without config_snapshot
-        state = CheckpointState(
-            job_id="no-config-job",
-            job_name="No Config Job",
-            total_sheets=5,
-            last_completed_sheet=2,
-            status=JobStatus.PAUSED,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            config_snapshot=None,
-            config_path=None,
-        )
-
-        state_file = tmp_path / "no-config-job.json"
-        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
-
-        result = runner.invoke(
-            app, ["resume", "no-config-job"]
-        )
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_route):
+            result = runner.invoke(
+                app, ["resume", "no-config-job"]
+            )
         assert result.exit_code == 1
         assert "No config available" in result.stdout
 
     def test_resume_with_config_file(
         self, tmp_path: Path, sample_yaml_config: Path, monkeypatch
     ) -> None:
-        """Test resume with explicit --config file."""
-        # F-502: Resume searches CWD, not explicit workspace
-        monkeypatch.chdir(tmp_path)
+        """Test resume with explicit --config file passes config_path to conductor."""
+        # Resume routes through conductor; verify config_path is passed
+        async def _fake_route(method, params, *, socket_path=None):
+            assert params["config_path"] is not None
+            return True, {
+                "job_id": "test-job",
+                "status": "accepted",
+                "message": "Job resume queued",
+            }
 
-        # Create a paused job without config_snapshot
-        state = CheckpointState(
-            job_id="test-job",  # Matches sample_config_dict name
-            job_name="Test Job",
-            total_sheets=3,
-            last_completed_sheet=1,
-            status=JobStatus.PAUSED,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            config_snapshot=None,
-        )
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_route):
+            result = runner.invoke(
+                app, [
+                    "resume", "test-job",
+                    "--config", str(sample_yaml_config),
+                ]
+            )
 
-        state_file = tmp_path / "test-job.json"
-        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
-
-        # Mock the runner
-        with patch("marianne.execution.runner.JobRunner") as mock_runner_cls:
-            mock_runner = AsyncMock()
-            mock_runner.run = AsyncMock(return_value=CheckpointState(
-                job_id="test-job",
-                job_name="Test Job",
-                total_sheets=3,
-                last_completed_sheet=3,
-                status=JobStatus.COMPLETED,
-            ))
-            mock_runner_cls.return_value = mock_runner
-
-            with patch("marianne.backends.claude_cli.ClaudeCliBackend") as mock_backend:
-                mock_backend.from_config = AsyncMock(return_value=mock_backend)
-
-                result = runner.invoke(
-                    app, [
-                        "resume", "test-job",
-                        "--config", str(sample_yaml_config),
-                    ]
-                )
-
-        # Should have used the provided config
-        assert "Using config from" in result.stdout
+        assert result.exit_code == 0
+        assert "Resume accepted" in result.stdout
 
     def test_resume_force_completed(
         self, tmp_path: Path, sample_config_dict: dict, monkeypatch
     ) -> None:
-        """Test resume with --force allows rerunning completed jobs."""
-        # F-502: Resume searches CWD, not explicit workspace
-        monkeypatch.chdir(tmp_path)
+        """Test resume with --force is accepted by conductor."""
+        # Resume routes through conductor; mock an accepted response
+        async def _fake_route(method, params, *, socket_path=None):
+            return True, {
+                "job_id": "force-job",
+                "status": "accepted",
+                "message": "Job resume queued",
+            }
 
-        state = CheckpointState(
-            job_id="force-job",
-            job_name="Force Job",
-            total_sheets=5,
-            last_completed_sheet=5,
-            status=JobStatus.COMPLETED,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            config_snapshot=sample_config_dict,
-        )
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_route):
+            result = runner.invoke(
+                app, [
+                    "resume", "force-job",
+                    "--force",
+                ]
+            )
 
-        state_file = tmp_path / "force-job.json"
-        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
-
-        # Mock the runner
-        with patch("marianne.execution.runner.JobRunner") as mock_runner_cls:
-            mock_runner = AsyncMock()
-            mock_runner.run = AsyncMock(return_value=CheckpointState(
-                job_id="force-job",
-                job_name="Force Job",
-                total_sheets=5,
-                last_completed_sheet=5,
-                status=JobStatus.COMPLETED,
-            ))
-            mock_runner_cls.return_value = mock_runner
-
-            with patch("marianne.backends.claude_cli.ClaudeCliBackend") as mock_backend:
-                mock_backend.from_config = AsyncMock(return_value=mock_backend)
-
-                result = runner.invoke(
-                    app, [
-                        "resume", "force-job",
-                        "--force",
-                    ]
-                )
-
-        # Should have proceeded with force
-        assert "Force restarting" in result.stdout
+        assert result.exit_code == 0
+        assert "Resume accepted" in result.stdout
 
 
 class TestFindJobState:

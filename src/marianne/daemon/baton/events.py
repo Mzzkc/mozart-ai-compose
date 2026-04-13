@@ -419,6 +419,74 @@ class InstrumentFallback:
 
 
 # =============================================================================
+# A2A Events — agent-to-agent task delegation
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class A2ATaskSubmitted:
+    """An agent requests a task from another running agent.
+
+    The conductor routes the task to the target agent's inbox, persisted
+    in the target's job state. The target picks it up on their next
+    A2A-enabled sheet.
+    """
+
+    job_id: str
+    sheet_num: int
+    target_agent: str
+    task_description: str
+    context: dict[str, Any] = field(default_factory=dict)
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass(frozen=True)
+class A2ATaskRouted:
+    """The conductor has delivered a task to the target agent's inbox.
+
+    Confirms that the task is persisted and waiting for the target agent
+    to process on their next relevant sheet.
+    """
+
+    job_id: str
+    sheet_num: int
+    source_agent: str
+    target_agent: str
+    task_id: str
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass(frozen=True)
+class A2ATaskCompleted:
+    """A delegated task has been completed with artifacts.
+
+    Results are routed back to the requesting agent's inbox. The requester
+    picks them up on their next relevant sheet.
+    """
+
+    job_id: str
+    sheet_num: int
+    task_id: str
+    artifacts: dict[str, Any] = field(default_factory=dict)
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass(frozen=True)
+class A2ATaskFailed:
+    """A delegated task could not be fulfilled.
+
+    The requesting agent is notified with the reason for failure so they
+    can decide whether to retry, delegate elsewhere, or handle it themselves.
+    """
+
+    job_id: str
+    sheet_num: int
+    task_id: str
+    reason: str
+    timestamp: float = field(default_factory=time.time)
+
+
+# =============================================================================
 # Internal Events — dispatch coordination
 # =============================================================================
 
@@ -461,6 +529,10 @@ BatonEvent = (
     | ResourceAnomaly
     | InstrumentFallback
     | DispatchRetry
+    | A2ATaskSubmitted
+    | A2ATaskRouted
+    | A2ATaskCompleted
+    | A2ATaskFailed
 )
 
 
@@ -695,6 +767,55 @@ def to_observer_event(event: BatonEvent) -> ObserverEvent:
                 "sheet_num": 0,
                 "event": "baton.dispatch.retry",
                 "data": {},
+                "timestamp": event.timestamp,
+            }
+
+        case A2ATaskSubmitted():
+            return {
+                "job_id": event.job_id,
+                "sheet_num": event.sheet_num,
+                "event": "baton.a2a.task.submitted",
+                "data": {
+                    "target_agent": event.target_agent,
+                    "task_description": event.task_description,
+                },
+                "timestamp": event.timestamp,
+            }
+
+        case A2ATaskRouted():
+            return {
+                "job_id": event.job_id,
+                "sheet_num": event.sheet_num,
+                "event": "baton.a2a.task.routed",
+                "data": {
+                    "source_agent": event.source_agent,
+                    "target_agent": event.target_agent,
+                    "task_id": event.task_id,
+                },
+                "timestamp": event.timestamp,
+            }
+
+        case A2ATaskCompleted():
+            return {
+                "job_id": event.job_id,
+                "sheet_num": event.sheet_num,
+                "event": "baton.a2a.task.completed",
+                "data": {
+                    "task_id": event.task_id,
+                    "artifacts": event.artifacts,
+                },
+                "timestamp": event.timestamp,
+            }
+
+        case A2ATaskFailed():
+            return {
+                "job_id": event.job_id,
+                "sheet_num": event.sheet_num,
+                "event": "baton.a2a.task.failed",
+                "data": {
+                    "task_id": event.task_id,
+                    "reason": event.reason,
+                },
                 "timestamp": event.timestamp,
             }
 

@@ -14,9 +14,63 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from marianne.core.config.backend import BackendConfig
 from marianne.core.config.execution import PreflightConfig
 from marianne.core.logging import get_logger
+from marianne.daemon.keyring_config import KeyringConfig
 from marianne.daemon.profiler.models import ProfilerConfig
 
 _logger = get_logger("daemon.config")
+
+
+class McpServerEntry(BaseModel):
+    """A single MCP server in the shared pool.
+
+    The conductor manages the lifecycle of these servers: start, health check,
+    restart on failure. Each server is proxied behind a Unix socket so agents
+    can access it via bind-mount into their sandbox.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    command: str = Field(
+        description="Command to start the MCP server process",
+    )
+    transport: str = Field(
+        default="stdio",
+        description="Transport protocol: stdio (proxied to socket), sse, http",
+    )
+    socket: str = Field(
+        description="Unix socket path for proxying this server to agents",
+    )
+    restart_policy: str = Field(
+        default="on-failure",
+        description="When to restart: 'on-failure', 'always', 'never'",
+    )
+
+
+class McpPoolConfig(BaseModel):
+    """Shared MCP server pool managed by the conductor.
+
+    One process per MCP server type, shared across all agents. The conductor
+    proxies each stdio MCP server behind a Unix socket. Sockets are forwarded
+    into agent sandboxes via bind-mount.
+
+    Example YAML::
+
+        mcp_pool:
+          servers:
+            github:
+              command: "github-mcp-server"
+              socket: "/tmp/mzt/mcp/github.sock"
+            filesystem:
+              command: "fs-mcp-server"
+              socket: "/tmp/mzt/mcp/filesystem.sock"
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    servers: dict[str, McpServerEntry] = Field(
+        default_factory=dict,
+        description="Named MCP server entries in the shared pool",
+    )
 
 
 class ResourceLimitConfig(BaseModel):
@@ -343,6 +397,21 @@ class DaemonConfig(BaseModel):
         description="Path to the YAML config file this config was loaded from. "
         "Set automatically by _load_config(); used by SIGHUP reload to "
         "know which file to re-read.",
+    )
+
+    mcp_pool: McpPoolConfig = Field(
+        default_factory=McpPoolConfig,
+        description="Shared MCP server pool configuration. "
+        "The conductor manages a pool of MCP server processes as shared "
+        "infrastructure. Agents declare access per technique config; "
+        "the conductor only forwards sockets for declared techniques.",
+    )
+    keyring: KeyringConfig = Field(
+        default_factory=KeyringConfig,
+        description="API key keyring with rotation. "
+        "Per-instrument key management with least-recently-rate-limited "
+        "or round-robin rotation policies. Keys are paths to files in "
+        "$SECRETS_DIR/, never stored in config.",
     )
 
     @model_validator(mode="after")

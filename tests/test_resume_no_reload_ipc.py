@@ -53,7 +53,6 @@ class TestCliResumeNoReloadParam:
             await _resume_job(
                 job_id="test-job",
                 config_file=None,
-                workspace=None,
                 force=False,
                 no_reload=True,
             )
@@ -88,7 +87,6 @@ class TestCliResumeNoReloadParam:
             await _resume_job(
                 job_id="test-job",
                 config_file=None,
-                workspace=None,
                 force=False,
                 no_reload=False,
             )

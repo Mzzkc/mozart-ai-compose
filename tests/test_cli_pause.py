@@ -34,8 +34,8 @@ runner = CliRunner()
 def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ensure CLI tests never route through a real conductor.
 
-    All pause/modify tests exercise the filesystem-based fallback path
-    (invoked when --workspace is given and the conductor is unavailable).
+    Returns (False, None) so that commands see "conductor not running".
+    Tests that need conductor behavior override this inline with patch.
     """
     async def _fake_route(
         method: str, params: dict, *, socket_path=None
@@ -407,7 +407,6 @@ class TestPauseCommand:
         result = runner.invoke(app, ["pause", "--help"])
         assert result.exit_code == 0
         assert "Pause a running Marianne score" in result.output
-        # --workspace is a hidden debug option, not shown in help
         assert "--wait" in result.output
         assert "--timeout" in result.output
         assert "--json" in result.output
@@ -415,27 +414,27 @@ class TestPauseCommand:
     def test_pause_creates_signal_file(
         self, running_job_state: tuple[CheckpointState, Path]
     ) -> None:
-        """Test pause creates correct signal file."""
+        """Test pause via conductor returns success."""
         state, workspace = running_job_state
 
-        result = runner.invoke(app, [
-            "pause", state.job_id,
-            "--workspace", str(workspace),
-        ])
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            return True, {"paused": True, "job_id": state.job_id}
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, ["pause", state.job_id])
 
         assert result.exit_code == 0
         assert "Pause signal sent" in result.output
 
-        # Verify signal file was created
-        signal_file = workspace / f".marianne-pause-{state.job_id}"
-        assert signal_file.exists()
-
     def test_pause_nonexistent_job(self, temp_workspace: Path) -> None:
         """Test pause with non-existent job shows E501."""
-        result = runner.invoke(app, [
-            "pause", "nonexistent-job",
-            "--workspace", str(temp_workspace),
-        ])
+        from marianne.daemon.exceptions import DaemonError
+
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            raise DaemonError("Job 'nonexistent-job' not found")
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, ["pause", "nonexistent-job"])
 
         assert result.exit_code == 1
         assert "E501" in result.output
@@ -447,10 +446,11 @@ class TestPauseCommand:
         """Test pause when job already paused shows E502."""
         state, workspace = paused_job_state
 
-        result = runner.invoke(app, [
-            "pause", state.job_id,
-            "--workspace", str(workspace),
-        ])
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            return True, {"paused": False, "error": "Job is already paused"}
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, ["pause", state.job_id])
 
         assert result.exit_code == 1
         assert "E502" in result.output
@@ -478,10 +478,11 @@ class TestPauseCommand:
         """Test pause when job failed shows E502."""
         state, workspace = failed_job_state
 
-        result = runner.invoke(app, [
-            "pause", state.job_id,
-            "--workspace", str(workspace),
-        ])
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            return True, {"paused": False, "error": "Job is failed, not running"}
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, ["pause", state.job_id])
 
         assert result.exit_code == 1
         assert "E502" in result.output
@@ -508,26 +509,27 @@ class TestPauseCommand:
         """Test pause with JSON output format on success."""
         state, workspace = running_job_state
 
-        result = runner.invoke(app, [
-            "pause", state.job_id,
-            "--workspace", str(workspace),
-            "--json",
-        ])
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            return True, {"paused": True, "job_id": state.job_id}
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, ["pause", state.job_id, "--json"])
 
         assert result.exit_code == 0
         output = _parse_json_output(result.stdout)
         assert output["success"] is True
         assert output["job_id"] == state.job_id
-        assert "signal_file" in output
         assert output["message"] == "Pause signal sent. Score will pause at next sheet boundary."
 
     def test_pause_json_output_error(self, temp_workspace: Path) -> None:
         """Test pause with JSON output format on error."""
-        result = runner.invoke(app, [
-            "pause", "nonexistent-job",
-            "--workspace", str(temp_workspace),
-            "--json",
-        ])
+        from marianne.daemon.exceptions import DaemonError
+
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            raise DaemonError("Job 'nonexistent-job' not found")
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, ["pause", "nonexistent-job", "--json"])
 
         assert result.exit_code == 1
         output = _parse_json_output(result.stdout)
@@ -541,10 +543,11 @@ class TestPauseCommand:
         """Test pause shows resume instructions after success."""
         state, workspace = running_job_state
 
-        result = runner.invoke(app, [
-            "pause", state.job_id,
-            "--workspace", str(workspace),
-        ])
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            return True, {"paused": True, "job_id": state.job_id}
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, ["pause", state.job_id])
 
         assert result.exit_code == 0
         assert f"mzt resume {state.job_id}" in result.output
@@ -552,64 +555,57 @@ class TestPauseCommand:
     def test_pause_permission_error(
         self, running_job_state: tuple[CheckpointState, Path]
     ) -> None:
-        """Test pause shows E503 on permission error."""
+        """Test pause shows E501 on connection/permission error."""
         state, workspace = running_job_state
 
-        # Patch where the function is used (in commands.pause), not where it's defined
-        with patch(
-            "marianne.cli.helpers._create_pause_signal",
-            side_effect=PermissionError("Read-only"),
-        ):
-            result = runner.invoke(app, [
-                "pause", state.job_id,
-                "--workspace", str(workspace),
-            ])
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            raise OSError("Permission denied")
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, ["pause", state.job_id])
 
         assert result.exit_code == 1
-        assert "E503" in result.output
+        assert "E501" in result.output
         assert "permission" in result.output.lower()
 
     def test_pause_with_wait_timeout(
         self, running_job_state: tuple[CheckpointState, Path]
     ) -> None:
-        """Test pause with --wait times out correctly (E504)."""
+        """Test pause with --wait still succeeds via conductor (wait is a no-op)."""
         state, workspace = running_job_state
 
-        # Mock the wait function to simulate timeout
-        async def mock_wait(*_args: object, **_kwargs: object) -> bool:
-            return False  # Simulate timeout
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            return True, {"paused": True, "job_id": state.job_id}
 
-        with patch("marianne.cli.helpers._wait_for_pause_ack", mock_wait):
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
             result = runner.invoke(app, [
                 "pause", state.job_id,
-                "--workspace", str(workspace),
                 "--wait",
                 "--timeout", "1",
             ])
 
-        assert result.exit_code == 2
-        assert "E504" in result.output
+        # Conductor-routed pause is immediate; --wait is accepted but no-op
+        assert result.exit_code == 0
+        assert "Pause signal sent" in result.output
 
     def test_pause_with_wait_success(
         self, running_job_state: tuple[CheckpointState, Path]
     ) -> None:
-        """Test pause with --wait succeeds when job pauses."""
+        """Test pause with --wait succeeds via conductor."""
         state, workspace = running_job_state
 
-        # Mock the wait function to simulate success
-        async def mock_wait(*_args: object, **_kwargs: object) -> bool:
-            return True  # Simulate acknowledged pause
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            return True, {"paused": True, "job_id": state.job_id}
 
-        with patch("marianne.cli.helpers._wait_for_pause_ack", mock_wait):
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
             result = runner.invoke(app, [
                 "pause", state.job_id,
-                "--workspace", str(workspace),
                 "--wait",
                 "--timeout", "5",
             ])
 
         assert result.exit_code == 0
-        assert "paused successfully" in result.output.lower()
+        assert "Pause signal sent" in result.output
 
 
 # ============================================================================
@@ -637,11 +633,18 @@ class TestModifyCommand:
         """Test modify validates new config file."""
         state, workspace = running_job_state
 
-        result = runner.invoke(app, [
-            "modify", state.job_id,
-            "--config", str(sample_valid_config),
-            "--workspace", str(workspace),
-        ])
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            if method == "job.status":
+                return True, state.model_dump(mode="json")
+            if method == "job.pause":
+                return True, {"paused": True, "job_id": state.job_id}
+            return False, None
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, [
+                "modify", state.job_id,
+                "--config", str(sample_valid_config),
+            ])
 
         assert result.exit_code == 0
         assert "Config validated" in result.output
@@ -654,10 +657,12 @@ class TestModifyCommand:
         """Test modify shows E505 for invalid config."""
         state, workspace = running_job_state
 
+        # Config validation happens before any conductor calls, so no mock needed
+        # But the autouse _no_daemon fixture is active, which is fine —
+        # config validation fails before reaching the conductor.
         result = runner.invoke(app, [
             "modify", state.job_id,
             "--config", str(sample_invalid_config),
-            "--workspace", str(workspace),
         ])
 
         assert result.exit_code == 1
@@ -675,7 +680,6 @@ class TestModifyCommand:
         result = runner.invoke(app, [
             "modify", state.job_id,
             "--config", str(missing_config),
-            "--workspace", str(workspace),
         ])
 
         # typer validates file existence before command runs
@@ -686,31 +690,39 @@ class TestModifyCommand:
         running_job_state: tuple[CheckpointState, Path],
         sample_valid_config: Path,
     ) -> None:
-        """Test modify pauses running job first."""
+        """Test modify pauses running job first via conductor."""
         state, workspace = running_job_state
 
-        result = runner.invoke(app, [
-            "modify", state.job_id,
-            "--config", str(sample_valid_config),
-            "--workspace", str(workspace),
-        ])
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            if method == "job.status":
+                return True, state.model_dump(mode="json")
+            if method == "job.pause":
+                return True, {"paused": True, "job_id": state.job_id}
+            return False, None
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, [
+                "modify", state.job_id,
+                "--config", str(sample_valid_config),
+            ])
 
         assert result.exit_code == 0
         assert "Pause signal sent" in result.output
-
-        # Verify signal file was created
-        signal_file = workspace / f".marianne-pause-{state.job_id}"
-        assert signal_file.exists()
 
     def test_modify_nonexistent_job(
         self, temp_workspace: Path, sample_valid_config: Path
     ) -> None:
         """Test modify shows E501 for non-existent job."""
-        result = runner.invoke(app, [
-            "modify", "nonexistent-job",
-            "--config", str(sample_valid_config),
-            "--workspace", str(temp_workspace),
-        ])
+        from marianne.daemon.exceptions import DaemonError
+
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            raise DaemonError("Job 'nonexistent-job' not found")
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, [
+                "modify", "nonexistent-job",
+                "--config", str(sample_valid_config),
+            ])
 
         assert result.exit_code == 1
         assert "E501" in result.output
@@ -723,11 +735,16 @@ class TestModifyCommand:
         """Test modify works with already paused job."""
         state, workspace = paused_job_state
 
-        result = runner.invoke(app, [
-            "modify", state.job_id,
-            "--config", str(sample_valid_config),
-            "--workspace", str(workspace),
-        ])
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            if method == "job.status":
+                return True, state.model_dump(mode="json")
+            return False, None
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, [
+                "modify", state.job_id,
+                "--config", str(sample_valid_config),
+            ])
 
         assert result.exit_code == 0
         assert "Config validated" in result.output
@@ -740,11 +757,16 @@ class TestModifyCommand:
         """Test modify shows E502 for completed job."""
         state, workspace = completed_job_state
 
-        result = runner.invoke(app, [
-            "modify", state.job_id,
-            "--config", str(sample_valid_config),
-            "--workspace", str(workspace),
-        ])
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            if method == "job.status":
+                return True, state.model_dump(mode="json")
+            return False, None
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, [
+                "modify", state.job_id,
+                "--config", str(sample_valid_config),
+            ])
 
         assert result.exit_code == 1
         assert "E502" in result.output
@@ -757,11 +779,16 @@ class TestModifyCommand:
         """Test modify shows E502 for pending job."""
         state, workspace = pending_job_state
 
-        result = runner.invoke(app, [
-            "modify", state.job_id,
-            "--config", str(sample_valid_config),
-            "--workspace", str(workspace),
-        ])
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            if method == "job.status":
+                return True, state.model_dump(mode="json")
+            return False, None
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, [
+                "modify", state.job_id,
+                "--config", str(sample_valid_config),
+            ])
 
         assert result.exit_code == 1
         assert "E502" in result.output
@@ -774,11 +801,16 @@ class TestModifyCommand:
         """Test modify works with failed job (can be resumed)."""
         state, workspace = failed_job_state
 
-        result = runner.invoke(app, [
-            "modify", state.job_id,
-            "--config", str(sample_valid_config),
-            "--workspace", str(workspace),
-        ])
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            if method == "job.status":
+                return True, state.model_dump(mode="json")
+            return False, None
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, [
+                "modify", state.job_id,
+                "--config", str(sample_valid_config),
+            ])
 
         assert result.exit_code == 0
         assert "Config validated" in result.output
@@ -791,12 +823,17 @@ class TestModifyCommand:
         """Test modify with JSON output format."""
         state, workspace = paused_job_state
 
-        result = runner.invoke(app, [
-            "modify", state.job_id,
-            "--config", str(sample_valid_config),
-            "--workspace", str(workspace),
-            "--json",
-        ])
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            if method == "job.status":
+                return True, state.model_dump(mode="json")
+            return False, None
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, [
+                "modify", state.job_id,
+                "--config", str(sample_valid_config),
+                "--json",
+            ])
 
         assert result.exit_code == 0
         output = _parse_json_output(result.stdout)
@@ -811,11 +848,16 @@ class TestModifyCommand:
         """Test modify shows resume instructions when not using --resume."""
         state, workspace = paused_job_state
 
-        result = runner.invoke(app, [
-            "modify", state.job_id,
-            "--config", str(sample_valid_config),
-            "--workspace", str(workspace),
-        ])
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            if method == "job.status":
+                return True, state.model_dump(mode="json")
+            return False, None
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, [
+                "modify", state.job_id,
+                "--config", str(sample_valid_config),
+            ])
 
         assert result.exit_code == 0
         assert f"mzt resume {state.job_id}" in result.output
@@ -825,50 +867,50 @@ class TestModifyCommand:
         paused_job_state: tuple[CheckpointState, Path],
         sample_valid_config: Path,
     ) -> None:
-        """Test modify with --resume triggers resume."""
+        """Test modify with --resume triggers atomic modify via conductor."""
         state, workspace = paused_job_state
 
-        # Mock the runner to avoid actual execution
-        with patch("marianne.execution.runner.JobRunner") as mock_runner_cls:
-            mock_runner = AsyncMock()
-            mock_runner.run = AsyncMock(return_value=CheckpointState(
-                job_id=state.job_id,
-                job_name="Modified Job",
-                total_sheets=3,
-                last_completed_sheet=3,
-                status=JobStatus.COMPLETED,
-            ))
-            mock_runner_cls.return_value = mock_runner
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            if method == "job.status":
+                return True, state.model_dump(mode="json")
+            if method == "job.modify":
+                return True, {
+                    "job_id": state.job_id,
+                    "status": "accepted",
+                    "message": "Job resume queued",
+                }
+            return False, None
 
-            with patch("marianne.backends.claude_cli.ClaudeCliBackend") as mock_backend:
-                mock_backend.from_config = AsyncMock(return_value=mock_backend)
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, [
+                "modify", state.job_id,
+                "--config", str(sample_valid_config),
+                "--resume",
+            ])
 
-                result = runner.invoke(app, [
-                    "modify", state.job_id,
-                    "--config", str(sample_valid_config),
-                    "--workspace", str(workspace),
-                    "--resume",
-                ])
-
-        # Should show resume message (may fail in mock later, but message should appear)
-        assert "Resuming with new config" in result.output or "Resume Score" in result.output
+        # Should show config validation and modify acceptance
+        assert "Config validated" in result.output
+        assert "resume" in result.output.lower() or "accepted" in result.output.lower()
 
     def test_modify_permission_error(
         self,
         running_job_state: tuple[CheckpointState, Path],
         sample_valid_config: Path,
     ) -> None:
-        """Test modify shows E503 on permission error."""
+        """Test modify shows E503 on pause failure via conductor."""
         state, workspace = running_job_state
 
-        with patch(
-            "marianne.cli.helpers._create_pause_signal",
-            side_effect=PermissionError("Read-only"),
-        ):
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            if method == "job.status":
+                return True, state.model_dump(mode="json")
+            if method == "job.pause":
+                return True, {"paused": False, "error": "Permission denied"}
+            return False, None
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
             result = runner.invoke(app, [
                 "modify", state.job_id,
                 "--config", str(sample_valid_config),
-                "--workspace", str(workspace),
             ])
 
         assert result.exit_code == 1
@@ -887,33 +929,23 @@ class TestPauseModifyIntegration:
         self,
         running_job_state: tuple[CheckpointState, Path],
     ) -> None:
-        """Test pause creates signal that can be cleared by resume."""
+        """Test pause via conductor, then second pause is rejected."""
         state, workspace = running_job_state
 
-        # Step 1: Pause the job
-        pause_result = runner.invoke(app, [
-            "pause", state.job_id,
-            "--workspace", str(workspace),
-        ])
+        # Step 1: Pause the job via conductor
+        async def mock_route_running(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            return True, {"paused": True, "job_id": state.job_id}
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route_running):
+            pause_result = runner.invoke(app, ["pause", state.job_id])
         assert pause_result.exit_code == 0
 
-        # Verify signal file exists
-        signal_file = workspace / f".marianne-pause-{state.job_id}"
-        assert signal_file.exists()
+        # Step 2: Second pause attempt — conductor reports already paused
+        async def mock_route_paused(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            return True, {"paused": False, "error": "Job is already paused"}
 
-        # Step 2: Manually clean up signal (as runner would do)
-        signal_file.unlink()
-
-        # Step 3: Update state to paused (as runner would do)
-        state.status = JobStatus.PAUSED
-        state_file = workspace / f"{state.job_id}.json"
-        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
-
-        # Step 4: Verify pause command detects paused state
-        pause_again = runner.invoke(app, [
-            "pause", state.job_id,
-            "--workspace", str(workspace),
-        ])
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route_paused):
+            pause_again = runner.invoke(app, ["pause", state.job_id])
         assert pause_again.exit_code == 1
         assert "already paused" in pause_again.output.lower()
 
@@ -925,12 +957,18 @@ class TestPauseModifyIntegration:
         """Test modify workflow without --resume shows correct instructions."""
         state, workspace = running_job_state
 
-        # Modify (pauses + validates)
-        result = runner.invoke(app, [
-            "modify", state.job_id,
-            "--config", str(sample_valid_config),
-            "--workspace", str(workspace),
-        ])
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            if method == "job.status":
+                return True, state.model_dump(mode="json")
+            if method == "job.pause":
+                return True, {"paused": True, "job_id": state.job_id}
+            return False, None
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, [
+                "modify", state.job_id,
+                "--config", str(sample_valid_config),
+            ])
 
         assert result.exit_code == 0
         assert "Pause signal sent" in result.output
@@ -941,46 +979,37 @@ class TestPauseModifyIntegration:
         self,
         running_job_state: tuple[CheckpointState, Path],
     ) -> None:
-        """Test multiple pause commands are idempotent on running job."""
+        """Test multiple pause commands are idempotent via conductor."""
         state, workspace = running_job_state
 
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            return True, {"paused": True, "job_id": state.job_id}
+
         # First pause
-        result1 = runner.invoke(app, [
-            "pause", state.job_id,
-            "--workspace", str(workspace),
-        ])
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result1 = runner.invoke(app, ["pause", state.job_id])
         assert result1.exit_code == 0
 
-        # Second pause (signal file already exists, still running)
-        result2 = runner.invoke(app, [
-            "pause", state.job_id,
-            "--workspace", str(workspace),
-        ])
+        # Second pause — conductor still accepts (idempotent)
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result2 = runner.invoke(app, ["pause", state.job_id])
         assert result2.exit_code == 0
-
-        # Only one signal file should exist
-        signal_files = list(workspace.glob(".marianne-pause-*"))
-        assert len(signal_files) == 1
 
     def test_concurrent_pause_via_dashboard_and_cli(
         self,
         running_job_state: tuple[CheckpointState, Path],
     ) -> None:
-        """Test CLI pause when dashboard-style signal already exists."""
+        """Test CLI pause succeeds even if another source already paused."""
         state, workspace = running_job_state
 
-        # Simulate dashboard creating signal
-        signal_file = workspace / f".marianne-pause-{state.job_id}"
-        signal_file.touch()
+        # Conductor reports success regardless of source
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            return True, {"paused": True, "job_id": state.job_id}
 
-        # CLI pause should still succeed (idempotent)
-        result = runner.invoke(app, [
-            "pause", state.job_id,
-            "--workspace", str(workspace),
-        ])
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, ["pause", state.job_id])
 
         assert result.exit_code == 0
-        assert signal_file.exists()
 
 
 # ============================================================================
@@ -1017,47 +1046,48 @@ class TestPauseEdgeCases:
         """Test pause with -j short flag for JSON output."""
         state, workspace = running_job_state
 
-        result = runner.invoke(app, [
-            "pause", state.job_id,
-            "--workspace", str(workspace),
-            "-j",
-        ])
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            return True, {"paused": True, "job_id": state.job_id}
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, ["pause", state.job_id, "-j"])
 
         assert result.exit_code == 0
         output = _parse_json_output(result.stdout)
         assert output["success"] is True
 
-    def test_pause_workspace_short_flag(
+    def test_pause_no_workspace_flag_needed(
         self, running_job_state: tuple[CheckpointState, Path]
     ) -> None:
-        """Test pause with -w short flag for workspace."""
+        """Test pause works without --workspace (conductor-only)."""
         state, workspace = running_job_state
 
-        result = runner.invoke(app, [
-            "pause", state.job_id,
-            "-w", str(workspace),
-        ])
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            return True, {"paused": True, "job_id": state.job_id}
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, ["pause", state.job_id])
 
         assert result.exit_code == 0
 
     def test_pause_timeout_short_flag(
         self, running_job_state: tuple[CheckpointState, Path]
     ) -> None:
-        """Test pause with -t short flag for timeout."""
+        """Test pause with -t short flag for timeout (accepted, no-op in conductor mode)."""
         state, workspace = running_job_state
 
-        async def mock_wait(*_: object, **__: object) -> bool:
-            return False
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            return True, {"paused": True, "job_id": state.job_id}
 
-        with patch("marianne.cli.helpers._wait_for_pause_ack", mock_wait):
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
             result = runner.invoke(app, [
                 "pause", state.job_id,
-                "-w", str(workspace),
                 "--wait",
                 "-t", "1",
             ])
 
-        assert result.exit_code == 2
+        # Conductor-routed pause succeeds immediately; --wait/-t accepted but no-op
+        assert result.exit_code == 0
 
 
 class TestModifyEdgeCases:
@@ -1071,11 +1101,16 @@ class TestModifyEdgeCases:
         """Test modify with -c short flag for config."""
         state, workspace = paused_job_state
 
-        result = runner.invoke(app, [
-            "modify", state.job_id,
-            "-c", str(sample_valid_config),
-            "-w", str(workspace),
-        ])
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            if method == "job.status":
+                return True, state.model_dump(mode="json")
+            return False, None
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, [
+                "modify", state.job_id,
+                "-c", str(sample_valid_config),
+            ])
 
         assert result.exit_code == 0
 
@@ -1084,32 +1119,30 @@ class TestModifyEdgeCases:
         paused_job_state: tuple[CheckpointState, Path],
         sample_valid_config: Path,
     ) -> None:
-        """Test modify with -r short flag for resume."""
+        """Test modify with -r short flag for resume via conductor."""
         state, workspace = paused_job_state
 
-        with patch("marianne.execution.runner.JobRunner") as mock_runner_cls:
-            mock_runner = AsyncMock()
-            mock_runner.run = AsyncMock(return_value=CheckpointState(
-                job_id=state.job_id,
-                job_name="Test",
-                total_sheets=3,
-                last_completed_sheet=3,
-                status=JobStatus.COMPLETED,
-            ))
-            mock_runner_cls.return_value = mock_runner
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            if method == "job.status":
+                return True, state.model_dump(mode="json")
+            if method == "job.modify":
+                return True, {
+                    "job_id": state.job_id,
+                    "status": "accepted",
+                    "message": "Job resume queued",
+                }
+            return False, None
 
-            with patch("marianne.backends.claude_cli.ClaudeCliBackend") as mock_backend:
-                mock_backend.from_config = AsyncMock(return_value=mock_backend)
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, [
+                "modify", state.job_id,
+                "-c", str(sample_valid_config),
+                "-r",
+            ])
 
-                result = runner.invoke(app, [
-                    "modify", state.job_id,
-                    "-c", str(sample_valid_config),
-                    "-w", str(workspace),
-                    "-r",
-                ])
-
-        # Should show resume message (may fail in mock later, but message should appear)
-        assert "Resuming with new config" in result.output or "Resume Score" in result.output
+        # Should show config validation and modify acceptance
+        assert "Config validated" in result.output
+        assert "resume" in result.output.lower() or "accepted" in result.output.lower()
 
 
 # ============================================================================
@@ -1205,19 +1238,19 @@ class TestPauseJsonEdgeCases:
     def test_pause_paused_job_json_has_hints(
         self, paused_job_state: tuple[CheckpointState, Path],
     ) -> None:
-        """JSON output for already-paused job includes resume hint."""
+        """JSON output for already-paused job includes status check hint."""
         state, workspace = paused_job_state
 
-        result = runner.invoke(app, [
-            "pause", state.job_id,
-            "--workspace", str(workspace),
-            "--json",
-        ])
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            return True, {"paused": False, "error": "Job is already paused"}
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, ["pause", state.job_id, "--json"])
 
         assert result.exit_code == 1
         output = _parse_json_output(result.stdout)
         assert output["error_code"] == "E502"
-        assert any("resume" in h.lower() for h in output.get("hints", []))
+        assert any("status" in h.lower() or "running" in h.lower() for h in output.get("hints", []))
 
     def test_pause_completed_job_json_has_hints(
         self, completed_job_state: tuple[CheckpointState, Path],
@@ -1225,55 +1258,56 @@ class TestPauseJsonEdgeCases:
         """JSON output for completed job includes appropriate hint."""
         state, workspace = completed_job_state
 
-        result = runner.invoke(app, [
-            "pause", state.job_id,
-            "--workspace", str(workspace),
-            "--json",
-        ])
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            return True, {"paused": False, "error": "Job is completed"}
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, ["pause", state.job_id, "--json"])
 
         assert result.exit_code == 1
         output = _parse_json_output(result.stdout)
         assert output["error_code"] == "E502"
-        assert any("completed" in h.lower() for h in output.get("hints", []))
+        # The conductor path hints say "Only running scores can be paused"
+        assert any("running" in h.lower() for h in output.get("hints", []))
 
     def test_pause_pending_job_json_has_hints(
         self, pending_job_state: tuple[CheckpointState, Path],
     ) -> None:
-        """JSON output for pending job includes 'use mzt run' hint."""
+        """JSON output for pending job includes appropriate hint."""
         state, workspace = pending_job_state
 
-        result = runner.invoke(app, [
-            "pause", state.job_id,
-            "--workspace", str(workspace),
-            "--json",
-        ])
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            return True, {"paused": False, "error": "Job is not running"}
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
+            result = runner.invoke(app, ["pause", state.job_id, "--json"])
 
         assert result.exit_code == 1
         output = _parse_json_output(result.stdout)
         assert output["error_code"] == "E502"
-        assert any("run" in h.lower() for h in output.get("hints", []))
+        assert any("running" in h.lower() for h in output.get("hints", []))
 
     def test_pause_wait_timeout_json(
         self, running_job_state: tuple[CheckpointState, Path],
     ) -> None:
-        """JSON output for wait timeout includes signal_file."""
+        """JSON output for pause with --wait succeeds via conductor."""
         state, workspace = running_job_state
 
-        async def mock_wait(*_: object, **__: object) -> bool:
-            return False
+        async def mock_route(method: str, params: dict, **kw: object) -> tuple[bool, dict]:
+            return True, {"paused": True, "job_id": state.job_id}
 
-        with patch("marianne.cli.helpers._wait_for_pause_ack", mock_wait):
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=mock_route):
             result = runner.invoke(app, [
                 "pause", state.job_id,
-                "--workspace", str(workspace),
                 "--wait", "--timeout", "1",
                 "--json",
             ])
 
-        assert result.exit_code == 2
+        # Conductor-routed pause is immediate; --wait is accepted but no-op
+        assert result.exit_code == 0
         output = _parse_json_output(result.stdout)
-        assert output["error_code"] == "E504"
-        assert "signal_file" in output
+        assert output["success"] is True
+        assert output["job_id"] == state.job_id
 
 
 # ============================================================================

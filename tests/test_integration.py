@@ -281,71 +281,24 @@ class TestRunStatusResumeWorkflow:
         assert "3" in result.stdout  # total sheets
 
     def test_resume_continues_from_checkpoint(self, tmp_path: Path) -> None:
-        """Resume continues a paused job from the last checkpoint."""
-        workspace = tmp_path / "ws"
-        workspace.mkdir()
+        """Resume of paused job is accepted by conductor."""
+        # Resume routes through conductor; mock an accepted response
+        async def _fake_route(method, params, *, socket_path=None):
+            assert params["job_id"] == "resume-test-job"
+            return True, {
+                "job_id": "resume-test-job",
+                "status": "accepted",
+                "message": "Job resume queued",
+            }
 
-        # Create a paused state with config snapshot
-        state = CheckpointState(
-            job_id="resume-test-job",
-            job_name="Resume Test Job",
-            total_sheets=5,
-            last_completed_sheet=2,
-            status=JobStatus.PAUSED,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            config_snapshot={
-                "name": "resume-test-job",
-                "sheet": {"size": 10, "total_items": 50},
-                "prompt": {"template": "Process sheet {{ sheet_num }}"},
-                "backend": {"type": "claude_cli", "skip_permissions": True},
-                "retry": {"max_retries": 2},
-                "validations": [],
-            },
-            sheets={
-                1: SheetState(
-                    sheet_num=1, status=SheetStatus.COMPLETED, attempt_count=1
-                ),
-                2: SheetState(
-                    sheet_num=2, status=SheetStatus.COMPLETED, attempt_count=1
-                ),
-            },
-        )
-        state_file = workspace / "resume-test-job.json"
-        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
-
-        with patch("marianne.execution.runner.JobRunner") as mock_runner_cls:
-            # Create mock runner that returns completed state and summary
-            mock_runner = AsyncMock()
-            completed_state = CheckpointState(
-                job_id="resume-test-job",
-                job_name="Resume Test Job",
-                total_sheets=5,
-                last_completed_sheet=5,
-                status=JobStatus.COMPLETED,
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_route):
+            result = runner.invoke(
+                app,
+                ["resume", "resume-test-job"],
             )
-            mock_summary = RunSummary(
-                job_id="resume-test-job",
-                job_name="Resume Test Job",
-                total_sheets=5,
-                completed_sheets=3,
-                failed_sheets=0,
-                skipped_sheets=0,
-            )
-            mock_runner.run = AsyncMock(return_value=(completed_state, mock_summary))
-            mock_runner_cls.return_value = mock_runner
 
-            with patch("marianne.backends.claude_cli.ClaudeCliBackend") as mock_backend:
-                mock_backend.from_config = AsyncMock(return_value=AsyncMock())
-
-                result = runner.invoke(
-                    app,
-                    ["resume", "resume-test-job", "--workspace", str(workspace)],
-                )
-
-        # Should show resume info
-        assert "Resume Score" in result.stdout
-        assert "2/5" in result.stdout  # Starting from sheet 2
+        assert result.exit_code == 0
+        assert "Resume accepted" in result.stdout
 
     def test_complete_workflow_end_to_end(self, tmp_path: Path) -> None:
         """Test complete workflow: run -> status -> (fail) -> resume."""
@@ -401,35 +354,22 @@ class TestRunStatusResumeWorkflow:
         assert "PAUSED" in result.stdout
         assert "1" in result.stdout and "3" in result.stdout  # 1/3 sheets
 
-        # Step 3: Resume and complete
-        with patch("marianne.execution.runner.JobRunner") as mock_runner_cls:
-            completed_state = CheckpointState(
-                job_id="e2e-test-job",
-                job_name="End-to-end test",
-                total_sheets=3,
-                last_completed_sheet=3,
-                status=JobStatus.COMPLETED,
+        # Step 3: Resume via conductor
+        async def _fake_resume_route(method, params, *, socket_path=None):
+            assert params["job_id"] == "e2e-test-job"
+            return True, {
+                "job_id": "e2e-test-job",
+                "status": "accepted",
+                "message": "Job resume queued",
+            }
+
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_resume_route):
+            result = runner.invoke(
+                app, ["resume", "e2e-test-job"]
             )
-            mock_summary = RunSummary(
-                job_id="e2e-test-job",
-                job_name="End-to-end test",
-                total_sheets=3,
-                completed_sheets=2,  # Resumed from sheet 2
-                failed_sheets=0,
-                skipped_sheets=0,
-            )
-            mock_runner = AsyncMock()
-            mock_runner.run = AsyncMock(return_value=(completed_state, mock_summary))
-            mock_runner_cls.return_value = mock_runner
 
-            with patch("marianne.backends.claude_cli.ClaudeCliBackend") as mock_backend:
-                mock_backend.from_config = AsyncMock(return_value=AsyncMock())
-
-                result = runner.invoke(
-                    app, ["resume", "e2e-test-job", "--workspace", str(workspace)]
-                )
-
-        assert "Resume Score" in result.stdout
+        assert result.exit_code == 0
+        assert "Resume accepted" in result.stdout
 
 
 # ============================================================================
@@ -802,23 +742,17 @@ class TestErrorHandlingIntegration:
 
     def test_resume_missing_config_error(self, tmp_path: Path) -> None:
         """Resume without config snapshot shows helpful error."""
-        workspace = tmp_path / "ws"
-        workspace.mkdir()
+        # Resume routes through conductor; mock a rejection about missing config
+        async def _fake_route(method, params, *, socket_path=None):
+            return True, {
+                "job_id": "no-config",
+                "status": "rejected",
+                "message": "No config available for score 'no-config'",
+            }
 
-        # Create state without config_snapshot
-        state = CheckpointState(
-            job_id="no-config",
-            job_name="No Config Job",
-            total_sheets=5,
-            last_completed_sheet=2,
-            status=JobStatus.PAUSED,
-            config_snapshot=None,
-        )
-        state_file = workspace / "no-config.json"
-        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
-
-        result = runner.invoke(
-            app, ["resume", "no-config", "--workspace", str(workspace)]
-        )
+        with patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_route):
+            result = runner.invoke(
+                app, ["resume", "no-config"]
+            )
         assert result.exit_code == 1
         assert "config" in result.stdout.lower()

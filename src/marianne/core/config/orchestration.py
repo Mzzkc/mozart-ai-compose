@@ -226,6 +226,13 @@ class PostSuccessHookConfig(BaseModel):
         "starts with clean state instead of resuming from previous state. "
         "Required for self-chaining jobs that reuse the same workspace.",
     )
+    pause_before_chain: bool = Field(
+        default=False,
+        description="For run_job hooks: if true, the conductor completes the current "
+        "job but holds the chain trigger. The job enters PAUSED_AT_CHAIN state. "
+        "The next cycle doesn't start until 'mzt resume <job>'. "
+        "Gives the composer a natural intervention point between cycles.",
+    )
 
     @model_validator(mode="after")
     def _check_type_specific_fields(self) -> PostSuccessHookConfig:
