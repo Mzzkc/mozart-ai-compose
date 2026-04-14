@@ -1,4 +1,5 @@
 """Server-Sent Events manager for real-time updates."""
+
 from __future__ import annotations
 
 import asyncio
@@ -8,7 +9,6 @@ import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
 
 from marianne.core.constants import SSE_QUEUE_TIMEOUT_SECONDS
 
@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SSEEvent:
     """An SSE event to be sent to clients."""
+
     event: str
     data: str
     id: str | None = None
@@ -44,6 +45,7 @@ SSE_HEARTBEAT_RETRY_MS = 30000
 @dataclass
 class ClientConnection:
     """A connected SSE client."""
+
     client_id: str
     job_id: str
     queue: asyncio.Queue[SSEEvent] = field(
@@ -81,9 +83,7 @@ class SSEManager:
                     "SSE connection rejected: max connections reached",
                     extra={"client_id": client_id, "job_id": job_id, "max": self._max_connections},
                 )
-                raise ConnectionError(
-                    f"Maximum SSE connections ({self._max_connections}) reached"
-                )
+                raise ConnectionError(f"Maximum SSE connections ({self._max_connections}) reached")
             if job_id not in self._connections:
                 self._connections[job_id] = {}
             self._connections[job_id][client_id] = connection
@@ -93,7 +93,7 @@ class SSEManager:
             initial_event = SSEEvent(
                 event="connected",
                 data=json.dumps({"client_id": client_id, "job_id": job_id}),
-                id=f"conn-{datetime.now(UTC).isoformat()}"
+                id=f"conn-{datetime.now(UTC).isoformat()}",
             )
             yield initial_event.format()
 
@@ -111,7 +111,7 @@ class SSEManager:
                     heartbeat = SSEEvent(
                         event="heartbeat",
                         data=json.dumps({"timestamp": datetime.now(UTC).isoformat()}),
-                        retry=SSE_HEARTBEAT_RETRY_MS
+                        retry=SSE_HEARTBEAT_RETRY_MS,
                     )
                     yield heartbeat.format()
                 except asyncio.CancelledError:
@@ -169,75 +169,3 @@ class SSEManager:
             extra={"event": event.event, "sent_count": sent_count, "job_id": job_id},
         )
         return sent_count
-
-    async def send_job_update(self, job_id: str, status: str, data: dict[str, Any]) -> int:
-        """Convenience method to send job status update."""
-        event_data = {
-            "status": status,
-            "timestamp": datetime.now(UTC).isoformat(),
-            **data
-        }
-
-        event = SSEEvent(
-            event="job_status",
-            data=json.dumps(event_data),
-            id=f"status-{job_id}-{datetime.now(UTC).timestamp()}"
-        )
-
-        return await self.broadcast(job_id, event)
-
-    async def send_log_line(self, job_id: str, line: str, level: str = "info") -> int:
-        """Convenience method to send log line."""
-        event_data = {
-            "line": line.rstrip('\n'),
-            "level": level,
-            "timestamp": datetime.now(UTC).isoformat()
-        }
-
-        event = SSEEvent(
-            event="log",
-            data=json.dumps(event_data),
-            id=f"log-{job_id}-{datetime.now(UTC).timestamp()}"
-        )
-
-        return await self.broadcast(job_id, event)
-
-    def get_connection_count(self, job_id: str | None = None) -> int:
-        """Get number of connected clients."""
-        if job_id is None:
-            # Return total across all jobs
-            return sum(len(clients) for clients in self._connections.values())
-        else:
-            return len(self._connections.get(job_id, {}))
-
-    async def get_connected_jobs(self) -> list[str]:
-        """Get list of job IDs that have active connections."""
-        async with self._lock:
-            return list(self._connections.keys())
-
-    async def close_all_connections(self) -> None:
-        """Close all active connections (for shutdown)."""
-        logger.info("Closing all SSE connections")
-
-        # Snapshot and clear under lock, then notify outside the lock
-        async with self._lock:
-            all_connections = dict(self._connections)
-            self._connections.clear()
-
-        # Send close events without holding the lock
-        close_event = SSEEvent(
-            event="close",
-            data=json.dumps({"reason": "server_shutdown"})
-        )
-        for clients in all_connections.values():
-            for client_id, connection in clients.items():
-                try:
-                    connection.queue.put_nowait(close_event)
-                except asyncio.QueueFull:
-                    pass  # Ignore if queue is full during shutdown
-                except Exception:
-                    logger.debug(
-                        "Error sending close event",
-                        extra={"client_id": client_id},
-                        exc_info=True,
-                    )

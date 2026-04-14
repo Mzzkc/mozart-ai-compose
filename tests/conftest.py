@@ -157,18 +157,17 @@ def reset_global_learning_store() -> Generator[None, None, None]:
 def no_daemon_detection() -> Generator[None, None, None]:
     """Prevent dashboard tests from connecting to a real daemon.
 
-    The dashboard's JobControlService.is_daemon_available() checks for a
-    Unix socket, which succeeds if the conductor happens to be running. Patching
-    it globally ensures dashboard API tests always take the subprocess path.
+    The dashboard's ``_create_daemon_client()`` constructs a DaemonClient
+    pointed at the conductor's Unix socket. Patching it globally ensures
+    tests don't accidentally connect to a running conductor.
 
     Note: CLI commands that use ``try_daemon_route()`` from
     ``marianne.daemon.detect`` are NOT affected by this fixture -- those
     tests mock ``try_daemon_route`` directly where needed.
     """
     with patch(
-        "marianne.dashboard.services.job_control.JobControlService.is_daemon_available",
-        new_callable=AsyncMock,
-        return_value=False,
+        "marianne.dashboard.app._create_daemon_client",
+        return_value=None,
     ):
         yield
 

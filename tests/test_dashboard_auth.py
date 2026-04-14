@@ -10,10 +10,8 @@ from marianne.dashboard.auth import (
     AuthConfig,
     AuthMiddleware,
     AuthMode,
-    generate_api_key,
     hash_api_key,
     is_localhost,
-    require_api_key,
     verify_api_key,
 )
 
@@ -121,19 +119,6 @@ class TestApiKeyFunctions:
     def test_verify_api_key_empty_list(self):
         """Test verifying against empty key list."""
         assert verify_api_key("any-key", []) is False
-
-    def test_generate_api_key_unique(self):
-        """Test generated API keys are unique."""
-        keys = [generate_api_key() for _ in range(100)]
-
-        assert len(set(keys)) == 100  # All unique
-
-    def test_generate_api_key_length(self):
-        """Test generated API keys have appropriate length."""
-        key = generate_api_key()
-
-        # URL-safe base64 encoding of 32 bytes
-        assert len(key) >= 40
 
 
 class TestIsLocalhost:
@@ -290,50 +275,6 @@ class TestAuthMiddleware:
         # Should work without API key from localhost
         response = client.get("/api/data")
         assert response.status_code == 200
-
-
-class TestRequireApiKeyDependency:
-    """Test the require_api_key FastAPI dependency."""
-
-    @pytest.fixture
-    def app_with_dependency(self):
-        """Create app using dependency instead of middleware."""
-        from fastapi import Depends
-
-        app = FastAPI()
-
-        @app.get("/public")
-        async def public():
-            return {"public": True}
-
-        @app.get("/protected")
-        async def protected(key: str = Depends(require_api_key)):
-            return {"key": key}
-
-        return app
-
-    def test_dependency_allows_localhost(self, app_with_dependency):
-        """Test dependency allows localhost without key."""
-        with patch.dict("os.environ", {"MZT_LOCALHOST_BYPASS": "true"}):
-            client = TestClient(app_with_dependency)
-            response = client.get("/protected")
-
-            # Localhost bypass returns "localhost" as key
-            assert response.status_code == 200
-            assert response.json()["key"] == "localhost"
-
-    def test_dependency_requires_key_no_bypass(self, app_with_dependency):
-        """Test dependency requires key when bypass disabled."""
-        env = {
-            "MZT_LOCALHOST_BYPASS": "false",
-            "MZT_API_KEYS": "valid-key",
-        }
-        with patch.dict("os.environ", env, clear=True):
-            client = TestClient(app_with_dependency)
-
-            # Without key
-            response = client.get("/protected")
-            assert response.status_code == 401
 
 
 class TestAuthModeEnum:
@@ -517,7 +458,9 @@ class TestRateLimiter:
         from marianne.dashboard.auth.rate_limit import RateLimitConfig, RateLimiter
 
         config = RateLimitConfig(
-            burst_limit=2, requests_per_minute=100, requests_per_hour=1000,
+            burst_limit=2,
+            requests_per_minute=100,
+            requests_per_hour=1000,
         )
         limiter = RateLimiter(config)
         limiter.check("c")
@@ -531,7 +474,9 @@ class TestRateLimiter:
         from marianne.dashboard.auth.rate_limit import RateLimitConfig, RateLimiter
 
         config = RateLimitConfig(
-            burst_limit=100, requests_per_minute=3, requests_per_hour=1000,
+            burst_limit=100,
+            requests_per_minute=3,
+            requests_per_hour=1000,
         )
         limiter = RateLimiter(config)
         for _ in range(3):
@@ -545,7 +490,9 @@ class TestRateLimiter:
         from marianne.dashboard.auth.rate_limit import RateLimitConfig, RateLimiter
 
         config = RateLimitConfig(
-            burst_limit=100, requests_per_minute=100, requests_per_hour=3,
+            burst_limit=100,
+            requests_per_minute=100,
+            requests_per_hour=3,
         )
         limiter = RateLimiter(config)
         for _ in range(3):
@@ -559,7 +506,9 @@ class TestRateLimiter:
         from marianne.dashboard.auth.rate_limit import RateLimitConfig, RateLimiter
 
         config = RateLimitConfig(
-            burst_limit=10, requests_per_minute=50, requests_per_hour=500,
+            burst_limit=10,
+            requests_per_minute=50,
+            requests_per_hour=500,
         )
         limiter = RateLimiter(config)
         allowed, info = limiter.check("c")
@@ -661,7 +610,9 @@ class TestRateLimitMiddleware:
         from marianne.dashboard.auth.rate_limit import RateLimitConfig
 
         config = RateLimitConfig(
-            burst_limit=1, requests_per_minute=100, requests_per_hour=1000,
+            burst_limit=1,
+            requests_per_minute=100,
+            requests_per_hour=1000,
         )
         app = self._create_app(config)
         client = TestClient(app)
@@ -704,7 +655,6 @@ import os
 from marianne.dashboard.auth.security import (
     SecurityConfig,
     SecurityHeadersMiddleware,
-    configure_cors,
     sanitize_filename,
     validate_job_id,
     validate_path_component,
@@ -737,13 +687,6 @@ class TestSecurityConfig:
         with patch.dict(os.environ, {}, clear=True):
             config = SecurityConfig.from_env()
             assert len(config.cors_origins) > 0
-
-    def test_production_config(self) -> None:
-        """Production config is more restrictive."""
-        config = SecurityConfig.production()
-        assert config.cors_origins == []
-        assert config.cors_allow_credentials is False
-        assert "DELETE" not in config.cors_allow_methods
 
 
 class TestSecurityHeadersMiddleware:
@@ -812,17 +755,6 @@ class TestSecurityHeadersMiddleware:
         assert "'self'" in csp
 
 
-class TestConfigureCorsHelper:
-    """Tests for the CORS configuration helper."""
-
-    def test_configure_cors_adds_middleware(self) -> None:
-        """configure_cors calls app.add_middleware with CORS settings."""
-        mock_app = MagicMock()
-        config = SecurityConfig(cors_origins=["https://example.com"])
-        configure_cors(mock_app, config)
-        mock_app.add_middleware.assert_called_once()
-
-
 class TestValidateJobId:
     """Tests for job ID validation."""
 
@@ -854,13 +786,15 @@ class TestValidatePathComponent:
     """Tests for path component validation."""
 
     @pytest.mark.parametrize(
-        "component", ["output.txt", "sheet-1", "workspace_v2"],
+        "component",
+        ["output.txt", "sheet-1", "workspace_v2"],
     )
     def test_valid_paths(self, component: str) -> None:
         assert validate_path_component(component) is True
 
     @pytest.mark.parametrize(
-        "component", ["", "..", "../etc/passwd", "/absolute/path", "file\x00.txt"],
+        "component",
+        ["", "..", "../etc/passwd", "/absolute/path", "file\x00.txt"],
     )
     def test_invalid_paths(self, component: str) -> None:
         assert validate_path_component(component) is False

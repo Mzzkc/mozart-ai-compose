@@ -102,27 +102,20 @@ class TestRecoverCommand:
                 "unrecognized" in result.output.lower()), \
             f"Expected parameter rejection, got: {result.output}"
 
-    def test_recover_requires_conductor(self, monkeypatch):
-        """Recover should fail cleanly when conductor unavailable (no fallback)."""
+    def test_recover_fails_cleanly_without_job(self, monkeypatch):
+        """Recover fails cleanly when job not found in DB.
+
+        Note: recover now reads the DB directly (GH#170), so it no longer
+        requires the conductor to be running.
+        """
         runner = CliRunner()
-
-        # Mock try_daemon_route to raise connection error (same pattern as pause/resume)
-        from marianne.daemon.exceptions import DaemonError
-
-        async def _no_conductor(method: str, params: dict, *, socket_path=None):  # noqa: ARG001
-            raise DaemonError("Conductor not running")
-
-        monkeypatch.setattr(
-            "marianne.daemon.detect.try_daemon_route", _no_conductor,
-        )
 
         result = runner.invoke(app, ["recover", "test-job"])
 
-        # Should fail with conductor error, not attempt filesystem fallback
+        # Should fail cleanly with "not found" error
         assert result.exit_code != 0
-        assert ("conductor" in result.output.lower() or
-                "daemon" in result.output.lower()), \
-            f"Expected conductor error, got: {result.output}"
+        assert "not found" in result.output.lower(), \
+            f"Expected 'not found' error, got: {result.output}"
 
 
 class TestStatusCommand:

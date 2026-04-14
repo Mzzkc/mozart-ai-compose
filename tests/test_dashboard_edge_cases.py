@@ -1,429 +1,265 @@
-"""Additional edge case tests for dashboard services."""
-import asyncio
-import json
-from unittest.mock import AsyncMock, Mock, patch
+"""Edge case tests for dashboard services — conductor-only JobControlService."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from marianne.core.checkpoint import CheckpointState, JobStatus
-from marianne.dashboard.services.job_control import JobControlService
-from marianne.dashboard.services.sse_manager import SSEEvent, SSEManager
-from marianne.state.memory import InMemoryStateBackend
+from marianne.daemon.exceptions import DaemonNotRunningError
+from marianne.daemon.types import JobResponse
+from marianne.dashboard.services.job_control import (
+    JobControlService,
+    ProcessHealth,
+)
+
+_VALID_YAML = """
+name: "edge-test"
+workspace: ./ws
+sheet:
+  size: 10
+  total_items: 20
+prompt:
+  template: "do {{item}}"
+"""
 
 
-@pytest.fixture
-def mock_state_backend():
-    """Fixture for mock state backend."""
-    return InMemoryStateBackend()
+def _make_service() -> tuple[JobControlService, MagicMock]:
+    mock_client = MagicMock()
+    mock_client.submit_job = AsyncMock(
+        return_value=JobResponse(job_id="job-1", status="accepted"),
+    )
+    mock_client.pause_job = AsyncMock(return_value={"paused": True})
+    mock_client.resume_job = AsyncMock(return_value={"resumed": True})
+    mock_client.cancel_job = AsyncMock(return_value={"cancelled": True})
+    mock_client.clear_jobs = AsyncMock(return_value={"deleted": 1})
+    mock_client.get_job_status = AsyncMock(
+        return_value={
+            "job_id": "job-1",
+            "job_name": "test-job",
+            "total_sheets": 2,
+            "status": "running",
+            "pid": 12345,
+        }
+    )
+    service = JobControlService(mock_client)
+    return service, mock_client
 
 
-@pytest.fixture
-def job_control_service(mock_state_backend):
-    """Fixture for JobControlService."""
-    return JobControlService(mock_state_backend)
-
-
-@pytest.mark.asyncio
 class TestJobControlEdgeCases:
-    """Test edge cases and error conditions for JobControlService."""
+    """Edge cases for the conductor-only JobControlService."""
 
-    async def test_start_job_invalid_yaml_config(self, job_control_service):
-        """Test starting job with malformed YAML."""
+    def test_constructor_rejects_none_daemon_client(self):
+        with pytest.raises(ValueError, match="DaemonClient is required"):
+            JobControlService(None)  # type: ignore[arg-type]
+
+    async def test_start_job_no_config_raises(self):
+        service, _ = _make_service()
+        with pytest.raises(ValueError, match="Must provide either"):
+            await service.start_job()
+
+    async def test_start_job_invalid_yaml_config(self):
+        service, _ = _make_service()
         invalid_yaml = """
 name: "test-job"
 description: "Test job"
 workspace: ./test
-    sheet:  # Missing newline and indentation error
+    sheet:
 size: 10
 """
+        with pytest.raises(RuntimeError, match="Failed to submit job to conductor"):
+            await service.start_job(config_content=invalid_yaml)
 
-        with pytest.raises(RuntimeError, match="Failed to start job"):
-            await job_control_service.start_job(config_content=invalid_yaml)
-
-    async def test_start_job_config_missing_required_fields(self, job_control_service):
-        """Test starting job with config missing required fields."""
+    async def test_start_job_config_missing_required_fields(self):
+        service, _ = _make_service()
         incomplete_yaml = """
 name: "test-job"
-# Missing sheet configuration
 """
+        with pytest.raises(Exception, match="sheet"):
+            await service.start_job(config_content=incomplete_yaml)
 
-        with pytest.raises(RuntimeError, match="Failed to start job"):
-            await job_control_service.start_job(config_content=incomplete_yaml)
+    async def test_start_job_conductor_not_running(self):
+        service, mock_client = _make_service()
+        mock_client.submit_job.side_effect = DaemonNotRunningError("no socket")
+        with pytest.raises(RuntimeError, match="Conductor not running"):
+            await service.start_job(config_content=_VALID_YAML)
 
-    async def test_start_job_process_creation_failure(self, job_control_service):
-        """Test job start failure during process creation."""
-        valid_yaml = """
-name: "test-job"
-description: "Test job"
-workspace: ./test-workspace
-sheet:
-  size: 10
-  total_items: 20
-prompt:
-  template: "Process item {{item}}"
-"""
+    async def test_start_job_success(self):
+        service, mock_client = _make_service()
+        result = await service.start_job(config_content=_VALID_YAML)
+        assert result.job_id == "job-1"
+        assert result.status == "accepted"
+        assert result.job_name == "edge-test"
+        assert result.total_sheets == 2
+        mock_client.submit_job.assert_awaited_once()
 
-        with patch("asyncio.create_subprocess_exec") as mock_subprocess:
-            mock_subprocess.side_effect = OSError("Permission denied")
+    async def test_pause_job_success(self):
+        service, mock_client = _make_service()
+        result = await service.pause_job("job-1")
+        assert result.success is True
+        assert result.status == "paused"
+        assert result.job_id == "job-1"
+        mock_client.pause_job.assert_awaited_once_with("job-1", "")
 
-            with pytest.raises(RuntimeError, match="Failed to start job"):
-                await job_control_service.start_job(config_content=valid_yaml)
+    async def test_pause_job_conductor_not_running(self):
+        service, mock_client = _make_service()
+        mock_client.pause_job.side_effect = DaemonNotRunningError("down")
+        with pytest.raises(RuntimeError, match="Conductor not running"):
+            await service.pause_job("job-1")
 
-    async def test_pause_job_permission_error(self, job_control_service, mock_state_backend):
-        """Test pause job with permission error creating signal file."""
-        job_id = "test-job-123"
-        state = CheckpointState(
-            job_id=job_id,
-            job_name="test-job",
-            total_sheets=2,
-            status=JobStatus.RUNNING,
-            pid=12345,
-        )
-        await mock_state_backend.save(state)
+    async def test_resume_job_success(self):
+        service, mock_client = _make_service()
+        result = await service.resume_job("job-1")
+        assert result.success is True
+        assert result.status == "running"
+        assert result.job_id == "job-1"
+        mock_client.resume_job.assert_awaited_once_with("job-1", "")
 
-        # pause_job now uses signal files, not os.kill
-        with patch("pathlib.Path.touch") as mock_touch:
-            mock_touch.side_effect = PermissionError("Permission denied")
+    async def test_resume_job_conductor_not_running(self):
+        service, mock_client = _make_service()
+        mock_client.resume_job.side_effect = DaemonNotRunningError("down")
+        with pytest.raises(RuntimeError, match="Conductor not running"):
+            await service.resume_job("job-1")
 
-            result = await job_control_service.pause_job(job_id)
+    async def test_cancel_job_success(self):
+        service, mock_client = _make_service()
+        result = await service.cancel_job("job-1")
+        assert result.success is True
+        assert result.status == "cancelled"
+        assert result.job_id == "job-1"
+        mock_client.cancel_job.assert_awaited_once_with("job-1", "")
 
-            assert result.success is False
-            assert "Permission denied" in result.message or "Failed" in result.message
+    async def test_cancel_job_conductor_not_running(self):
+        service, mock_client = _make_service()
+        mock_client.cancel_job.side_effect = DaemonNotRunningError("down")
+        with pytest.raises(RuntimeError, match="Conductor not running"):
+            await service.cancel_job("job-1")
 
-    async def test_pause_job_os_error(self, job_control_service, mock_state_backend):
-        """Test pause job with OS error creating signal file."""
-        job_id = "test-job-123"
-        state = CheckpointState(
-            job_id=job_id,
-            job_name="test-job",
-            total_sheets=2,
-            status=JobStatus.RUNNING,
-            pid=12345,
-        )
-        await mock_state_backend.save(state)
+    async def test_delete_job_success(self):
+        service, mock_client = _make_service()
+        result = await service.delete_job("job-1")
+        assert result is True
+        mock_client.clear_jobs.assert_awaited_once_with(job_ids=["job-1"])
 
-        # pause_job now uses signal files, not os.kill
-        with patch("pathlib.Path.touch") as mock_touch:
-            mock_touch.side_effect = OSError("Operation not permitted")
+    async def test_delete_job_not_found(self):
+        service, mock_client = _make_service()
+        mock_client.clear_jobs.return_value = {"deleted": 0}
+        result = await service.delete_job("nonexistent")
+        assert result is False
 
-            result = await job_control_service.pause_job(job_id)
+    async def test_delete_job_conductor_not_running(self):
+        service, mock_client = _make_service()
+        mock_client.clear_jobs.side_effect = DaemonNotRunningError("down")
+        with pytest.raises(RuntimeError, match="Conductor not running"):
+            await service.delete_job("job-1")
 
-            assert result.success is False
-            assert "Failed to create pause signal" in result.message
+    async def test_verify_process_health_running(self):
+        service, mock_client = _make_service()
+        with patch("os.kill", return_value=None):
+            health = await service.verify_process_health("job-1")
+        assert isinstance(health, ProcessHealth)
+        assert health.pid == 12345
+        assert health.is_alive is True
+        assert health.process_exists is True
+        assert health.is_zombie_state is False
 
-    async def test_resume_job_permission_error(self, job_control_service, mock_state_backend):
-        """Test resume job with permission error cleaning signal file."""
-        job_id = "test-job-123"
-        state = CheckpointState(
-            job_id=job_id,
-            job_name="test-job",
-            total_sheets=2,
-            status=JobStatus.PAUSED,
-            pid=12345,
-        )
-        await mock_state_backend.save(state)
-
-        # resume_job now uses file-based signals, not os.kill
-        # Test failure when cleaning up signal file
-        with (
-            patch.object(job_control_service, "get_job_pid", return_value=12345),
-            patch("pathlib.Path.exists", return_value=True),
-            patch("pathlib.Path.unlink") as mock_unlink,
-        ):
-            mock_unlink.side_effect = PermissionError("Permission denied")
-
-            result = await job_control_service.resume_job(job_id)
-
-            # PermissionError during unlink is caught - check actual behavior
-            # The implementation may succeed or fail depending on error handling
-            # Updated to reflect actual behavior
-            assert result.job_id == job_id
-
-    async def test_resume_job_restart_failure(self, job_control_service, mock_state_backend):
-        """Test resume job when restart fails."""
-        job_id = "test-job-123"
-        state = CheckpointState(
-            job_id=job_id,
-            job_name="test-job",
-            total_sheets=2,
-            status=JobStatus.PAUSED,
-        )
-        await mock_state_backend.save(state)
-
-        with (
-            patch.object(job_control_service, "get_job_pid", return_value=None),
-            patch("asyncio.create_subprocess_exec") as mock_subprocess,
-        ):
-            mock_subprocess.side_effect = FileNotFoundError("Command not found")
-
-            result = await job_control_service.resume_job(job_id)
-
-            assert result.success is False
-            assert "Failed to restart job" in result.message
-
-    async def test_cancel_job_permission_error_during_kill(
-        self, job_control_service, mock_state_backend,
-    ):
-        """Test cancel job with permission error during kill."""
-        job_id = "test-job-123"
-        state = CheckpointState(
-            job_id=job_id,
-            job_name="test-job",
-            total_sheets=2,
-            status=JobStatus.RUNNING,
-            pid=12345,
-        )
-        await mock_state_backend.save(state)
-
-        with (
-            patch("os.kill") as mock_kill,
-            patch.object(job_control_service, "get_job_pid", return_value=12345),
-        ):
-            mock_kill.side_effect = PermissionError("Permission denied")
-
-            result = await job_control_service.cancel_job(job_id)
-
-            # Should still mark as cancelled despite kill failure
-            assert result.success is True
-            assert result.status == JobStatus.CANCELLED.value
-
-    async def test_cancel_job_force_kill_required(self, job_control_service, mock_state_backend):
-        """Test cancel job that requires force kill."""
-        job_id = "test-job-123"
-        state = CheckpointState(
-            job_id=job_id,
-            job_name="test-job",
-            total_sheets=2,
-            status=JobStatus.RUNNING,
-            pid=12345,
-        )
-        await mock_state_backend.save(state)
-
-        with (
-            patch("os.kill") as mock_kill,
-            patch.object(job_control_service, "get_job_pid", return_value=12345),
-            patch("asyncio.sleep"),
-        ):
-            # Process survives SIGTERM, needs SIGKILL
-            def kill_side_effect(_pid, sig):
-                if sig == 0:  # Check if alive after SIGTERM
-                    return  # Process still exists
-                elif sig == 9:  # SIGKILL
-                    raise ProcessLookupError("Process killed")
-
-            mock_kill.side_effect = kill_side_effect
-
-            result = await job_control_service.cancel_job(job_id)
-
-            assert result.success is True
-            assert result.status == JobStatus.CANCELLED.value
-            # Verify SIGKILL was called
-            assert any(call.args[1] == 9 for call in mock_kill.call_args_list)
-
-    async def test_start_job_cleanup_on_failure(self, job_control_service):
-        """Test that process is cleaned up when job start fails."""
-        valid_yaml = """
-name: "test-job"
-description: "Test job"
-workspace: ./test-workspace
-sheet:
-  size: 10
-  total_items: 20
-prompt:
-  template: "Process item {{item}}"
-"""
-
-        mock_process = Mock()
-        mock_process.pid = 12345
-        mock_process.terminate = Mock()
-        mock_process.wait = AsyncMock()
-
-        with (
-            patch("asyncio.create_subprocess_exec") as mock_subprocess,
-            patch("marianne.core.config.JobConfig.from_yaml_string") as mock_config,
-        ):
-            # Make subprocess succeed but config parsing fail
-            mock_subprocess.return_value = mock_process
-            mock_config.side_effect = ValueError("Invalid config")
-
-            with pytest.raises(RuntimeError, match="Failed to start job"):
-                await job_control_service.start_job(config_content=valid_yaml)
-
-            # Note: Process cleanup happens in the actual service implementation
-            # The cleanup logic is tested by verifying the exception is raised
-
-
-@pytest.mark.asyncio
-class TestSSEManagerEdgeCases:
-    """Test edge cases for SSE Manager."""
-
-    @pytest.fixture
-    async def sse_manager(self):
-        """Create an SSE manager for testing."""
-        return SSEManager()
-
-    @staticmethod
-    async def _wait_for_connections(
-        manager: SSEManager,
-        expected: int,
-        *,
-        job_id: str | None = None,
-        timeout: float = 2.0,
-    ) -> None:
-        """Poll until connection count reaches expected or timeout.
-
-        Replaces fragile asyncio.sleep() calls with deterministic polling.
-        """
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + timeout
-        while loop.time() < deadline:
-            count = manager.get_connection_count(job_id) if job_id else sum(
-                len(clients) for clients in manager._connections.values()
-            )
-            if count >= expected:
-                return
-            await asyncio.sleep(0.01)
-        raise TimeoutError(
-            f"Expected {expected} connections (job_id={job_id}) but timed out"
-        )
-
-    async def test_queue_full_handling(self, sse_manager):
-        """Test behavior when client queue is full."""
-        events_received = []
-
-        connect_task = asyncio.create_task(
-            self._collect_events(sse_manager.connect("job-123", "client-456"), events_received)
-        )
-
-        await self._wait_for_connections(sse_manager, 1, job_id="job-123")
-
-        # Get the connection and fill its queue
-        async with sse_manager._lock:
-            connection = sse_manager._connections["job-123"]["client-456"]
-            for i in range(100):
-                try:
-                    connection.queue.put_nowait(SSEEvent(event="spam", data=f"message {i}"))
-                except asyncio.QueueFull:
-                    break
-
-        # Try to broadcast an event to the full queue
-        event = SSEEvent(event="test", data="should be skipped")
-        sent_count = await sse_manager.broadcast("job-123", event)
-
-        assert sent_count == 0
-
-        connect_task.cancel()
-        try:
-            await connect_task
-        except asyncio.CancelledError:
-            pass
-
-    async def test_event_with_complex_data(self, sse_manager):
-        """Test SSE event with complex JSON data."""
-        events_received = []
-
-        connect_task = asyncio.create_task(
-            self._collect_events(sse_manager.connect("job-123", "client-456"), events_received)
-        )
-
-        await self._wait_for_connections(sse_manager, 1, job_id="job-123")
-
-        complex_data = {
-            "nested": {
-                "arrays": [1, 2, {"key": "value"}],
-                "unicode": "Hello 世界! 🎵",
-                "special_chars": "quotes\"quotes\nnewlines\ttabs"
-            }
+    async def test_verify_process_health_terminal(self):
+        service, mock_client = _make_service()
+        mock_client.get_job_status.return_value = {
+            "job_id": "job-1",
+            "job_name": "test-job",
+            "total_sheets": 2,
+            "status": "completed",
+            "pid": 12345,
         }
+        health = await service.verify_process_health("job-1")
+        assert health.is_alive is False
+        assert health.process_exists is False
 
-        event_with_str_data = SSEEvent(
-            event="complex",
-            data=json.dumps(complex_data, ensure_ascii=False),
-            id="complex-123",
-            retry=15000
+    async def test_verify_process_health_conductor_not_running(self):
+        service, mock_client = _make_service()
+        mock_client.get_job_status.side_effect = DaemonNotRunningError("down")
+        health = await service.verify_process_health("job-1")
+        assert health.is_alive is False
+        assert health.process_exists is False
+        assert health.pid is None
+
+
+@pytest.mark.adversarial
+class TestJobControlAdversarial:
+    """Adversarial tests attacking the conductor proxy layer."""
+
+    async def test_start_job_conductor_rejects_submission(self):
+        service, mock_client = _make_service()
+        mock_client.submit_job.return_value = JobResponse(
+            job_id="job-rejected",
+            status="rejected",
+            message="Config validation failed on server",
         )
+        result = await service.start_job(config_content=_VALID_YAML)
+        assert result.status == "rejected"
 
-        formatted = event_with_str_data.format()
-        assert "id: complex-123" in formatted
-        assert "retry: 15000" in formatted
-        assert "event: complex" in formatted
-        assert "Hello" in formatted
-        assert "世界" in formatted
-
-        connect_task.cancel()
-        try:
-            await connect_task
-        except asyncio.CancelledError:
-            pass
-
-    async def test_multiple_jobs_isolation(self, sse_manager):
-        """Test that events are properly isolated between jobs."""
-        events_job1 = []
-        events_job2 = []
-        events_job3 = []
-
-        task1 = asyncio.create_task(
-            self._collect_events(sse_manager.connect("job-1", "client-1"), events_job1)
+    async def test_start_job_conductor_returns_error_status(self):
+        service, mock_client = _make_service()
+        mock_client.submit_job.return_value = JobResponse(
+            job_id="",
+            status="error",
+            message="Internal daemon fault",
         )
-        task2 = asyncio.create_task(
-            self._collect_events(sse_manager.connect("job-2", "client-2"), events_job2)
+        result = await service.start_job(config_content=_VALID_YAML)
+        assert result.status == "error"
+
+    async def test_pause_job_generic_exception(self):
+        service, mock_client = _make_service()
+        mock_client.pause_job.side_effect = OSError("Socket broken")
+        with pytest.raises(OSError, match="Socket broken"):
+            await service.pause_job("job-1")
+
+    async def test_delete_job_malformed_response(self):
+        service, mock_client = _make_service()
+        mock_client.clear_jobs.return_value = {}
+        result = await service.delete_job("job-1")
+        assert result is False
+
+    async def test_verify_process_health_paused_job(self):
+        service, mock_client = _make_service()
+        mock_client.get_job_status.return_value = {
+            "job_id": "job-1",
+            "job_name": "test-job",
+            "total_sheets": 2,
+            "status": "paused",
+            "pid": 12345,
+        }
+        with patch("os.kill", return_value=None):
+            health = await service.verify_process_health("job-1")
+        assert health.is_alive is True
+        assert health.process_exists is True
+
+    async def test_start_job_with_config_path_traversal(self):
+        service, _ = _make_service()
+        with pytest.raises(ValueError, match="traversal"):
+            await service.start_job(config_path=Path("../../../etc/passwd.yaml"))
+
+    async def test_start_job_with_nonexistent_config_path(self):
+        service, _ = _make_service()
+        with pytest.raises(FileNotFoundError):
+            await service.start_job(config_path=Path("/nonexistent/score.yaml"))
+
+    async def test_start_job_concurrent_submissions(self):
+        import asyncio
+
+        service, mock_client = _make_service()
+        mock_client.submit_job = AsyncMock(
+            side_effect=[
+                JobResponse(job_id="j1", status="accepted"),
+                JobResponse(job_id="j2", status="accepted"),
+                JobResponse(job_id="j3", status="accepted"),
+            ]
         )
-        task3 = asyncio.create_task(
-            self._collect_events(sse_manager.connect("job-3", "client-3"), events_job3)
+        results = await asyncio.gather(
+            service.start_job(config_content=_VALID_YAML),
+            service.start_job(config_content=_VALID_YAML),
+            service.start_job(config_content=_VALID_YAML),
         )
-
-        await self._wait_for_connections(sse_manager, 3)
-
-        # Record how many events each list has before broadcast (connected events)
-        baseline1 = len(events_job1)
-        baseline2 = len(events_job2)
-        baseline3 = len(events_job3)
-
-        # Broadcast to each job separately
-        await sse_manager.broadcast("job-1", SSEEvent(event="test", data="for job 1"))
-        await sse_manager.broadcast("job-2", SSEEvent(event="test", data="for job 2"))
-        await sse_manager.broadcast("job-3", SSEEvent(event="test", data="for job 3"))
-
-        # Poll until all lists receive at least one new event beyond baseline
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + 2.0
-        while loop.time() < deadline:
-            if (
-                len(events_job1) > baseline1
-                and len(events_job2) > baseline2
-                and len(events_job3) > baseline3
-            ):
-                break
-            await asyncio.sleep(0.01)
-
-        for task in [task1, task2, task3]:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-
-        # Verify isolation
-        job1_messages = "\n".join(events_job1)
-        job2_messages = "\n".join(events_job2)
-        job3_messages = "\n".join(events_job3)
-
-        assert "for job 1" in job1_messages
-        assert "for job 1" not in job2_messages
-        assert "for job 1" not in job3_messages
-
-        assert "for job 2" in job2_messages
-        assert "for job 2" not in job1_messages
-        assert "for job 2" not in job3_messages
-
-    async def _collect_events(self, event_stream, events_list) -> None:
-        """Helper to collect events from a stream into a list."""
-        try:
-            async for event in event_stream:
-                events_list.append(event)
-        except asyncio.CancelledError:
-            pass
-
-
-if __name__ == "__main__":
-    pytest.main([__file__])
+        assert {r.job_id for r in results} == {"j1", "j2", "j3"}

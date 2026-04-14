@@ -1,6 +1,8 @@
 """FastAPI application factory for Marianne dashboard.
 
 Provides the web server for job monitoring and control.
+The dashboard is a conductor-only proxy — every operation routes through
+the conductor's Unix domain socket via ``DaemonClient``.
 """
 
 import os
@@ -14,32 +16,38 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from marianne.daemon.ipc.client import DaemonClient
 from marianne.state.base import StateBackend
 from marianne.state.json_backend import JsonStateBackend
 
-# Module-level references kept for backwards compatibility with
-# dependency_overrides in tests; create_app() also stores these on app.state.
+# Module-level references set by create_app().
 _state_backend: StateBackend | None = None
+_daemon_client: DaemonClient | None = None
 _templates: Jinja2Templates | None = None
 
 
 def get_state_backend() -> StateBackend:
-    """Get the configured state backend.
-
-    Raises:
-        RuntimeError: If backend not configured (app not started properly)
-    """
+    """Get the configured state backend."""
     if _state_backend is None:
         raise RuntimeError("State backend not configured. Use create_app() with a backend.")
     return _state_backend
 
 
-def get_templates() -> Jinja2Templates:
-    """Get the configured Jinja2Templates instance.
+def get_daemon_client() -> DaemonClient:
+    """Get the configured DaemonClient.
 
-    Raises:
-        RuntimeError: If templates not configured (app not started properly)
+    Raises ``RuntimeError`` if the dashboard was not started with a
+    conductor connection (e.g. tests with a mock backend).
     """
+    if _daemon_client is None:
+        raise RuntimeError(
+            "DaemonClient not configured. The dashboard requires a running conductor."
+        )
+    return _daemon_client
+
+
+def get_templates() -> Jinja2Templates:
+    """Get the configured Jinja2Templates instance."""
     if _templates is None:
         raise RuntimeError("Templates not configured. Use create_app() to initialize.")
     return _templates
@@ -47,26 +55,17 @@ def get_templates() -> Jinja2Templates:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Application lifespan handler.
-
-    Manages startup/shutdown for async resources.
-    """
+    """Application lifespan handler."""
     yield
 
 
-def _create_daemon_client() -> Any:
+def _create_daemon_client() -> DaemonClient | None:
     """Create a DaemonClient pointed at the daemon socket.
 
-    Uses ``_resolve_socket_path`` for clone-aware resolution — when
-    ``--conductor-clone`` is active, the client connects to the clone
-    conductor instead of production.
-
-    Returns the client instance, or ``None`` if construction fails
-    (e.g. daemon config unavailable).
+    Returns the client instance, or ``None`` if construction fails.
     """
     try:
         from marianne.daemon.detect import _resolve_socket_path
-        from marianne.daemon.ipc.client import DaemonClient
 
         return DaemonClient(_resolve_socket_path(None))
     except Exception:
@@ -92,24 +91,24 @@ def create_app(
     Returns:
         Configured FastAPI application
     """
-    global _state_backend, _templates
+    global _state_backend, _templates, _daemon_client
+
+    # Resolve DaemonClient — used by JobControlService, DaemonStateAdapter,
+    # analytics, event bridge, and system view.
+    daemon_client = _create_daemon_client()
+    _daemon_client = daemon_client
 
     # Configure state backend
-    daemon_client = None
     if state_backend is not None:
         _state_backend = state_backend
     elif state_dir is not None:
         _state_backend = JsonStateBackend(Path(state_dir))
-    else:
-        # Production path: try DaemonStateAdapter backed by live IPC,
-        # fall back to local JSON state if daemon modules unavailable.
-        daemon_client = _create_daemon_client()
-        if daemon_client is not None:
-            from marianne.dashboard.state.daemon_adapter import DaemonStateAdapter
+    elif daemon_client is not None:
+        from marianne.dashboard.state.daemon_adapter import DaemonStateAdapter
 
-            _state_backend = DaemonStateAdapter(daemon_client)
-        else:
-            _state_backend = JsonStateBackend(Path.cwd() / ".marianne-state")
+        _state_backend = DaemonStateAdapter(daemon_client)
+    else:
+        _state_backend = JsonStateBackend(Path.cwd() / ".marianne-state")
 
     # Create app
     app = FastAPI(
@@ -119,12 +118,11 @@ def create_app(
         lifespan=lifespan,
     )
 
-    # Store on app.state so tests can access without globals
     app.state.backend = _state_backend
+    if daemon_client is not None:
+        app.state.daemon_client = daemon_client
 
-    # Authentication middleware — applied before CORS so unauthenticated
-    # requests are rejected early. Default mode is localhost_only, which
-    # allows local development without API keys while protecting remote access.
+    # Authentication middleware
     from marianne.dashboard.auth import AuthConfig, AuthMiddleware
 
     auth_config = AuthConfig.from_env()
@@ -168,16 +166,12 @@ def create_app(
     templates_dir = dashboard_dir / "templates"
     static_dir = dashboard_dir / "static"
 
-    # Mount static files
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
-    # Configure Jinja2 templates
     _templates = Jinja2Templates(directory=str(templates_dir))
     app.state.templates = _templates
 
     # Wire daemon service layers when a DaemonClient is available.
-    # When tests pass an explicit state_backend the client is None
-    # and services are left unconfigured (tests set them manually).
     if daemon_client is not None:
         from marianne.dashboard.routes.analytics import set_analytics
         from marianne.dashboard.routes.events import set_event_bridge
@@ -194,7 +188,6 @@ def create_app(
         app.state.analytics = analytics
         app.state.system_view = system_view
 
-        # Set module-level instances so route handlers can resolve them
         set_event_bridge(event_bridge)
         set_analytics(analytics)
         set_system_view(system_view)
@@ -212,8 +205,6 @@ def create_app(
     from marianne.dashboard.routes.stream import router as stream_router
     from marianne.dashboard.routes.system import router as system_router
 
-    # Jobs router before base router so /api/jobs/daemon/status matches
-    # before the base router's /api/jobs/{job_id}/status wildcard
     app.include_router(jobs_router)
     app.include_router(base_router)
     app.include_router(dashboard_router)
@@ -226,7 +217,6 @@ def create_app(
     app.include_router(events_router)
     app.include_router(system_router)
 
-    # Health check endpoint (at root level)
     @app.get("/health", tags=["System"])
     async def health_check() -> dict[str, Any]:
         """Health check endpoint."""
@@ -237,7 +227,3 @@ def create_app(
         }
 
     return app
-
-
-# Type alias for dependency injection
-StateBackendDep = StateBackend

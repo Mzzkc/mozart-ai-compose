@@ -3,6 +3,7 @@
 Exposes aggregated statistics computed by ``DaemonAnalytics`` as JSON
 endpoints for the dashboard analytics page.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -27,8 +28,7 @@ def get_analytics() -> DaemonAnalytics:
     """
     if _analytics is None:
         raise RuntimeError(
-            "DaemonAnalytics not configured. "
-            "Call set_analytics() before serving requests."
+            "DaemonAnalytics not configured. Call set_analytics() before serving requests."
         )
     return _analytics
 
@@ -66,3 +66,9 @@ async def analytics_validations() -> dict[str, Any]:
 async def analytics_errors() -> dict[str, Any]:
     """Error breakdown: counts by category (transient, rate_limit, permanent)."""
     return await get_analytics().error_breakdown()
+
+
+@router.get("/durations")
+async def analytics_durations() -> dict[str, Any]:
+    """Duration stats: avg sheet duration, job totals, slowest sheets."""
+    return await get_analytics().duration_stats()

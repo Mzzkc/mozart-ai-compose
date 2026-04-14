@@ -26,13 +26,20 @@ from typing import Any
 import typer
 from rich.panel import Panel
 
-from marianne.core.checkpoint import CheckpointState, JobStatus, SheetStatus
 from marianne.core.config import JobConfig
 from marianne.core.constants import SHEET_NUM_KEY
 from marianne.execution.validation import ValidationEngine
 
-from ..helpers import configure_global_logging, require_conductor
+from ..helpers import configure_global_logging
 from ..output import console, output_error
+
+
+def _get_db_path() -> Path:
+    """Return the path to the conductor's registry DB.
+
+    Extracted so tests can monkeypatch it to use a temp DB.
+    """
+    return Path("~/.marianne/daemon-state.db").expanduser()
 
 
 def recover(
@@ -103,7 +110,7 @@ async def _recover_cascade(
 
     configure_global_logging(console)
 
-    db_path = Path("~/.marianne/daemon-state.db").expanduser()
+    db_path = _get_db_path()
     if not db_path.exists():
         output_error(
             "Conductor registry DB not found",
@@ -208,212 +215,182 @@ async def _recover_job(
 ) -> None:
     """Recover sheets by running validations without re-executing.
 
-    Routes through the conductor to locate job state. Requires conductor
-    to be running.
+    Loads the checkpoint directly from the conductor's registry DB.
+    This works for all jobs — active, completed, or failed — because
+    the DB is the source of truth, not the conductor's in-memory state.
     """
+    import sqlite3
+
     configure_global_logging(console)
 
-    # Route through conductor
-    from marianne.daemon.detect import try_daemon_route
-    from marianne.daemon.exceptions import DaemonError, JobSubmissionError
-
-    params = {
-        "job_id": job_id, "workspace": None,
-        SHEET_NUM_KEY: sheet_num, "dry_run": dry_run,
-    }
-    try:
-        routed, result = await try_daemon_route("job.recover", params)
-    except JobSubmissionError as err:
+    db_path = _get_db_path()
+    if not db_path.exists():
         output_error(
-            f"Score not found: {job_id}",
-            hints=["Run 'mzt list' to see available scores."],
-        )
-        raise typer.Exit(1) from err
-    except DaemonError as err:
-        output_error(
-            str(err),
-            hints=["Restart the conductor: mzt restart"],
-        )
-        raise typer.Exit(1) from None
-
-    state: CheckpointState | None = None
-
-    if routed and result:
-        state_data = result.get("state")
-        if state_data:
-            state = CheckpointState.model_validate(state_data)
-    else:
-        # Conductor not available - require it
-        require_conductor(routed)
-        return
-
-    if state is None:
-        output_error(
-            f"Score not found: {job_id}",
-            hints=["Run 'mzt list' to see available scores."],
+            "Conductor registry DB not found",
+            hints=["Start the conductor at least once: mzt start"],
         )
         raise typer.Exit(1)
 
-    # Reconstruct config from snapshot
-    if not state.config_snapshot:
+    conn = sqlite3.connect(str(db_path))
+    row = conn.execute(
+        "SELECT checkpoint_json FROM jobs WHERE job_id=?", (job_id,),
+    ).fetchone()
+
+    if not row or not row[0]:
+        conn.close()
         output_error(
-            "No config snapshot in state — cannot run validations",
-            hints=["The score may need to be re-run with 'mzt run'."],
+            f"Score not found: {job_id}",
+            hints=["Run 'mzt list --all' to see available scores."],
         )
         raise typer.Exit(1)
 
-    config = JobConfig.model_validate(state.config_snapshot)
+    import json
+    import shutil
 
-    # Determine which sheets to check
-    sheets_to_check: list[int] = []
+    checkpoint = json.loads(row[0])
+    sheets = checkpoint.get("sheets", {})
+
+    # Determine which sheets to recover
+    sheets_to_reset: list[str] = []
     if sheet_num is not None:
-        sheets_to_check = [sheet_num]
+        skey = str(sheet_num)
+        if skey in sheets and sheets[skey].get("status") in ("failed", "skipped"):
+            sheets_to_reset = [skey]
+        elif skey not in sheets:
+            conn.close()
+            output_error(
+                f"Sheet {sheet_num} not found in score '{job_id}'",
+            )
+            raise typer.Exit(1)
     else:
-        # Find all failed and cascade-skipped sheets
-        for snum, sheet_state in state.sheets.items():
-            if sheet_state.status in (SheetStatus.FAILED, SheetStatus.SKIPPED):
-                sheets_to_check.append(int(snum))
+        for skey, sdata in sheets.items():
+            if sdata.get("status") in ("failed", "skipped"):
+                sheets_to_reset.append(skey)
 
-    if not sheets_to_check:
+    if not sheets_to_reset:
+        conn.close()
         console.print("[green]No failed sheets to recover[/green]")
         raise typer.Exit(0)
 
-    # Classify failed sheets: cascaded (dependency) vs real (executed)
-    cascaded: list[int] = []
-    real_failures: list[int] = []
-    for snum in sorted(sheets_to_check):
-        ss = state.sheets[snum]
-        err_msg = (ss.error_message or "").lower()
-        # Match both "Dependency failed:" and "Blocked by failed dependency:"
-        is_cascade = (
-            "dependency failed" in err_msg
-            or "blocked by" in err_msg
-            or "failed dependency" in err_msg
-        )
-        if is_cascade:
-            cascaded.append(snum)
-        else:
-            real_failures.append(snum)
+    # Count before
+    before: dict[str, int] = {}
+    for sdata in sheets.values():
+        st = sdata.get("status", "pending")
+        before[st] = before.get(st, 0) + 1
 
-    total_failed = len(sheets_to_check)
+    # Try validation-based recovery if config is available
+    config_snapshot = checkpoint.get("config_snapshot")
+    config_path = checkpoint.get("config_path")
+    config: JobConfig | None = None
+
+    if config_snapshot:
+        try:
+            config = JobConfig.model_validate(config_snapshot)
+        except Exception:
+            pass
+    elif config_path and Path(config_path).exists():
+        try:
+            config = JobConfig.from_yaml(Path(config_path))
+        except Exception:
+            pass
+
+    # Reset sheets and optionally validate
+    reset_count = 0
+    validated_count = 0
+
+    for skey in sorted(sheets_to_reset, key=int):
+        snum = int(skey)
+        sdata = sheets[skey]
+
+        if config and config.validations:
+            # Run validations to check if work was actually done
+            user_vars: dict[str, Any] = {
+                str(k): v for k, v in config.prompt.variables.items()
+            }
+            sheet_context: dict[str, Any] = {
+                **user_vars,
+                SHEET_NUM_KEY: snum,
+                "start_item": None,
+                "end_item": None,
+            }
+            validation_engine = ValidationEngine(
+                workspace=config.workspace,
+                sheet_context=sheet_context,
+            )
+            vresult = await validation_engine.run_validations(config.validations)
+
+            if vresult.all_passed:
+                if not dry_run:
+                    sdata["status"] = "completed"
+                    sdata.pop("error_message", None)
+                    sdata.pop("error_code", None)
+                validated_count += 1
+                console.print(f"  Sheet {snum}: [green]validations passed → completed[/green]")
+                continue
+            # Validations failed — fall through to reset
+
+        # No config or validations failed — reset to PENDING for retry
+        if not dry_run:
+            sdata["status"] = "pending"
+            sdata.pop("error_message", None)
+            sdata.pop("error_code", None)
+            sdata.pop("completed_at", None)
+            sdata["normal_attempts"] = 0
+            sdata["completion_attempts"] = 0
+            sdata["attempt_count"] = 0
+            sdata["healing_attempts"] = 0
+        reset_count += 1
+
+    # Count after
+    after: dict[str, int] = {}
+    for sdata in sheets.values():
+        st = sdata.get("status", "pending")
+        after[st] = after.get(st, 0) + 1
+
+    total_recovered = reset_count + validated_count
     console.print(Panel(
-        f"[bold]Recover Score: {job_id}[/bold]\n"
-        f"Failed sheets: {total_failed}\n"
-        f"  Cascaded (dependency): {len(cascaded)}\n"
-        f"  Real failures: {len(real_failures)}\n"
+        f"[bold]Recovery: {job_id}[/bold]\n"
+        f"Before: {dict(sorted(before.items()))}\n"
+        f"After:  {dict(sorted(after.items()))}\n\n"
+        f"Validated: {validated_count}, Reset to PENDING: {reset_count}\n"
         f"Dry run: {dry_run}",
         title="Recovery",
     ))
 
-    recovered_count = 0
-    cascade_reset_count = 0
+    if dry_run:
+        conn.close()
+        console.print("\n[yellow]Dry run — no changes made[/yellow]")
+        return
 
-    # Step 1: Reset cascaded failures to PENDING
-    if cascaded:
-        console.print(f"\n[bold]Resetting {len(cascaded)} cascaded failure(s) to PENDING...[/bold]")
-        for snum in cascaded:
-            if not dry_run:
-                state.sheets[snum].status = SheetStatus.PENDING
-                state.sheets[snum].error_message = None
-                state.sheets[snum].error_code = None
-                state.sheets[snum].completed_at = None
-                cascade_reset_count += 1
-            else:
-                cascade_reset_count += 1
-        action = "Would reset" if dry_run else "Reset"
-        console.print(f"  [blue]{action} {cascade_reset_count} sheet(s) to PENDING[/blue]")
-
-    # Step 2: Re-run validations on real failures
-    for snum in real_failures:
-        console.print(f"\n[bold]Sheet {snum}:[/bold]")
-        ss = state.sheets[snum]
-        console.print(f"  Error: {ss.error_message or '(none)'}")
-
-        # Create validation engine for this sheet
-        user_vars: dict[str, Any] = {
-            str(k): v for k, v in config.prompt.variables.items()
-        }
-        sheet_context: dict[str, Any] = {
-            **user_vars,
-            SHEET_NUM_KEY: snum,
-            "start_item": None,
-            "end_item": None,
-        }
-        validation_engine = ValidationEngine(
-            workspace=config.workspace,
-            sheet_context=sheet_context,
-        )
-        vresult = await validation_engine.run_validations(config.validations)
-
-        for vr in vresult.results:
-            vstatus = "[green]✓[/green]" if vr.passed else "[red]✗[/red]"
-            console.print(f"  {vstatus} {vr.rule.description}")
-
-        if vresult.all_passed:
-            console.print("  [green]All validations passed![/green]")
-            if not dry_run:
-                state.sheets[snum].status = SheetStatus.COMPLETED
-                state.sheets[snum].validation_passed = True
-                state.sheets[snum].validation_details = vresult.to_dict_list()
-                state.sheets[snum].error_message = None
-                state.sheets[snum].error_category = None
-                state.sheets[snum].error_code = None
-
-                # Update last_completed_sheet if this extends it
-                if snum > state.last_completed_sheet:
-                    state.last_completed_sheet = snum
-
-                recovered_count += 1
-                console.print("  [blue]→ Marked as completed[/blue]")
-            else:
-                console.print("  [yellow]→ Would mark as completed (dry-run)[/yellow]")
-        else:
-            failed_count = len([r for r in vresult.results if not r.passed])
-            console.print(
-                f"  [red]{failed_count} validation(s) failed - cannot recover[/red]"
-            )
-
-    # Save state if not dry run and something changed
-    total_recovered = recovered_count + cascade_reset_count
-    if not dry_run and total_recovered > 0:
-        # Update job status
-        all_complete = all(
-            s.status == SheetStatus.COMPLETED
-            for s in state.sheets.values()
-        )
-        if all_complete:
-            state.status = JobStatus.COMPLETED
-        elif state.status == JobStatus.FAILED:
-            state.status = JobStatus.PAUSED  # Allow resume
-
-        # Write modifications back to conductor's registry DB
-        import sqlite3 as _sqlite3
-
-        db_path = Path("~/.marianne/daemon-state.db").expanduser()
-        if db_path.exists():
-            conn = _sqlite3.connect(str(db_path))
-            checkpoint_json = state.model_dump_json()
-            conn.execute(
-                "UPDATE jobs SET checkpoint_json=?, status=? WHERE job_id=?",
-                (checkpoint_json, state.status.value, job_id),
-            )
-            conn.commit()
-            conn.close()
-
-        console.print(f"\n[green]Recovered {total_recovered} sheet(s):[/green]")
-        if cascade_reset_count:
-            console.print(f"  {cascade_reset_count} cascaded failure(s) reset to PENDING")
-        if recovered_count:
-            console.print(f"  {recovered_count} sheet(s) validated and marked completed")
-        console.print(f"\nResume with: [bold]mzt resume {job_id}[/bold]")
-    elif dry_run:
-        console.print("\n[yellow]Dry run complete — no changes made[/yellow]")
-        if cascade_reset_count:
-            console.print(f"  Would reset {cascade_reset_count} cascaded failure(s)")
-        if recovered_count:
-            console.print(f"  Would recover {recovered_count} validated sheet(s)")
-    else:
+    if total_recovered == 0:
+        conn.close()
         console.print("\n[yellow]No sheets could be recovered[/yellow]")
+        return
+
+    # Backup
+    backup = _get_db_path().with_suffix(".db.bak")
+    shutil.copy2(_get_db_path(), backup)
+
+    # Update job status
+    all_complete = all(
+        s.get("status") == "completed" for s in sheets.values()
+    )
+    if all_complete:
+        checkpoint["status"] = "completed"
+    elif checkpoint.get("status") == "failed":
+        checkpoint["status"] = "paused"
+
+    # Save
+    checkpoint_json = json.dumps(checkpoint)
+    conn.execute(
+        "UPDATE jobs SET checkpoint_json=?, status=? WHERE job_id=?",
+        (checkpoint_json, checkpoint["status"], job_id),
+    )
+    conn.commit()
+    conn.close()
+
+    console.print(f"\n[green]Recovered {total_recovered} sheet(s). Resume with:[/green]")
+    console.print(f"  [bold]mzt resume {job_id}[/bold]")
 
 
 # =============================================================================

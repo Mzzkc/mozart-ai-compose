@@ -41,15 +41,13 @@ class JobTools:
     Provides MCP tools for running, monitoring, and querying Marianne jobs.
     Tools require explicit user consent due to file system and process execution.
 
-    Routes through the conductor when available, falling back to
-    subprocess execution. Job start/get operations delegate to JobControlService
-    which handles conductor routing. List operations use DaemonClient directly.
+    Routes through the conductor for all operations.
     """
 
     def __init__(self, state_backend: JsonStateBackend, workspace_root: Path):
         self.state_backend = state_backend
-        self.job_control = JobControlService(state_backend, workspace_root)
         self._daemon_client = DaemonClient(_resolve_socket_path(None))
+        self.job_control = JobControlService(self._daemon_client)
 
     async def list_tools(self) -> list[dict[str, Any]]:
         """List all job management tools."""
@@ -66,18 +64,18 @@ class JobTools:
                                 "Filter jobs by status"
                                 " (running, paused, completed, failed, cancelled)"
                             ),
-                            "enum": ["running", "paused", "completed", "failed", "cancelled"]
+                            "enum": ["running", "paused", "completed", "failed", "cancelled"],
                         },
                         "limit": {
                             "type": "integer",
                             "description": "Maximum number of jobs to return",
                             "default": 50,
                             "minimum": 1,
-                            "maximum": 500
-                        }
+                            "maximum": 500,
+                        },
                     },
-                    "required": []
-                }
+                    "required": [],
+                },
             },
             {
                 "name": "get_job",
@@ -85,13 +83,10 @@ class JobTools:
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "job_id": {
-                            "type": "string",
-                            "description": "Marianne job ID to retrieve"
-                        }
+                        "job_id": {"type": "string", "description": "Marianne job ID to retrieve"}
                     },
-                    "required": ["job_id"]
-                }
+                    "required": ["job_id"],
+                },
             },
             {
                 "name": "start_job",
@@ -101,27 +96,27 @@ class JobTools:
                     "properties": {
                         "config_path": {
                             "type": "string",
-                            "description": "Path to the Marianne job configuration file (.yaml)"
+                            "description": "Path to the Marianne job configuration file (.yaml)",
                         },
                         "workspace": {
                             "type": "string",
-                            "description": "Workspace directory for job execution (optional)"
+                            "description": "Workspace directory for job execution (optional)",
                         },
                         "start_sheet": {
                             "type": "integer",
                             "description": "Sheet number to start from (1-indexed)",
                             "default": 1,
-                            "minimum": 1
+                            "minimum": 1,
                         },
                         "self_healing": {
                             "type": "boolean",
                             "description": "Enable self-healing mode for automatic error recovery",
-                            "default": False
-                        }
+                            "default": False,
+                        },
                     },
-                    "required": ["config_path"]
-                }
-            }
+                    "required": ["config_path"],
+                },
+            },
         ]
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -137,8 +132,12 @@ class JobTools:
                 raise ValueError(f"Unknown job tool: {name}")
 
         except (
-            KeyError, ValueError, FileNotFoundError,
-            RuntimeError, OSError, ConnectionError,
+            KeyError,
+            ValueError,
+            FileNotFoundError,
+            RuntimeError,
+            OSError,
+            ConnectionError,
         ) as e:
             logger.exception("Error executing tool %s", name)
             return _make_error_response(e)
@@ -180,9 +179,7 @@ class JobTools:
                         name = job.get("job_name", job_id)
                         result += f"  [{status}] {name} (id: {job_id})\n"
 
-                return {
-                    "content": [{"type": "text", "text": result}]
-                }
+                return {"content": [{"type": "text", "text": result}]}
         except DaemonNotRunningError:
             logger.info("daemon_not_running for list_jobs")
         except (OSError, ConnectionError, TimeoutError):
@@ -202,9 +199,7 @@ class JobTools:
         result += "Without conductor, use get_job with a specific job ID,\n"
         result += "or the Marianne CLI: mzt list [--status running]\n"
 
-        return {
-            "content": [{"type": "text", "text": result}]
-        }
+        return {"content": [{"type": "text", "text": result}]}
 
     async def _get_job(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get detailed information about a specific job."""
@@ -254,17 +249,14 @@ class JobTools:
         # Recent sheets
         if state.sheets:
             result += "\nRecent Sheets:\n"
-            recent_sheets = sorted(state.sheets.items(),
-                                 key=lambda x: int(x[0]), reverse=True)[:5]
+            recent_sheets = sorted(state.sheets.items(), key=lambda x: int(x[0]), reverse=True)[:5]
             for sheet_num, sheet in recent_sheets:
                 result += f"  Sheet {sheet_num}: {sheet.status.value}"
                 if sheet.error_message:
                     result += f" (Error: {sheet.error_message[:50]}...)"
                 result += "\n"
 
-        return {
-            "content": [{"type": "text", "text": result}]
-        }
+        return {"content": [{"type": "text", "text": result}]}
 
     async def _start_job(self, args: dict[str, Any]) -> dict[str, Any]:
         """Start a new Marianne job."""
@@ -282,7 +274,7 @@ class JobTools:
                 config_path=config_path,
                 workspace=workspace,
                 start_sheet=start_sheet,
-                self_healing=self_healing
+                self_healing=self_healing,
             )
 
             via = "daemon" if result.via_daemon else "subprocess"
@@ -305,9 +297,7 @@ class JobTools:
 
             response_text += f"\nUse get_job tool with job_id '{result.job_id}' to check progress."
 
-            return {
-                "content": [{"type": "text", "text": response_text}]
-            }
+            return {"content": [{"type": "text", "text": response_text}]}
 
         except (FileNotFoundError, ValueError, RuntimeError, OSError) as e:
             logger.exception("Failed to start job from %s", config_path)
@@ -324,13 +314,13 @@ class ControlTools:
     Provides MCP tools for controlling running Marianne jobs (pause, resume, cancel).
     These tools interact with job processes and require user consent.
 
-    Routes through the conductor when available via JobControlService,
-    falling back to local signal-based control.
+    Routes through the conductor for all operations.
     """
 
     def __init__(self, state_backend: JsonStateBackend, workspace_root: Path):
         self.state_backend = state_backend
-        self.job_control = JobControlService(state_backend, workspace_root)
+        daemon_client = DaemonClient(_resolve_socket_path(None))
+        self.job_control = JobControlService(daemon_client)
 
     async def list_tools(self) -> list[dict[str, Any]]:
         """List all job control tools."""
@@ -341,13 +331,10 @@ class ControlTools:
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "job_id": {
-                            "type": "string",
-                            "description": "Marianne job ID to pause"
-                        }
+                        "job_id": {"type": "string", "description": "Marianne job ID to pause"}
                     },
-                    "required": ["job_id"]
-                }
+                    "required": ["job_id"],
+                },
             },
             {
                 "name": "resume_job",
@@ -355,13 +342,10 @@ class ControlTools:
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "job_id": {
-                            "type": "string",
-                            "description": "Marianne job ID to resume"
-                        }
+                        "job_id": {"type": "string", "description": "Marianne job ID to resume"}
                     },
-                    "required": ["job_id"]
-                }
+                    "required": ["job_id"],
+                },
             },
             {
                 "name": "cancel_job",
@@ -369,14 +353,11 @@ class ControlTools:
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "job_id": {
-                            "type": "string",
-                            "description": "Marianne job ID to cancel"
-                        }
+                        "job_id": {"type": "string", "description": "Marianne job ID to cancel"}
                     },
-                    "required": ["job_id"]
-                }
-            }
+                    "required": ["job_id"],
+                },
+            },
         ]
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -414,9 +395,7 @@ class ControlTools:
                 response_text += f"Status: {result.status}\n"
                 response_text += f"Error: {result.message}"
 
-            return {
-                "content": [{"type": "text", "text": response_text}]
-            }
+            return {"content": [{"type": "text", "text": response_text}]}
 
         except (RuntimeError, OSError, ConnectionError) as e:
             logger.exception("Error pausing job %s", job_id)
@@ -440,9 +419,7 @@ class ControlTools:
                 response_text += f"Status: {result.status}\n"
                 response_text += f"Error: {result.message}"
 
-            return {
-                "content": [{"type": "text", "text": response_text}]
-            }
+            return {"content": [{"type": "text", "text": response_text}]}
 
         except (RuntimeError, OSError, ConnectionError) as e:
             logger.exception("Error resuming job %s", job_id)
@@ -467,9 +444,7 @@ class ControlTools:
                 response_text += f"Status: {result.status}\n"
                 response_text += f"Error: {result.message}"
 
-            return {
-                "content": [{"type": "text", "text": response_text}]
-            }
+            return {"content": [{"type": "text", "text": response_text}]}
 
         except (RuntimeError, OSError, ConnectionError) as e:
             logger.exception("Error cancelling job %s", job_id)
@@ -677,8 +652,13 @@ class ArtifactTools:
         try:
             return await handler(arguments)
         except (
-            KeyError, ValueError, FileNotFoundError, IsADirectoryError,
-            NotADirectoryError, PermissionError, OSError,
+            KeyError,
+            ValueError,
+            FileNotFoundError,
+            IsADirectoryError,
+            NotADirectoryError,
+            PermissionError,
+            OSError,
         ) as e:
             logger.exception("Error executing artifact tool %s", name)
             return _make_error_response(e)
@@ -727,7 +707,7 @@ class ArtifactTools:
 
         for item in sorted(target_dir.iterdir(), key=lambda x: (x.is_file(), x.name.lower())):
             # Skip hidden files unless requested
-            if not include_hidden and item.name.startswith('.'):
+            if not include_hidden and item.name.startswith("."):
                 continue
 
             if item.is_dir():
@@ -749,9 +729,7 @@ class ArtifactTools:
         else:
             result += "(empty directory)"
 
-        return {
-            "content": [{"type": "text", "text": result}]
-        }
+        return {"content": [{"type": "text", "text": result}]}
 
     async def _read_file(self, args: dict[str, Any]) -> dict[str, Any]:
         """Read file content."""
@@ -782,7 +760,7 @@ class ArtifactTools:
                 with open(target_file, encoding=encoding) as f:
                     return f.read()
             except UnicodeDecodeError:
-                for alt_encoding in ['latin-1', 'cp1252']:
+                for alt_encoding in ["latin-1", "cp1252"]:
                     try:
                         with open(target_file, encoding=alt_encoding) as f:
                             data = f.read()
@@ -790,7 +768,7 @@ class ArtifactTools:
                     except UnicodeDecodeError:
                         continue
                 # Final fallback to binary representation
-                with open(target_file, 'rb') as f:
+                with open(target_file, "rb") as f:
                     raw_data = f.read()[:1000]  # First 1KB only
                     return f"Binary file: {file_size} bytes\nFirst 1KB (hex): {raw_data.hex()}"
 
@@ -803,9 +781,7 @@ class ArtifactTools:
         result += f"Encoding: {encoding}\n\n"
         result += f"Content:\n{'-' * 40}\n{content}"
 
-        return {
-            "content": [{"type": "text", "text": result}]
-        }
+        return {"content": [{"type": "text", "text": result}]}
 
     async def _get_logs(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get logs from a Marianne job execution."""
@@ -845,8 +821,7 @@ class ArtifactTools:
 
         if not log_files:
             raise FileNotFoundError(
-                f"No log files found for job {job_id}"
-                f" in workspace {workspace_path}"
+                f"No log files found for job {job_id} in workspace {workspace_path}"
             )
 
         parts = [
@@ -875,7 +850,7 @@ class ArtifactTools:
 
                 # Read the log file in a thread to avoid blocking the event loop
                 def _sync_read_log(path: Path = log_file) -> list[str]:
-                    with open(path, encoding='utf-8', errors='ignore') as f:
+                    with open(path, encoding="utf-8", errors="ignore") as f:
                         return f.readlines()
 
                 log_lines = await asyncio.to_thread(_sync_read_log)
@@ -899,9 +874,7 @@ class ArtifactTools:
             except (OSError, UnicodeDecodeError) as e:
                 parts.append(f"Error reading {log_file}: {e}\n\n")
 
-        return {
-            "content": [{"type": "text", "text": "".join(parts)}]
-        }
+        return {"content": [{"type": "text", "text": "".join(parts)}]}
 
     async def _list_artifacts(self, args: dict[str, Any]) -> dict[str, Any]:
         """List all artifacts created by a Marianne job."""
@@ -935,7 +908,7 @@ class ArtifactTools:
             "error": [],
             "log": [],
             "state": [],
-            "other": []
+            "other": [],
         }
 
         # Scan workspace for files
@@ -954,12 +927,14 @@ class ArtifactTools:
 
             stat = item.stat()
             category = self._categorize_artifact(item)
-            artifacts[category].append({
-                "path": str(rel_path),
-                "size": stat.st_size,
-                "modified": datetime.fromtimestamp(stat.st_mtime),
-                "category": category,
-            })
+            artifacts[category].append(
+                {
+                    "path": str(rel_path),
+                    "size": stat.st_size,
+                    "modified": datetime.fromtimestamp(stat.st_mtime),
+                    "category": category,
+                }
+            )
 
         # Format results by category
         if artifact_type == "all":
@@ -990,9 +965,7 @@ class ArtifactTools:
         else:
             result += f"\n📊 Total artifacts found: {total_artifacts}"
 
-        return {
-            "content": [{"type": "text", "text": result}]
-        }
+        return {"content": [{"type": "text", "text": result}]}
 
     async def _get_artifact(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get a specific artifact from a Marianne job."""
@@ -1038,14 +1011,14 @@ class ArtifactTools:
 
         # Read content based on file type
         try:
-            if target_artifact.suffix.lower() in ['.json', '.yaml', '.yml', '.txt', '.md', '.log']:
+            if target_artifact.suffix.lower() in [".json", ".yaml", ".yml", ".txt", ".md", ".log"]:
                 # Text files
-                with open(target_artifact, encoding='utf-8') as f:
+                with open(target_artifact, encoding="utf-8") as f:
                     content = f.read()
                 result += f"Content:\n{'-' * 40}\n{content}"
             else:
                 # Binary files - show hex dump
-                with open(target_artifact, 'rb') as f:
+                with open(target_artifact, "rb") as f:
                     raw_data = f.read()
                     if len(raw_data) <= 1000:  # Small binary files
                         result += f"Binary Content (hex):\n{'-' * 40}\n{raw_data.hex()}"
@@ -1056,9 +1029,7 @@ class ArtifactTools:
         except (OSError, UnicodeDecodeError) as e:
             result += f"Error reading artifact content: {e}"
 
-        return {
-            "content": [{"type": "text", "text": result}]
-        }
+        return {"content": [{"type": "text", "text": result}]}
 
     @staticmethod
     def _categorize_artifact(item: Path) -> str:
@@ -1101,11 +1072,11 @@ class ArtifactTools:
         if size_bytes < 1024:
             return f"{size_bytes}B"
         elif size_bytes < 1024 * 1024:
-            return f"{size_bytes/1024:.1f}KB"
+            return f"{size_bytes / 1024:.1f}KB"
         elif size_bytes < 1024 * 1024 * 1024:
-            return f"{size_bytes/(1024*1024):.1f}MB"
+            return f"{size_bytes / (1024 * 1024):.1f}MB"
         else:
-            return f"{size_bytes/(1024*1024*1024):.1f}GB"
+            return f"{size_bytes / (1024 * 1024 * 1024):.1f}GB"
 
     async def shutdown(self) -> None:
         """Cleanup artifact tools."""
@@ -1189,9 +1160,7 @@ class ScoreTools:
         result_text += "• Documentation (20%): APIs documented, complex logic explained\n\n"
         result_text += "To enable scoring, configure AI backend in Mzt config."
 
-        return {
-            "content": [{"type": "text", "text": result_text}]
-        }
+        return {"content": [{"type": "text", "text": result_text}]}
 
     async def _generate_score(self, args: dict[str, Any]) -> dict[str, Any]:
         """Generate quality score for code changes."""
@@ -1236,23 +1205,21 @@ class ScoreTools:
         result_text += '    "test_coverage": 20,\n'
         result_text += '    "security": 23,\n'
         result_text += '    "documentation": 16\n'
-        result_text += '  },\n'
+        result_text += "  },\n"
         result_text += '  "issues": [\n'
-        result_text += '    {\n'
+        result_text += "    {\n"
         result_text += '      "severity": "medium",\n'
         result_text += '      "category": "documentation",\n'
         result_text += '      "description": "Complex logic lacks comments",\n'
         result_text += '      "suggestion": "Add docstring explaining algorithm"\n'
-        result_text += '    }\n'
-        result_text += '  ],\n'
+        result_text += "    }\n"
+        result_text += "  ],\n"
         result_text += '  "summary": "High quality code with minor documentation gaps"\n'
         result_text += "}\n"
         result_text += "```\n\n"
         result_text += "To enable scoring, configure AI backend in Mzt config."
 
-        return {
-            "content": [{"type": "text", "text": result_text}]
-        }
+        return {"content": [{"type": "text", "text": result_text}]}
 
     async def shutdown(self) -> None:
         """Cleanup score tools."""

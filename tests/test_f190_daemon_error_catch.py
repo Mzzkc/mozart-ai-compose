@@ -12,6 +12,7 @@ TDD: Tests define the contract. Implementation fulfills it.
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -103,28 +104,32 @@ class TestHistoryDaemonErrorCatch:
 
 
 class TestRecoverDaemonErrorCatch:
-    """recover command catches DaemonError and shows user-friendly message."""
+    """recover command produces clean error output for missing jobs.
 
-    def test_method_not_found_on_recover(self) -> None:
-        """MethodNotFoundError from try_daemon_route produces clean error."""
-        with patch(
-            "marianne.daemon.detect.try_daemon_route",
-            new_callable=AsyncMock,
-            side_effect=MethodNotFoundError(
-                "Method 'job.recover' not found"
-            ),
-        ):
-            result = runner.invoke(app, ["recover", "test-job"])
+    Note: recover now reads the conductor's SQLite DB directly (GH#170),
+    so try_daemon_route is no longer in the code path. These tests verify
+    the DB-path error handling instead.
+    """
+
+    def test_missing_job_produces_clean_error(self) -> None:
+        """Non-existent job in DB produces clean error (no traceback)."""
+        result = runner.invoke(app, ["recover", "test-job"])
         assert result.exit_code != 0
         assert "Traceback" not in result.output
-        assert "restart" in result.output.lower() or "Restart" in result.output
+        # New behavior: either "not found" (job missing from DB)
+        # or "DB not found" (no DB at all)
+        output_lower = result.output.lower()
+        assert "not found" in output_lower or "db not found" in output_lower
 
-    def test_generic_daemon_error_on_recover(self) -> None:
-        """Generic DaemonError produces clean error output."""
-        with patch(
-            "marianne.daemon.detect.try_daemon_route",
-            new_callable=AsyncMock,
-            side_effect=DaemonError("Conductor busy"),
+    def test_missing_db_produces_clean_error(self) -> None:
+        """Missing DB file produces clean error with hint."""
+        import sys
+
+        import marianne.cli.commands.recover
+        recover_mod = sys.modules["marianne.cli.commands.recover"]
+        with patch.object(
+            recover_mod, "_get_db_path",
+            return_value=Path("/nonexistent/daemon-state.db"),
         ):
             result = runner.invoke(app, ["recover", "test-job"])
         assert result.exit_code != 0

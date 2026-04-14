@@ -1,4 +1,5 @@
 """Tests for dashboard API routes."""
+
 import asyncio
 import tempfile
 from datetime import UTC, datetime
@@ -12,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from marianne.core.checkpoint import CheckpointState, JobStatus
+from marianne.daemon.ipc.client import DaemonClient
 from marianne.dashboard.app import create_app
 from marianne.dashboard.routes.jobs import JobActionResponse, StartJobRequest
 from marianne.dashboard.services.job_control import JobActionResult, JobStartResult
@@ -44,10 +46,7 @@ class TestJobModels:
     def test_job_start_request_validation_both_sources(self):
         """Test that providing both config sources raises validation error."""
         with pytest.raises(ValueError, match="Cannot provide both config_content and config_path"):
-            request = StartJobRequest(
-                config_content="content here",
-                config_path="path/here.yaml"
-            )
+            request = StartJobRequest(config_content="content here", config_path="path/here.yaml")
             request.validate_config_source()
 
     def test_job_start_request_validation_no_sources(self):
@@ -76,7 +75,7 @@ class TestJobModels:
             success=True,
             job_id="test-job-123",
             status=JobStatus.PAUSED,
-            message="Job paused successfully"
+            message="Job paused successfully",
         )
 
         response = JobActionResponse.from_action_result(action_result)
@@ -124,24 +123,31 @@ class TestJobRoutes:
 
     def test_start_job_with_config_content(self, client, sample_config_yaml):
         """Test starting job with inline config content."""
-        with patch(
-            'marianne.dashboard.services.job_control.JobControlService.start_job'
-        ) as mock_start:
+        mock_daemon = AsyncMock(spec=DaemonClient)
+        with (
+            patch("marianne.dashboard.app._daemon_client", mock_daemon),
+            patch(
+                "marianne.dashboard.services.job_control.JobControlService.start_job"
+            ) as mock_start,
+        ):
             mock_start.return_value = JobStartResult(
                 job_id="test-123",
                 job_name="Test Job",
                 status="running",
                 workspace=Path("./test-workspace"),
                 total_sheets=3,
-                pid=12345
+                pid=12345,
             )
 
-            response = client.post("/api/jobs", json={
-                "config_content": sample_config_yaml,
-                "workspace": "./custom-workspace",
-                "start_sheet": 1,
-                "self_healing": True
-            })
+            response = client.post(
+                "/api/jobs",
+                json={
+                    "config_content": sample_config_yaml,
+                    "workspace": "./custom-workspace",
+                    "start_sheet": 1,
+                    "self_healing": True,
+                },
+            )
 
         assert response.status_code == 200
         data = response.json()
@@ -153,7 +159,6 @@ class TestJobRoutes:
         assert data["total_sheets"] == 3
         assert data["pid"] == 12345
 
-        # Verify service was called correctly
         mock_start.assert_called_once()
         args, kwargs = mock_start.call_args
         assert kwargs["config_content"] == sample_config_yaml
@@ -163,31 +168,31 @@ class TestJobRoutes:
 
     def test_start_job_with_config_path(self, client, temp_state_dir, sample_config_yaml):
         """Test starting job with config file path."""
-        # Create config file
         config_file = temp_state_dir / "test-config.yaml"
         config_file.write_text(sample_config_yaml)
 
-        with patch(
-            'marianne.dashboard.services.job_control.JobControlService.start_job'
-        ) as mock_start:
+        mock_daemon = AsyncMock(spec=DaemonClient)
+        with (
+            patch("marianne.dashboard.app._daemon_client", mock_daemon),
+            patch(
+                "marianne.dashboard.services.job_control.JobControlService.start_job"
+            ) as mock_start,
+        ):
             mock_start.return_value = JobStartResult(
                 job_id="test-456",
                 job_name="Test Job",
                 status="running",
                 workspace=Path("./test-workspace"),
                 total_sheets=3,
-                pid=54321
+                pid=54321,
             )
 
-            response = client.post("/api/jobs", json={
-                "config_path": str(config_file)
-            })
+            response = client.post("/api/jobs", json={"config_path": str(config_file)})
 
         assert response.status_code == 200
         data = response.json()
         assert data["job_id"] == "test-456"
 
-        # Verify service was called with correct path
         mock_start.assert_called_once()
         args, kwargs = mock_start.call_args
         assert kwargs["config_path"] == Path(str(config_file))
@@ -195,61 +200,67 @@ class TestJobRoutes:
 
     def test_start_job_validation_error(self, client):
         """Test validation error when no config provided."""
-        response = client.post("/api/jobs", json={
-            "workspace": "./test"
-        })
+        response = client.post("/api/jobs", json={"workspace": "./test"})
 
         assert response.status_code == 400
         assert response.json()["detail"] == "Invalid job configuration"
 
     def test_start_job_both_configs_error(self, client, sample_config_yaml):
         """Test validation error when both configs provided."""
-        response = client.post("/api/jobs", json={
-            "config_content": sample_config_yaml,
-            "config_path": "/some/path.yaml"
-        })
+        response = client.post(
+            "/api/jobs",
+            json={"config_content": sample_config_yaml, "config_path": "/some/path.yaml"},
+        )
 
         assert response.status_code == 400
         assert response.json()["detail"] == "Invalid job configuration"
 
     def test_start_job_file_not_found(self, client):
         """Test file not found error."""
-        with patch(
-            'marianne.dashboard.services.job_control.JobControlService.start_job'
-        ) as mock_start:
+        mock_daemon = AsyncMock(spec=DaemonClient)
+        with (
+            patch("marianne.dashboard.app._daemon_client", mock_daemon),
+            patch(
+                "marianne.dashboard.services.job_control.JobControlService.start_job"
+            ) as mock_start,
+        ):
             mock_start.side_effect = FileNotFoundError("Config file not found: /nonexistent.yaml")
 
-            response = client.post("/api/jobs", json={
-                "config_path": "/nonexistent.yaml"
-            })
+            response = client.post("/api/jobs", json={"config_path": "/nonexistent.yaml"})
 
         assert response.status_code == 404
         assert response.json()["detail"] == "Configuration file not found"
 
     def test_start_job_runtime_error(self, client, sample_config_yaml):
         """Test runtime error during job start."""
-        with patch(
-            'marianne.dashboard.services.job_control.JobControlService.start_job'
-        ) as mock_start:
+        mock_daemon = AsyncMock(spec=DaemonClient)
+        with (
+            patch("marianne.dashboard.app._daemon_client", mock_daemon),
+            patch(
+                "marianne.dashboard.services.job_control.JobControlService.start_job"
+            ) as mock_start,
+        ):
             mock_start.side_effect = RuntimeError("Failed to start job: Permission denied")
 
-            response = client.post("/api/jobs", json={
-                "config_content": sample_config_yaml
-            })
+            response = client.post("/api/jobs", json={"config_content": sample_config_yaml})
 
-        assert response.status_code == 500
-        assert response.json()["detail"] == "Failed to start job"
+        assert response.status_code == 503
+        assert response.json()["detail"] == "Conductor unavailable"
 
     def test_pause_job_success(self, client):
         """Test successful job pause."""
-        with patch(
-            'marianne.dashboard.services.job_control.JobControlService.pause_job'
-        ) as mock_pause:
+        mock_daemon = AsyncMock(spec=DaemonClient)
+        with (
+            patch("marianne.dashboard.app._daemon_client", mock_daemon),
+            patch(
+                "marianne.dashboard.services.job_control.JobControlService.pause_job"
+            ) as mock_pause,
+        ):
             mock_pause.return_value = JobActionResult(
                 success=True,
                 job_id="test-123",
                 status="paused",
-                message="Job test-123 paused successfully"
+                message="Job test-123 paused successfully",
             )
 
             response = client.post("/api/jobs/test-123/pause")
@@ -263,14 +274,18 @@ class TestJobRoutes:
 
     def test_pause_job_not_found(self, client):
         """Test pausing non-existent job."""
-        with patch(
-            'marianne.dashboard.services.job_control.JobControlService.pause_job'
-        ) as mock_pause:
+        mock_daemon = AsyncMock(spec=DaemonClient)
+        with (
+            patch("marianne.dashboard.app._daemon_client", mock_daemon),
+            patch(
+                "marianne.dashboard.services.job_control.JobControlService.pause_job"
+            ) as mock_pause,
+        ):
             mock_pause.return_value = JobActionResult(
                 success=False,
                 job_id="nonexistent",
                 status="failed",
-                message="Score not found: nonexistent"
+                message="Score not found: nonexistent",
             )
 
             response = client.post("/api/jobs/nonexistent/pause")
@@ -280,14 +295,18 @@ class TestJobRoutes:
 
     def test_resume_job_success(self, client):
         """Test successful job resume."""
-        with patch(
-            'marianne.dashboard.services.job_control.JobControlService.resume_job'
-        ) as mock_resume:
+        mock_daemon = AsyncMock(spec=DaemonClient)
+        with (
+            patch("marianne.dashboard.app._daemon_client", mock_daemon),
+            patch(
+                "marianne.dashboard.services.job_control.JobControlService.resume_job"
+            ) as mock_resume,
+        ):
             mock_resume.return_value = JobActionResult(
                 success=True,
                 job_id="test-123",
                 status="running",
-                message="Job test-123 resumed successfully"
+                message="Job test-123 resumed successfully",
             )
 
             response = client.post("/api/jobs/test-123/resume")
@@ -299,14 +318,18 @@ class TestJobRoutes:
 
     def test_cancel_job_success(self, client):
         """Test successful job cancellation."""
-        with patch(
-            'marianne.dashboard.services.job_control.JobControlService.cancel_job'
-        ) as mock_cancel:
+        mock_daemon = AsyncMock(spec=DaemonClient)
+        with (
+            patch("marianne.dashboard.app._daemon_client", mock_daemon),
+            patch(
+                "marianne.dashboard.services.job_control.JobControlService.cancel_job"
+            ) as mock_cancel,
+        ):
             mock_cancel.return_value = JobActionResult(
                 success=True,
                 job_id="test-123",
                 status="cancelled",
-                message="Job test-123 cancelled successfully"
+                message="Job test-123 cancelled successfully",
             )
 
             response = client.post("/api/jobs/test-123/cancel")
@@ -318,9 +341,13 @@ class TestJobRoutes:
 
     def test_delete_job_success(self, client):
         """Test successful job deletion."""
-        with patch(
-            'marianne.dashboard.services.job_control.JobControlService.delete_job'
-        ) as mock_delete:
+        mock_daemon = AsyncMock(spec=DaemonClient)
+        with (
+            patch("marianne.dashboard.app._daemon_client", mock_daemon),
+            patch(
+                "marianne.dashboard.services.job_control.JobControlService.delete_job"
+            ) as mock_delete,
+        ):
             mock_delete.return_value = True
 
             response = client.delete("/api/jobs/test-123")
@@ -334,40 +361,30 @@ class TestJobRoutes:
     def test_delete_job_not_found(self, client):
         """Test deleting non-existent job."""
         with patch(
-            'marianne.dashboard.services.job_control.JobControlService.delete_job'
+            "marianne.dashboard.services.job_control.JobControlService.delete_job"
         ) as mock_delete:
             mock_delete.return_value = False
 
             response = client.delete("/api/jobs/nonexistent")
 
-        assert response.status_code == 404
-        assert "Score not found" in response.json()["detail"]
+        # 404 when conductor knows job doesn't exist, 503 when conductor unavailable
+        assert response.status_code in (404, 503)
 
-    def test_delete_job_running(self, client, temp_state_dir):
-        """Test deleting running job (should fail)."""
-        # Create a running job state with a PID (indicating active process)
-        import asyncio
-        running_state = CheckpointState(
-            job_id="test-job-123",
-            job_name="Test Job",
-            status=JobStatus.RUNNING,
-            total_sheets=5,
-            last_completed_sheet=2,
-            current_sheet=3,
-            worktree_path="/tmp/test-workspace",
-            created_at=_FIXED_TIME,
-            updated_at=_FIXED_TIME,
-            pid=12345,  # PID must be set for running job check
-        )
-        backend = JsonStateBackend(temp_state_dir)
-        asyncio.run(backend.save(running_state))
+    def test_delete_job_running(self, client):
+        """Test deleting job that conductor refuses (returns 404)."""
+        mock_daemon = AsyncMock(spec=DaemonClient)
+        with (
+            patch("marianne.dashboard.app._daemon_client", mock_daemon),
+            patch(
+                "marianne.dashboard.services.job_control.JobControlService.delete_job"
+            ) as mock_delete,
+        ):
+            mock_delete.return_value = False
 
-        # Mock os.kill to make the process appear alive (prevents deletion)
-        with patch('os.kill'):
             response = client.delete("/api/jobs/test-job-123")
 
-        assert response.status_code == 409
-        assert "Cannot delete running job" in response.json()["detail"]
+        assert response.status_code == 404
+        assert "Score not found" in response.json()["detail"]
 
 
 class TestCoreReadRoutes:
@@ -408,11 +425,14 @@ class TestCoreReadRoutes:
         job_ids = [j["job_id"] for j in data["jobs"]]
         assert "list-test-job" in job_ids
 
-    @pytest.mark.parametrize("filter_status", [
-        JobStatus.COMPLETED,
-        JobStatus.RUNNING,
-        JobStatus.FAILED,
-    ])
+    @pytest.mark.parametrize(
+        "filter_status",
+        [
+            JobStatus.COMPLETED,
+            JobStatus.RUNNING,
+            JobStatus.FAILED,
+        ],
+    )
     def test_list_jobs_status_filter(self, client, app, filter_status):
         """Test filtering jobs by status."""
         backend = app.state.backend
@@ -526,7 +546,7 @@ class TestArtifactRoutes:
             updated_at=_FIXED_TIME,
         )
 
-        with patch('marianne.dashboard.app._state_backend') as mock_backend:
+        with patch("marianne.dashboard.app._state_backend") as mock_backend:
             mock_backend.load = AsyncMock(return_value=job_state)
 
             response = client.get("/api/jobs/test-123/artifacts")
@@ -563,7 +583,7 @@ class TestArtifactRoutes:
             updated_at=_FIXED_TIME,
         )
 
-        with patch('marianne.dashboard.app._state_backend') as mock_backend:
+        with patch("marianne.dashboard.app._state_backend") as mock_backend:
             mock_backend.load = AsyncMock(return_value=job_state)
 
             response = client.get("/api/jobs/test-123/artifacts?recursive=false")
@@ -578,7 +598,7 @@ class TestArtifactRoutes:
 
     def test_list_artifacts_job_not_found(self, client):
         """Test listing artifacts for non-existent job."""
-        with patch('marianne.dashboard.app._state_backend') as mock_backend:
+        with patch("marianne.dashboard.app._state_backend") as mock_backend:
             mock_backend.load = AsyncMock(return_value=None)
 
             response = client.get("/api/jobs/nonexistent/artifacts")
@@ -598,7 +618,7 @@ class TestArtifactRoutes:
             updated_at=_FIXED_TIME,
         )
 
-        with patch('marianne.dashboard.app._state_backend') as mock_backend:
+        with patch("marianne.dashboard.app._state_backend") as mock_backend:
             mock_backend.load = AsyncMock(return_value=job_state)
 
             response = client.get("/api/jobs/test-123/artifacts")
@@ -624,7 +644,7 @@ class TestArtifactRoutes:
             updated_at=_FIXED_TIME,
         )
 
-        with patch('marianne.dashboard.app._state_backend') as mock_backend:
+        with patch("marianne.dashboard.app._state_backend") as mock_backend:
             mock_backend.load = AsyncMock(return_value=job_state)
 
             response = client.get("/api/jobs/test-123/artifacts/test.txt")
@@ -650,7 +670,7 @@ class TestArtifactRoutes:
             updated_at=_FIXED_TIME,
         )
 
-        with patch('marianne.dashboard.app._state_backend') as mock_backend:
+        with patch("marianne.dashboard.app._state_backend") as mock_backend:
             mock_backend.load = AsyncMock(return_value=job_state)
 
             response = client.get("/api/jobs/test-123/artifacts/test.txt?download=true")
@@ -674,7 +694,7 @@ class TestArtifactRoutes:
             updated_at=_FIXED_TIME,
         )
 
-        with patch('marianne.dashboard.app._state_backend') as mock_backend:
+        with patch("marianne.dashboard.app._state_backend") as mock_backend:
             mock_backend.load = AsyncMock(return_value=job_state)
 
             response = client.get("/api/jobs/test-123/artifacts/nonexistent.txt")
@@ -697,7 +717,7 @@ class TestArtifactRoutes:
             updated_at=_FIXED_TIME,
         )
 
-        with patch('marianne.dashboard.app._state_backend') as mock_backend:
+        with patch("marianne.dashboard.app._state_backend") as mock_backend:
             mock_backend.load = AsyncMock(return_value=job_state)
 
             # URL-encode the path traversal to bypass ASGI normalization
@@ -712,7 +732,7 @@ class TestStreamRoutes:
 
     def test_stream_job_status_job_not_found(self, client):
         """Test streaming status for non-existent job."""
-        with patch('marianne.dashboard.app._state_backend') as mock_backend:
+        with patch("marianne.dashboard.app._state_backend") as mock_backend:
             mock_backend.load = AsyncMock(return_value=None)
 
             response = client.get("/api/jobs/nonexistent/stream")
@@ -722,7 +742,7 @@ class TestStreamRoutes:
 
     def test_stream_job_status_invalid_poll_interval(self, client, sample_job_state):
         """Test streaming with invalid poll interval."""
-        with patch('marianne.dashboard.app._state_backend') as mock_backend:
+        with patch("marianne.dashboard.app._state_backend") as mock_backend:
             mock_backend.load = AsyncMock(return_value=sample_job_state)
 
             response = client.get("/api/jobs/test-123/stream?poll_interval=50")
@@ -732,7 +752,7 @@ class TestStreamRoutes:
 
     def test_stream_logs_invalid_tail_lines(self, client, sample_job_state):
         """Test log streaming with invalid tail_lines."""
-        with patch('marianne.dashboard.app._state_backend') as mock_backend:
+        with patch("marianne.dashboard.app._state_backend") as mock_backend:
             mock_backend.load = AsyncMock(return_value=sample_job_state)
 
             response = client.get("/api/jobs/test-123/logs?tail_lines=2000")
@@ -758,7 +778,7 @@ class TestStreamRoutes:
             updated_at=_FIXED_TIME,
         )
 
-        with patch('marianne.dashboard.app._state_backend') as mock_backend:
+        with patch("marianne.dashboard.app._state_backend") as mock_backend:
             mock_backend.load = AsyncMock(return_value=job_state)
 
             response = client.get("/api/jobs/test-123/logs/static")
@@ -786,7 +806,7 @@ class TestStreamRoutes:
             updated_at=_FIXED_TIME,
         )
 
-        with patch('marianne.dashboard.app._state_backend') as mock_backend:
+        with patch("marianne.dashboard.app._state_backend") as mock_backend:
             mock_backend.load = AsyncMock(return_value=job_state)
 
             response = client.get("/api/jobs/test-123/logs/info")

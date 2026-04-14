@@ -603,15 +603,21 @@ class TestDiagnoseWorkspaceFallback:
         assert "DaemonError" in source
         assert "restart" in source.lower()
 
-    def test_recover_daemon_error_exits_with_hint(self) -> None:
-        """recover.py also catches DaemonError with restart hint."""
+    def test_recover_handles_missing_db_cleanly(self) -> None:
+        """recover.py handles missing DB with clean error (GH#170).
+
+        Recover now reads the conductor DB directly instead of routing
+        through the conductor, so DaemonError handling is no longer needed.
+        Instead, verify it handles a missing DB file gracefully.
+        """
         import importlib
         import inspect
 
         rec_module = importlib.import_module("marianne.cli.commands.recover")
         source = inspect.getsource(rec_module)
-        assert "DaemonError" in source
-        assert "restart" in source.lower()
+        # The new recover code checks for DB existence and shows clear errors
+        assert "db_path" in source
+        assert "not found" in source.lower() or "not_found" in source.lower()
 
 
 # =============================================================================
@@ -641,27 +647,32 @@ class TestDaemonErrorCatchCompleteness:
             f"Expected >=2 DaemonError catches in diagnose.py, found {len(catches)}"
         )
 
-    def test_recover_command_catches_daemon_error(self) -> None:
-        """recover.py module has DaemonError catch."""
+    def test_recover_command_handles_db_errors(self) -> None:
+        """recover.py handles DB-not-found errors cleanly (GH#170).
+
+        Recover now reads the conductor DB directly instead of routing
+        through the conductor. DaemonError catches are no longer needed.
+        """
         import importlib
         import inspect
-        import re
 
         rec_module = importlib.import_module("marianne.cli.commands.recover")
         source = inspect.getsource(rec_module)
-        catches = re.findall(r"except\s+DaemonError", source)
-        assert len(catches) >= 1, (
-            f"Expected >=1 DaemonError catches in recover.py, found {len(catches)}"
+        # The new recover code handles missing DB and missing jobs
+        assert "output_error" in source, (
+            "recover.py must use output_error for clean error messages"
         )
 
     def test_daemon_error_hints_mention_restart(self) -> None:
-        """All DaemonError catch blocks include 'restart' in hints."""
+        """DaemonError catch blocks in diagnose include 'restart' in hints.
+
+        Note: recover.py no longer uses DaemonError (GH#170).
+        """
         import importlib
         import inspect
 
         for mod_name in [
             "marianne.cli.commands.diagnose",
-            "marianne.cli.commands.recover",
         ]:
             module = importlib.import_module(mod_name)
             source = inspect.getsource(module)

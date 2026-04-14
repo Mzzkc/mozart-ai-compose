@@ -452,21 +452,25 @@ class TestF122IpcCloneBypass:
             )
 
     @pytest.mark.adversarial
-    def test_dashboard_job_control_uses_resolve_socket_path(self):
-        """dashboard/services/job_control.py must use _resolve_socket_path."""
-        import inspect
-        from marianne.dashboard.services import job_control
+    def test_dashboard_uses_resolve_socket_path(self):
+        """Dashboard must use _resolve_socket_path for clone-aware sockets.
 
-        source = inspect.getsource(job_control)
-        if "DaemonClient" in source:
-            assert "_resolve_socket_path" in source, (
-                "F-122 regression: job_control must use "
-                "_resolve_socket_path for clone-aware socket resolution"
-            )
-            assert "DaemonConfig().socket" not in source, (
-                "F-122 regression: job_control must not "
-                "hardcode DaemonConfig().socket.path"
-            )
+        After the DaemonClient refactor, socket resolution moved from
+        job_control.py to app.py — the client is created once in
+        _create_daemon_client() and injected into services.
+        """
+        import inspect
+        from marianne.dashboard import app as dashboard_app
+
+        source = inspect.getsource(dashboard_app)
+        assert "_resolve_socket_path" in source, (
+            "F-122 regression: dashboard app must use "
+            "_resolve_socket_path for clone-aware socket resolution"
+        )
+        assert "DaemonConfig().socket" not in source, (
+            "F-122 regression: dashboard must not "
+            "hardcode DaemonConfig().socket.path"
+        )
 
 
 # =============================================================================

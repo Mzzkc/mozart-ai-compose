@@ -9,12 +9,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
-import secrets
 from dataclasses import dataclass, field
 from enum import Enum
 
-from fastapi import HTTPException, Request, status
-from fastapi.security import APIKeyHeader
+from fastapi import Request, status
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
@@ -108,15 +106,6 @@ def verify_api_key(key: str, hashed_keys: list[str]) -> bool:
     return any(hmac.compare_digest(key_hash, stored_hash) for stored_hash in hashed_keys)
 
 
-def generate_api_key() -> str:
-    """Generate a secure random API key.
-
-    Returns:
-        32-character URL-safe token
-    """
-    return secrets.token_urlsafe(32)
-
-
 def is_localhost(request: Request) -> bool:
     """Check if request is from localhost.
 
@@ -161,9 +150,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.config = config or AuthConfig.from_env()
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Process authentication for each request.
 
         Args:
@@ -234,60 +221,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
         return False
 
 
-# FastAPI dependency for API key auth (alternative to middleware)
-api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
-
-
-async def require_api_key(
-    request: Request,
-    api_key: str | None = None,
-) -> str:
-    """FastAPI dependency to require API key.
-
-    Use this as a dependency on specific routes instead of global middleware.
-
-    Args:
-        request: FastAPI request
-        api_key: API key from header (auto-populated)
-
-    Returns:
-        Validated API key
-
-    Raises:
-        HTTPException: If authentication fails
-    """
-    config = AuthConfig.from_env()
-
-    # Check localhost bypass
-    if config.localhost_bypass and is_localhost(request):
-        return "localhost"
-
-    if not api_key:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="API key required",
-            headers={"WWW-Authenticate": "ApiKey"},
-        )
-
-    # Keys are already hashed at load time (from_env)
-    if not verify_api_key(api_key, config.api_keys):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API key",
-        )
-
-    return api_key
-
-
 # Public API
 __all__ = [
     "AuthConfig",
     "AuthMiddleware",
     "AuthMode",
-    "api_key_header",
-    "generate_api_key",
     "hash_api_key",
     "is_localhost",
-    "require_api_key",
     "verify_api_key",
 ]

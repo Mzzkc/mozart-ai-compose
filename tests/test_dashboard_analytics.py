@@ -1,4 +1,5 @@
 """Tests for DaemonAnalytics and analytics API routes."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -270,7 +271,9 @@ class TestValidationStats:
             {"rule_type": "content_match", "passed": True},
         ]
         job = _make_completed_job(
-            "job-val", total_cost=1.0, validation_details=details,
+            "job-val",
+            total_cost=1.0,
+            validation_details=details,
         )
         backend = MockStateBackend([job])
         analytics = DaemonAnalytics(backend, cache_ttl=0.0)
@@ -322,7 +325,9 @@ class TestDurationStats:
     @pytest.mark.asyncio
     async def test_avg_duration(self) -> None:
         job = _make_completed_job(
-            "job-dur", total_cost=1.0, sheet_durations=[100.0, 200.0, 300.0],
+            "job-dur",
+            total_cost=1.0,
+            sheet_durations=[100.0, 200.0, 300.0],
         )
         backend = MockStateBackend([job])
         analytics = DaemonAnalytics(backend, cache_ttl=0.0)
@@ -334,7 +339,9 @@ class TestDurationStats:
     @pytest.mark.asyncio
     async def test_slowest_sheets(self) -> None:
         job = _make_completed_job(
-            "job-slow", total_cost=1.0, sheet_durations=[10.0, 500.0, 30.0],
+            "job-slow",
+            total_cost=1.0,
+            sheet_durations=[10.0, 500.0, 30.0],
         )
         backend = MockStateBackend([job])
         analytics = DaemonAnalytics(backend, cache_ttl=0.0)
@@ -430,3 +437,12 @@ class TestAnalyticsRoutes:
         data = resp.json()
         assert "by_category" in data
         assert "total_errors" in data
+
+    def test_durations_endpoint(self, app_with_analytics: TestClient) -> None:
+        resp = app_with_analytics.get("/api/analytics/durations")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "avg_sheet_duration_seconds" in data
+        assert "job_durations" in data
+        assert "slowest_sheets" in data
+        assert "total_sheets_with_duration" in data

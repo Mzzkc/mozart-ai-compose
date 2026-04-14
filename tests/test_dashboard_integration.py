@@ -1,9 +1,10 @@
 """Integration tests for Marianne Dashboard.
 
 Tests full workflows combining multiple services and components.
+All lifecycle tests route through a mocked conductor (DaemonClient).
 """
+
 import json
-import signal
 import tempfile
 import time
 from datetime import datetime
@@ -14,6 +15,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from marianne.core.checkpoint import CheckpointState, JobStatus
+from marianne.daemon.ipc.client import DaemonClient
+from marianne.daemon.types import JobResponse
 from marianne.dashboard.app import create_app
 from marianne.dashboard.services.job_control import JobControlService
 from marianne.dashboard.services.sse_manager import SSEEvent, SSEManager
@@ -38,6 +41,21 @@ def temp_workspace():
 def backend(temp_state_dir):
     """Create test state backend."""
     return JsonStateBackend(temp_state_dir)
+
+
+@pytest.fixture
+def mock_daemon_client():
+    """Create a mock DaemonClient for conductor-only tests."""
+    client = AsyncMock(spec=DaemonClient)
+    client.submit_job = AsyncMock(
+        return_value=JobResponse(job_id="test-job-001", status="accepted"),
+    )
+    client.pause_job = AsyncMock(return_value=None)
+    client.resume_job = AsyncMock(return_value=None)
+    client.cancel_job = AsyncMock(return_value=None)
+    client.clear_jobs = AsyncMock(return_value={"deleted": 1})
+    client.get_job_status = AsyncMock(return_value=None)
+    return client
 
 
 @pytest.fixture
@@ -80,9 +98,9 @@ prompt:
 
 
 @pytest.fixture
-async def job_control_service(backend, temp_workspace):
-    """Create job control service."""
-    return JobControlService(backend, temp_workspace)
+def job_control_service(mock_daemon_client):
+    """Create job control service with mock DaemonClient."""
+    return JobControlService(mock_daemon_client)
 
 
 @pytest.fixture
@@ -92,55 +110,66 @@ def sse_manager():
 
 
 class TestJobLifecycleIntegration:
-    """Test complete job lifecycle through API."""
+    """Test complete job lifecycle through API — all via conductor IPC."""
 
-    @patch('marianne.dashboard.services.job_control.asyncio.create_subprocess_exec')
-    async def test_start_pause_resume_cancel_flow(
+    async def test_lifecycle_requires_conductor(
         self,
-        mock_subprocess,
         client,
         sample_config_content,
         temp_workspace,
     ):
-        """Test complete job lifecycle: start → pause → resume → cancel.
-
-        Uses file-based pause mechanism (signal files) instead of SIGSTOP/SIGCONT.
-        """
-        # Mock subprocess for job execution
-        mock_process = AsyncMock()
-        mock_process.pid = 12345
-        mock_process.returncode = None  # Still running
-        mock_process.wait = AsyncMock(return_value=0)
-        mock_process.terminate = AsyncMock()
-        mock_process.kill = AsyncMock()
-        mock_subprocess.return_value = mock_process
-
-        # Write the config content to a real temp file
+        """All lifecycle operations require a running conductor."""
         import tempfile as real_tempfile
-        with real_tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+
+        with real_tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(sample_config_content)
             temp_config_path = f.name
 
-        # Track state for mock os.kill behavior
-        kill_call_count = 0
-        process_is_dead = False
+        try:
+            job_workspace = temp_workspace / "test-job"
+            job_workspace.mkdir(exist_ok=True)
 
-        def mock_kill_handler(pid, sig):
-            """Mock os.kill to make mock process appear alive."""
-            nonlocal kill_call_count, process_is_dead
-            if sig == 0:  # Process existence check
-                kill_call_count += 1
-                if process_is_dead:
-                    raise ProcessLookupError()  # Process is dead
-                return  # Process exists
-            elif sig == signal.SIGTERM:  # Terminate signal
-                return  # Success (process will be marked dead after this)
-            # For other signals, just succeed
+            start_response = client.post(
+                "/api/jobs",
+                json={
+                    "config_path": temp_config_path,
+                    "workspace": str(job_workspace),
+                },
+            )
+            assert start_response.status_code == 503
 
-        # Patch os.kill throughout the entire test
-        with patch('os.kill', side_effect=mock_kill_handler):
-            try:
-                # 1. Start job using config path
+            pause_response = client.post("/api/jobs/fake-job/pause")
+            assert pause_response.status_code == 503
+
+            resume_response = client.post("/api/jobs/fake-job/resume")
+            assert resume_response.status_code == 503
+
+            cancel_response = client.post("/api/jobs/fake-job/cancel")
+            assert cancel_response.status_code == 503
+
+        finally:
+            import os as os_mod
+
+            if os_mod.path.exists(temp_config_path):
+                os_mod.unlink(temp_config_path)
+
+    async def test_start_pause_resume_cancel_flow(
+        self,
+        client,
+        sample_config_content,
+        temp_workspace,
+        mock_daemon_client,
+    ):
+        """Test complete lifecycle: start → pause → resume → cancel via conductor."""
+        import tempfile as real_tempfile
+
+        with real_tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(sample_config_content)
+            temp_config_path = f.name
+
+        try:
+            with patch("marianne.dashboard.app._daemon_client", mock_daemon_client):
+                # 1. Start job
                 job_workspace = temp_workspace / "test-job"
                 job_workspace.mkdir(exist_ok=True)
                 start_response = client.post(
@@ -148,76 +177,50 @@ class TestJobLifecycleIntegration:
                     json={
                         "config_path": temp_config_path,
                         "workspace": str(job_workspace),
-                    }
+                    },
                 )
 
                 assert start_response.status_code == 200
                 start_data = start_response.json()
                 assert start_data["success"] is True
                 assert "job_id" in start_data
-                assert start_data["status"] == "running"
                 assert start_data["total_sheets"] == 2
 
                 job_id = start_data["job_id"]
+                mock_daemon_client.submit_job.assert_awaited_once()
 
-                # Verify state is saved by start_job
-                from marianne.dashboard.app import get_state_backend
-                backend = get_state_backend()
-                job_state = await backend.load(job_id)
-                assert job_state is not None
-                assert job_state.status == JobStatus.RUNNING
-
-                # 2. Pause job (file-based)
+                # 2. Pause job
                 pause_response = client.post(f"/api/jobs/{job_id}/pause")
-
                 assert pause_response.status_code == 200
                 pause_data = pause_response.json()
                 assert pause_data["success"] is True
                 assert pause_data["job_id"] == job_id
-                # File-based pause keeps status as RUNNING until runner processes signal
-                assert pause_data["status"] == JobStatus.RUNNING.value
-                assert "Pause request sent" in pause_data["message"]
+                assert pause_data["status"] == "paused"
+                mock_daemon_client.pause_job.assert_awaited_once_with(job_id, "")
 
-                # Manually update state to PAUSED to simulate runner processing the signal
-                job_state = await backend.load(job_id)
-                assert job_state is not None
-                job_state.status = JobStatus.PAUSED
-                await backend.save(job_state)
-
-                # 3. Resume job (file-based - cleans up signal files)
+                # 3. Resume job
                 resume_response = client.post(f"/api/jobs/{job_id}/resume")
-
                 assert resume_response.status_code == 200
                 resume_data = resume_response.json()
                 assert resume_data["success"] is True
                 assert resume_data["job_id"] == job_id
+                assert resume_data["status"] == "running"
+                mock_daemon_client.resume_job.assert_awaited_once_with(job_id, "")
 
-                # 4. Cancel job - mark process as dead after SIGTERM
-                # Reset call count for cancel phase
-                kill_call_count = 0
+                # 4. Cancel job
+                cancel_response = client.post(f"/api/jobs/{job_id}/cancel")
+                assert cancel_response.status_code == 200
+                cancel_data = cancel_response.json()
+                assert cancel_data["success"] is True
+                assert cancel_data["job_id"] == job_id
+                assert cancel_data["status"] == "cancelled"
+                mock_daemon_client.cancel_job.assert_awaited_once_with(job_id, "")
 
-                # After SIGTERM, the process should appear dead
-                original_handler = mock_kill_handler
+        finally:
+            import os as os_mod
 
-                def mock_kill_cancel(pid, sig):
-                    nonlocal process_is_dead
-                    if sig == signal.SIGTERM:
-                        process_is_dead = True  # Mark dead after terminate
-                    return original_handler(pid, sig)
-
-                with patch('os.kill', side_effect=mock_kill_cancel):
-                    cancel_response = client.post(f"/api/jobs/{job_id}/cancel")
-
-                    assert cancel_response.status_code == 200
-                    cancel_data = cancel_response.json()
-                    assert cancel_data["success"] is True
-                    assert cancel_data["job_id"] == job_id
-
-            finally:
-                # Clean up temp config file
-                import os as os_mod
-                if os_mod.path.exists(temp_config_path):
-                    os_mod.unlink(temp_config_path)
+            if os_mod.path.exists(temp_config_path):
+                os_mod.unlink(temp_config_path)
 
     @pytest.mark.skip(reason="SSE needs async client")
     async def test_sse_receives_job_updates(self, client, sse_manager, backend):
@@ -247,22 +250,18 @@ class TestJobLifecycleIntegration:
         test_events = [
             SSEEvent(
                 event="sheet_started",
-                data=json.dumps({
-                    "job_id": job_id,
-                    "sheet": 2,
-                    "timestamp": datetime.now().isoformat()
-                }),
-                id="event-1"
+                data=json.dumps(
+                    {"job_id": job_id, "sheet": 2, "timestamp": datetime.now().isoformat()}
+                ),
+                id="event-1",
             ),
             SSEEvent(
                 event="sheet_completed",
-                data=json.dumps({
-                    "job_id": job_id,
-                    "sheet": 2,
-                    "timestamp": datetime.now().isoformat()
-                }),
-                id="event-2"
-            )
+                data=json.dumps(
+                    {"job_id": job_id, "sheet": 2, "timestamp": datetime.now().isoformat()}
+                ),
+                id="event-2",
+            ),
         ]
 
         # Broadcast events
@@ -278,11 +277,7 @@ class TestJobLifecycleIntegration:
         assert job_id in sse_content
 
     async def test_artifact_listing_after_job_run(
-        self,
-        client,
-        temp_workspace,
-        backend,
-        sample_config_content
+        self, client, temp_workspace, backend, sample_config_content
     ):
         """Test artifact listing after a simulated job run."""
         # Create workspace with some test artifacts
@@ -330,117 +325,66 @@ class TestJobLifecycleIntegration:
         assert hello_artifact["type"] == "file"
         assert hello_artifact["size"] > 0
 
-    @pytest.mark.skip(reason="fchmod PermissionError in mock")
-    @patch('marianne.dashboard.services.job_control.asyncio.create_subprocess_exec')
     async def test_concurrent_job_starts(
         self,
-        mock_subprocess,
         client,
         sample_config_content,
-        temp_workspace
+        temp_workspace,
+        mock_daemon_client,
     ):
-        """Test starting multiple jobs concurrently."""
-        # Mock subprocess for all job executions
-        def create_mock_process(pid_base):
-            mock_process = AsyncMock()
-            mock_process.pid = pid_base
-            mock_process.returncode = None
-            mock_process.wait = AsyncMock(return_value=0)
-            mock_process.terminate = AsyncMock()
-            return mock_process
+        """Test starting multiple jobs concurrently via the conductor."""
+        job_ids = ["job-alpha", "job-beta", "job-gamma"]
+        submit_index = 0
 
-        mock_processes = [
-            create_mock_process(10001),
-            create_mock_process(10002),
-            create_mock_process(10003)
-        ]
-        mock_subprocess.side_effect = mock_processes
+        async def _submit_side_effect(request):
+            nonlocal submit_index
+            jid = job_ids[submit_index]
+            submit_index += 1
+            return JobResponse(job_id=jid, status="accepted")
 
-        # Mock tempfile operations for all jobs
-        with patch('tempfile.mkstemp') as mock_mkstemp, \
-             patch('builtins.open'), \
-             patch('os.close'):
+        mock_daemon_client.submit_job.side_effect = _submit_side_effect
 
-            # Return different temp file paths for each job
-            mock_mkstemp.side_effect = [
-                (3, "/tmp/job1.yaml"),
-                (4, "/tmp/job2.yaml"),
-                (5, "/tmp/job3.yaml")
-            ]
-
-            # Start 3 jobs concurrently
-            start_requests = []
+        with patch("marianne.dashboard.app._daemon_client", mock_daemon_client):
+            responses = []
             for i in range(3):
                 workspace_path = temp_workspace / f"concurrent-job-{i}"
-                start_requests.append({
-                    "config_content": sample_config_content,
-                    "workspace": str(workspace_path)
-                })
-
-            # Send requests concurrently
-            responses = []
-            for request in start_requests:
-                response = client.post("/api/jobs", json=request)
+                response = client.post(
+                    "/api/jobs",
+                    json={
+                        "config_content": sample_config_content,
+                        "workspace": str(workspace_path),
+                    },
+                )
                 responses.append(response)
 
-        # Verify all jobs started successfully
-        job_ids = []
-        for _, response in enumerate(responses):
+        result_ids = []
+        for response in responses:
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
-            assert data["status"] == "running"
-            job_ids.append(data["job_id"])
+            result_ids.append(data["job_id"])
 
-        # Verify all job IDs are unique
-        assert len(set(job_ids)) == 3
-
-        # Verify all subprocesses were created
-        assert mock_subprocess.call_count == 3
-
-        # Test that we can manage each job independently
-        for job_id in job_ids:
-            # Each job should be pausable
-            pause_response = client.post(f"/api/jobs/{job_id}/pause")
-            assert pause_response.status_code == 200
+        assert len(set(result_ids)) == 3
+        assert mock_daemon_client.submit_job.await_count == 3
 
 
 class TestCrossServiceIntegration:
     """Test integration between different dashboard services."""
 
     @pytest.mark.skip(reason="SSE manager not wired in mock")
-    async def test_job_control_updates_sse_manager(self, backend, temp_workspace, sse_manager):
+    async def test_job_control_updates_sse_manager(self, mock_daemon_client, sse_manager):
         """Test that job control operations trigger SSE events."""
-        job_service = JobControlService(backend, temp_workspace)
+        job_service = JobControlService(mock_daemon_client)
 
-        # Mock SSE manager methods to track calls
         sse_manager.broadcast_to_job = AsyncMock()
 
-        # Create a job state for testing
         job_id = "cross-service-test"
-        job_state = CheckpointState(
-            job_id=job_id,
-            job_name="Cross Service Test",
-            status=JobStatus.RUNNING,
-            total_sheets=2,
-            last_completed_sheet=0,
-            current_sheet=1,
-            worktree_path=str(temp_workspace / "test"),
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
-        )
 
-        await backend.save(job_state)
+        result = await job_service.pause_job(job_id)
+        assert result.success is True
 
-        # Test pause operation
-        with patch('os.kill'), patch('psutil.pid_exists', return_value=True):
-            result = await job_service.pause_job(job_id)
-            assert result.success is True
-
-        # Test resume operation
-        with patch('os.kill'), patch('psutil.pid_exists', return_value=True):
-            result = await job_service.resume_job(job_id)
-            assert result.success is True
+        result = await job_service.resume_job(job_id)
+        assert result.success is True
 
     async def test_error_handling_across_services(self, client, temp_workspace):
         """Test error handling when services interact."""
@@ -451,26 +395,28 @@ class TestCrossServiceIntegration:
             "/api/jobs",
             json={
                 "config_content": invalid_config,
-                "workspace": str(temp_workspace / "error-test")
-            }
+                "workspace": str(temp_workspace / "error-test"),
+            },
         )
 
-        # Should handle YAML parsing errors gracefully
-        assert response.status_code in [400, 500]
+        # Should handle errors gracefully — 400 (bad input), 500 (server error),
+        # or 503 (conductor not available in conductor-only mode)
+        assert response.status_code in [400, 500, 503]
         data = response.json()
         assert "detail" in data
 
         # Test operations on non-existent job
+        # 404 when conductor knows job doesn't exist, 503 when conductor unavailable
         fake_job_id = "nonexistent-job-123"
 
         pause_response = client.post(f"/api/jobs/{fake_job_id}/pause")
-        assert pause_response.status_code == 404
+        assert pause_response.status_code in (404, 503)
 
         resume_response = client.post(f"/api/jobs/{fake_job_id}/resume")
-        assert resume_response.status_code == 404
+        assert resume_response.status_code in (404, 503)
 
         cancel_response = client.post(f"/api/jobs/{fake_job_id}/cancel")
-        assert cancel_response.status_code == 404
+        assert cancel_response.status_code in (404, 503)
 
         artifacts_response = client.get(f"/api/artifacts/{fake_job_id}")
         assert artifacts_response.status_code == 404
@@ -543,11 +489,7 @@ class TestPerformanceAndReliability:
         _initial_connections = len(sse_manager._connections.get(job_id, {}))
 
         # Broadcast an event to trigger connection health checks
-        test_event = SSEEvent(
-            event="test",
-            data='{"test": "data"}',
-            id="cleanup-test"
-        )
+        test_event = SSEEvent(event="test", data='{"test": "data"}', id="cleanup-test")
 
         await sse_manager.broadcast_to_job(job_id, test_event)
 

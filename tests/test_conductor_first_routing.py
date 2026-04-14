@@ -342,21 +342,18 @@ class TestHistoryRoutesThruConductor:
         assert result.exit_code == 0
 
 
-class TestRecoverRoutesThruConductor:
-    """Recover command routes through conductor by default."""
+class TestRecoverReadsDB:
+    """Recover command reads the conductor's DB directly (GH#170)."""
 
-    def test_recover_shows_conductor_required_error(self):
-        """Without conductor, mzt recover shows clear error."""
-        with patch(
-            "marianne.daemon.detect.try_daemon_route",
-            new_callable=AsyncMock,
-            return_value=(False, None),
-        ):
-            result = runner.invoke(app, ["recover", "test-job"])
+    def test_recover_missing_job_shows_clean_error(self):
+        """Non-existent job in DB shows clean error."""
+        result = runner.invoke(app, ["recover", "test-job"])
 
         assert result.exit_code == 1
-        assert "conductor is not running" in result.output.lower() or \
-               "mzt start" in result.output
+        # New behavior: "Score not found" (job not in DB)
+        # or "DB not found" (no DB at all)
+        output_lower = result.output.lower()
+        assert "not found" in output_lower
 
 
 # ─── Phase 4: Hidden --workspace ────────────────────────────────────

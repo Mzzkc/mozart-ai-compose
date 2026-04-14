@@ -53,6 +53,8 @@ Core skills for orchestrating work with Marianne are documented in `plugins/`. R
 
 **MUST NOT:** Wrap `mzt start` in external `timeout`. **NEVER stop, restart, or kill the conductor (`mzt stop`) while jobs are running — recovery from interrupted jobs is unreliable and work is lost. Check `mzt status` first.** Use `--fresh` on interrupted jobs. Add dependencies without justification. Log secrets or full prompt text. Use fixed sleeps in tests. Silence errors without explanation. Use Pydantic v1 syntax.
 
+**After code changes:** The conductor runs the installed package, not the source tree. To pick up changes: `pip install -e . --quiet`, then pause/cancel active jobs, then `mzt stop`, then `mzt start`. Each step must complete before the next.
+
 **ESCALATE (stop and ask) before:** Changing CLI commands, IPC protocol, or daemon lifecycle. Modifying the learning store schema. Breaking score YAML compatibility. Deleting user data or state. Changing the self-evolution score.
 
 Full constraint architecture with IDs: `.marianne/spec/constraints.yaml`
@@ -61,8 +63,9 @@ Full constraint architecture with IDs: `.marianne/spec/constraints.yaml`
 
 **Start:**
 1. Read your Legion memory — identity (`memory-bank/legion/legion_identity.md`) and personal memory (`memory-bank/legion/legion.md`) are in the project memory directory
-2. Read `STATUS.md` — verify current project state
-3. Check `git log --oneline -20` for recent work
+2. Read **every file** in `.marianne/spec/` — glob the directory, then read each file. Do not skip any.
+3. Read `STATUS.md` — verify current project state
+4. Check `git log --oneline -20` for recent work
 
 **End:**
 1. Append to Legion's personal memory — what you learned, what you did, what resonated

@@ -1,4 +1,5 @@
 """Score configuration validation API endpoints."""
+
 from __future__ import annotations
 
 import logging
@@ -9,15 +10,14 @@ from typing import Any
 _logger = logging.getLogger(__name__)
 
 import yaml
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, Field, ValidationError
 
 from marianne.core.config import JobConfig
-from marianne.dashboard.app import get_state_backend
+from marianne.dashboard.app import get_daemon_client
 from marianne.dashboard.services.job_control import JobControlService
 from marianne.scores.templates import TEMPLATE_FILES, get_template_path, list_templates
-from marianne.state.base import StateBackend
 from marianne.validation import (
     ValidationRunner,
     create_default_checks,
@@ -33,6 +33,7 @@ router = APIRouter(prefix="/api/scores", tags=["Score Editor"])
 
 class ValidateConfigRequest(BaseModel):
     """Request to validate a YAML configuration."""
+
     content: str = Field(
         ...,
         max_length=1_000_000,
@@ -46,6 +47,7 @@ class ValidateConfigRequest(BaseModel):
 
 class ValidationIssueResponse(BaseModel):
     """Individual validation issue."""
+
     check_id: str = Field(..., description="Unique check identifier (e.g., V001)")
     severity: str = Field(..., description="ERROR, WARNING, or INFO")
     message: str = Field(..., description="Human-readable issue description")
@@ -58,6 +60,7 @@ class ValidationIssueResponse(BaseModel):
 
 class ValidateConfigResponse(BaseModel):
     """Response from configuration validation."""
+
     valid: bool = Field(..., description="True if no ERROR-level issues found")
     yaml_syntax_valid: bool = Field(..., description="True if YAML parses correctly")
     schema_valid: bool = Field(..., description="True if Pydantic validation passes")
@@ -115,7 +118,7 @@ def run_extended_validation(
     config: JobConfig,
     content: str,
     filename: str = "config.yaml",
-    workspace_path: str | None = None
+    workspace_path: str | None = None,
 ) -> list[ValidationIssueResponse]:
     """Run Marianne's extended validation checks.
 
@@ -143,9 +146,7 @@ def run_extended_validation(
 
     # Create a virtual config path for the validator
     # Use workspace_path as base if provided, otherwise use current directory
-    config_path = (
-        Path(workspace_path) / filename if workspace_path else Path.cwd() / filename
-    )
+    config_path = Path(workspace_path) / filename if workspace_path else Path.cwd() / filename
 
     # Run validation using Marianne's built-in system
     runner = ValidationRunner(create_default_checks())
@@ -183,7 +184,7 @@ def build_config_summary(config: JobConfig) -> dict[str, Any]:
         "validation_count": len(config.validations),
         "notification_count": len(config.notifications),
         "has_dependencies": bool(config.sheet.dependencies),
-        "timeout_seconds": getattr(config.sheet, 'timeout_seconds', None),
+        "timeout_seconds": getattr(config.sheet, "timeout_seconds", None),
         "workspace": str(config.workspace),
     }
 
@@ -254,10 +255,7 @@ async def validate_config(request: ValidateConfigRequest) -> ValidateConfigRespo
             if config is not None:
                 try:
                     issues = run_extended_validation(
-                        config,
-                        content,
-                        filename,
-                        request.workspace_path
+                        config, content, filename, request.workspace_path
                     )
 
                     # Build config summary for valid configurations
@@ -274,7 +272,7 @@ async def validate_config(request: ValidateConfigRequest) -> ValidateConfigRespo
                             column=None,
                             context=None,
                             auto_fixable=False,
-                            suggestion="This may be a bug in Marianne validation system"
+                            suggestion="This may be a bug in Marianne validation system",
                         )
                     ]
 
@@ -306,6 +304,7 @@ async def validate_config(request: ValidateConfigRequest) -> ValidateConfigRespo
 
 class SubmitScoreRequest(BaseModel):
     """Request to submit a score to the conductor for execution."""
+
     content: str = Field(..., max_length=1_000_000, description="YAML score content")
     workspace: str | None = Field(None, description="Override workspace directory")
     self_healing: bool = Field(False, description="Enable self-healing mode")
@@ -313,38 +312,22 @@ class SubmitScoreRequest(BaseModel):
 
 class SubmitScoreResponse(BaseModel):
     """Response from score submission."""
+
     success: bool
     job_id: str
     job_name: str
     message: str
 
 
-async def _get_job_control_service(
-    backend: StateBackend = Depends(get_state_backend),
-) -> JobControlService:
-    """Get job control service for score submission."""
-    return JobControlService(backend)
-
-
 @router.post("/submit", response_model=SubmitScoreResponse)
 async def submit_score(
     request: SubmitScoreRequest,
-    job_service: JobControlService = Depends(_get_job_control_service),
 ) -> SubmitScoreResponse:
     """Validate and submit a score to the conductor for execution.
 
     Validates the score first, then submits it via JobControlService.
-
-    Args:
-        request: Score content and execution options.
-        job_service: Injected job control service.
-
-    Returns:
-        Submission result with job ID and name.
-
-    Raises:
-        HTTPException: 400 if score is invalid, 503 if submission fails.
     """
+    job_service = JobControlService(get_daemon_client())
     content = request.content.strip()
     if not content:
         raise HTTPException(status_code=400, detail="Score content is empty")
@@ -399,6 +382,7 @@ async def submit_score(
 
 class TemplateResponse(BaseModel):
     """Individual template metadata."""
+
     name: str = Field(..., description="Template identifier")
     title: str = Field(..., description="Display title")
     filename: str = Field(..., description="YAML filename")
@@ -414,6 +398,7 @@ class TemplateResponse(BaseModel):
 
 class TemplateListResponse(BaseModel):
     """Response for template list."""
+
     templates: list[TemplateResponse] = Field(..., description="Available templates")
     total: int = Field(..., description="Total template count")
     categories: list[str] = Field(..., description="Available categories")
@@ -432,52 +417,49 @@ def analyze_template(name: str, content: str) -> TemplateResponse:
     try:
         # Parse YAML to extract metadata
         data = yaml.safe_load(content)
-        sheets = data.get('sheet', {}).get('total_sheets', 1)
+        sheets = data.get("sheet", {}).get("total_sheets", 1)
 
         # Determine complexity based on sheet count
         if sheets == 1:
-            complexity = 'simple'
+            complexity = "simple"
         elif sheets <= 3:
-            complexity = 'medium'
+            complexity = "medium"
         else:
-            complexity = 'complex'
+            complexity = "complex"
 
         # Extract features from template content
         features = []
-        if 'dependencies' in data.get('sheet', {}):
-            features.append('Multi-sheet dependencies')
-        if data.get('validations'):
+        if "dependencies" in data.get("sheet", {}):
+            features.append("Multi-sheet dependencies")
+        if data.get("validations"):
             features.append(f"{len(data['validations'])} validation checks")
-        if data.get('notifications'):
-            features.append('Automated notifications')
-        if '{{' in content:
-            features.append('Customizable variables')
+        if data.get("notifications"):
+            features.append("Automated notifications")
+        if "{{" in content:
+            features.append("Customizable variables")
 
         # Categorize templates
         category_map = {
-            'simple-task': 'workflow',
-            'multi-sheet': 'workflow',
-            'review-cycle': 'workflow',
-            'data-processing': 'data',
-            'testing-workflow': 'testing',
-            'deployment-pipeline': 'deployment'
+            "simple-task": "workflow",
+            "multi-sheet": "workflow",
+            "review-cycle": "workflow",
+            "data-processing": "data",
+            "testing-workflow": "testing",
+            "deployment-pipeline": "deployment",
         }
 
         # Extract variables from Jinja templates
         variables = []
-        jinja_variable_pattern = r'{{\s*(\w+)(?:\s*\|\s*default\([^)]*\))?\s*}}'
+        jinja_variable_pattern = r"{{\s*(\w+)(?:\s*\|\s*default\([^)]*\))?\s*}}"
         var_matches = re.findall(jinja_variable_pattern, content)
         for var in set(var_matches):
-            variables.append({
-                'name': var,
-                'description': f'Template variable: {var}'
-            })
+            variables.append({"name": var, "description": f"Template variable: {var}"})
 
         sheet_word = "sheet" if sheets == 1 else "sheets"
-        category = category_map.get(name, 'general')
+        category = category_map.get(name, "general")
         return TemplateResponse(
             name=name,
-            title=name.replace('-', ' ').title(),
+            title=name.replace("-", " ").title(),
             filename=TEMPLATE_FILES[name],
             description=f"A {complexity} {category} template with {sheets} {sheet_word}",
             complexity=complexity,
@@ -486,29 +468,27 @@ def analyze_template(name: str, content: str) -> TemplateResponse:
             features=features,
             variables=variables,
             content=content,
-            estimated_duration=f"{sheets * 15}-{sheets * 30} min" if sheets > 1 else "5-15 min"
+            estimated_duration=f"{sheets * 15}-{sheets * 30} min" if sheets > 1 else "5-15 min",
         )
     except (yaml.YAMLError, KeyError, TypeError, AttributeError, ValueError):
         _logger.debug("Failed to parse template metadata for %s", name, exc_info=True)
         # Fallback metadata if parsing fails
         return TemplateResponse(
             name=name,
-            title=name.replace('-', ' ').title(),
+            title=name.replace("-", " ").title(),
             filename=TEMPLATE_FILES.get(name, f"{name}.yaml"),
             description=f"Template: {name}",
-            complexity='simple',
+            complexity="simple",
             sheets=1,
-            category='general',
+            category="general",
             content=content,
-            estimated_duration="5-15 min"
+            estimated_duration="5-15 min",
         )
 
 
 @router.get("/templates/list", response_model=TemplateListResponse, tags=["Templates"])
 async def list_available_templates(
-    category: str | None = None,
-    complexity: str | None = None,
-    search: str | None = None
+    category: str | None = None, complexity: str | None = None, search: str | None = None
 ) -> TemplateListResponse:
     """List all available score templates.
 
@@ -552,9 +532,7 @@ async def list_available_templates(
             continue
 
     return TemplateListResponse(
-        templates=templates,
-        total=len(templates),
-        categories=sorted(categories)
+        templates=templates, total=len(templates), categories=sorted(categories)
     )
 
 
@@ -581,9 +559,7 @@ async def get_template(template_name: str) -> TemplateResponse:
         ) from None
     except (OSError, ValueError, yaml.YAMLError):
         _logger.warning("Failed to load template %s", template_name, exc_info=True)
-        raise HTTPException(
-            status_code=500, detail="Failed to load template"
-        ) from None
+        raise HTTPException(status_code=500, detail="Failed to load template") from None
 
 
 @router.get("/templates/{template_name}/download", tags=["Templates"])
@@ -608,7 +584,7 @@ async def download_template(template_name: str) -> PlainTextResponse:
             media_type="application/x-yaml",
             headers={
                 "Content-Disposition": f"attachment; filename={TEMPLATE_FILES[template_name]}"
-            }
+            },
         )
     except KeyError:
         raise HTTPException(
@@ -616,9 +592,7 @@ async def download_template(template_name: str) -> PlainTextResponse:
         ) from None
     except OSError:
         _logger.warning("Failed to download template %s", template_name, exc_info=True)
-        raise HTTPException(
-            status_code=500, detail="Failed to download template"
-        ) from None
+        raise HTTPException(status_code=500, detail="Failed to download template") from None
 
 
 @router.post("/templates/{template_name}/use", tags=["Templates"])
@@ -639,18 +613,11 @@ async def use_template(template_name: str) -> RedirectResponse:
         get_template_path(template_name)
 
         # Redirect to editor with template parameter
-        return RedirectResponse(
-            url=f"/editor?template={template_name}",
-            status_code=302
-        )
+        return RedirectResponse(url=f"/editor?template={template_name}", status_code=302)
     except KeyError:
         raise HTTPException(
             status_code=404, detail=f"Template '{template_name}' not found"
         ) from None
     except OSError:
         _logger.warning("Failed to use template %s", template_name, exc_info=True)
-        raise HTTPException(
-            status_code=500, detail="Failed to use template"
-        ) from None
-
-
+        raise HTTPException(status_code=500, detail="Failed to use template") from None

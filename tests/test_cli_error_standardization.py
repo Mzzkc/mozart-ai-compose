@@ -432,40 +432,63 @@ class TestRequireConductorStandardization:
 
 
 class TestRecoverErrorStandardization:
-    """recover command: missing config snapshot uses output_error with hints."""
+    """recover command: missing config snapshot uses output_error with hints.
 
-    def test_no_config_snapshot_includes_hint(
-        self, monkeypatch: pytest.MonkeyPatch,
+    Note: recover now reads the conductor's SQLite DB directly (GH#170).
+    This test creates a temp DB with a checkpoint missing config_snapshot.
+    """
+
+    def test_no_config_snapshot_resets_to_pending(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     ) -> None:
-        """Missing config snapshot error suggests re-running."""
+        """Missing config snapshot resets sheets to PENDING (GH#170).
+
+        The new recover code no longer errors when config_snapshot is missing.
+        Instead, it resets failed sheets to PENDING without validation,
+        allowing the job to be resumed.
+        """
+        import sqlite3
+        import sys
         from datetime import UTC, datetime
 
-        from marianne.core.checkpoint import CheckpointState, JobStatus
-
-        async def _no_snapshot(
-            method: str, params: dict, *, socket_path: Path | None = None,
-        ) -> tuple[bool, dict]:
-            if method == "job.recover":
-                # Return a state without config_snapshot
-                state = CheckpointState(
-                    job_id="test-job",
-                    job_name="No Snapshot",
-                    total_sheets=3,
-                    status=JobStatus.FAILED,
-                    created_at=datetime.now(UTC),
-                    updated_at=datetime.now(UTC),
-                    config_snapshot=None,  # Missing snapshot triggers the error
-                )
-                return True, {"state": state.model_dump(mode="json")}
-            return True, {}
-
-        monkeypatch.setattr(
-            "marianne.daemon.detect.try_daemon_route", _no_snapshot,
+        from marianne.core.checkpoint import (
+            CheckpointState,
+            JobStatus,
+            SheetState,
+            SheetStatus,
         )
+
+        db_path = tmp_path / "daemon-state.db"
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="No Snapshot",
+            total_sheets=3,
+            status=JobStatus.FAILED,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            config_snapshot=None,
+            sheets={1: SheetState(sheet_num=1, status=SheetStatus.FAILED)},
+        )
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            "CREATE TABLE jobs (job_id TEXT PRIMARY KEY, status TEXT, checkpoint_json TEXT)"
+        )
+        conn.execute(
+            "INSERT INTO jobs (job_id, status, checkpoint_json) VALUES (?, ?, ?)",
+            ("test-job", "failed", state.model_dump_json()),
+        )
+        conn.commit()
+        conn.close()
+
+        import marianne.cli.commands.recover
+        recover_mod = sys.modules["marianne.cli.commands.recover"]
+        monkeypatch.setattr(recover_mod, "_get_db_path", lambda: db_path)
+
         result = runner.invoke(app, ["recover", "test-job"])
-        assert result.exit_code != 0
+        # New behavior: succeeds by resetting to PENDING
+        assert result.exit_code == 0
         output_lower = result.output.lower()
-        assert "config snapshot" in output_lower or "cannot run" in output_lower
+        assert "pending" in output_lower or "recovered" in output_lower
 
 
 # ---------------------------------------------------------------------------

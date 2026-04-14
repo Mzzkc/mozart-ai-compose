@@ -10,6 +10,13 @@ import pytest
 from marianne.dashboard.services.sse_manager import ClientConnection, SSEEvent, SSEManager
 
 
+def _count_connections(manager: SSEManager, job_id: str | None = None) -> int:
+    """Count connections from internal state (test helper)."""
+    if job_id is None:
+        return sum(len(clients) for clients in manager._connections.values())
+    return len(manager._connections.get(job_id, {}))
+
+
 class TestSSEEvent:
     """Test SSE event formatting."""
 
@@ -23,12 +30,7 @@ class TestSSEEvent:
 
     def test_event_with_id_and_retry(self):
         """Test SSE event with ID and retry fields."""
-        event = SSEEvent(
-            event="status",
-            data="job started",
-            id="test-123",
-            retry=5000
-        )
+        event = SSEEvent(event="status", data="job started", id="test-123", retry=5000)
         formatted = event.format()
 
         expected = "id: test-123\nretry: 5000\nevent: status\ndata: job started\n\n"
@@ -70,7 +72,6 @@ class TestClientConnection:
         conn = ClientConnection(client_id="test-123", job_id="job-456")
         event = SSEEvent(event="test", data="hello")
 
-        # Should be able to put and get events
         conn.queue.put_nowait(event)
         assert conn.queue.qsize() == 1
 
@@ -88,8 +89,6 @@ class TestSSEManager:
         """Create an SSE manager for testing."""
         return SSEManager()
 
-    # ── Deterministic helpers (replace asyncio.sleep timing) ──────────
-
     @staticmethod
     async def _wait_for_connections(
         manager: SSEManager,
@@ -102,12 +101,12 @@ class TestSSEManager:
         loop = asyncio.get_event_loop()
         deadline = loop.time() + timeout
         while loop.time() < deadline:
-            if manager.get_connection_count(job_id) == expected:
+            if _count_connections(manager, job_id) == expected:
                 return
             await asyncio.sleep(0.01)
         raise TimeoutError(
             f"Expected {expected} connections (job_id={job_id}), "
-            f"got {manager.get_connection_count(job_id)} after {timeout}s"
+            f"got {_count_connections(manager, job_id)} after {timeout}s"
         )
 
     @staticmethod
@@ -138,12 +137,10 @@ class TestSSEManager:
         except asyncio.CancelledError:
             pass
 
-    # ── Tests ─────────────────────────────────────────────────────────
-
     async def test_connection_count_empty(self, sse_manager):
         """Test connection count when no clients connected."""
-        assert sse_manager.get_connection_count() == 0
-        assert sse_manager.get_connection_count("job-123") == 0
+        assert _count_connections(sse_manager) == 0
+        assert _count_connections(sse_manager, "job-123") == 0
 
     async def test_broadcast_to_no_clients(self, sse_manager):
         """Test broadcasting when no clients are connected."""
@@ -153,9 +150,8 @@ class TestSSEManager:
 
     async def test_disconnect_nonexistent_client(self, sse_manager):
         """Test disconnecting a client that doesn't exist."""
-        # Should not raise an error
         await sse_manager.disconnect("job-123", "client-456")
-        assert sse_manager.get_connection_count() == 0
+        assert _count_connections(sse_manager) == 0
 
     async def test_basic_connection_lifecycle(self, sse_manager):
         """Test basic connect/disconnect lifecycle."""
@@ -164,7 +160,7 @@ class TestSSEManager:
         )
 
         await self._wait_for_connections(sse_manager, 1)
-        assert sse_manager.get_connection_count("job-123") == 1
+        assert _count_connections(sse_manager, "job-123") == 1
 
         await self._cancel_task(connect_task)
         await self._wait_for_connections(sse_manager, 0)
@@ -174,9 +170,7 @@ class TestSSEManager:
         events_received: list[str] = []
 
         connect_task = asyncio.create_task(
-            self._collect_events(
-                sse_manager.connect("job-123", "client-456"), events_received
-            )
+            self._collect_events(sse_manager.connect("job-123", "client-456"), events_received)
         )
 
         await self._wait_for_connections(sse_manager, 1)
@@ -185,7 +179,6 @@ class TestSSEManager:
         sent_count = await sse_manager.broadcast("job-123", event)
         assert sent_count == 1
 
-        # Wait for connection event + broadcast event
         await self._wait_for_events(events_received, 2)
 
         await self._cancel_task(connect_task)
@@ -204,14 +197,10 @@ class TestSSEManager:
         events_received_2: list[str] = []
 
         connect_task_1 = asyncio.create_task(
-            self._collect_events(
-                sse_manager.connect("job-123", "client-1"), events_received_1
-            )
+            self._collect_events(sse_manager.connect("job-123", "client-1"), events_received_1)
         )
         connect_task_2 = asyncio.create_task(
-            self._collect_events(
-                sse_manager.connect("job-123", "client-2"), events_received_2
-            )
+            self._collect_events(sse_manager.connect("job-123", "client-2"), events_received_2)
         )
 
         await self._wait_for_connections(sse_manager, 2, job_id="job-123")
@@ -229,20 +218,22 @@ class TestSSEManager:
         assert any("broadcast to all" in event for event in events_received_1)
         assert any("broadcast to all" in event for event in events_received_2)
 
-    async def test_send_job_update(self, sse_manager):
-        """Test convenience method for job status updates."""
+    async def test_broadcast_job_update(self, sse_manager):
+        """Test broadcasting a job status update via SSEEvent."""
         events_received: list[str] = []
 
         connect_task = asyncio.create_task(
-            self._collect_events(
-                sse_manager.connect("job-123", "client-456"), events_received
-            )
+            self._collect_events(sse_manager.connect("job-123", "client-456"), events_received)
         )
 
         await self._wait_for_connections(sse_manager, 1)
 
-        data = {"sheet": 2, "progress": 50}
-        sent_count = await sse_manager.send_job_update("job-123", "running", data)
+        event = SSEEvent(
+            event="job_status",
+            data=json.dumps({"status": "running", "sheet": 2, "progress": 50}),
+            id="status-test",
+        )
+        sent_count = await sse_manager.broadcast("job-123", event)
         assert sent_count == 1
 
         await self._wait_for_events(events_received, 2)
@@ -250,9 +241,9 @@ class TestSSEManager:
         await self._cancel_task(connect_task)
 
         job_update_event = None
-        for event in events_received:
-            if "event: job_status" in event:
-                job_update_event = event
+        for ev in events_received:
+            if "event: job_status" in ev:
+                job_update_event = ev
                 break
 
         assert job_update_event is not None
@@ -260,21 +251,22 @@ class TestSSEManager:
         assert "sheet" in job_update_event
         assert "progress" in job_update_event
 
-    async def test_send_log_line(self, sse_manager):
-        """Test convenience method for log streaming."""
+    async def test_broadcast_log_event(self, sse_manager):
+        """Test broadcasting a log line via SSEEvent."""
         events_received: list[str] = []
 
         connect_task = asyncio.create_task(
-            self._collect_events(
-                sse_manager.connect("job-123", "client-456"), events_received
-            )
+            self._collect_events(sse_manager.connect("job-123", "client-456"), events_received)
         )
 
         await self._wait_for_connections(sse_manager, 1)
 
-        sent_count = await sse_manager.send_log_line(
-            "job-123", "Processing sheet 2\n", "info"
+        event = SSEEvent(
+            event="log",
+            data=json.dumps({"line": "Processing sheet 2", "level": "info"}),
+            id="log-test",
         )
+        sent_count = await sse_manager.broadcast("job-123", event)
         assert sent_count == 1
 
         await self._wait_for_events(events_received, 2)
@@ -282,9 +274,9 @@ class TestSSEManager:
         await self._cancel_task(connect_task)
 
         log_event = None
-        for event in events_received:
-            if "event: log" in event:
-                log_event = event
+        for ev in events_received:
+            if "event: log" in ev:
+                log_event = ev
                 break
 
         assert log_event is not None
@@ -297,14 +289,10 @@ class TestSSEManager:
         events_job2: list[str] = []
 
         connect_task_1 = asyncio.create_task(
-            self._collect_events(
-                sse_manager.connect("job-1", "client-1"), events_job1
-            )
+            self._collect_events(sse_manager.connect("job-1", "client-1"), events_job1)
         )
         connect_task_2 = asyncio.create_task(
-            self._collect_events(
-                sse_manager.connect("job-2", "client-2"), events_job2
-            )
+            self._collect_events(sse_manager.connect("job-2", "client-2"), events_job2)
         )
 
         await self._wait_for_connections(sse_manager, 2)
@@ -320,49 +308,6 @@ class TestSSEManager:
 
         assert any("only for job-1" in event for event in events_job1)
         assert not any("only for job-1" in event for event in events_job2)
-
-    async def test_get_connected_jobs(self, sse_manager):
-        """Test getting list of jobs with active connections."""
-        jobs = await sse_manager.get_connected_jobs()
-        assert jobs == []
-
-        connect_task_1 = asyncio.create_task(
-            self._consume_events(sse_manager.connect("job-1", "client-1"))
-        )
-        connect_task_2 = asyncio.create_task(
-            self._consume_events(sse_manager.connect("job-2", "client-2"))
-        )
-
-        await self._wait_for_connections(sse_manager, 2)
-
-        jobs = await sse_manager.get_connected_jobs()
-        assert set(jobs) == {"job-1", "job-2"}
-
-        await self._cancel_task(connect_task_1)
-        await self._cancel_task(connect_task_2)
-
-    async def test_close_all_connections(self, sse_manager):
-        """Test closing all connections for shutdown."""
-        events_received: list[str] = []
-
-        connect_task = asyncio.create_task(
-            self._collect_events(
-                sse_manager.connect("job-123", "client-456"), events_received
-            )
-        )
-
-        await self._wait_for_connections(sse_manager, 1)
-
-        await sse_manager.close_all_connections()
-
-        # Wait for the close event to propagate through the queue
-        await self._wait_for_events(events_received, 2)  # connected + close
-
-        assert sse_manager.get_connection_count() == 0
-
-        await self._cancel_task(connect_task)
-
-        assert any("event: close" in event for event in events_received)
 
     # ── Private helpers ───────────────────────────────────────────────
 

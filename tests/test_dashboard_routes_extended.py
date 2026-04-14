@@ -1,4 +1,5 @@
 """Extended route tests for additional coverage."""
+
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from marianne.core.checkpoint import CheckpointState, JobStatus
+from marianne.daemon.ipc.client import DaemonClient
 from marianne.dashboard.app import create_app
 from marianne.dashboard.services.job_control import JobActionResult, JobStartResult
 from marianne.state.json_backend import JsonStateBackend
@@ -57,10 +59,10 @@ class TestJobRoutesExtended:
 
     def test_start_job_request_validation_both_configs(self, client, sample_config_yaml):
         """Test validation when both config_content and config_path are provided."""
-        response = client.post("/api/jobs", json={
-            "config_content": sample_config_yaml,
-            "config_path": "/some/path.yaml"
-        })
+        response = client.post(
+            "/api/jobs",
+            json={"config_content": sample_config_yaml, "config_path": "/some/path.yaml"},
+        )
 
         assert response.status_code == 400
         assert response.json()["detail"] == "Invalid job configuration"
@@ -73,38 +75,51 @@ name: Test Job
   total_sheets: 3
 """
 
-        with patch(
-            'marianne.dashboard.services.job_control.JobControlService.start_job',
-        ) as mock_start:
+        with (
+            patch(
+                "marianne.dashboard.app._daemon_client",
+                AsyncMock(spec=DaemonClient),
+            ),
+            patch(
+                "marianne.dashboard.services.job_control.JobControlService.start_job",
+            ) as mock_start,
+        ):
             mock_start.side_effect = RuntimeError("Failed to start job: Invalid YAML")
 
-            response = client.post("/api/jobs", json={
-                "config_content": malformed_yaml
-            })
+            response = client.post("/api/jobs", json={"config_content": malformed_yaml})
 
-        assert response.status_code == 500
-        assert "Failed to start job" in response.json()["detail"]
+        assert response.status_code == 503
+        assert "Conductor unavailable" in response.json()["detail"]
 
     def test_start_job_with_all_optional_parameters(self, client, sample_config_yaml):
         """Test starting job with all optional parameters."""
-        with patch(
-            'marianne.dashboard.services.job_control.JobControlService.start_job',
-        ) as mock_start:
+        with (
+            patch(
+                "marianne.dashboard.app._daemon_client",
+                AsyncMock(spec=DaemonClient),
+            ),
+            patch(
+                "marianne.dashboard.services.job_control.JobControlService.start_job",
+            ) as mock_start,
+        ):
             mock_start.return_value = JobStartResult(
                 job_id="test-456",
                 job_name="Test Job",
                 status="running",
                 workspace=Path("./custom-workspace"),
                 total_sheets=3,
-                pid=98765
+                pid=98765,
             )
 
-            response = client.post("/api/jobs", json={
-                "config_content": sample_config_yaml,
-                "workspace": "./custom-workspace",
-                "start_sheet": 2,
-                "self_healing": True
-            })
+            response = client.post(
+                "/api/jobs",
+                json={
+                    "config_content": sample_config_yaml,
+                    "workspace": "./custom-workspace",
+                    "start_sheet": 2,
+                    "self_healing": True,
+                },
+            )
 
         assert response.status_code == 200
         data = response.json()
@@ -119,14 +134,20 @@ name: Test Job
 
     def test_pause_job_already_paused(self, client):
         """Test pausing job that's already paused."""
-        with patch(
-            'marianne.dashboard.services.job_control.JobControlService.pause_job',
-        ) as mock_pause:
+        with (
+            patch(
+                "marianne.dashboard.app._daemon_client",
+                AsyncMock(spec=DaemonClient),
+            ),
+            patch(
+                "marianne.dashboard.services.job_control.JobControlService.pause_job",
+            ) as mock_pause,
+        ):
             mock_pause.return_value = JobActionResult(
                 success=False,
                 job_id="test-123",
                 status="paused",
-                message="Job is not running (status: paused)"
+                message="Job is not running (status: paused)",
             )
 
             response = client.post("/api/jobs/test-123/pause")
@@ -136,14 +157,20 @@ name: Test Job
 
     def test_resume_job_not_found(self, client):
         """Test resuming non-existent job."""
-        with patch(
-            'marianne.dashboard.services.job_control.JobControlService.resume_job',
-        ) as mock_resume:
+        with (
+            patch(
+                "marianne.dashboard.app._daemon_client",
+                AsyncMock(spec=DaemonClient),
+            ),
+            patch(
+                "marianne.dashboard.services.job_control.JobControlService.resume_job",
+            ) as mock_resume,
+        ):
             mock_resume.return_value = JobActionResult(
                 success=False,
                 job_id="nonexistent",
                 status="failed",
-                message="Job not found: nonexistent"
+                message="Job not found: nonexistent",
             )
 
             response = client.post("/api/jobs/nonexistent/resume")
@@ -153,14 +180,20 @@ name: Test Job
 
     def test_cancel_job_already_finished(self, client):
         """Test cancelling job that's already finished."""
-        with patch(
-            'marianne.dashboard.services.job_control.JobControlService.cancel_job',
-        ) as mock_cancel:
+        with (
+            patch(
+                "marianne.dashboard.app._daemon_client",
+                AsyncMock(spec=DaemonClient),
+            ),
+            patch(
+                "marianne.dashboard.services.job_control.JobControlService.cancel_job",
+            ) as mock_cancel,
+        ):
             mock_cancel.return_value = JobActionResult(
                 success=False,
                 job_id="test-123",
                 status="completed",
-                message="Job already finished (status: completed)"
+                message="Job already finished (status: completed)",
             )
 
             response = client.post("/api/jobs/test-123/cancel")
@@ -170,9 +203,15 @@ name: Test Job
 
     def test_delete_job_currently_paused(self, client):
         """Test deleting paused job (should work)."""
-        with patch(
-            'marianne.dashboard.services.job_control.JobControlService.delete_job',
-        ) as mock_delete:
+        with (
+            patch(
+                "marianne.dashboard.app._daemon_client",
+                AsyncMock(spec=DaemonClient),
+            ),
+            patch(
+                "marianne.dashboard.services.job_control.JobControlService.delete_job",
+            ) as mock_delete,
+        ):
             mock_delete.return_value = True
 
             response = client.delete("/api/jobs/test-123")
@@ -202,7 +241,7 @@ class TestArtifactRoutesExtended:
             updated_at=_FIXED_TIME,
         )
 
-        with patch('marianne.dashboard.app._state_backend') as mock_backend:
+        with patch("marianne.dashboard.app._state_backend") as mock_backend:
             mock_backend.load = AsyncMock(return_value=job_state)
 
             # Test with recursive=true (default behavior)
@@ -221,7 +260,7 @@ class TestArtifactRoutesExtended:
         workspace = temp_state_dir / "test-workspace"
         workspace.mkdir()
         binary_file = workspace / "test.bin"
-        binary_content = b'\x00\x01\x02\x03\xFF'
+        binary_content = b"\x00\x01\x02\x03\xff"
         binary_file.write_bytes(binary_content)
 
         job_state = CheckpointState(
@@ -234,7 +273,7 @@ class TestArtifactRoutesExtended:
             updated_at=_FIXED_TIME,
         )
 
-        with patch('marianne.dashboard.app._state_backend') as mock_backend:
+        with patch("marianne.dashboard.app._state_backend") as mock_backend:
             mock_backend.load = AsyncMock(return_value=job_state)
 
             response = client.get("/api/jobs/test-123/artifacts/test.bin")
@@ -263,7 +302,7 @@ class TestArtifactRoutesExtended:
             updated_at=_FIXED_TIME,
         )
 
-        with patch('marianne.dashboard.app._state_backend') as mock_backend:
+        with patch("marianne.dashboard.app._state_backend") as mock_backend:
             mock_backend.load = AsyncMock(return_value=job_state)
 
             response = client.get("/api/jobs/test-123/artifacts/logs/debug.log")
@@ -286,7 +325,7 @@ class TestArtifactRoutesExtended:
             updated_at=_FIXED_TIME,
         )
 
-        with patch('marianne.dashboard.app._state_backend') as mock_backend:
+        with patch("marianne.dashboard.app._state_backend") as mock_backend:
             mock_backend.load = AsyncMock(return_value=job_state)
 
             # Test different traversal patterns
@@ -320,7 +359,7 @@ class TestStreamRoutesExtended:
             updated_at=_FIXED_TIME,
         )
 
-        with patch('marianne.dashboard.app._state_backend') as mock_backend:
+        with patch("marianne.dashboard.app._state_backend") as mock_backend:
             mock_backend.load = AsyncMock(return_value=completed_state)
 
             # Test minimum valid poll interval (seconds, min=0.1)
@@ -358,7 +397,7 @@ class TestStreamRoutesExtended:
             updated_at=_FIXED_TIME,
         )
 
-        with patch('marianne.dashboard.app._state_backend') as mock_backend:
+        with patch("marianne.dashboard.app._state_backend") as mock_backend:
             mock_backend.load = AsyncMock(return_value=job_state)
 
             # Test minimum valid tail_lines (0 is valid per route: tail_lines < 0 is invalid)
@@ -393,7 +432,7 @@ class TestStreamRoutesExtended:
             updated_at=_FIXED_TIME,
         )
 
-        with patch('marianne.dashboard.app._state_backend') as mock_backend:
+        with patch("marianne.dashboard.app._state_backend") as mock_backend:
             mock_backend.load = AsyncMock(return_value=job_state)
 
             response = client.get("/api/jobs/test-123/logs/static")
@@ -417,7 +456,7 @@ class TestStreamRoutesExtended:
             updated_at=_FIXED_TIME,
         )
 
-        with patch('marianne.dashboard.app._state_backend') as mock_backend:
+        with patch("marianne.dashboard.app._state_backend") as mock_backend:
             mock_backend.load = AsyncMock(return_value=job_state)
 
             response = client.get("/api/jobs/test-123/logs/info")
@@ -433,6 +472,7 @@ class TestWorkspacePathTraversal:
     def _make_config():
         """Create a minimal valid JobConfig for testing."""
         from marianne.core.config import JobConfig
+
         return JobConfig(
             name="test",
             sheet={"size": 1, "total_items": 1},
@@ -448,7 +488,10 @@ class TestWorkspacePathTraversal:
 
         # Path with '..' should be silently rejected
         issues = run_extended_validation(
-            config, content, "test.yaml", workspace_path="../../etc/passwd",
+            config,
+            content,
+            "test.yaml",
+            workspace_path="../../etc/passwd",
         )
         # Should not raise — the path is replaced with None internally
         assert isinstance(issues, list)

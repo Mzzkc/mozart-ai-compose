@@ -9,7 +9,6 @@ from fastapi.testclient import TestClient
 from marianne.dashboard.auth.security import (
     SecurityConfig,
     SecurityHeadersMiddleware,
-    configure_cors,
     sanitize_filename,
     validate_job_id,
     validate_path_component,
@@ -40,14 +39,6 @@ class TestSecurityConfig:
             assert "https://app.example.com" in config.cors_origins
             assert "https://api.example.com" in config.cors_origins
             assert config.cors_allow_credentials is False
-
-    def test_production_config(self):
-        """Test production configuration is strict."""
-        config = SecurityConfig.production()
-
-        assert config.cors_origins == []  # No CORS
-        assert config.cors_allow_credentials is False
-        assert "DELETE" not in config.cors_allow_methods  # Restricted methods
 
 
 class TestSecurityHeadersMiddleware:
@@ -158,33 +149,6 @@ class TestSecurityHeadersMiddleware:
         # Should not have security headers
         assert "Content-Security-Policy" not in response.headers
         assert "X-Frame-Options" not in response.headers
-
-
-class TestConfigureCors:
-    """Test CORS configuration."""
-
-    def test_cors_configured(self):
-        """Test CORS middleware is added."""
-        app = FastAPI()
-
-        @app.get("/")
-        async def root():
-            return {"ok": True}
-
-        config = SecurityConfig(
-            cors_origins=["http://example.com"],
-        )
-        configure_cors(app, config)
-
-        # Check middleware was added (by making OPTIONS request)
-        client = TestClient(app)
-        response = client.options(
-            "/",
-            headers={"Origin": "http://example.com"}
-        )
-
-        # CORS should allow the origin
-        assert "access-control-allow-origin" in response.headers or response.status_code == 200
 
 
 class TestValidateJobId:

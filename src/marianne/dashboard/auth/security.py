@@ -1,20 +1,15 @@
 """Security middleware and utilities for Marianne Dashboard.
 
-Provides security headers, CORS configuration, and input validation.
+Provides security headers and input validation.
 """
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
 from fastapi import Request
-
-if TYPE_CHECKING:
-    from fastapi import FastAPI
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import Response
 from starlette.types import ASGIApp
 
@@ -81,10 +76,7 @@ class SecurityConfig:
             MZT_CORS_ORIGINS: Comma-separated origins
             MZT_CORS_CREDENTIALS: true/false
         """
-        origins_str = os.getenv(
-            "MZT_CORS_ORIGINS",
-            "http://localhost:8080,http://127.0.0.1:8080"
-        )
+        origins_str = os.getenv("MZT_CORS_ORIGINS", "http://localhost:8080,http://127.0.0.1:8080")
         origins = [o.strip() for o in origins_str.split(",") if o.strip()]
 
         credentials = os.getenv("MZT_CORS_CREDENTIALS", "true").lower() == "true"
@@ -92,16 +84,6 @@ class SecurityConfig:
         return cls(
             cors_origins=origins,
             cors_allow_credentials=credentials,
-        )
-
-    @classmethod
-    def production(cls) -> SecurityConfig:
-        """Create strict production configuration."""
-        return cls(
-            cors_origins=[],  # No CORS in production (same-origin only)
-            cors_allow_credentials=False,
-            cors_allow_methods=["GET", "POST"],  # Restrict methods
-            cors_allow_headers=["Content-Type", "X-API-Key"],  # Restrict headers
         )
 
 
@@ -118,9 +100,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.config = config or SecurityConfig()
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Add security headers to response.
 
         Args:
@@ -137,9 +117,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             is_html = "text/html" in content_type
 
             # Always add non-CSP security headers
-            response.headers["X-Content-Type-Options"] = (
-                self.config.x_content_type_options
-            )
+            response.headers["X-Content-Type-Options"] = self.config.x_content_type_options
             response.headers["X-Frame-Options"] = self.config.x_frame_options
             response.headers["Referrer-Policy"] = self.config.referrer_policy
 
@@ -149,35 +127,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
             # CSP and HSTS only on HTML responses
             if is_html:
-                response.headers["Content-Security-Policy"] = (
-                    self.config.content_security_policy
-                )
+                response.headers["Content-Security-Policy"] = self.config.content_security_policy
                 response.headers["Strict-Transport-Security"] = (
                     self.config.strict_transport_security
                 )
-                response.headers["X-XSS-Protection"] = (
-                    self.config.x_xss_protection
-                )
+                response.headers["X-XSS-Protection"] = self.config.x_xss_protection
 
         return response
-
-
-def configure_cors(app: FastAPI, config: SecurityConfig | None = None) -> None:
-    """Configure CORS middleware for application.
-
-    Args:
-        app: FastAPI or Starlette app with add_middleware method
-        config: Security configuration
-    """
-    config = config or SecurityConfig()
-
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=config.cors_origins,
-        allow_credentials=config.cors_allow_credentials,
-        allow_methods=config.cors_allow_methods,
-        allow_headers=config.cors_allow_headers,
-    )
 
 
 MAX_JOB_ID_LENGTH = 256
@@ -197,11 +153,7 @@ def validate_job_id(job_id: str) -> bool:
         return False
 
     # Allow alphanumeric, hyphen, underscore, period
-    allowed_chars = set(
-        "abcdefghijklmnopqrstuvwxyz"
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        "0123456789-_."
-    )
+    allowed_chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
     return all(c in allowed_chars for c in job_id)
 
 
@@ -255,7 +207,6 @@ def sanitize_filename(filename: str) -> str:
 __all__ = [
     "SecurityConfig",
     "SecurityHeadersMiddleware",
-    "configure_cors",
     "sanitize_filename",
     "validate_job_id",
     "validate_path_component",
