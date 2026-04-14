@@ -7,7 +7,7 @@
 # parallel (academic, industry, patents), then synthesizes findings into a
 # report that identifies convergent evidence, divergent claims, and gaps.
 #
-# Compare with knowledge/parallel-research-fanout.yaml:
+# Compare with research/parallel-research-fanout.yaml:
 # Both scores produce the same outcome. The difference is the parallelism
 # mechanism:
 #

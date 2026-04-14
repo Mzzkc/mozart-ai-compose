@@ -117,14 +117,19 @@ class TestIsDaemonAvailable:
 
     async def test_none_socket_uses_default(self):
         """None socket_path triggers SocketConfig fallback."""
-        with patch(_CLIENT_PATH) as MockClient:
+        with (
+            patch(
+                "marianne.daemon.clone.get_clone_name", return_value=None,
+            ),
+            patch(_CLIENT_PATH) as MockClient,
+        ):
             client = MockClient.return_value
             client.is_daemon_running = AsyncMock(return_value=True)
 
             result = await is_daemon_available(None)
 
         assert result is True
-        # Client was created with the default path
+        # Client was created with the default path (no clone active)
         MockClient.assert_called_once_with(Path("/tmp/marianne.sock"))
 
 

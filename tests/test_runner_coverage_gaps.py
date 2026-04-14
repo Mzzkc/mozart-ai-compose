@@ -1635,7 +1635,7 @@ class TestRecoveryBroadcastPolling:
 
     @pytest.mark.asyncio
     async def test_record_rate_limit_cross_workspace_disabled(self) -> None:
-        """Cross-workspace disabled returns early."""
+        """Cross-workspace disabled returns early without writing."""
         mixin = self._make_mixin()
         mixin.config = _make_config(
             circuit_breaker={"enabled": True, "cross_workspace_coordination": False}
@@ -1644,6 +1644,8 @@ class TestRecoveryBroadcastPolling:
         await mixin._record_rate_limit_to_global_store(
             state=state, error_code="E101", wait_seconds=30.0,
         )
+        # Early return — no store interaction expected
+        assert mixin._global_learning_store is None
 
     @pytest.mark.asyncio
     async def test_record_rate_limit_cross_workspace_success(self) -> None:
@@ -2053,11 +2055,13 @@ class TestLifecycleSynthesizer:
 
     @pytest.mark.asyncio
     async def test_synthesize_no_completed_sheets(self) -> None:
-        """No completed sheets returns early."""
+        """No completed sheets returns early without logging."""
         runner = self._make_runner()
         batch_result = MagicMock(completed=[], sheets=[1, 2], failed=[1, 2])
         state = _make_state()
         await runner._synthesize_batch_outputs(batch_result, state)
+        # Early return — no synthesis activity logged
+        assert not runner._logger.info.called
 
     @pytest.mark.asyncio
     async def test_synthesize_no_outputs(self) -> None:
@@ -2109,10 +2113,12 @@ class TestLifecycleGlobalAggregation:
 
     @pytest.mark.asyncio
     async def test_aggregate_no_store(self) -> None:
-        """No global store returns early."""
+        """No global store returns early without errors."""
         runner = self._make_runner()
         state = _make_state()
         await runner._aggregate_to_global_store(state)
+        # Early return — no store means no interaction
+        assert runner._global_learning_store is None
 
     @pytest.mark.asyncio
     async def test_aggregate_with_outcomes(self) -> None:

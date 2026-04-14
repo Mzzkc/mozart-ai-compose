@@ -4,6 +4,8 @@ Contains validation, retry logic, circuit breaker, adaptive retry strategy,
 and the main runner.
 """
 
+from marianne.core.errors.exceptions import FatalError
+from marianne.core.summary import SheetExecutionMode
 from marianne.execution.circuit_breaker import (
     CircuitBreaker,
     CircuitBreakerStats,
@@ -16,7 +18,6 @@ from marianne.execution.retry_strategy import (
     RetryRecommendation,
     RetryStrategyConfig,
 )
-from marianne.execution.runner import FatalError, JobRunner, SheetExecutionMode
 from marianne.execution.validation import (
     FileModificationTracker,
     SheetValidationResult,
@@ -34,7 +35,6 @@ __all__ = [
     "ErrorRecord",
     "FatalError",
     "FileModificationTracker",
-    "JobRunner",
     "RetryPattern",
     "RetryRecommendation",
     "RetryStrategyConfig",

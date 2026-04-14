@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Analytics — Marianne{% endblock %}
+
+{% block content %}
+<div class="space-y-6" x-data="analyticsPage()">
+    <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Analytics</h1>
+        <button @click="loadAll()"
+                class="px-3 py-1.5 text-sm font-medium rounded-md bg-marianne-500 text-white hover:bg-marianne-600 transition-colors">
+            Refresh
+        </button>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+            <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Total Jobs</p>
+            <p class="text-2xl font-bold text-gray-900 dark:text-white" x-text="stats.total_jobs ?? '—'"></p>
+        </div>
+        <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+            <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Success Rate</p>
+            <p class="text-2xl font-bold text-green-600 dark:text-green-400" x-text="stats.success_rate != null ? stats.success_rate.toFixed(1) + '%' : '—'"></p>
+        </div>
+        <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+            <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Running</p>
+            <p class="text-2xl font-bold text-blue-600 dark:text-blue-400" x-text="stats.running_jobs ?? '—'"></p>
+        </div>
+        <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+            <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Failed</p>
+            <p class="text-2xl font-bold text-red-600 dark:text-red-400" x-text="stats.failed_jobs ?? '—'"></p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-3">Durations</h2>
+            <template x-if="durations">
+                <div class="space-y-2 text-sm text-gray-700 dark:text-gray-300">
+                    <p>Avg sheet: <span class="font-mono" x-text="formatDur(durations.avg_sheet_duration_seconds)"></span></p>
+                    <p>Median sheet: <span class="font-mono" x-text="formatDur(durations.median_sheet_duration_s)"></span></p>
+                    <template x-for="s in durations.slowest_sheets || []" :key="s.job_id + '-' + s.sheet_num">
+                        <p class="text-xs text-gray-500 dark:text-gray-400">
+                            <span x-text="s.job_id"></span> / Sheet <span x-text="s.sheet_num"></span>:
+                            <span class="font-mono" x-text="formatDur(s.duration_seconds)"></span>
+                        </p>
+                    </template>
+                </div>
+            </template>
+            <template x-if="!durations">
+                <p class="text-sm text-gray-400 dark:text-gray-500" x-text="loading ? 'Loading...' : 'No data'"></p>
+            </template>
+        </div>
+
+        <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-3">Validations</h2>
+            <template x-if="validations">
+                <div class="space-y-2 text-sm text-gray-700 dark:text-gray-300">
+                    <p>Pass rate: <span class="font-mono" x-text="(validations.overall_pass_rate * 100).toFixed(1) + '%'"></span></p>
+                    <p>Total checks: <span class="font-mono" x-text="validations.total_validations ?? 0"></span></p>
+                </div>
+            </template>
+            <template x-if="!validations">
+                <p class="text-sm text-gray-400 dark:text-gray-500" x-text="loading ? 'Loading...' : 'No data'"></p>
+            </template>
+        </div>
+
+        <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-3">Errors</h2>
+            <template x-if="errors">
+                <div class="space-y-2 text-sm text-gray-700 dark:text-gray-300">
+                    <template x-for="[cat, count] in Object.entries(errors.by_category || {})" :key="cat">
+                        <p><span x-text="cat"></span>: <span class="font-mono" x-text="count"></span></p>
+                    </template>
+                    <p x-show="Object.keys(errors.by_category || {}).length === 0" class="text-gray-400">No errors recorded</p>
+                </div>
+            </template>
+            <template x-if="!errors">
+                <p class="text-sm text-gray-400 dark:text-gray-500" x-text="loading ? 'Loading...' : 'No data'"></p>
+            </template>
+        </div>
+
+        <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-3">Costs</h2>
+            <template x-if="costs">
+                <div class="space-y-2 text-sm text-gray-700 dark:text-gray-300">
+                    <p>Total spend: <span class="font-mono" x-text="'$' + (costs.total_spend ?? 0).toFixed(4)"></span></p>
+                    <p>Avg per job: <span class="font-mono" x-text="'$' + (costs.avg_cost_per_job ?? 0).toFixed(4)"></span></p>
+                </div>
+            </template>
+            <template x-if="!costs">
+                <p class="text-sm text-gray-400 dark:text-gray-500" x-text="loading ? 'Loading...' : 'No data'"></p>
+            </template>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function analyticsPage() {
+    return {
+        loading: true,
+        stats: {},
+        durations: null,
+        validations: null,
+        errors: null,
+        costs: null,
+
+        async init() {
+            await this.loadAll();
+        },
+
+        async loadAll() {
+            this.loading = true;
+            const endpoints = [
+                ['stats', '/api/analytics/stats'],
+                ['durations', '/api/analytics/durations'],
+                ['validations', '/api/analytics/validations'],
+                ['errors', '/api/analytics/errors'],
+                ['costs', '/api/analytics/costs'],
+            ];
+            const fallbackStats = '/api/dashboard/stats';
+            try {
+                const r = await fetch(fallbackStats);
+                if (r.ok) this.stats = await r.json();
+            } catch {}
+            for (const [key, url] of endpoints) {
+                try {
+                    const r = await fetch(url);
+                    if (r.ok) this[key] = await r.json();
+                } catch { /* analytics unavailable */ }
+            }
+            this.loading = false;
+        },
+
+        formatDur(seconds) {
+            if (!seconds && seconds !== 0) return '—';
+            if (seconds < 60) return seconds.toFixed(1) + 's';
+            if (seconds < 3600) return Math.floor(seconds / 60) + 'm ' + Math.round(seconds % 60) + 's';
+            return Math.floor(seconds / 3600) + 'h ' + Math.round((seconds % 3600) / 60) + 'm';
+        }
+    };
+}
+</script>
+{% endblock %}

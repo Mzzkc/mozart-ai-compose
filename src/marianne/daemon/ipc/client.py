@@ -3,6 +3,7 @@
 Provides ``DaemonClient`` with two call patterns:
 
 - ``call(method, params)``: send a JSON-RPC request, await a single response.
+  Uses a ``ConnectionPool`` to reuse connections across calls.
 - ``stream(method, params)``: send a request, yield streaming notifications,
   and return the final result when the stream ends.
 
@@ -14,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -33,6 +35,196 @@ _logger = get_logger("daemon.ipc.client")
 # StreamReader.  See server.py for rationale on the 16 MiB value.
 _MAX_MESSAGE_BYTES = 16_777_216  # 16 MiB — same as server.MAX_MESSAGE_BYTES
 
+# I/O errors that indicate a broken connection worth retrying.
+_RETRYABLE_IO_ERRORS = (BrokenPipeError, ConnectionResetError, OSError)
+
+# Default pool parameters.
+_DEFAULT_POOL_SIZE = 8
+_DEFAULT_MAX_IDLE_SECONDS = 60.0
+_DEFAULT_CONNECT_TIMEOUT = 5.0
+
+
+class ConnectionPool:
+    """LIFO connection pool for Unix domain sockets.
+
+    Internal implementation detail — not exported.  Manages a bounded set
+    of reusable ``(reader, writer)`` pairs so ``DaemonClient.call()`` does
+    not pay the cost of opening a fresh socket for every RPC.
+
+    Parameters
+    ----------
+    socket_path:
+        Unix domain socket to connect to.
+    max_size:
+        Maximum number of connections (checked-out + idle combined).
+    max_idle_seconds:
+        Connections idle longer than this are discarded on next acquire.
+    connect_timeout:
+        Seconds to wait when opening a new connection.
+    acquire_timeout:
+        Seconds to wait for the pool semaphore when all slots are busy.
+    """
+
+    def __init__(
+        self,
+        socket_path: Path,
+        *,
+        max_size: int = _DEFAULT_POOL_SIZE,
+        max_idle_seconds: float = _DEFAULT_MAX_IDLE_SECONDS,
+        connect_timeout: float = _DEFAULT_CONNECT_TIMEOUT,
+        acquire_timeout: float = 30.0,
+    ) -> None:
+        if max_size < 1:
+            raise ValueError(f"max_size must be >= 1, got {max_size}")
+        if max_idle_seconds <= 0:
+            raise ValueError(f"max_idle_seconds must be > 0, got {max_idle_seconds}")
+        if connect_timeout <= 0:
+            raise ValueError(f"connect_timeout must be > 0, got {connect_timeout}")
+        if acquire_timeout <= 0:
+            raise ValueError(f"acquire_timeout must be > 0, got {acquire_timeout}")
+
+        self._socket_path = socket_path
+        self._max_size = max_size
+        self._max_idle_seconds = max_idle_seconds
+        self._connect_timeout = connect_timeout
+        self._acquire_timeout = acquire_timeout
+
+        # LIFO idle stack: (reader, writer, idle_since_monotonic)
+        self._idle: list[tuple[asyncio.StreamReader, asyncio.StreamWriter, float]] = []
+        self._semaphore = asyncio.Semaphore(max_size)
+        self._closed = False
+
+    @property
+    def closed(self) -> bool:
+        """Whether the pool has been closed."""
+        return self._closed
+
+    async def acquire(
+        self,
+    ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+        """Acquire a connection from the pool.
+
+        Tries idle connections first (LIFO), skipping stale or broken ones.
+        Opens a new connection if no idle connection is available.
+
+        Raises:
+            DaemonNotRunningError: if the pool is closed or connection fails.
+            TimeoutError: if the pool semaphore cannot be acquired in time.
+        """
+        if self._closed:
+            raise DaemonNotRunningError("Connection pool is closed")
+
+        try:
+            await asyncio.wait_for(
+                self._semaphore.acquire(), timeout=self._acquire_timeout,
+            )
+        except TimeoutError as exc:
+            raise TimeoutError(
+                f"Pool exhausted: all {self._max_size} connections in use"
+            ) from exc
+
+        # Try idle connections (LIFO — hot connections first)
+        now = time.monotonic()
+        while self._idle:
+            reader, writer, idle_since = self._idle.pop()
+
+            # Skip stale connections
+            if (now - idle_since) > self._max_idle_seconds:
+                _logger.debug("pool_discard_stale")
+                self._close_writer(writer)
+                continue
+
+            # Skip broken connections
+            if writer.is_closing() or reader.at_eof():
+                _logger.debug("pool_discard_broken")
+                self._close_writer(writer)
+                continue
+
+            _logger.debug("pool_reuse_connection")
+            return reader, writer
+
+        # No usable idle connection — open a fresh one
+        return await self._open_connection()
+
+    def release(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        """Return a healthy connection to the idle stack."""
+        if self._closed or writer.is_closing() or reader.at_eof():
+            self._close_writer(writer)
+            self._semaphore.release()
+            return
+
+        if len(self._idle) >= self._max_size:
+            # Idle stack full — discard this connection
+            self._close_writer(writer)
+            self._semaphore.release()
+            return
+
+        self._idle.append((reader, writer, time.monotonic()))
+        self._semaphore.release()
+        _logger.debug("pool_release_connection", idle_count=len(self._idle))
+
+    def discard(self, writer: asyncio.StreamWriter) -> None:
+        """Discard a broken connection and release its semaphore slot."""
+        self._close_writer(writer)
+        self._semaphore.release()
+        _logger.debug("pool_discard_connection")
+
+    async def close(self) -> None:
+        """Close the pool and all idle connections.  Idempotent."""
+        if self._closed:
+            return
+        self._closed = True
+
+        while self._idle:
+            _, writer, _ = self._idle.pop()
+            self._close_writer(writer)
+
+        _logger.debug("pool_closed")
+
+    async def _open_connection(
+        self,
+    ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+        """Open a new Unix socket connection."""
+        if not self._socket_path.exists():
+            self._semaphore.release()
+            raise DaemonNotRunningError(
+                f"Daemon socket not found: {self._socket_path}"
+            )
+
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_unix_connection(
+                    str(self._socket_path), limit=_MAX_MESSAGE_BYTES,
+                ),
+                timeout=self._connect_timeout,
+            )
+        except TimeoutError as exc:
+            self._semaphore.release()
+            raise DaemonNotRunningError(
+                f"Timeout connecting to daemon at {self._socket_path}"
+            ) from exc
+        except (ConnectionRefusedError, FileNotFoundError, OSError) as exc:
+            self._semaphore.release()
+            raise DaemonNotRunningError(
+                f"Cannot connect to daemon at {self._socket_path}: {exc}"
+            ) from exc
+
+        _logger.debug("pool_new_connection")
+        return reader, writer
+
+    @staticmethod
+    def _close_writer(writer: asyncio.StreamWriter) -> None:
+        """Close a writer, swallowing errors."""
+        try:
+            if not writer.is_closing():
+                writer.close()
+        except (OSError, RuntimeError):
+            pass
+
 
 class DaemonClient:
     """Async client for the Marianne daemon Unix socket IPC.
@@ -43,6 +235,8 @@ class DaemonClient:
         Path to the Unix domain socket created by ``DaemonServer``.
     timeout:
         Seconds to wait for a response before raising ``TimeoutError``.
+    pool_size:
+        Maximum number of pooled connections for ``call()``.
     """
 
     def __init__(
@@ -50,25 +244,62 @@ class DaemonClient:
         socket_path: Path,
         *,
         timeout: float = 30.0,
+        pool_size: int = _DEFAULT_POOL_SIZE,
     ) -> None:
         self._socket_path = socket_path
         self._timeout = timeout
+        self._pool_size = pool_size
         self._next_id = 0
+        self._pool: ConnectionPool | None = None
 
     def _next_request_id(self) -> int:
         """Return a monotonically increasing request ID."""
         self._next_id += 1
         return self._next_id
 
+    def _get_pool(self) -> ConnectionPool:
+        """Lazily create the connection pool on first use."""
+        if self._pool is None or self._pool.closed:
+            self._pool = ConnectionPool(
+                self._socket_path,
+                max_size=self._pool_size,
+                acquire_timeout=self._timeout,
+            )
+        return self._pool
+
     # ------------------------------------------------------------------
-    # Connection management
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    async def close(self) -> None:
+        """Close the connection pool.  Safe to call multiple times."""
+        if self._pool is not None:
+            await self._pool.close()
+            self._pool = None
+
+    async def __aenter__(self) -> DaemonClient:
+        return self
+
+    async def __aexit__(
+        self,
+        _exc_type: type[BaseException] | None,
+        _exc_val: BaseException | None,
+        _exc_tb: Any,
+    ) -> None:
+        await self.close()
+
+    # ------------------------------------------------------------------
+    # Connection management (for stream / is_daemon_running — unpooled)
     # ------------------------------------------------------------------
 
     @asynccontextmanager
     async def _connect(
         self,
     ) -> AsyncIterator[tuple[asyncio.StreamReader, asyncio.StreamWriter]]:
-        """Open a connection to the daemon socket.
+        """Open a fresh (unpooled) connection to the daemon socket.
+
+        Used by ``stream()`` and ``is_daemon_running()`` which need
+        dedicated connections that are not returned to the pool.
 
         Raises ``DaemonNotRunningError`` if the socket doesn't exist or
         the connection is refused.
@@ -104,8 +335,29 @@ class DaemonClient:
                 _logger.debug("writer_close_failed", exc_info=True)
 
     # ------------------------------------------------------------------
-    # RPC call (single request → single response)
+    # RPC call (single request → single response, pooled)
     # ------------------------------------------------------------------
+
+    async def _send_and_receive(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        request: JsonRpcRequest,
+    ) -> Any:
+        """Send a request and read the response on an existing connection."""
+        writer.write(request.model_dump_json().encode() + b"\n")
+        await writer.drain()
+
+        line = await asyncio.wait_for(
+            reader.readline(), timeout=self._timeout,
+        )
+        if not line:
+            raise DaemonNotRunningError("Daemon closed connection")
+
+        response = json.loads(line)
+        if "error" in response:
+            raise rpc_error_to_exception(response["error"])
+        return response.get("result")
 
     async def call(
         self,
@@ -113,6 +365,10 @@ class DaemonClient:
         params: dict[str, Any] | None = None,
     ) -> Any:
         """Send a JSON-RPC request and return the result.
+
+        Uses the connection pool.  If a pooled connection is stale (server
+        closed it, daemon restarted), discards it and retries once with a
+        fresh connection.
 
         Raises:
             DaemonNotRunningError: socket unreachable
@@ -125,20 +381,42 @@ class DaemonClient:
             id=self._next_request_id(),
         )
 
-        async with self._connect() as (reader, writer):
-            writer.write(request.model_dump_json().encode() + b"\n")
-            await writer.drain()
+        pool = self._get_pool()
+        reader, writer = await pool.acquire()
 
-            line = await asyncio.wait_for(
-                reader.readline(), timeout=self._timeout
-            )
-            if not line:
-                raise DaemonNotRunningError("Daemon closed connection")
+        try:
+            result = await self._send_and_receive(reader, writer, request)
+        except _RETRYABLE_IO_ERRORS:
+            # Stale or broken connection — discard and retry once
+            pool.discard(writer)
+            _logger.debug("pool_retry_on_stale", method=method)
+            reader, writer = await pool.acquire()
+            try:
+                result = await self._send_and_receive(reader, writer, request)
+            except _RETRYABLE_IO_ERRORS:
+                pool.discard(writer)
+                raise
+            except Exception:
+                pool.discard(writer)
+                raise
+        except DaemonNotRunningError:
+            # Empty readline — server closed the connection
+            pool.discard(writer)
+            _logger.debug("pool_retry_on_disconnect", method=method)
+            reader, writer = await pool.acquire()
+            try:
+                result = await self._send_and_receive(reader, writer, request)
+            except Exception:
+                pool.discard(writer)
+                raise
+        except Exception:
+            # Application-level errors (DaemonError from JSON-RPC error)
+            # — the connection is healthy, release it
+            pool.release(reader, writer)
+            raise
 
-            response = json.loads(line)
-            if "error" in response:
-                raise rpc_error_to_exception(response["error"])
-            return response.get("result")
+        pool.release(reader, writer)
+        return result
 
     # ------------------------------------------------------------------
     # Streaming RPC (request → notifications* → final response)

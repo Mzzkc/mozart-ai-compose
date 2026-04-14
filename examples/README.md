@@ -19,14 +19,14 @@ mzt run examples/getting-started/hello.yaml
 | Category | What It Covers | Examples | Start Here |
 |----------|---------------|----------|------------|
 | [getting-started](getting-started/README.md) | Score structure, parallel execution, context passing, API backends, observability, worktree isolation | 7 | `hello.yaml` |
-| [product](product/README.md) | Candidate screening, contract generation, invoice analysis, marketing content | 4 | `candidate-screening.yaml` |
-| [creative](creative/README.md) | Philosophical argumentation, worldbuilding, fiction, dinner planning, skill teaching, literary translation | 6 | `dinner-party.yaml` |
-| [knowledge](knowledge/README.md) | Literature reviews, strategic planning, research synthesis, training data curation, nonfiction authoring, context architecture | 6 | `parallel-research-fanout.yaml` |
-| [engineering](engineering/README.md) | Issue resolution, continuous quality improvement, score generation from design docs | 3 | `score-composer.yaml` |
+| [creative](creative/README.md) | Philosophical argumentation, worldbuilding, fiction, dinner planning, skill teaching, literary translation, interactive fiction | 7 | `hello-marianne.yaml` |
+| [research](research/README.md) | Literature reviews, strategic planning, research synthesis, training data curation, nonfiction authoring, context architecture, multi-source deep research | 7 | `parallel-research-fanout.yaml` |
+| [engineering](engineering/README.md) | Issue resolution, quality improvement, score generation, codebase rewrites, SaaS app building, web app generation | 6 | `score-composer.yaml` |
 | [patterns](patterns/README.md) | Named Rosetta orchestration patterns: Immune Cascade, Echelon Repair, Source Triangulation, Dead Letter Quarantine, Prefabrication, Shipyard Sequence, Rashomon Gate | 7 | `shipyard-sequence.yaml` |
-| [advanced](advanced/README.md) | Explicit dependency DAGs, hand-crafted parallel sheets, multi-source convergence analysis | 1 | `parallel-research.yaml` |
+| [product](product/README.md) | Candidate screening, contract generation, invoice analysis, marketing content | 4 | `candidate-screening.yaml` |
+| [advanced](advanced/README.md) | Explicit dependency DAGs, multi-instrument routing, echelon-tiered analysis, multi-source convergence | 2 | `instrument-showcase.yaml` |
 
-34 examples total across 7 categories, plus 10 archived scores in `archived/`.
+40 examples total across 7 categories.
 
 ## Running Examples
 
@@ -60,6 +60,9 @@ rules. Patterns solve recurring problems in multi-agent coordination:
 - **Immune Cascade** — cheap broad sweeps narrow scope before expensive targeted investigation
 - **Prefabrication** — parallel tracks coordinate via shared interface contracts
 - **Source Triangulation** — independent evidence sources cross-validate claims
+- **Echelon Repair** — graduated response routing work to the right tier by complexity
+- **Cathedral Construction** — iterative build loops with self-chaining and convergence gates
+- **Commissioning Cascade** — multi-scope validation from unit to integration to semantic
 
 The `patterns/` category contains faithful proof-of-concept implementations
 of seven patterns. Other categories use patterns where they fit — each score's
@@ -84,14 +87,14 @@ interactive guidance.
 
 ## Quality
 
-All 34 examples validate clean with `mzt validate`. Every score uses
+All 40 examples validate clean with `mzt validate`. Every score uses
 `instrument_fallbacks` for resilience — if the primary instrument is
 unavailable, execution falls back automatically. Validation paths use correct
 syntax (`{workspace}` for Python format strings, `{{ workspace }}` for Jinja2
 templates). No hardcoded paths, no undefined template variables, no
 placeholder prompts.
 
-Scores in `patterns/`, `knowledge/`, and `engineering/` include substantive
+Scores in `patterns/`, `research/`, and `engineering/` include substantive
 validations beyond `file_exists` — content checks, structural regex, and
 command-based verification that outputs contain real work.
 
@@ -100,5 +103,3 @@ All examples passed three-stage commissioning validation:
 1. **Syntax**: YAML parses, Pydantic schemas validate, no critical errors
 2. **Structure**: Required fields present (instrument, movements, dependencies, fallbacks)
 3. **Compliance**: Generic/reusable, meaningful validations, real work prompts, professional content
-
-See `commission/` in the workspace for full validation results.

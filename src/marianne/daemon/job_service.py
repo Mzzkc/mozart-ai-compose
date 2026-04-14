@@ -24,12 +24,12 @@ from marianne.daemon.output import NullOutput, OutputProtocol
 if TYPE_CHECKING:
     from marianne.backends.base import Backend
     from marianne.core.config import JobConfig
+    from marianne.core.models import JobCompletionSummary
     from marianne.daemon.pgroup import ProcessGroupManager
     from marianne.daemon.registry import JobRegistry
     from marianne.execution.grounding import GroundingEngine
     from marianne.execution.parallel import ResourceChecker
     from marianne.execution.runner import JobRunner
-    from marianne.execution.runner.models import RunSummary
     from marianne.learning.global_store import GlobalLearningStore
     from marianne.learning.outcomes import OutcomeStore
     from marianne.notifications.base import NotificationManager
@@ -161,7 +161,7 @@ class JobService:
         pause_event: asyncio.Event | None = None,
         config_path: str | None = None,
         resource_checker: ResourceChecker | None = None,
-    ) -> RunSummary:
+    ) -> JobCompletionSummary:
         """Start a job from config.
 
         Mirrors the logic in cli/commands/run.py::_run_job():
@@ -187,10 +187,14 @@ class JobService:
         """
         job_id = conductor_job_id or config.name
 
-        self._output.job_event(job_id, "starting", {
-            "total_sheets": config.sheet.total_sheets,
-            "fresh": fresh,
-        })
+        self._output.job_event(
+            job_id,
+            "starting",
+            {
+                "total_sheets": config.sheet.total_sheets,
+                "fresh": fresh,
+            },
+        )
 
         # Ensure workspace exists
         config.workspace.mkdir(parents=True, exist_ok=True)
@@ -202,8 +206,7 @@ class JobService:
         if fresh:
             was_deleted = await state_backend.delete(config.name)
             if was_deleted:
-                self._output.log("info", "Deleted existing state for fresh start",
-                                 job_id=job_id)
+                self._output.log("info", "Deleted existing state for fresh start", job_id=job_id)
 
             # Archive workspace files if configured
             if config.workspace_lifecycle.archive_on_fresh:
@@ -212,14 +215,14 @@ class JobService:
                 archiver = WorkspaceArchiver(config.workspace, config.workspace_lifecycle)
                 archive_path = archiver.archive()
                 if archive_path:
-                    self._output.log("info", "Archived workspace",
-                                     job_id=job_id, archive=archive_path.name)
+                    self._output.log(
+                        "info", "Archived workspace", job_id=job_id, archive=archive_path.name
+                    )
 
         if dry_run:
-            # Return a minimal summary for dry runs
-            from marianne.execution.runner.models import RunSummary
+            from marianne.core.models import JobCompletionSummary as JCS
 
-            return RunSummary(
+            return JCS(
                 job_id=job_id,
                 job_name=config.name,
                 total_sheets=config.sheet.total_sheets,
@@ -235,7 +238,9 @@ class JobService:
 
         try:
             runner = self._create_runner(
-                config, components, runner_backend,
+                config,
+                components,
+                runner_backend,
                 job_id=job_id,
                 self_healing=self_healing,
                 self_healing_auto_confirm=self_healing_auto_confirm,
@@ -274,7 +279,7 @@ class JobService:
         self_healing_auto_confirm: bool = False,
         pause_event: asyncio.Event | None = None,
         resource_checker: ResourceChecker | None = None,
-    ) -> RunSummary:
+    ) -> JobCompletionSummary:
         """Resume a paused or failed job.
 
         Mirrors the logic in cli/commands/resume.py::_resume_job():
@@ -302,7 +307,9 @@ class JobService:
         """
         # Phase 1: Find job state (ERROR severity if fallback used during resume)
         found_state, found_backend = await self._find_job_state(
-            job_id, workspace, for_resume=True,
+            job_id,
+            workspace,
+            for_resume=True,
         )
 
         # Use conductor's ID for runtime identity (state publish, events).
@@ -324,7 +331,9 @@ class JobService:
 
         # Phase 2: Reconstruct config (auto-reload from file by default)
         resolved_config, was_reloaded = self._reconstruct_config(
-            found_state, config=config, config_path=config_path,
+            found_state,
+            config=config,
+            config_path=config_path,
             no_reload=no_reload,
         )
 
@@ -336,10 +345,14 @@ class JobService:
             # Always update snapshot with latest config
             found_state.config_snapshot = resolved_config.model_dump(mode="json")
             if report.has_changes:
-                self._output.job_event(runtime_id, "config_reconciled", {
-                    "sections_changed": report.sections_changed,
-                    "fields_reset": report.fields_reset,
-                })
+                self._output.job_event(
+                    runtime_id,
+                    "config_reconciled",
+                    {
+                        "sections_changed": report.sections_changed,
+                        "fields_reset": report.fields_reset,
+                    },
+                )
 
             # Update persistent registry metadata if workspace or config_path changed
             if self._registry is not None:
@@ -356,13 +369,17 @@ class JobService:
         if resume_sheet > found_state.total_sheets:
             resume_sheet = found_state.total_sheets
 
-        self._output.job_event(runtime_id, "resuming", {
-            "resume_sheet": resume_sheet,
-            "total_sheets": found_state.total_sheets,
-            "previous_status": found_state.status.value,
-            "previous_error": found_state.error_message,
-            "config_reloaded": was_reloaded,
-        })
+        self._output.job_event(
+            runtime_id,
+            "resuming",
+            {
+                "resume_sheet": resume_sheet,
+                "total_sheets": found_state.total_sheets,
+                "previous_status": found_state.status.value,
+                "previous_error": found_state.error_message,
+                "config_reloaded": was_reloaded,
+            },
+        )
 
         # Wrap backend early so the initial state save publishes to the
         # conductor, making ``mzt status`` available immediately.
@@ -388,13 +405,13 @@ class JobService:
         notification_manager = components["notification_manager"]
 
         remaining = found_state.total_sheets - found_state.last_completed_sheet
-        stored_config_path = (
-            str(config_path) if config_path else found_state.config_path
-        )
+        stored_config_path = str(config_path) if config_path else found_state.config_path
 
         try:
             runner = self._create_runner(
-                resolved_config, components, runner_backend,
+                resolved_config,
+                components,
+                runner_backend,
                 job_id=runtime_id,
                 self_healing=self_healing,
                 self_healing_auto_confirm=self_healing_auto_confirm,
@@ -450,9 +467,13 @@ class JobService:
         signal_file = workspace / f".marianne-pause-{job_id}"
         signal_file.touch()
 
-        self._output.job_event(job_id, "pause_signal_sent", {
-            "signal_file": str(signal_file),
-        })
+        self._output.job_event(
+            job_id,
+            "pause_signal_sent",
+            {
+                "signal_file": str(signal_file),
+            },
+        )
 
         return True
 
@@ -542,15 +563,14 @@ class JobService:
         job_name: str,
         total_sheets: int,
         status: JobStatus,
-    ) -> RunSummary:
-        """Get summary from runner or create a minimal fallback."""
-        from marianne.execution.runner.models import RunSummary
+    ) -> JobCompletionSummary:
+        from marianne.core.models import JobCompletionSummary as JCS
 
         summary = runner.get_summary()
         if summary:
             summary.final_status = status
             return summary
-        return RunSummary(
+        return JCS(
             job_id=job_id,
             job_name=job_name,
             total_sheets=total_sheets,
@@ -592,8 +612,7 @@ class JobService:
         except (OSError, ConnectionError, TimeoutError):
             self._notification_consecutive_failures += 1
             if (
-                self._notification_consecutive_failures
-                >= self._NOTIFICATION_DEGRADED_THRESHOLD
+                self._notification_consecutive_failures >= self._NOTIFICATION_DEGRADED_THRESHOLD
                 and not self._notifications_degraded
             ):
                 self._notifications_degraded = True
@@ -617,13 +636,13 @@ class JobService:
         notify_total_sheets: int | None = None,
         start_sheet: int | None = None,
         config_path: str | None = None,
-    ) -> RunSummary:
+    ) -> JobCompletionSummary:
         """Execute a runner with unified error handling.
 
         Handles GracefulShutdownError (→ PAUSED), FatalError (→ FAILED),
         and notification lifecycle (start, complete/fail, close).
         """
-        from marianne.execution.runner import (
+        from marianne.core.errors.exceptions import (
             FatalError,
             GracefulShutdownError,
             RateLimitExhaustedError,
@@ -676,17 +695,25 @@ class JobService:
                         "notification_failed_during_job_failure",
                     )
 
-            self._output.job_event(job_id, "completed", {
-                "status": state.status.value,
-                "completed_sheets": summary.completed_sheets,
-            })
+            self._output.job_event(
+                job_id,
+                "completed",
+                {
+                    "status": state.status.value,
+                    "completed_sheets": summary.completed_sheets,
+                },
+            )
 
             return summary
 
         except GracefulShutdownError:
             self._output.job_event(job_id, "paused")
             return self._get_or_create_summary(
-                runner, job_id, job_name, total_sheets, JobStatus.PAUSED,
+                runner,
+                job_id,
+                job_name,
+                total_sheets,
+                JobStatus.PAUSED,
             )
 
         except RateLimitExhaustedError as e:
@@ -698,10 +725,14 @@ class JobService:
                 f"Rate limit exhausted: {e}",
                 job_id=job_id,
             )
-            self._output.job_event(job_id, "paused", {
-                "reason": "rate_limit_exhausted",
-                "resume_at": e.resume_after.isoformat() if e.resume_after else None,
-            })
+            self._output.job_event(
+                job_id,
+                "paused",
+                {
+                    "reason": "rate_limit_exhausted",
+                    "resume_at": e.resume_after.isoformat() if e.resume_after else None,
+                },
+            )
             if notification_manager:
                 await _notify(
                     notification_manager,
@@ -713,7 +744,11 @@ class JobService:
                     "notification_failed_during_rate_limit_pause",
                 )
             return self._get_or_create_summary(
-                runner, job_id, job_name, total_sheets, JobStatus.PAUSED,
+                runner,
+                job_id,
+                job_name,
+                total_sheets,
+                JobStatus.PAUSED,
             )
 
         except FatalError as e:
@@ -729,7 +764,11 @@ class JobService:
                     "notification_failed_during_fatal_error",
                 )
             return self._get_or_create_summary(
-                runner, job_id, job_name, total_sheets, JobStatus.FAILED,
+                runner,
+                job_id,
+                job_name,
+                total_sheets,
+                JobStatus.FAILED,
             )
 
         except Exception as e:
@@ -914,9 +953,7 @@ class JobService:
                     )
                     continue
 
-            raise JobSubmissionError(
-                f"Job '{job_id}' not found in workspace: {workspace}"
-            )
+            raise JobSubmissionError(f"Job '{job_id}' not found in workspace: {workspace}")
         finally:
             # Close backends that weren't chosen (resource cleanup)
             for _, backend in backends:
@@ -963,18 +1000,14 @@ class JobService:
                 try:
                     return JC.from_yaml(path), True
                 except Exception as e:
-                    raise JobSubmissionError(
-                        f"Error reloading config from {path}: {e}"
-                    ) from e
+                    raise JobSubmissionError(f"Error reloading config from {path}: {e}") from e
 
         # Priority 3: Config snapshot from state
         if state.config_snapshot:
             try:
                 return JC.model_validate(state.config_snapshot), False
             except Exception as e:
-                raise JobSubmissionError(
-                    f"Error reconstructing config from snapshot: {e}"
-                ) from e
+                raise JobSubmissionError(f"Error reconstructing config from snapshot: {e}") from e
 
         raise JobSubmissionError(
             "Cannot resume: no config available. "

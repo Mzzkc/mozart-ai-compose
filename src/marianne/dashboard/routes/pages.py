@@ -24,10 +24,7 @@ async def dashboard_home(
     templates: Jinja2Templates = Depends(get_templates),
 ) -> HTMLResponse:
     """Render the dashboard overview page."""
-    return templates.TemplateResponse(
-        "pages/index.html",
-        {"request": request}
-    )
+    return templates.TemplateResponse("pages/index.html", {"request": request})
 
 
 @router.get("/jobs", response_class=HTMLResponse)
@@ -36,10 +33,7 @@ async def jobs_page(
     templates: Jinja2Templates = Depends(get_templates),
 ) -> HTMLResponse:
     """Render the jobs list page."""
-    return templates.TemplateResponse(
-        "pages/jobs_list.html",
-        {"request": request}
-    )
+    return templates.TemplateResponse("pages/jobs_list.html", {"request": request})
 
 
 @router.get("/jobs/list", response_class=HTMLResponse)
@@ -66,6 +60,7 @@ async def jobs_list_partial(
 
         # Create job summaries for template
         from marianne.dashboard.routes import JobSummary
+
         job_summaries = [JobSummary.from_checkpoint(job) for job in jobs]
 
         return templates.TemplateResponse(
@@ -76,7 +71,7 @@ async def jobs_list_partial(
                 "total_jobs": len(all_jobs),
                 "filtered_jobs": len(filtered_jobs),
                 "applied_filter": status,
-            }
+            },
         )
     except Exception as e:
         # Return error partial
@@ -86,7 +81,7 @@ async def jobs_list_partial(
                 "request": request,
                 "error_title": "Failed to Load Jobs",
                 "error_message": f"Unable to fetch job list: {str(e)}",
-            }
+            },
         )
 
 
@@ -105,6 +100,7 @@ async def job_details_page(
             raise HTTPException(status_code=404, detail=f"Score not found: {job_id}")
 
         from marianne.dashboard.routes import JobDetail
+
         job_detail = JobDetail.from_checkpoint(state)
 
         return templates.TemplateResponse(
@@ -112,7 +108,7 @@ async def job_details_page(
             {
                 "request": request,
                 "job": job_detail,
-            }
+            },
         )
     except HTTPException:
         raise
@@ -123,7 +119,7 @@ async def job_details_page(
                 "request": request,
                 "error_title": "Failed to Load Job Details",
                 "error_message": f"Unable to fetch job details: {str(e)}",
-            }
+            },
         )
 
 
@@ -142,6 +138,7 @@ async def job_logs_page(
             raise HTTPException(status_code=404, detail=f"Score not found: {job_id}")
 
         from marianne.dashboard.routes import JobDetail
+
         job_detail = JobDetail.from_checkpoint(state)
 
         return templates.TemplateResponse(
@@ -149,7 +146,7 @@ async def job_logs_page(
             {
                 "request": request,
                 "job": job_detail,
-            }
+            },
         )
     except HTTPException:
         raise
@@ -160,7 +157,7 @@ async def job_logs_page(
                 "request": request,
                 "error_title": "Failed to Load Job Logs",
                 "error_message": f"Unable to fetch job logs: {str(e)}",
-            }
+            },
         )
 
 
@@ -170,10 +167,7 @@ async def monitor_page(
     templates: Jinja2Templates = Depends(get_templates),
 ) -> HTMLResponse:
     """Render the system monitoring page."""
-    return templates.TemplateResponse(
-        "pages/monitor.html",
-        {"request": request}
-    )
+    return templates.TemplateResponse("pages/monitor.html", {"request": request})
 
 
 @router.get("/templates", response_class=HTMLResponse)
@@ -182,10 +176,7 @@ async def templates_page(
     templates: Jinja2Templates = Depends(get_templates),
 ) -> HTMLResponse:
     """Render the templates browser page."""
-    return templates.TemplateResponse(
-        "pages/templates.html",
-        {"request": request}
-    )
+    return templates.TemplateResponse("pages/templates.html", {"request": request})
 
 
 @router.get("/editor", response_class=HTMLResponse)
@@ -194,10 +185,16 @@ async def score_editor_page(
     templates: Jinja2Templates = Depends(get_templates),
 ) -> HTMLResponse:
     """Render the score editor page."""
-    return templates.TemplateResponse(
-        "pages/score_editor.html",
-        {"request": request}
-    )
+    return templates.TemplateResponse("pages/score_editor.html", {"request": request})
+
+
+@router.get("/analytics", response_class=HTMLResponse)
+async def analytics_page(
+    request: Request,
+    templates: Jinja2Templates = Depends(get_templates),
+) -> HTMLResponse:
+    """Render the analytics overview page."""
+    return templates.TemplateResponse("pages/analytics.html", {"request": request})
 
 
 @router.get("/api/templates/list", response_class=HTMLResponse)
@@ -231,7 +228,7 @@ async def templates_list_partial(
                     continue
                 if search:
                     data = yaml.safe_load(content)
-                    data_name = data.get('name', '') if isinstance(data, dict) else ''
+                    data_name = data.get("name", "") if isinstance(data, dict) else ""
                     if (
                         search.lower() not in name.lower()
                         and search.lower() not in data_name.lower()
@@ -252,7 +249,7 @@ async def templates_list_partial(
                 "search": search,
                 "category": category,
                 "complexity": complexity,
-            }
+            },
         )
 
     except Exception as e:
@@ -263,5 +260,5 @@ async def templates_list_partial(
                 "request": request,
                 "error_title": "Failed to Load Templates",
                 "error_message": f"Unable to fetch template list: {str(e)}",
-            }
+            },
         )

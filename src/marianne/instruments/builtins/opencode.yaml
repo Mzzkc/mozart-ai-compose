@@ -158,14 +158,12 @@ models:
 cli:
   command:
     executable: opencode
-    prompt_flag: "-p"
+    subcommand: "run"
+    # Message is positional (no flag). -p is password, NOT prompt.
     prompt_via_stdin: false
     model_flag: "--model"
-    output_format_flag: "-f"
+    output_format_flag: "--format"
     output_format_value: "json"
-    mcp_config_flag: "--mcp-config"
-    # OpenCode auto-approves all permissions in prompt mode (-p)
-    # No separate auto_approve_flag needed
     # Auth handled by opencode's credential store (opencode providers login).
     # Run `opencode providers login` to configure providers.
     # Keys stored in ~/.local/share/opencode/auth.json

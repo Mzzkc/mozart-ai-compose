@@ -12,6 +12,24 @@ from marianne.core.checkpoint import CheckpointState
 from marianne.state.base import StateBackend
 
 
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Skip playwright-marked tests when running under xdist.
+
+    Playwright tests launch browsers and bind ports — they cannot run in
+    parallel xdist workers.  The addopts ``-m 'not playwright'`` in
+    pyproject.toml is the primary gate; this hook is a safety net.
+    """
+    if not config.pluginmanager.has_plugin("xdist"):
+        return
+    worker_count = config.getoption("numprocesses", default=None)
+    if worker_count is None or worker_count == 0:
+        return
+    skip_marker = pytest.mark.skip(reason="Playwright tests cannot run under xdist")
+    for item in items:
+        if "playwright" in item.keywords:
+            item.add_marker(skip_marker)
+
+
 class MockStateBackend(StateBackend):
     """In-memory state backend for testing.
 

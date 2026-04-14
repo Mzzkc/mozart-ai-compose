@@ -30,8 +30,11 @@ _logger = get_logger("daemon.ipc.server")
 # (21 sheets) exceeded the limit and broke `mzt status`.
 MAX_MESSAGE_BYTES = 16_777_216  # 16 MiB
 
-# Default limit on concurrent client connections.
-DEFAULT_MAX_CONNECTIONS = 20
+# Default limit on simultaneous connected clients (FD protection).
+DEFAULT_MAX_CONNECTIONS = 500
+
+# Default limit on concurrently processing requests.
+DEFAULT_MAX_CONCURRENT_REQUESTS = 50
 
 
 class DaemonServer:
@@ -47,7 +50,11 @@ class DaemonServer:
         Octal file permissions applied to the socket after creation.
         Defaults to ``0o660`` (owner + group read/write).
     max_connections:
-        Maximum concurrent client connections.
+        Maximum simultaneous connected clients.  FD protection — idle
+        connections are cheap, so the default is high (~500).
+    max_concurrent_requests:
+        Maximum requests being processed at once across all connections.
+        This is the real concurrency control (~50).
     """
 
     def __init__(
@@ -57,14 +64,24 @@ class DaemonServer:
         *,
         permissions: int = 0o660,
         max_connections: int = DEFAULT_MAX_CONNECTIONS,
+        max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS,
     ) -> None:
+        if max_connections < 1:
+            raise ValueError(f"max_connections must be >= 1, got {max_connections}")
+        if max_concurrent_requests < 1:
+            raise ValueError(
+                f"max_concurrent_requests must be >= 1, got {max_concurrent_requests}"
+            )
+
         self._socket_path = socket_path
         self._handler = handler
         self._permissions = permissions
         self._max_connections = max_connections
+        self._max_concurrent_requests = max_concurrent_requests
         self._server: asyncio.Server | None = None
         self._connections: set[asyncio.Task[None]] = set()
         self._connection_semaphore = asyncio.Semaphore(max_connections)
+        self._request_semaphore = asyncio.Semaphore(max_concurrent_requests)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -93,6 +110,7 @@ class DaemonServer:
             "ipc_server_started",
             socket_path=str(self._socket_path),
             max_connections=self._max_connections,
+            max_concurrent_requests=self._max_concurrent_requests,
         )
 
     async def stop(self) -> None:
@@ -152,7 +170,12 @@ class DaemonServer:
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
     ) -> None:
-        """Wrap each connection in a tracked task with a concurrency limit."""
+        """Wrap each connection in a tracked task with a connection limit.
+
+        The connection semaphore gates how many clients can be connected
+        simultaneously (FD protection).  Request concurrency is controlled
+        separately in ``_process_message`` via ``_request_semaphore``.
+        """
         task = asyncio.current_task()
         if task is not None:
             self._connections.add(task)
@@ -218,15 +241,20 @@ class DaemonServer:
         line: bytes,
         writer: asyncio.StreamWriter,
     ) -> None:
-        """Parse one NDJSON line and route through the handler."""
-        # Parse JSON
+        """Parse one NDJSON line and route through the handler.
+
+        The request semaphore limits how many requests are being processed
+        concurrently across all connections.  Parsing and validation happen
+        outside the semaphore — only handler dispatch is gated.
+        """
+        # Parse JSON (outside semaphore — cheap, no I/O)
         try:
             raw = json.loads(line)
         except json.JSONDecodeError:
             await self._write_response(writer, parse_error())
             return
 
-        # Validate JSON-RPC structure
+        # Validate JSON-RPC structure (outside semaphore — cheap)
         if not isinstance(raw, dict) or "method" not in raw:
             error_resp = invalid_request(
                 raw.get("id") if isinstance(raw, dict) else None,
@@ -235,7 +263,7 @@ class DaemonServer:
             await self._write_response(writer, error_resp)
             return
 
-        # Build typed request
+        # Build typed request (outside semaphore — validation only)
         try:
             request = JsonRpcRequest.model_validate(raw)
         except Exception as exc:
@@ -244,8 +272,14 @@ class DaemonServer:
             )
             return
 
-        # Dispatch to handler
-        response = await self._handler.handle(request, writer)
+        # Dispatch to handler — gated by request semaphore
+        async with self._request_semaphore:
+            _logger.debug(
+                "request_processing",
+                method=request.method,
+                request_id=request.id,
+            )
+            response = await self._handler.handle(request, writer)
 
         # Handler returns None for notifications or streaming methods
         if response is not None:

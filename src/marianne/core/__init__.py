@@ -16,7 +16,21 @@ from marianne.core.config import (
     SheetConfig,
     ValidationRule,
 )
-from marianne.core.errors import ClassifiedError, ErrorCategory, ErrorClassifier, ErrorCode
+from marianne.core.errors import (
+    ClassifiedError,
+    ErrorCategory,
+    ErrorClassifier,
+    ErrorCode,
+    FatalError,
+    GracefulShutdownError,
+    RateLimitExhaustedError,
+)
+from marianne.core.models import JobCompletionSummary
+from marianne.core.summary import (
+    GroundingDecisionContext,
+    RunSummary,
+    SheetExecutionMode,
+)
 
 __all__ = [
     "BackendConfig",
@@ -28,11 +42,18 @@ __all__ = [
     "ErrorCategory",
     "ErrorClassifier",
     "ErrorCode",
+    "FatalError",
+    "GracefulShutdownError",
+    "GroundingDecisionContext",
+    "JobCompletionSummary",
     "JobConfig",
     "MAX_OUTPUT_CAPTURE_BYTES",
     "NotificationConfig",
     "PromptConfig",
+    "RateLimitExhaustedError",
     "RateLimitConfig",
     "RetryConfig",
+    "RunSummary",
+    "SheetExecutionMode",
     "ValidationRule",
 ]

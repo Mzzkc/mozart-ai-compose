@@ -377,9 +377,9 @@ function scoreEditor() {
         init() {
             this.$nextTick(() => {
                 const container = document.getElementById('editor-container');
-                if (!container || typeof CodeMirror === 'undefined') return;
+                if (!container || typeof CodeMirror6 === 'undefined') return;
 
-                this.editor = CodeMirror(container, {
+                this.editor = CodeMirror6(container, {
                     value: this.defaultContent,
                     mode: 'yaml',
                     lineNumbers: true,

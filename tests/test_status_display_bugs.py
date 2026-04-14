@@ -290,7 +290,7 @@ prompt:
         from marianne.core.config.job import JobConfig
         from marianne.validation.checks.jinja import JinjaUndefinedVariableCheck
 
-        config_path = Path("examples/hello-marianne.yaml")
+        config_path = Path("examples/creative/hello-marianne.yaml")
         if not config_path.exists():
             pytest.skip("hello-marianne.yaml not found")
 

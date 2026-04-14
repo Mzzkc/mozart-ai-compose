@@ -3,6 +3,7 @@
 # Each module in this package provides one or more CLI commands.
 
 from .cancel import cancel
+from .compose import compose
 from .diagnose import diagnose, errors, history, logs
 from .doctor import doctor
 from .init_cmd import init
@@ -17,6 +18,8 @@ from .validate import validate
 __all__ = [
     # cancel.py
     "cancel",
+    # compose.py
+    "compose",
     # diagnose.py
     "logs",
     "errors",

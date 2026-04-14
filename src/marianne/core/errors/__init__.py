@@ -12,6 +12,11 @@ from marianne.core.errors.codes import (
     RetryDelays,
     Severity,
 )
+from marianne.core.errors.exceptions import (
+    FatalError,
+    GracefulShutdownError,
+    RateLimitExhaustedError,
+)
 from marianne.core.errors.models import (
     ClassificationInput,
     ClassificationResult,
@@ -36,6 +41,9 @@ __all__ = [
     "ErrorCategory",
     "ErrorCode",
     "ExitReason",
+    "FatalError",
+    "GracefulShutdownError",
+    "RateLimitExhaustedError",
     "RetryBehavior",
     "RetryDelays",
     "Severity",

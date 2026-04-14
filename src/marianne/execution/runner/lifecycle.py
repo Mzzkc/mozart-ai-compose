@@ -578,6 +578,16 @@ class LifecycleMixin:
             elif sheet_state.validation_passed is False:
                 self._summary.validation_fail_count += 1
 
+        # Compute validation pass rate from counts
+        total_validations = (
+            self._summary.validation_pass_count + self._summary.validation_fail_count
+        )
+        self._summary.validation_pass_rate = (
+            (self._summary.validation_pass_count / total_validations * 100)
+            if total_validations > 0
+            else 100.0
+        )
+
         # Copy rate limit waits from state
         self._summary.rate_limit_waits = state.rate_limit_waits
 

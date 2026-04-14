@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from marianne.core.checkpoint import CheckpointErrorRecord, CheckpointState
-    from marianne.execution.runner.models import RunSummary
+    from marianne.core.models import JobCompletionSummary
 
 # =============================================================================
 # Shared console instance
@@ -361,11 +361,7 @@ def format_error_code_for_display(
         return "E999"
 
     # Handle both ErrorCategory enum values and raw strings
-    category_str = (
-        error_category.value
-        if hasattr(error_category, "value")
-        else str(error_category)
-    )
+    category_str = error_category.value if hasattr(error_category, "value") else str(error_category)
     return _CATEGORY_TO_ERROR_CODE.get(category_str.lower(), "E999")
 
 
@@ -394,11 +390,7 @@ def infer_error_type(
     category_lower = error_category.lower()
 
     # Structured error codes: E followed by 3 digits (e.g., E001, E101)
-    if (
-        len(category_lower) == 4
-        and category_lower.startswith("e")
-        and category_lower[1:].isdigit()
-    ):
+    if len(category_lower) == 4 and category_lower.startswith("e") and category_lower[1:].isdigit():
         code_class = int(category_lower[1])
         if code_class == 0:
             return "transient"  # E0xx: execution errors
@@ -645,7 +637,7 @@ def create_header_panel(
 
 
 def create_run_summary_panel(
-    summary: RunSummary,
+    summary: JobCompletionSummary,
     job_status: JobStatus,
 ) -> Panel:
     """Create a run summary panel.
@@ -667,16 +659,18 @@ def create_run_summary_panel(
         "[bold]Sheets[/bold]",
         f"  Completed: {summary.completed_sheets}/{summary.total_sheets}",
         f"  Failed: {summary.failed_sheets}",
-        f"  Remaining: {summary.total_sheets - summary.completed_sheets
-                        - summary.failed_sheets - summary.skipped_sheets}",
+        f"  Remaining: {
+            summary.total_sheets
+            - summary.completed_sheets
+            - summary.failed_sheets
+            - summary.skipped_sheets
+        }",
     ]
 
     # Add validation info if available
     if hasattr(summary, "validation_passed") and summary.validation_passed is not None:
         val_status = (
-            "[green]All Passed[/green]"
-            if summary.validation_passed
-            else "[red]Some Failed[/red]"
+            "[green]All Passed[/green]" if summary.validation_passed else "[red]Some Failed[/red]"
         )
         lines.extend(["", "[bold]Validation[/bold]", f"  Status: {val_status}"])
 
@@ -817,7 +811,7 @@ def _sanitize_for_json(obj: object) -> object:
     # is consumed by the control character class), then C0 controls (except
     # \t \n \r which are safe in JSON), then C1 controls.
     # F-060: Reordered — ANSI sequences before individual control chars.
-    _CONTROL_RE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]')
+    _CONTROL_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 
     if isinstance(obj, str):
         return _CONTROL_RE.sub("", obj)
@@ -879,19 +873,16 @@ def format_error_details(error: CheckpointErrorRecord) -> str:
     ]
 
     if error.timestamp:
-        lines.append(
-            f"[bold]Time:[/bold] {error.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}"
-        )
+        lines.append(f"[bold]Time:[/bold] {error.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}")
 
     if error.context:
-        context_str = ", ".join(
-            f"{k}={v}" for k, v in error.context.items() if v is not None
-        )
+        context_str = ", ".join(f"{k}={v}" for k, v in error.context.items() if v is not None)
         if context_str:
             lines.append(f"[bold]Context:[/bold] {context_str}")
 
     if error.stdout_tail:
         from marianne.core.constants import TRUNCATE_STDOUT_TAIL_CHARS
+
         lines.append(
             f"\n[bold]Stdout (tail):[/bold]\n"
             f"[dim]{error.stdout_tail[:TRUNCATE_STDOUT_TAIL_CHARS]}[/dim]"
@@ -899,6 +890,7 @@ def format_error_details(error: CheckpointErrorRecord) -> str:
 
     if error.stderr_tail:
         from marianne.core.constants import TRUNCATE_STDOUT_TAIL_CHARS
+
         lines.append(
             f"\n[bold]Stderr (tail):[/bold]\n"
             f"[red dim]{error.stderr_tail[:TRUNCATE_STDOUT_TAIL_CHARS]}[/red dim]"
@@ -990,6 +982,7 @@ def print_timing_section(
 # =============================================================================
 # Public API
 # =============================================================================
+
 
 def format_rate_limit_info(
     backends: dict[str, dict[str, float]],

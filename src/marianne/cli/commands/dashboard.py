@@ -75,25 +75,8 @@ def dashboard(
         raise typer.Exit(1) from None
 
     from marianne.dashboard import create_app
-    from marianne.state import JsonStateBackend, SQLiteStateBackend
-    from marianne.state.base import StateBackend
 
-    # Determine state directory
-    state_dir = workspace or Path.cwd()
-
-    # Create state backend (prefer SQLite if exists, otherwise JSON)
-    state_backend: StateBackend
-    sqlite_path = state_dir / ".marianne-state.db"
-    if sqlite_path.exists():
-        state_backend = SQLiteStateBackend(sqlite_path)
-        console.print(f"[dim]Using SQLite state backend: {sqlite_path}[/dim]")
-    else:
-        state_backend = JsonStateBackend(state_dir)
-        console.print(f"[dim]Using JSON state backend: {state_dir}[/dim]")
-
-    # Create the FastAPI app
     fastapi_app = create_app(
-        state_backend=state_backend,
         title="Marianne Dashboard",
         version=__version__,
     )
@@ -170,10 +153,7 @@ async def _run_mcp_server(host: str, port: int, workspace_root: Path | None) -> 
     server = MCPServer(workspace_root=workspace)
 
     # Initialize with basic client info
-    await server.initialize({
-        "name": "marianne-cli",
-        "version": __version__
-    })
+    await server.initialize({"name": "marianne-cli", "version": __version__})
 
     console.print(
         Panel(

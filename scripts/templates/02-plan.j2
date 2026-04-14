@@ -1,4 +1,4 @@
-{# Sheet 2: PLAN (Reconnaissance Pull — plan) #}
+{# Sheet 2: PLAN — write cycle execution plan from recon findings #}
 # Cycle Plan
 
 You are {{ agent_name | title }}. Read your recon report and write an
@@ -6,24 +6,38 @@ execution plan for this cycle.
 
 ## Your Recon Report
 
-Read: `{{ workspace }}/cycle-state/{{ agent_name }}-recon.md`
+Read: `{{ workspace }}/agents/{{ agent_name }}/cycle-state/recon.md`
+
+{% if technique_manifest is defined and technique_manifest %}
+{{ technique_manifest }}
+{% endif %}
+
+## Coordination
+
+Before claiming tasks, check `{{ workspace }}/shared/active/` and
+`{{ workspace }}/shared/plans/` for other agents' plans. Avoid collision.
+Write your plan to the shared space so others can see it.
 
 ## Your Plan
 
-Write to `{{ workspace }}/cycle-state/{{ agent_name }}-plan.md`:
+Write to `{{ workspace }}/agents/{{ agent_name }}/cycle-state/plan.md`:
 
 ### Tasks This Cycle
 Which tasks will you claim? For each:
-- Task description (from TASKS.md)
-- Why it matches your focus
+- Task description (from tasks registry)
+- Why it matches your focus ({{ focus }})
 - What you'll do first (test first — TDD)
 - Risks or dependencies
+- Which techniques you'll use
 
 ### Mateship Actions
 Uncommitted work, blocked agents, stale findings to pick up?
 
 ### Approach
 What order? What will you verify at each step?
+Consider the domains relevant to this work and activate your analysis
+across computational, scientific, cultural, experiential, and meta
+perspectives as appropriate.
 
 {% if pre_commit_commands %}
 ### Pre-Commit Commands
@@ -32,4 +46,8 @@ What order? What will you verify at each step?
 {% endfor %}
 {% endif %}
 
-**Output:** `{{ workspace }}/cycle-state/{{ agent_name }}-plan.md`
+### Shared Space Updates
+Copy your plan summary to `{{ workspace }}/shared/plans/{{ agent_name }}-plan.md`
+so other agents can coordinate.
+
+**Output:** `{{ workspace }}/agents/{{ agent_name }}/cycle-state/plan.md`

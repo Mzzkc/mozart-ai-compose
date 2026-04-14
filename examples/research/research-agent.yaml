@@ -1,0 +1,642 @@
+# Research Agent — Multi-Source Deep Research Pipeline
+#
+# Patterns: Source Triangulation + Immune Cascade + Relay Zone
+#
+# A deep research pipeline that investigates any topic through multi-source
+# verification. Demonstrates how graduated scanning (cheap broad sweep, then
+# expensive targeted investigation) composes with independent source analysis
+# and context compression for reliable research synthesis.
+#
+# Pattern composition:
+#   - Source Triangulation: extract → investigate(×3) → triangulate
+#   - Immune Cascade: broad-sweep → triage-handoff → deep-investigation → learning
+#   - Relay Zone: relay (merged with IC triage-handoff between scan and investigation)
+#
+# How the patterns compose into stages:
+#   Stage 1 = ST extract           (define research questions and verification criteria)
+#   Stage 2 = IC broad-sweep       (cheap broad source identification)
+#   Stage 3 = RZ relay + IC triage (compress scan output + prioritize investigation targets)
+#   Stage 4 = ST investigate + IC deep-investigation  (3 parallel deep dives, fan_out 3)
+#   Stage 5 = ST triangulate       (cross-reference findings, produce verdicts)
+#   Stage 6 = bookend output       (final research report)
+#   Stage 7 = IC learning          (methodology documentation for future runs)
+#
+# Execution Flow (7 stages, 9 sheets):
+#
+#   Stage 1: Research Planning (1 sheet)      [ST: extract]
+#        |
+#   Stage 2: Broad Scan (1 sheet)             [IC: broad-sweep]
+#        |
+#   Stage 3: Relay & Triage (1 sheet)         [RZ: relay + IC: triage-handoff]
+#        |
+#        +--------+--------+
+#        v        v        v
+#   Stage 4: Deep Investigation (3 sheets)    [ST: investigate + IC: deep-investigation]
+#        |        |        |
+#        +--------+--------+
+#                 v
+#   Stage 5: Triangulation (1 sheet)          [ST: triangulate]
+#                 v
+#   Stage 6: Final Report (1 sheet)           [bookend output]
+#                 v
+#   Stage 7: Learning (1 sheet)               [IC: learning]
+#
+# Usage:
+#   1. Customize prompt.variables with your research topic and scope
+#   2. Run: mzt run research-agent.yaml
+#   3. Monitor: mzt status research-agent --watch
+#
+# Sheets: 9 (7 stages, stage 4 fans out to 3 parallel investigation tracks)
+# Estimated time: 30-50 minutes
+# Estimated cost: $4-10
+
+name: research-agent
+description: >
+  Deep research pipeline with multi-source verification. Source Triangulation
+  provides independent investigation tracks (extract → investigate ×3 →
+  triangulate), Immune Cascade provides graduated scanning with intelligence
+  forwarding and learning persistence (broad-sweep → triage → deep-investigation
+  → learning), and Relay Zone compresses scan output before investigation to
+  prevent context overflow.
+
+workspace: ../workspaces/research-agent
+
+instrument: claude-code
+instrument_fallbacks: [anthropic_api]
+instrument_config:
+  skip_permissions: true
+  disable_mcp: true
+  timeout_seconds: 900
+  allowed_tools: [Read, Write, Edit, Glob, Grep, Bash, WebSearch, WebFetch]
+
+# Named instruments — match capability to task difficulty.
+# Economic gradient is load-bearing (Immune Cascade):
+#   scanner: cheap/fast for broad work and documentation (haiku-tier guidance)
+#   analyst: mid-tier for triage, investigation, relay (sonnet-tier guidance)
+#   synthesizer: strong reasoning for triangulation and editorial synthesis (opus-tier guidance)
+instruments:
+  scanner:
+    profile: claude-code
+    config:
+      timeout_seconds: 600
+  analyst:
+    profile: claude-code
+    config:
+      timeout_seconds: 900
+  synthesizer:
+    profile: claude-code
+    config:
+      timeout_seconds: 1200
+
+movements:
+  1:
+    name: Research Planning
+    instrument: scanner          # ST extract: cheap — question formulation is straightforward
+  2:
+    name: Broad Scan
+    instrument: scanner          # IC broad-sweep: cheap/fast scanning
+  3:
+    name: Relay & Triage
+    instrument: analyst          # RZ relay + IC triage-handoff: needs judgment for compression and prioritization
+  4:
+    name: Deep Investigation
+    instrument: analyst          # ST investigate + IC deep-investigation: reading & analysis
+  5:
+    name: Triangulation
+    instrument: synthesizer      # ST triangulate: strong reasoning for cross-referencing
+  6:
+    name: Final Report
+    instrument: synthesizer      # Bookend output: editorial synthesis
+  7:
+    name: Learning
+    instrument: scanner          # IC learning: documentation, low reasoning needed
+
+sheet:
+  size: 1
+  total_items: 7
+  fan_out:
+    4: 3                          # Source Triangulation: 3 independent investigation tracks
+  descriptions:
+    1: "Define research questions, scope, and verification criteria"
+    2: "Broad sweep for sources and emerging themes"
+    3: "Compress scan output and prioritize investigation targets"
+    4: "Independent deep dives per source type"
+    5: "Cross-validate findings across all source types"
+    6: "Produce final research report"
+    7: "Document methodology and learnings for future research"
+  dependencies:
+    2: [1]                        # Scan depends on planning
+    3: [2]                        # Relay/triage depends on scan
+    4: [3]                        # Investigation depends on triage (IC intelligence forwarding)
+    5: [4]                        # Triangulation depends on ALL investigation tracks (fan-in)
+    6: [5]                        # Report depends on triangulation
+    7: [6]                        # Learning depends on report completion
+
+parallel:
+  enabled: true
+  max_concurrent: 3
+  stagger_delay_ms: 200
+
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 4000
+  lookback_sheets: 4
+  capture_files:
+    - "{{ workspace }}/*.md"
+
+retry:
+  max_retries: 3
+  base_delay_seconds: 15
+
+stale_detection:
+  enabled: true
+  idle_timeout_seconds: 1200
+
+prompt:
+  variables:
+    research_topic: "[CHANGE THIS: e.g., Impact of large language models on software engineering practices]"
+    research_scope: "[CHANGE THIS: e.g., Focus on productivity, code quality, and team dynamics. Time range: 2022-2026]"
+    output_format: "academic-style report with cited sources"
+    source_types:
+      1:
+        name: "academic"
+        description: "Peer-reviewed papers, preprints, conference proceedings"
+        focus: "Empirical studies, controlled experiments, systematic reviews"
+      2:
+        name: "industry"
+        description: "Industry reports, blog posts, case studies, surveys"
+        focus: "Real-world adoption data, ROI metrics, practitioner perspectives"
+      3:
+        name: "primary"
+        description: "Open datasets, public repositories, benchmark results"
+        focus: "Quantitative evidence, reproducible measurements, trend data"
+
+  template: |
+    {# ── Stage 1: Research Planning (ST: extract) ────────────────── #}
+    {% if stage == 1 %}
+    # Research Planning
+
+    Topic: {{ research_topic }}
+    Scope: {{ research_scope }}
+
+    ## Task
+
+    Define the research plan. This stage extracts the questions and claims
+    that need verification through independent multi-source investigation.
+
+    1. Break the topic into 3-5 specific, answerable research questions
+    2. For each question, define what evidence would confirm or refute it
+    3. Identify key terms and search strategies per source type
+       (academic, industry, primary data)
+    4. Define quality criteria for sources (recency, methodology, relevance)
+    5. Identify potential biases and how to mitigate them
+
+    ## Output
+
+    Write to {{ workspace }}/01-research-plan.md:
+    - Numbered research questions with verification criteria
+    - Evidence requirements per question
+    - Search strategy per source type
+    - Quality and inclusion criteria
+    - Known biases and mitigation strategies
+
+    {# ── Stage 2: Broad Scan (IC: broad-sweep) ───────────────────── #}
+    {% elif stage == 2 %}
+    # Broad Scan — Source Identification
+
+    You are the cheap, fast scanning tier of a graduated research pipeline.
+    Your job: cast a wide net to identify promising sources. Speed matters
+    more than depth — the expensive investigators come later. Missing a
+    mediocre source is fine; missing a critical one wastes the whole pipeline.
+
+    Read {{ workspace }}/01-research-plan.md for research questions and strategy.
+
+    ## Task
+
+    Perform a broad sweep to identify the most promising sources:
+    1. Search for relevant sources across all three types
+       (academic, industry, primary data)
+    2. For each source found: title, type, relevance score (1-5), key claim
+    3. Identify the top 5-8 sources per type for deep investigation
+    4. Note emerging themes that weren't in the original questions
+    5. Flag any contradictions visible even at the surface level
+    6. Mark uncertain findings with [NEEDS VERIFICATION]
+
+    ## Output
+
+    Write to {{ workspace }}/02-scan-results.md:
+    - Source inventory organized by type (academic, industry, primary)
+    - Each source: title, URL/reference, relevance score, key claim
+    - Top sources flagged for deep investigation per type
+    - Emerging themes
+    - Surface-level contradictions worth investigating
+
+    {# ── Stage 3: Relay & Triage (RZ: relay + IC: triage-handoff) ─── #}
+    {% elif stage == 3 %}
+    # Relay & Triage — Compress and Prioritize
+
+    You serve two critical functions in this pipeline:
+
+    **Relay (context compression):** The broad scan may have produced a large
+    volume of raw findings. Downstream investigators have limited context
+    windows. Compress the scan results to preserve key findings while
+    discarding noise. Target approximately 30% of the original size.
+
+    **Triage (intelligence forwarding):** Decide WHERE the expensive
+    investigators should focus. Your targeting brief shapes all subsequent
+    investigation work. Good triage means expensive analysis is spent on
+    real leads. Bad triage wastes it on noise.
+
+    Read:
+    - {{ workspace }}/01-research-plan.md (research questions and criteria)
+    - {{ workspace }}/02-scan-results.md (raw scan output)
+
+    ## Task
+
+    1. **Compress**: Distill the scan results to key findings per source type.
+       Preserve: source names, relevance scores, key claims, contradictions.
+       Discard: redundant entries, low-relevance sources, verbose descriptions.
+
+    2. **Assess quality**: For each identified source, evaluate against the
+       quality criteria from the research plan. Flag high-confidence vs.
+       uncertain sources.
+
+    3. **Prioritize per type**: For each source type (academic, industry,
+       primary data), rank the top sources by expected information value.
+       Consider: which sources address the most research questions? Which
+       contain contradictory evidence worth investigating?
+
+    4. **Create investigation briefs**: For each source type, write a focused
+       brief telling the investigator:
+       - Which sources to prioritize (with URLs/references)
+       - Which research questions each source most likely addresses
+       - Specific contradictions or claims to verify
+       - What to look for that the broad scan couldn't assess
+
+    ## Output
+
+    Write to {{ workspace }}/03-relay-brief.md:
+
+    # Relay & Triage Brief
+
+    ## Compressed Findings
+    [Key findings from scan, organized by source type, ~30% of original size]
+
+    ## Academic Investigation Brief
+    **Priority sources:** [ranked list with justification]
+    **Key questions to address:** [mapped to research plan]
+    **Contradictions to probe:** [specific claims to verify]
+
+    ## Industry Investigation Brief
+    [same structure]
+
+    ## Primary Data Investigation Brief
+    [same structure]
+
+    ## Cross-Cutting Themes
+    [themes appearing across types, with source references]
+
+    ## Deferred Sources
+    [sources not selected, with brief rationale]
+
+    {# ── Stage 4: Deep Investigation (ST: investigate + IC: deep-investigation) ── #}
+    {% elif stage == 4 %}
+    # Deep Investigation — {{ source_types[instance].name | title }} Sources
+
+    You are an expensive investigator in the targeted tier of a graduated
+    research pipeline. The broad scan identified sources cheaply. The triage
+    stage prioritized the most promising ones. You go DEEP on your assigned
+    source type.
+
+    Read:
+    - {{ workspace }}/01-research-plan.md for research questions
+    - {{ workspace }}/03-relay-brief.md for your investigation brief
+
+    You are investigating **{{ source_types[instance].name }}** sources:
+    {{ source_types[instance].description }}.
+    Focus: {{ source_types[instance].focus }}.
+
+    Find your specific investigation brief in the relay document (look for the
+    {{ source_types[instance].name | title }} Investigation Brief section).
+
+    ## Task
+
+    For the priority sources identified in your investigation brief:
+    1. Read each source thoroughly (use WebFetch for URLs, Read for files)
+    2. Extract evidence relevant to each research question
+    3. Assess source quality (methodology, sample size, recency, bias)
+    4. Note claims that support OR contradict the emerging narrative
+    5. Investigate the specific contradictions flagged by triage
+    6. Identify gaps — questions the sources don't address
+
+    ## Output
+
+    Write to {{ workspace }}/04-investigation-{{ source_types[instance].name }}.md:
+    - Per-source analysis: key findings, quality assessment, relevant evidence
+    - Evidence map: which sources address which research questions
+    - Strongest claims (with citations)
+    - Contradictions within this source type
+    - Contradiction investigation results (from triage flags)
+    - Gaps: what this source type cannot answer
+
+    {# ── Stage 5: Triangulation (ST: triangulate) ────────────────── #}
+    {% elif stage == 5 %}
+    # Triangulation — Cross-Source Validation
+
+    Read:
+    - {{ workspace }}/01-research-plan.md (questions)
+    - {{ workspace }}/04-investigation-academic.md
+    - {{ workspace }}/04-investigation-industry.md
+    - {{ workspace }}/04-investigation-primary.md
+
+    ## Task
+
+    Cross-validate findings across all three source types. Do NOT summarize.
+
+    For each research question, produce a triangulation verdict:
+
+    - **CORROBORATED**: 2+ independent source types reach the same conclusion.
+      State which sources agree and what specific evidence aligns. This is
+      strong signal — it wasn't coordinated.
+    - **UNCORROBORATED**: Only 1 source type supports the claim. Others
+      are silent or insufficient.
+    - **CONTRADICTED**: Source types actively disagree. Don't resolve by
+      averaging. Find a reading that makes both positions true, or explain
+      why one is more credible with evidence.
+
+    Then identify:
+    1. **Convergences**: Where did independent source types reach the same
+       conclusion? This is the strongest evidence.
+    2. **Tensions**: Where do source types disagree? Explain the disagreement
+       with evidence, don't smooth it over.
+    3. **Gaps**: What did NO source type address? Blind spots are the most
+       important finding.
+    4. **Emergence**: What insight exists in the collision of perspectives
+       that no single source type stated?
+
+    ## Output
+
+    Write to {{ workspace }}/05-triangulation.md:
+    - Per-question triangulation matrix (academic vs industry vs primary)
+    - Verdict per question: CORROBORATED / UNCORROBORATED / CONTRADICTED
+    - Convergence points with confidence assessment
+    - Tensions with resolution or explanation
+    - Identified gaps and blind spots
+    - Emergent insights
+
+    {# ── Stage 6: Final Report (bookend output) ──────────────────── #}
+    {% elif stage == 6 %}
+    # Final Research Report
+
+    Read:
+    - {{ workspace }}/01-research-plan.md
+    - {{ workspace }}/05-triangulation.md
+
+    ## Task
+
+    Produce the final {{ output_format }} on: {{ research_topic }}.
+
+    Structure:
+    1. **Executive Summary**: Key findings in 2-3 paragraphs
+    2. **Introduction**: Topic context, research questions, methodology
+    3. **Findings**: One section per research question with triangulated evidence.
+       For each finding, note the triangulation verdict (CORROBORATED,
+       UNCORROBORATED, CONTRADICTED) and the supporting evidence.
+    4. **Discussion**: Implications, limitations, areas for further research
+    5. **Conclusion**: Definitive position supported by the evidence
+    6. **References**: All cited sources with full attribution
+
+    Take a position. Don't hedge where the evidence is clear.
+    Acknowledge uncertainty where the evidence is genuinely mixed.
+
+    ## Output
+
+    Write to {{ workspace }}/06-research-report.md.
+    Target: 2000-4000 words of substantive analysis.
+
+    {# ── Stage 7: Learning (IC: learning) ────────────────────────── #}
+    {% elif stage == 7 %}
+    # Learning Notes — Research Methodology
+
+    The research pipeline is complete. Now persist what was LEARNED — not the
+    findings themselves (those live in the report), but the methodology and
+    patterns that would accelerate the next research run on a similar topic.
+
+    Read:
+    - {{ workspace }}/01-research-plan.md (what was planned)
+    - {{ workspace }}/02-scan-results.md (raw broad scan)
+    - {{ workspace }}/03-relay-brief.md (what triage prioritized)
+    - {{ workspace }}/05-triangulation.md (what triangulation found)
+    - {{ workspace }}/06-research-report.md (final output)
+
+    ## Document
+
+    1. **Scanning effectiveness**: Did the broad scan find the most important
+       sources? What sources were discovered during investigation that the
+       scan missed? What search strategies worked vs. didn't?
+
+    2. **Triage accuracy**: Did the relay brief correctly identify the
+       highest-value sources? Were any high-priority sources missed by triage?
+       Were any low-value sources over-prioritized?
+
+    3. **Source type value**: Which of the three source types (academic,
+       industry, primary) contributed most to the final findings? Were any
+       source types redundant for this topic?
+
+    4. **Pipeline efficiency**: How much of the scan output survived to
+       the final report? Where was the biggest loss of signal? What
+       would improve the signal-to-noise ratio?
+
+    5. **Triangulation outcomes**: What fraction of findings were corroborated
+       vs. contradicted vs. gap? Did triangulation reveal genuine insights
+       or mostly confirm what individual sources already showed?
+
+    6. **Recommendations**: For future research on similar topics, what should
+       change? Different search strategies? Different source types? Better
+       triage criteria? Formulate as actionable rules.
+
+    ## Output
+
+    Write to {{ workspace }}/07-learning-notes.md.
+
+    {% endif %}
+
+validations:
+  # ── Stage 1: Research Planning (ST: extract) ──
+  - type: file_exists
+    path: "{workspace}/01-research-plan.md"
+    condition: "stage == 1"
+    stage: 1
+    description: "Research plan created"
+  - type: content_regex
+    path: "{workspace}/01-research-plan.md"
+    pattern: "\\d+\\."
+    condition: "stage == 1"
+    stage: 2
+    description: "Research plan has numbered questions"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/01-research-plan.md") -ge 200'
+    condition: "stage == 1"
+    stage: 2
+    description: "Research plan has substantive content"
+
+  # ── Stage 2: Broad Scan (IC: broad-sweep) ──
+  - type: file_exists
+    path: "{workspace}/02-scan-results.md"
+    condition: "stage == 2"
+    stage: 1
+    description: "Scan results created"
+  - type: content_regex
+    path: "{workspace}/02-scan-results.md"
+    pattern: "(?i)(academic|industry|primary)"
+    condition: "stage == 2"
+    stage: 2
+    description: "Scan results organized by source type"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/02-scan-results.md") -ge 200'
+    condition: "stage == 2"
+    stage: 2
+    description: "Scan results have substantive content"
+
+  # ── Stage 3: Relay & Triage (RZ: relay + IC: triage-handoff) ──
+  - type: file_exists
+    path: "{workspace}/03-relay-brief.md"
+    condition: "stage == 3"
+    stage: 1
+    description: "Relay brief created"
+  - type: content_regex
+    path: "{workspace}/03-relay-brief.md"
+    pattern: "(?i)(priority|target|brief)"
+    condition: "stage == 3"
+    stage: 2
+    description: "Relay brief contains investigation priorities"
+  - type: content_regex
+    path: "{workspace}/03-relay-brief.md"
+    pattern: "(?i)(academic|industry|primary)"
+    condition: "stage == 3"
+    stage: 2
+    description: "Relay brief covers all three source types"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/03-relay-brief.md") -ge 300'
+    condition: "stage == 3"
+    stage: 3
+    description: "Relay brief is substantive"
+
+  # ── Stage 4: Deep Investigation (ST: investigate + IC: deep-investigation) ──
+  # Fan-out 3: sheet 4 (academic), sheet 5 (industry), sheet 6 (primary)
+  - type: file_exists
+    path: "{workspace}/04-investigation-academic.md"
+    sheet: 4
+    stage: 1
+    description: "Academic investigation completed"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/04-investigation-academic.md") -ge 300'
+    sheet: 4
+    stage: 2
+    description: "Academic investigation has depth"
+  - type: content_regex
+    path: "{workspace}/04-investigation-academic.md"
+    pattern: "(?i)(evidence|finding|claim)"
+    sheet: 4
+    stage: 2
+    description: "Academic investigation contains evidence analysis"
+
+  - type: file_exists
+    path: "{workspace}/04-investigation-industry.md"
+    sheet: 5
+    stage: 1
+    description: "Industry investigation completed"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/04-investigation-industry.md") -ge 300'
+    sheet: 5
+    stage: 2
+    description: "Industry investigation has depth"
+  - type: content_regex
+    path: "{workspace}/04-investigation-industry.md"
+    pattern: "(?i)(evidence|finding|claim)"
+    sheet: 5
+    stage: 2
+    description: "Industry investigation contains evidence analysis"
+
+  - type: file_exists
+    path: "{workspace}/04-investigation-primary.md"
+    sheet: 6
+    stage: 1
+    description: "Primary data investigation completed"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/04-investigation-primary.md") -ge 300'
+    sheet: 6
+    stage: 2
+    description: "Primary data investigation has depth"
+  - type: content_regex
+    path: "{workspace}/04-investigation-primary.md"
+    pattern: "(?i)(evidence|finding|claim)"
+    sheet: 6
+    stage: 2
+    description: "Primary data investigation contains evidence analysis"
+
+  # ── Stage 5: Triangulation (ST: triangulate) ──
+  - type: file_exists
+    path: "{workspace}/05-triangulation.md"
+    condition: "stage == 5"
+    stage: 1
+    description: "Triangulation analysis created"
+  - type: content_regex
+    path: "{workspace}/05-triangulation.md"
+    pattern: "(?i)(convergence|tension|gap)"
+    condition: "stage == 5"
+    stage: 2
+    description: "Triangulation addresses convergences, tensions, or gaps"
+  - type: content_regex
+    path: "{workspace}/05-triangulation.md"
+    pattern: "(?i)(CORROBORATED|UNCORROBORATED|CONTRADICTED)"
+    condition: "stage == 5"
+    stage: 2
+    description: "Triangulation produces verification verdicts"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/05-triangulation.md") -ge 400'
+    condition: "stage == 5"
+    stage: 3
+    description: "Triangulation has substantive analysis"
+
+  # ── Stage 6: Final Report (bookend output) ──
+  - type: file_exists
+    path: "{workspace}/06-research-report.md"
+    condition: "stage == 6"
+    stage: 1
+    description: "Research report created"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/06-research-report.md") -ge 1000'
+    condition: "stage == 6"
+    stage: 2
+    description: "Research report is substantive (1000+ words)"
+  - type: content_regex
+    path: "{workspace}/06-research-report.md"
+    pattern: "(?i)(conclusion|summary|finding)"
+    condition: "stage == 6"
+    stage: 3
+    description: "Report has conclusions section"
+  - type: content_regex
+    path: "{workspace}/06-research-report.md"
+    pattern: "(?i)(CORROBORATED|UNCORROBORATED|CONTRADICTED)"
+    condition: "stage == 6"
+    stage: 3
+    description: "Report carries triangulation verdicts into findings"
+
+  # ── Stage 7: Learning (IC: learning) ──
+  - type: file_exists
+    path: "{workspace}/07-learning-notes.md"
+    condition: "stage == 7"
+    stage: 1
+    description: "Learning notes created"
+  - type: content_regex
+    path: "{workspace}/07-learning-notes.md"
+    pattern: "(?i)(effectiveness|accuracy|efficiency|recommendation)"
+    condition: "stage == 7"
+    stage: 2
+    description: "Learning notes assess pipeline methodology"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/07-learning-notes.md") -ge 200'
+    condition: "stage == 7"
+    stage: 2
+    description: "Learning notes have substantive content"

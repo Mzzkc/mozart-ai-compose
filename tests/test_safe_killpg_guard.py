@@ -167,13 +167,14 @@ class TestCallSiteStructuralAudit:
         """Exactly 6 _safe_killpg call sites exist (not counting the def).
 
         If you add or remove a call site, update this count.
-        Call sites (as of M5):
-          1. timeout_escalation (line ~401)
-          2. kill_orphaned_process (line ~606)
-          3. await_exit_graceful (line ~925)
-          4. await_exit_force (line ~934)
-          5. cancel_graceful (line ~1004)
-          6. cancel_force (line ~1012)
+        Call sites (as of M5+):
+          1. reap_descendant (line ~98)
+          2. timeout_escalation (line ~421)
+          3. kill_orphaned_process (line ~637)
+          4. await_exit_graceful (line ~956)
+          5. await_exit_force (line ~965)
+          6. cancel_graceful (line ~1043)
+          7. cancel_force (line ~1051)
         """
         import inspect
 
@@ -183,8 +184,8 @@ class TestCallSiteStructuralAudit:
 
         # Count _safe_killpg( call sites (definition moved to utils.process)
         call_count = source.count("_safe_killpg(")
-        assert call_count == 6, (
-            f"Expected 6 _safe_killpg call sites, found {call_count}. "
+        assert call_count == 7, (
+            f"Expected 7 _safe_killpg call sites, found {call_count}. "
             f"If you added a call, update this count. If you removed one, "
             f"verify the cleanup path still kills orphans correctly."
         )

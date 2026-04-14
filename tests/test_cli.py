@@ -950,13 +950,9 @@ class TestDashboardCommand:
             assert result.exit_code == 0
             assert "http://0.0.0.0:8000" in result.stdout
 
-    def test_dashboard_uses_sqlite_when_available(self, tmp_path: Path) -> None:
-        """Test dashboard prefers SQLite backend when db exists."""
+    def test_dashboard_starts_with_workspace_option(self, tmp_path: Path) -> None:
+        """Test dashboard accepts --workspace and starts successfully."""
         import sys
-
-        # Create a mock SQLite database file
-        sqlite_path = tmp_path / ".marianne-state.db"
-        sqlite_path.touch()
 
         mock_uvicorn = AsyncMock()
         mock_uvicorn.run = lambda *args, **kwargs: None
@@ -967,21 +963,7 @@ class TestDashboardCommand:
             )
 
             assert result.exit_code == 0
-            assert "SQLite state backend" in result.stdout
-
-    def test_dashboard_falls_back_to_json_backend(self, tmp_path: Path) -> None:
-        """Test dashboard falls back to JSON backend when no SQLite db."""
-        import sys
-        mock_uvicorn = AsyncMock()
-        mock_uvicorn.run = lambda *args, **kwargs: None
-
-        with patch.dict(sys.modules, {"uvicorn": mock_uvicorn}):
-            result = runner.invoke(
-                app, ["dashboard", "--workspace", str(tmp_path)]
-            )
-
-            assert result.exit_code == 0
-            assert "JSON state backend" in result.stdout
+            assert "Marianne Dashboard" in result.stdout
 
     def test_dashboard_shows_docs_url(self, tmp_path: Path) -> None:
         """Test dashboard shows Swagger docs URL in startup message."""

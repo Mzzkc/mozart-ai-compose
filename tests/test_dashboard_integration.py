@@ -4,7 +4,6 @@ Tests full workflows combining multiple services and components.
 All lifecycle tests route through a mocked conductor (DaemonClient).
 """
 
-import json
 import tempfile
 import time
 from datetime import datetime
@@ -19,7 +18,6 @@ from marianne.daemon.ipc.client import DaemonClient
 from marianne.daemon.types import JobResponse
 from marianne.dashboard.app import create_app
 from marianne.dashboard.services.job_control import JobControlService
-from marianne.dashboard.services.sse_manager import SSEEvent, SSEManager
 from marianne.state.json_backend import JsonStateBackend
 
 
@@ -101,12 +99,6 @@ prompt:
 def job_control_service(mock_daemon_client):
     """Create job control service with mock DaemonClient."""
     return JobControlService(mock_daemon_client)
-
-
-@pytest.fixture
-def sse_manager():
-    """Create SSE manager."""
-    return SSEManager()
 
 
 class TestJobLifecycleIntegration:
@@ -222,60 +214,6 @@ class TestJobLifecycleIntegration:
             if os_mod.path.exists(temp_config_path):
                 os_mod.unlink(temp_config_path)
 
-    @pytest.mark.skip(reason="SSE needs async client")
-    async def test_sse_receives_job_updates(self, client, sse_manager, backend):
-        """Test that SSE stream receives job status updates."""
-        # Create a sample job state
-        job_id = "test-sse-job"
-        job_state = CheckpointState(
-            job_id=job_id,
-            job_name="SSE Test Job",
-            status=JobStatus.RUNNING,
-            total_sheets=3,
-            last_completed_sheet=1,
-            current_sheet=2,
-            worktree_path="/tmp/test",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
-        )
-
-        await backend.save(job_state)
-
-        # Connect to SSE stream (correct URL: /api/jobs/{job_id}/stream)
-        sse_response = client.get(f"/api/jobs/{job_id}/stream")
-        assert sse_response.status_code == 200
-        assert sse_response.headers["content-type"] == "text/event-stream"
-
-        # Simulate job status updates through the SSE manager
-        test_events = [
-            SSEEvent(
-                event="sheet_started",
-                data=json.dumps(
-                    {"job_id": job_id, "sheet": 2, "timestamp": datetime.now().isoformat()}
-                ),
-                id="event-1",
-            ),
-            SSEEvent(
-                event="sheet_completed",
-                data=json.dumps(
-                    {"job_id": job_id, "sheet": 2, "timestamp": datetime.now().isoformat()}
-                ),
-                id="event-2",
-            ),
-        ]
-
-        # Broadcast events
-        for event in test_events:
-            await sse_manager.broadcast_to_job(job_id, event)
-
-        # Read SSE response content
-        sse_content = sse_response.content.decode()
-
-        # Verify events were included
-        assert "event: sheet_started" in sse_content
-        assert "event: sheet_completed" in sse_content
-        assert job_id in sse_content
-
     async def test_artifact_listing_after_job_run(
         self, client, temp_workspace, backend, sample_config_content
     ):
@@ -371,21 +309,6 @@ class TestJobLifecycleIntegration:
 class TestCrossServiceIntegration:
     """Test integration between different dashboard services."""
 
-    @pytest.mark.skip(reason="SSE manager not wired in mock")
-    async def test_job_control_updates_sse_manager(self, mock_daemon_client, sse_manager):
-        """Test that job control operations trigger SSE events."""
-        job_service = JobControlService(mock_daemon_client)
-
-        sse_manager.broadcast_to_job = AsyncMock()
-
-        job_id = "cross-service-test"
-
-        result = await job_service.pause_job(job_id)
-        assert result.success is True
-
-        result = await job_service.resume_job(job_id)
-        assert result.success is True
-
     async def test_error_handling_across_services(self, client, temp_workspace):
         """Test error handling when services interact."""
         # Test starting job with invalid config
@@ -474,26 +397,3 @@ class TestPerformanceAndReliability:
 
         # Should list all files including subdirectory files
         assert len(artifacts) >= 120  # 100 main + 20 sub + directories
-
-    @pytest.mark.skip(reason="SSE needs async client")
-    async def test_sse_connection_cleanup(self, client, sse_manager):
-        """Test that SSE connections are properly cleaned up."""
-        job_id = "cleanup-test-job"
-
-        # Start an SSE connection
-        response = client.get(f"/api/jobs/{job_id}/stream")
-        assert response.status_code == 200
-
-        # Simulate connection cleanup (this would happen when client disconnects)
-        # In real scenarios, the SSE manager should clean up stale connections
-        _initial_connections = len(sse_manager._connections.get(job_id, {}))
-
-        # Broadcast an event to trigger connection health checks
-        test_event = SSEEvent(event="test", data='{"test": "data"}', id="cleanup-test")
-
-        await sse_manager.broadcast_to_job(job_id, test_event)
-
-        # Connection management is handled by the SSE stream endpoint
-        # Verify the connection registry exists and can track connections
-        assert hasattr(sse_manager, "_connections"), "SSE manager should have connection registry"
-        assert isinstance(sse_manager._connections, dict), "Connection registry should be a dict"

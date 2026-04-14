@@ -110,13 +110,15 @@ warn_unused_ignores = true
 asyncio_mode = "auto"
 testpaths = ["tests"]
 timeout = 30  # Safety net: kill any test that runs >30s (prevents orphaned processes)
-addopts = "--tb=short -n auto"
+addopts = "--tb=short -n auto -m 'not playwright'"
 # Coverage: run explicitly with `pytest --cov=mzt --cov-report=term-missing:skip-covered --cov-report=json:coverage.json --no-cov-on-fail`
+# Playwright tests: run separately with `pytest -m playwright -n0`
 markers = [
     "adversarial: tests with adversarial/garbage inputs",
     "smoke: basic smoke tests for critical paths",
     "overnight: long-running tests for cron execution",
     "property_based: hypothesis property-based tests",
+    "playwright: browser E2E tests — must run with -n0 (no xdist)",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",

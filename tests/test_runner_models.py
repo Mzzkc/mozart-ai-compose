@@ -204,7 +204,9 @@ class TestRunSummaryToDict:
             rate_limit_waits=1,
             validation_pass_count=7,
             validation_fail_count=1,
+            validation_pass_rate=87.5,
             successes_without_retry=6,
+            success_without_retry_rate=75.0,
             final_status=JobStatus.COMPLETED,
         )
         d = summary.to_dict()

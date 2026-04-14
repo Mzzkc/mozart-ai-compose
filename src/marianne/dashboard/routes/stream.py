@@ -23,7 +23,7 @@ from marianne.core.logging import get_logger
 from marianne.dashboard.app import get_state_backend
 from marianne.dashboard.routes import resolve_job_workspace
 from marianne.dashboard.services.event_bridge import DaemonEventBridge
-from marianne.dashboard.services.sse_manager import SSEEvent, SSEManager
+from marianne.dashboard.services.sse_manager import SSEEvent
 from marianne.state.base import StateBackend
 
 _logger = get_logger("dashboard.stream")
@@ -34,22 +34,6 @@ MAX_TAIL_LINES: int = 1000
 _FALLBACK_POLL_INTERVAL: float = 2.0
 
 router = APIRouter(prefix="/api/jobs", tags=["Streaming"])
-
-
-# ============================================================================
-# Module-level SSE manager instance
-# ============================================================================
-
-# Global SSE manager for the application
-_sse_manager: SSEManager | None = None
-
-
-def get_sse_manager() -> SSEManager:
-    """Get the SSE manager instance."""
-    global _sse_manager
-    if _sse_manager is None:
-        _sse_manager = SSEManager()
-    return _sse_manager
 
 
 def _get_event_bridge_safe() -> DaemonEventBridge | None:
@@ -313,81 +297,6 @@ async def _job_status_via_poll(
             id=f"error-{datetime.now().timestamp()}",
         ).format()
         return
-
-    last_status = None
-    last_progress = None
-    last_update_time = None
-
-    try:
-        while True:
-            # Reload state for current status
-            current_state = await backend.load(job_id)
-            if current_state is None:
-                # Job was deleted
-                deleted_event = SSEEvent(
-                    event="job_deleted",
-                    data=json.dumps({"job_id": job_id}),
-                    id=f"deleted-{datetime.now().timestamp()}",
-                )
-                yield deleted_event.format()
-                break
-
-            # Check for changes
-            status_changed = last_status != current_state.status.value
-            progress_changed = last_progress != current_state.get_progress_percent()
-            time_changed = last_update_time != current_state.updated_at
-
-            if status_changed or progress_changed or time_changed:
-                # Send status update
-                completed, total = current_state.get_progress()
-                status_data = {
-                    "job_id": job_id,
-                    "status": current_state.status.value,
-                    "progress_percent": current_state.get_progress_percent(),
-                    "completed_sheets": completed,
-                    "total_sheets": total,
-                    "current_sheet": current_state.current_sheet,
-                    "error_message": current_state.error_message,
-                    "updated_at": current_state.updated_at.isoformat(),
-                }
-
-                event = SSEEvent(
-                    event="job_status",
-                    data=json.dumps(status_data),
-                    id=f"status-{job_id}-{datetime.now().timestamp()}",
-                )
-                yield event.format()
-
-                # Update tracking variables
-                last_status = current_state.status.value
-                last_progress = current_state.get_progress_percent()
-                last_update_time = current_state.updated_at
-
-            # Check if job is finished
-            if current_state.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
-                final_event = SSEEvent(
-                    event="job_finished",
-                    data=json.dumps({"job_id": job_id, "final_status": current_state.status.value}),
-                    id=f"finished-{job_id}-{datetime.now().timestamp()}",
-                )
-                yield final_event.format()
-                break
-
-            # Wait before next poll
-            await asyncio.sleep(poll_interval)
-
-    except asyncio.CancelledError:
-        # Client disconnected — nothing to yield since the consumer is gone.
-        return
-    except Exception as e:
-        # Unexpected error — do not leak internal exception details to clients
-        _logger.exception("sse_stream_error", error_type=type(e).__name__, error=str(e))
-        error_event = SSEEvent(
-            event="error",
-            data=json.dumps({"error": "Internal stream error", "error_type": "StreamError"}),
-            id=f"error-{datetime.now().timestamp()}",
-        )
-        yield error_event.format()
 
 
 def _read_tail_lines(log_file: Path, tail_lines: int) -> tuple[list[str], int]:

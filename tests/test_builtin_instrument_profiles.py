@@ -135,8 +135,8 @@ class TestProfileDetails:
         assert "structured_output" in profile.capabilities
         assert profile.cli is not None
         assert profile.cli.command.executable == "opencode"
-        assert profile.cli.command.prompt_flag == "-p"
-        assert profile.cli.command.output_format_flag == "-f"
+        assert profile.cli.command.prompt_flag is None
+        assert profile.cli.command.output_format_flag == "--format"
         assert profile.cli.command.output_format_value == "json"
         assert profile.cli.output.format == "json"
         # All models should be free-tier

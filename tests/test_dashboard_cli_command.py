@@ -46,52 +46,29 @@ class TestDashboardUvicornMissing:
         assert "uvicorn" in result.output.lower()
 
 
-class TestDashboardStateBackendSelection:
-    """Test that dashboard selects the correct state backend."""
+class TestDashboardCreateAppInvocation:
+    """Test that dashboard calls create_app correctly."""
 
-    def test_prefers_sqlite_when_db_exists(self, tmp_path: Path) -> None:
-        """Dashboard uses SQLite backend when .marianne-state.db exists."""
-        # Create a fake SQLite file
-        db_path = tmp_path / ".marianne-state.db"
-        db_path.touch()
-
+    def test_create_app_called_with_title_and_version(self, tmp_path: Path) -> None:
+        """Dashboard passes title and version to create_app."""
         mock_uvicorn = MagicMock()
-        mock_sqlite_cls = MagicMock()
-        mock_json_cls = MagicMock()
         mock_create_app = MagicMock(return_value=MagicMock())
 
         with (
             patch.dict(sys.modules, {"uvicorn": mock_uvicorn}),
-            patch("marianne.state.SQLiteStateBackend", mock_sqlite_cls),
-            patch("marianne.state.JsonStateBackend", mock_json_cls),
-            patch("marianne.dashboard.create_app", mock_create_app),
+            patch(
+                "marianne.dashboard.create_app", mock_create_app
+            ),
         ):
             runner.invoke(
                 _app, ["dashboard", "--workspace", str(tmp_path)]
             )
 
-        # SQLite backend should have been instantiated
-        mock_sqlite_cls.assert_called_once_with(db_path)
-
-    def test_falls_back_to_json_when_no_db(self, tmp_path: Path) -> None:
-        """Dashboard uses JSON backend when no SQLite database exists."""
-        mock_uvicorn = MagicMock()
-        mock_sqlite_cls = MagicMock()
-        mock_json_cls = MagicMock()
-        mock_create_app = MagicMock(return_value=MagicMock())
-
-        with (
-            patch.dict(sys.modules, {"uvicorn": mock_uvicorn}),
-            patch("marianne.state.SQLiteStateBackend", mock_sqlite_cls),
-            patch("marianne.state.JsonStateBackend", mock_json_cls),
-            patch("marianne.dashboard.create_app", mock_create_app),
-        ):
-            runner.invoke(
-                _app, ["dashboard", "--workspace", str(tmp_path)]
-            )
-
-        # JSON backend should have been instantiated
-        mock_json_cls.assert_called_once_with(tmp_path)
+        mock_create_app.assert_called_once()
+        call_kwargs = mock_create_app.call_args
+        assert call_kwargs.kwargs.get("title") == "Marianne Dashboard" or (
+            call_kwargs[1].get("title") == "Marianne Dashboard"
+        )
 
 
 class TestDashboardKeyboardInterrupt:
@@ -105,9 +82,9 @@ class TestDashboardKeyboardInterrupt:
 
         with (
             patch.dict(sys.modules, {"uvicorn": mock_uvicorn}),
-            patch("marianne.state.SQLiteStateBackend"),
-            patch("marianne.state.JsonStateBackend"),
-            patch("marianne.dashboard.create_app", mock_create_app),
+            patch(
+                "marianne.dashboard.create_app", mock_create_app
+            ),
         ):
             result = runner.invoke(
                 _app, ["dashboard", "--workspace", str(tmp_path)]
@@ -142,9 +119,9 @@ class TestDashboardCustomOptions:
 
         with (
             patch.dict(sys.modules, {"uvicorn": mock_uvicorn}),
-            patch("marianne.state.SQLiteStateBackend"),
-            patch("marianne.state.JsonStateBackend"),
-            patch("marianne.dashboard.create_app", mock_create_app),
+            patch(
+                "marianne.dashboard.create_app", mock_create_app
+            ),
         ):
             runner.invoke(
                 _app,

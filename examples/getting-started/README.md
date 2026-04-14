@@ -97,5 +97,5 @@ After mastering these scores:
 
 - **Engineering workflows** → [examples/engineering/](../engineering/) for CI/CD, issue resolution, and quality automation
 - **Creative work** → [examples/creative/](../creative/) for fiction, philosophy, worldbuilding
-- **Research and analysis** → [examples/knowledge/](../knowledge/) for literature reviews, strategic planning, data curation
+- **Research and analysis** → [examples/research/](../research/) for literature reviews, strategic planning, data curation
 - **Advanced patterns** → [examples/patterns/](../patterns/) for the full Rosetta pattern catalog

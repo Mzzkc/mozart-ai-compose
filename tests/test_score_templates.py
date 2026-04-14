@@ -24,7 +24,7 @@ import yaml
 from marianne.core.config import JobConfig
 
 
-SCORE_PATH = Path(__file__).parent.parent / "examples" / "issue-solver.yaml"
+SCORE_PATH = Path(__file__).parent.parent / "examples" / "engineering" / "issue-solver.yaml"
 
 
 @pytest.fixture(scope="module")

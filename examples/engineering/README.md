@@ -9,6 +9,9 @@ These scores automate software development workflows — from solving GitHub iss
 | [issue-solver](issue-solver.yaml) | Auto-selects issues from a roadmap, plans phased implementation, executes with parallel quality review, commits and ships | 19 | Succession Pipeline, Fan-out + Synthesis | 2-8h | ~$40-100 |
 | [quality-continuous-generic](quality-continuous-generic.yaml) | Language-agnostic quality pipeline — parallel expert reviews, batched fixes by difficulty, commits and files GitHub issues for next iteration | 16 | Immune Cascade, Fan-out + Synthesis | 10-15h | ~$50-130 |
 | [score-composer](score-composer.yaml) | Reads a design document and generates a runnable Marianne score with implementation tasks, validations, and dependencies | 4 | Succession Pipeline | 1-2h | ~$10-20 |
+| [codebase-rewrite](codebase-rewrite.yaml) | Iterative language/framework migration with Cathedral Construction, CEGAR Loop, and Commissioning Cascade patterns | 8 | Cathedral Construction + CEGAR Loop + Commissioning Cascade | 4-12h | ~$20-60 |
+| [saas-app-builder](saas-app-builder.yaml) | Full-stack application generator with contract-first parallel builds and validation gates | 6 | Prefabrication + Shipyard Sequence + Commissioning Cascade | 2-6h | ~$10-30 |
+| [lovable-generator](lovable-generator.yaml) | Web application generator producing a complete deployable app from a concept description | 5 | Succession Pipeline | 1-3h | ~$5-15 |
 
 ### issue-solver.yaml
 
@@ -27,6 +30,18 @@ This is **Immune Cascade** — cheap broad scanning (expert reviews) identifies 
 Transforms design documents into executable implementation scores. Given a design doc, it produces a structured analysis identifying all deliverables and dependencies, decomposes them into ordered implementation tasks with acceptance criteria, generates a Marianne score YAML where each sheet is one implementation step, validates the score syntax, and produces documentation explaining how to run it.
 
 This is **Succession Pipeline** — each stage requires categorically different methods (analytical reading → decomposition → code generation → syntax validation) and each output becomes the next input substrate. The generated score can then be run to execute the implementation automatically.
+
+### codebase-rewrite.yaml
+
+Iterative language or framework migration that applies three composed patterns. Cathedral Construction provides the iterative build loop — multiple iterations of analyze, rewrite, validate, review, with self-chaining carrying state forward. CEGAR Loop provides progressive refinement — coarse analysis identifies all candidates cheaply, triage verifies which are real before expensive rewrite work begins. Commissioning Cascade provides multi-scope validation — unit tests (fast, isolated) run first, integration tests (cross-module) next, quality review (semantic judgment) last. Each iteration self-chains until convergence.
+
+### saas-app-builder.yaml
+
+Generates a complete, working SaaS application with backend API, frontend UI, and database layer — built in parallel by three independent agents coordinated only through an architecture contract. Prefabrication defines shared interface contracts before parallel builds, making integration mechanical when the contract is precise. Shipyard Sequence validates contracts with structural tools before expensive fan-out. Commissioning Cascade validates at contract scope, integration scope, and system scope, with staged fail-fast if earlier scopes fail.
+
+### lovable-generator.yaml
+
+Web application generator producing a complete deployable app from a concept description. Five movements — Architecture, Foundation (3 parallel voices), Features (4 parallel voices), Polish (2 parallel voices), and Verification — progressively build and refine a working React + TypeScript app. Succession Pipeline stages each transform the workspace from requirements to running application. The practical answer to "can Marianne build a product?" — yes, and this score proves it.
 
 ## Quick Start
 

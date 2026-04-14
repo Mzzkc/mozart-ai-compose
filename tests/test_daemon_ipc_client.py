@@ -141,8 +141,8 @@ class TestDaemonClientWithServer:
         server = DaemonServer(sock, _make_test_handler())
         await server.start()
         try:
-            client = DaemonClient(sock)
-            assert await client.is_daemon_running() is True
+            async with DaemonClient(sock) as client:
+                assert await client.is_daemon_running() is True
         finally:
             await server.stop()
 
@@ -153,10 +153,10 @@ class TestDaemonClientWithServer:
         server = DaemonServer(sock, _make_test_handler())
         await server.start()
         try:
-            client = DaemonClient(sock)
-            result = await client.call("daemon.status")
-            assert result["pid"] == 12345
-            assert result["running_jobs"] == 2
+            async with DaemonClient(sock) as client:
+                result = await client.call("daemon.status")
+                assert result["pid"] == 12345
+                assert result["running_jobs"] == 2
         finally:
             await server.stop()
 
@@ -167,12 +167,12 @@ class TestDaemonClientWithServer:
         server = DaemonServer(sock, _make_test_handler())
         await server.start()
         try:
-            client = DaemonClient(sock)
-            status = await client.status()
-            assert isinstance(status, DaemonStatus)
-            assert status.pid == 12345
-            assert status.uptime_seconds == 100.5
-            assert status.version == "0.1.0-test"
+            async with DaemonClient(sock) as client:
+                status = await client.status()
+                assert isinstance(status, DaemonStatus)
+                assert status.pid == 12345
+                assert status.uptime_seconds == 100.5
+                assert status.version == "0.1.0-test"
         finally:
             await server.stop()
 
@@ -183,12 +183,12 @@ class TestDaemonClientWithServer:
         server = DaemonServer(sock, _make_test_handler())
         await server.start()
         try:
-            client = DaemonClient(sock)
-            req = JobRequest(config_path=Path("/tmp/test.yaml"))
-            resp = await client.submit_job(req)
-            assert isinstance(resp, JobResponse)
-            assert resp.job_id == "test-job-1"
-            assert resp.status == "accepted"
+            async with DaemonClient(sock) as client:
+                req = JobRequest(config_path=Path("/tmp/test.yaml"))
+                resp = await client.submit_job(req)
+                assert isinstance(resp, JobResponse)
+                assert resp.job_id == "test-job-1"
+                assert resp.status == "accepted"
         finally:
             await server.stop()
 
@@ -199,10 +199,10 @@ class TestDaemonClientWithServer:
         server = DaemonServer(sock, _make_test_handler())
         await server.start()
         try:
-            client = DaemonClient(sock)
-            result = await client.get_job_status("my-job", "/tmp/ws")
-            assert result["job_id"] == "my-job"
-            assert result["status"] == "running"
+            async with DaemonClient(sock) as client:
+                result = await client.get_job_status("my-job", "/tmp/ws")
+                assert result["job_id"] == "my-job"
+                assert result["status"] == "running"
         finally:
             await server.stop()
 
@@ -213,9 +213,9 @@ class TestDaemonClientWithServer:
         server = DaemonServer(sock, _make_test_handler())
         await server.start()
         try:
-            client = DaemonClient(sock)
-            result = await client.pause_job("my-job", "/tmp/ws")
-            assert result == {"paused": True}
+            async with DaemonClient(sock) as client:
+                result = await client.pause_job("my-job", "/tmp/ws")
+                assert result == {"paused": True}
         finally:
             await server.stop()
 
@@ -226,10 +226,10 @@ class TestDaemonClientWithServer:
         server = DaemonServer(sock, _make_test_handler())
         await server.start()
         try:
-            client = DaemonClient(sock)
-            jobs = await client.list_jobs()
-            assert len(jobs) == 2
-            assert jobs[0]["job_id"] == "job-1"
+            async with DaemonClient(sock) as client:
+                jobs = await client.list_jobs()
+                assert len(jobs) == 2
+                assert jobs[0]["job_id"] == "job-1"
         finally:
             await server.stop()
 
@@ -240,9 +240,9 @@ class TestDaemonClientWithServer:
         server = DaemonServer(sock, _make_test_handler())
         await server.start()
         try:
-            client = DaemonClient(sock)
-            with pytest.raises(JobSubmissionError, match="job not found"):
-                await client.call("test.fail")
+            async with DaemonClient(sock) as client:
+                with pytest.raises(JobSubmissionError, match="job not found"):
+                    await client.call("test.fail")
         finally:
             await server.stop()
 
@@ -253,12 +253,12 @@ class TestDaemonClientWithServer:
         server = DaemonServer(sock, _make_test_handler())
         await server.start()
         try:
-            client = DaemonClient(sock)
-            # method_not_found maps to -32601 → MethodNotFoundError (F-450 fix)
-            from marianne.daemon.exceptions import MethodNotFoundError
+            async with DaemonClient(sock) as client:
+                # method_not_found maps to -32601 → MethodNotFoundError (F-450 fix)
+                from marianne.daemon.exceptions import MethodNotFoundError
 
-            with pytest.raises(MethodNotFoundError, match="Method not found"):
-                await client.call("nonexistent.rpc.method")
+                with pytest.raises(MethodNotFoundError, match="Method not found"):
+                    await client.call("nonexistent.rpc.method")
         finally:
             await server.stop()
 

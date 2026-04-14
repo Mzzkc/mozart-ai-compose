@@ -13,9 +13,8 @@
 #               - Voice 3: Anomaly detection (unusual patterns, duplicate charges, outliers)
 #   Movement 3: Produce a consolidated analysis report with action items
 #
-# This is a Wordware comparison demo — showing how Marianne splits complex
-# analysis into parallel expert perspectives that would require sequential
-# prompt chaining in other tools.
+# Shows how Marianne splits complex analysis into parallel expert
+# perspectives that would require sequential prompt chaining in other tools.
 #
 # ## Patterns Used
 #

@@ -1,4 +1,4 @@
-{# Sheet 3: WORK (Composting Cascade phase 1 — project work) #}
+{# Sheet 3: WORK — execute against plan with TDD #}
 # Cycle Work
 
 ## Commander's Intent
@@ -9,7 +9,7 @@
 
 **CONSTRAINTS:**
 - Do not work on unclaimed tasks
-- Do not modify files another agent is working on (check collective memory)
+- Do not modify files another agent is working on (check shared plans)
 - Do not skip tests — write the test first, then implement
 - Stage only your files: `git add <specific files>` — never `git add .`
 - Commit with: `git commit -m "{{ agent_name }}: <what you did>"`
@@ -22,9 +22,13 @@
 
 **FREEDOMS:** Choose your approach. Refactor adjacent code if it blocks you. File findings. Add tasks.
 
+{% if technique_manifest is defined and technique_manifest %}
+{{ technique_manifest }}
+{% endif %}
+
 ## Your Plan
 
-Read: `{{ workspace }}/cycle-state/{{ agent_name }}-plan.md`
+Read: `{{ workspace }}/agents/{{ agent_name }}/cycle-state/plan.md`
 
 ## Execute
 
@@ -33,12 +37,21 @@ For each task:
 2. Write a failing test
 3. Implement minimum to pass
 4. Run validations:
+{% if validations %}
 {% for v in validations %}
-   - `{{ v.command }}`
+   - `{{ v.command }}`{% if v.description %} — {{ v.description }}{% endif %}
+
 {% endfor %}
+{% endif %}
 5. Commit with evidence
-6. Mark done in TASKS.md
+6. Update task registry: `{{ workspace }}/collective/tasks.md`
+
+## Mateship
+
+If you find something another agent should know:
+- File findings to `{{ workspace }}/shared/findings/` with severity (P0/P1/P2)
+- Pick up unowned findings in your focus area
 
 Memory: `{{ agent_identity_dir }}/recent.md`
 
-**Output:** Committed code. Updated TASKS.md, FINDINGS.md if applicable.
+**Output:** Committed code. Updated tasks, findings if applicable.

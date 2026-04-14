@@ -45,6 +45,70 @@ PROCESS_EXIT_TIMEOUT: float = 5.0  # Seconds to wait for process exit after stre
 from marianne.utils.process import safe_killpg as _safe_killpg  # noqa: E402
 
 
+def _reap_descendant_trees(pid: int) -> None:
+    """Kill all surviving descendants of a dead process.
+
+    When a backend process (claude-code) exits, its child processes may
+    have their own process groups (e.g. claude's Bash tool spawns each
+    command with ``start_new_session``).  These children get reparented
+    to init (PID 1) but keep their independent PGIDs — so ``killpg``
+    on the backend's PGID doesn't reach them.
+
+    This function uses psutil to find all processes that were descendants
+    of the given PID and kills each orphaned process group.  It is scoped
+    to the specific backend — no risk of killing unrelated processes.
+    """
+    try:
+        import psutil
+    except ImportError:
+        return
+
+    # The backend process is dead, so psutil.Process(pid) will fail.
+    # Instead, scan all user processes for those reparented to init
+    # whose original parent was our backend.  We identify them by
+    # checking if their PGID matches their own PID (session leader)
+    # and they are now parented to PID 1.
+    my_uid = os.getuid()
+    killed_pgids: set[int] = set()
+
+    for proc in psutil.process_iter(["pid", "ppid", "uids"]):
+        try:
+            info = proc.info
+            if info["ppid"] != 1:
+                continue
+            uids = info.get("uids")
+            if uids is None or uids.real != my_uid:
+                continue
+            child_pid = info["pid"]
+            child_pgid = os.getpgid(child_pid)
+            # Only kill process groups led by this process (session leaders
+            # that were children of our backend).  Skip if already killed.
+            if child_pgid != child_pid or child_pgid in killed_pgids:
+                continue
+            # Safety: never kill our own process group or PID 1's group
+            if child_pgid <= 1 or child_pgid == os.getpgrp():
+                continue
+            # Check if this process was spawned around the same time as
+            # the backend, by verifying it looks like a shell command
+            # from claude's Bash tool (shell-snapshot in cmdline).
+            cmdline = proc.cmdline()
+            cmdline_str = " ".join(cmdline)
+            if "shell-snapshot" not in cmdline_str:
+                continue
+            _safe_killpg(child_pgid, signal.SIGTERM, context="reap_descendant")
+            killed_pgids.add(child_pgid)
+        except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+            continue
+
+    if killed_pgids:
+        _logger.info(
+            "reap_descendant_trees",
+            backend_pid=pid,
+            killed_pgids=sorted(killed_pgids),
+            count=len(killed_pgids),
+        )
+
+
 class ClaudeCliBackend(Backend):
     """Run prompts via the Claude CLI.
 
@@ -362,6 +426,10 @@ class ClaudeCliBackend(Backend):
                 except ProcessLookupError:
                     pass
                 await process.wait()
+
+        # Reap descendants that escaped to their own PGIDs
+        if pid is not None:
+            _reap_descendant_trees(pid)
 
         duration = time.monotonic() - start_time
         actual_signal = signal.SIGKILL if escalated_to_kill else signal.SIGTERM
@@ -904,6 +972,14 @@ class ClaudeCliBackend(Backend):
             pass
         await process.wait()
 
+        # Reap any descendant processes that escaped to their own PGIDs.
+        # Claude Code's Bash tool spawns commands with start_new_session,
+        # giving each its own PGID. When claude-code exits, those children
+        # get reparented to init but keep their PGIDs — killpg on claude's
+        # PGID doesn't reach them. This catches them by PID ancestry.
+        if pid is not None:
+            _reap_descendant_trees(pid)
+
     async def _stream_with_progress(
         self,
         process: asyncio.subprocess.Process,
@@ -986,6 +1062,9 @@ class ClaudeCliBackend(Backend):
                 await asyncio.wait_for(process.wait(), timeout=5.0)
             except (TimeoutError, ProcessLookupError, OSError):
                 pass
+            # Reap descendants that escaped to their own PGIDs
+            if pid is not None:
+                _reap_descendant_trees(pid)
             raise
 
         await self._await_process_exit(process)

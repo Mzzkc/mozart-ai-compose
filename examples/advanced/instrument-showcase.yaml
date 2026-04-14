@@ -1,0 +1,740 @@
+# Instrument Showcase — Multi-Instrument Code Analysis Pipeline
+#
+# Patterns: Echelon Repair + The Tool Chain
+#
+# Demonstrates Marianne's full instrument system through a practical code
+# analysis workflow. Each stage uses the instrument best suited to its task,
+# from cheap fast scanning to expensive deep reasoning to cross-family
+# verification with Gemini.
+#
+# Why Echelon Repair: Different analysis findings have different complexity.
+# Simple pattern-matching issues (E1) need cheap, fast instruments. Code-level
+# vulnerabilities (E2) need deep reasoning. Architectural concerns (E3) benefit
+# from cross-family verification. The classification stage determines complexity
+# BEFORE routing to the appropriate echelon tier — this is the pattern's
+# core mechanism.
+#
+# Why The Tool Chain: The composes_with relationship is documented in both
+# pattern files: "The Tool Chain implements Echelon Repair's E1 tier —
+# deterministic work routed to CLI instruments for cost optimization."
+# In this score, The Tool Chain's principle (match instrument to work grain)
+# drives every instrument assignment. E1 uses the cheapest instrument for
+# tool-like work. E2 uses mid-tier for reasoning. E3 uses cross-family for
+# architectural judgment. The cost gradient IS the Tool Chain applied across
+# Echelon Repair's tiers.
+#
+# Why NOT these patterns:
+#   - Not Fan-out + Synthesis: echelon tiers do different work at different
+#     depths on different subsets, not parallel instances of the same task
+#   - Not Red Team / Blue Team: E3 is independent review, not adversarial
+#   - Not Source Triangulation: cross-family is for verification, not multi-source
+#
+# Instrument Features Demonstrated:
+#   1. instruments: block — Named aliases referencing profiles with config overrides
+#   2. instrument_map: — Batch assignment of instruments to specific sheets
+#   3. instrument_fallbacks: — Score-level fallback chain for resilience
+#   4. instrument_config: — Score-level default instrument configuration
+#   5. per_sheet_fallbacks: — Per-sheet fallback override (Gemini -> Claude -> API)
+#   6. per_sheet_instrument_config: — Per-sheet config overrides (Gemini timeout)
+#   7. Movement-level instrument — Movement 1 sets instrument directly
+#   8. Cross-family verification — Gemini reviews Claude's analysis independently
+#
+# Instrument Resolution Chain (highest to lowest priority):
+#   per_sheet_instruments > instrument_map > movement instrument >
+#   score-level instrument > backend default
+#
+# In this score:
+#   Sheet 1: Movement 1 instrument (claude-code) — no instrument_map entry
+#   Sheet 2: instrument_map -> fast-scanner (claude-code, 300s timeout)
+#   Sheet 3: instrument_map -> fast-scanner (claude-code, 300s timeout)
+#   Sheet 4: instrument_map -> deep-analyst (claude-code, 1200s timeout)
+#   Sheet 5: instrument_map -> gemini-cli (900s, custom fallback chain)
+#   Sheet 6: instrument_map -> deep-analyst (claude-code, 1200s timeout)
+#
+# Echelon Repair DAG (6 sheets):
+#
+#   Stage 1: Project Setup       (claude-code, 600s)   [bookend: setup]
+#        |
+#   Stage 2: Scan & Classify     (fast-scanner, 300s)  [Echelon Repair: classify]
+#        |
+#   +----+--------+
+#   |    |        |
+#   v    v        v
+#   S3   S4       S5                                    [Echelon Repair: tiers]
+#   E1   E2       E3
+#   fast deep     gemini
+#   |    |        |
+#   +----+--------+
+#        |
+#   Stage 6: Final Synthesis     (deep-analyst, 1200s) [bookend: synthesis]
+#
+# Instrument-to-Echelon Mapping (The Tool Chain principle):
+#   E1 (simple):   fast-scanner  — cheapest instrument for pattern-matching work
+#   E2 (moderate): deep-analyst  — mid-tier instrument for code-level reasoning
+#   E3 (complex):  gemini-cli   — cross-family instrument for architectural review
+#
+# How to Adapt:
+#   - Set target_project to point at your codebase
+#   - Set project_name and project_description for context
+#   - Optionally narrow analysis_focus to specific concerns
+#   - Swap instrument profiles for your preferred backends
+#   - Add per_sheet_fallbacks for additional resilience
+#
+# Usage:
+#   mzt validate instrument-showcase.yaml
+#   mzt run instrument-showcase.yaml
+#   mzt status instrument-showcase --watch
+#
+# Output: Six-stage analysis report with echelon-tiered processing
+#         and cross-family verification
+# Sheets: 6 | Estimated time: 15-25 minutes | Estimated cost: $2-6
+
+name: instrument-showcase
+description: >-
+  Multi-instrument code analysis pipeline demonstrating Echelon Repair
+  (classify then tiered parallel processing) composed with The Tool Chain
+  (match instrument to work grain). Shows instrument aliases, instrument_map
+  for batch assignment, instrument_fallbacks for resilience, per-sheet
+  fallback overrides, and cross-family verification.
+
+workspace: ../workspaces/instrument-showcase
+
+# --- Score-Level Instrument Configuration ---
+# Default instrument for sheets not covered by instrument_map or movements.
+# In this score, only sheet 1 uses this (via movement 1's instrument).
+instrument: claude-code
+instrument_config:
+  timeout_seconds: 600
+
+# Score-level fallback: if any instrument is unavailable, try anthropic_api.
+instrument_fallbacks:
+  - anthropic_api
+
+# --- Named Instrument Definitions ---
+# Score-local aliases that reference registered profiles with config overrides.
+# Echelon Repair maps instrument capability to work complexity:
+#   fast-scanner: classification + E1 tier (cheap, fast pattern matching)
+#   deep-analyst: E2 tier + synthesis (mid-tier, deep reasoning)
+# The Tool Chain principle: cheapest instrument that can handle the work grain.
+instruments:
+  fast-scanner:
+    profile: claude-code
+    config:
+      timeout_seconds: 300
+  deep-analyst:
+    profile: claude-code
+    config:
+      timeout_seconds: 1200
+
+# --- Movement Declarations ---
+# Names appear in mzt status output. Movement 1 demonstrates movement-level
+# instrument assignment. Movements 2-6 get instruments via instrument_map.
+movements:
+  1:
+    name: "Project Setup"
+    instrument: claude-code
+  2:
+    name: "Scan & Classify"
+  3:
+    name: "E1 Field Scan"
+  4:
+    name: "E2 Focused Analysis"
+  5:
+    name: "E3 Cross-Family Review"
+  6:
+    name: "Final Synthesis"
+
+backend:
+  skip_permissions: true
+  disable_mcp: true
+
+sheet:
+  size: 1
+  total_items: 6
+  descriptions:
+    1: "Scaffold workspace and inventory project files"
+    2: "Broad scan and echelon classification of findings (E1/E2/E3)"
+    3: "E1: Fast field-level checks on simple findings"
+    4: "E2: Deep analysis of moderate-complexity findings"
+    5: "E3: Cross-family architectural review of complex findings"
+    6: "Synthesize all echelon results into actionable report"
+  dependencies:
+    2: [1]        # Scan & Classify depends on inventory
+    3: [2]        # E1 depends on classification
+    4: [2]        # E2 depends on classification (parallel with E1)
+    5: [2]        # E3 depends on classification (parallel with E1, E2)
+    6: [3, 4, 5]  # Synthesis depends on all three echelon tiers
+
+  # --- Batch Instrument Assignment ---
+  # Maps instrument names to sheet numbers. Sheet 1 is intentionally omitted —
+  # it gets claude-code from movement 1.
+  #
+  # Echelon Repair + Tool Chain mapping:
+  #   fast-scanner -> sheets 2, 3 (scan/classify, E1 — cheap/fast work)
+  #   deep-analyst -> sheets 4, 6 (E2 analysis, synthesis — needs reasoning)
+  #   gemini-cli   -> sheet 5 (E3 cross-family — different model family)
+  instrument_map:
+    "fast-scanner": [2, 3]
+    "deep-analyst": [4, 6]
+    "gemini-cli": [5]
+
+  # --- Per-Sheet Fallback Override ---
+  # E3 stage (Gemini) gets a custom fallback chain: try claude-code first
+  # (maintaining analysis quality), then anthropic_api as last resort.
+  # Cross-family diversity is preferred but not required.
+  per_sheet_fallbacks:
+    5: [claude-code, anthropic_api]
+
+  # --- Per-Sheet Instrument Config Override ---
+  # Gemini stage gets a custom timeout for architectural review.
+  per_sheet_instrument_config:
+    5:
+      timeout_seconds: 900
+
+# --- Parallel Execution ---
+# Echelon Repair: E1, E2, E3 run in parallel after classification.
+# The DAG ensures stages 3, 4, 5 start as soon as stage 2 completes.
+parallel:
+  enabled: true
+  max_concurrent: 3
+
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 4000
+  lookback_sheets: 5
+  capture_files:
+    - "{{ workspace }}/*.md"
+    - "{{ workspace }}/*.yaml"
+
+stale_detection:
+  enabled: true
+  idle_timeout_seconds: 1200
+
+retry:
+  max_retries: 2
+  base_delay_seconds: 15
+
+prompt:
+  variables:
+    # [CHANGE THIS] Path to the codebase you want to analyze.
+    target_project: "[CHANGE THIS: /path/to/your/project]"
+
+    # [CHANGE THIS] Project name for report headers.
+    project_name: "[CHANGE THIS: Your Project Name]"
+
+    # [CHANGE THIS] Brief description to give agents context.
+    project_description: "[CHANGE THIS: What the project does and its tech stack]"
+
+    # Optional: narrow the analysis. Leave empty for full analysis.
+    analysis_focus: ""
+
+  template: |
+    {% macro output_file(name) %}{{ workspace }}/{{ name }}{% endmacro %}
+
+    {% if stage == 1 %}
+    # Stage 1: Project Setup
+
+    Prepare the analysis workspace by inventorying the target project.
+
+    ## Project
+    - **Name**: {{ project_name }}
+    - **Path**: {{ target_project }}
+    - **Description**: {{ project_description }}
+
+    ## Tasks
+
+    1. Read the project structure at `{{ target_project }}`.
+    2. List all source directories, key files, and configuration files.
+    3. Identify primary language(s), frameworks, build system, and dependencies.
+    4. Count approximate lines of code by language and directory.
+    5. Note existing tests, documentation, CI configuration, and linting setup.
+
+    ## Required Output
+
+    Write to `{{ output_file("01-project-inventory.md") }}` with these sections:
+
+    - **## Project Overview** — name, purpose, tech stack summary
+    - **## Directory Structure** — tree of significant directories with descriptions
+    - **## File Inventory** — key files with one-line descriptions
+    - **## Technology Stack** — languages, frameworks, key dependencies
+    - **## Existing Quality Infrastructure** — tests, lint, CI, docs, type checking
+    - **## Analysis Priorities** — what areas deserve the deepest scrutiny and why
+
+    {% elif stage == 2 %}
+    # Stage 2: Scan & Classify
+
+    Perform a fast, broad sweep for issues AND classify each finding by
+    complexity for echelon routing. Speed and coverage matter more than
+    depth — downstream echelons investigate in depth.
+
+    ## Context
+    Read `{{ output_file("01-project-inventory.md") }}` for project structure.
+    The project is at `{{ target_project }}`.
+    {% if analysis_focus %}
+
+    **Focus area**: {{ analysis_focus }}
+    {% endif %}
+
+    ## Scan Categories
+
+    For each category, list findings with file paths and line numbers:
+
+    1. **Code Smells** — duplicated code, long functions (>50 lines), deep nesting
+       (>3 levels), unclear naming, magic numbers, god classes
+    2. **Potential Bugs** — null/undefined risks, off-by-one patterns, unchecked
+       error returns, race conditions, resource leaks
+    3. **Security Concerns** — hardcoded secrets, injection vectors, missing input
+       validation, insecure defaults, overly permissive access
+    4. **Architecture Issues** — circular dependencies, layer violations, missing
+       abstractions, tight coupling between modules
+    5. **Maintenance Risks** — untested critical paths, outdated dependencies,
+       missing error handling, no documentation for complex logic
+
+    ## Echelon Classification
+
+    After scanning, classify EVERY finding into an echelon:
+
+    **E1 (Field — fast, automated checks):**
+    - Issues detectable by pattern matching: hardcoded strings, magic numbers,
+      naming violations, missing imports, deprecated function usage
+    - Simple structural issues: overly long functions, deep nesting, duplicated code
+    - Issues verifiable by grep or static analysis
+
+    **E2 (Sustained — code-level reasoning):**
+    - Issues requiring data flow understanding: injection vectors, race conditions,
+      resource leaks, error propagation
+    - Issues requiring cross-file analysis: circular dependencies, API misuse
+    - Issues requiring understanding of program logic
+
+    **E3 (Depot — architectural reasoning):**
+    - Trust boundary violations, privilege escalation paths
+    - Systemic design problems: layer violations, missing abstractions
+    - Issues requiring understanding of the system as a whole
+    - Trade-offs and architectural decisions needing cross-family perspective
+
+    If in doubt between echelons, classify higher. Downstream echelons can
+    downgrade; they cannot upgrade what they never received.
+
+    ## Required Output
+
+    Write TWO files:
+
+    ### 1. Classification manifest: `{{ output_file("02-echelon-manifest.yaml") }}`
+
+    ```yaml
+    diagnosis_summary:
+      total_findings: <count>
+      e1_count: <count>
+      e2_count: <count>
+      e3_count: <count>
+
+    findings:
+      - id: "FIND-001"
+        file: <relative path>
+        line: <line number or range>
+        echelon: E1|E2|E3
+        category: <category from scan>
+        severity: CRITICAL|WARNING|INFO
+        description: <what the issue is>
+        reason: <why this echelon>
+    ```
+
+    ### 2. Scan report: `{{ output_file("02-scan-findings.md") }}`
+
+    For each finding:
+
+    ```
+    ### [CATEGORY] Finding Title
+    - **File**: path/to/file.ext:line
+    - **Severity**: CRITICAL | WARNING | INFO
+    - **Echelon**: E1 | E2 | E3
+    - **Description**: What the issue is
+    - **Evidence**: The specific code or pattern found
+    - **Classification Rationale**: Why this echelon
+    ```
+
+    End with these sections:
+
+    **## Echelon Summary**
+    - E1 count: N (to be processed by fast field scan)
+    - E2 count: N (to be processed by deep analysis)
+    - E3 count: N (to be processed by architectural review)
+
+    **## Summary** — total findings by severity, categories with the most
+    issues, and the echelon distribution.
+
+    {% elif stage == 3 %}
+    # Stage 3: E1 Field Scan
+
+    Process E1 (simple) findings from the scan. These are issues detectable
+    by pattern matching and automated checks — the cheapest tier of work.
+
+    This is field-level repair: fast, systematic, tool-like.
+
+    ## Context
+    Read these workspace files:
+    - `{{ output_file("01-project-inventory.md") }}` — project inventory
+    - `{{ output_file("02-echelon-manifest.yaml") }}` — structured echelon classification
+    - `{{ output_file("02-scan-findings.md") }}` — scan findings with details
+
+    The project is at `{{ target_project }}`.
+
+    ## Your Mandate
+
+    For EACH finding classified as E1 in the classification manifest:
+
+    1. **Verify**: Confirm or dismiss. Is the pattern actually present?
+       Check the actual source file.
+    2. **Categorize**: CONFIRMED, FALSE POSITIVE, or NEEDS UPGRADE (to E2)
+    3. **For CONFIRMED**: provide a specific, minimal fix
+    4. **For NEEDS UPGRADE**: explain why automated checking is insufficient
+
+    ## Automated Checks to Run
+
+    In addition to verifying flagged findings, run these broad checks:
+    - Grep for hardcoded passwords, API keys, tokens in source files
+    - Grep for eval(), exec(), unsafe deserialization patterns
+    - Check for overly permissive file permissions
+    - Look for debug artifacts: .env files, TODO security notes,
+      commented-out auth checks
+    - Check for deprecated function usage
+
+    ## Required Output
+
+    Write to `{{ output_file("03-e1-field-results.md") }}`:
+
+    - **## E1 Work Orders** — table of all E1 findings with status
+    - **## Confirmed Findings** — each with file, evidence, and fix
+    - **## False Positives** — each with dismissal rationale
+    - **## Echelon Upgrades** — findings reclassified to E2 with justification
+    - **## Additional Findings** — new E1 issues found during automated checks
+    - **## Summary** — counts: confirmed, false positives, upgraded, new
+
+    {% elif stage == 4 %}
+    # Stage 4: E2 Focused Analysis
+
+    Deep-dive into E2 (moderate complexity) findings. Where E1 uses
+    pattern matching, E2 requires understanding code logic, data flow,
+    and cross-file relationships.
+
+    ## Context
+    Read these workspace files:
+    - `{{ output_file("01-project-inventory.md") }}` — project inventory
+    - `{{ output_file("02-echelon-manifest.yaml") }}` — structured echelon classification
+    - `{{ output_file("02-scan-findings.md") }}` — scan findings with details
+
+    The project is at `{{ target_project }}`.
+
+    ## Your Mandate
+
+    For EACH finding classified as E2 in the classification manifest:
+
+    1. **Read the source file.** Understand context — what function, what data
+       flows through it, what calls it, what it calls.
+
+    2. **Trace data flow.** For injection vulnerabilities: where does input
+       originate? Is it sanitized? Where does it reach a sink?
+
+    3. **Determine if exploitable/significant:**
+       - CONFIRMED: real issue with concrete impact
+       - FALSE POSITIVE: mitigated by context (framework escaping, types, etc.)
+       - NEEDS UPGRADE: architectural concern — escalate to E3
+
+    4. **Root Cause Analysis** for each CONFIRMED finding: is it a one-off
+       mistake or a systemic pattern? Are there other instances?
+
+    5. **Prioritized Fix** for each CONFIRMED finding: specific fix,
+       broader prevention strategy, priority (fix now / fix soon / fix eventually).
+
+    ## Required Output
+
+    Write to `{{ output_file("04-e2-analysis.md") }}` with these sections:
+
+    - **## E2 Work Orders** — table of all E2 findings with status
+    - **## Confirmed Issues** — detailed analysis with root cause and fix
+    - **## Patterns** — recurring issues suggesting systemic problems
+    - **## False Positives** — each with dismissal evidence
+    - **## Echelon Upgrades** — findings reclassified to E3 with justification
+    - **## Recommendations** — prioritized fixes with effort estimates
+    - **## Summary** — counts and key takeaways
+
+    Be thorough. Cite specific files, line numbers, and code patterns as evidence.
+
+    {% elif stage == 5 %}
+    # Stage 5: E3 Cross-Family Architectural Review
+
+    You are an independent reviewer from a DIFFERENT AI model family. Your
+    value comes from having different training data, different analytical
+    tendencies, and different blind spots than the Claude models that
+    produced the previous analyses.
+
+    You are also the E3 echelon — handling the most complex findings that
+    require architectural reasoning.
+
+    ## Context
+    Read these workspace files:
+    - `{{ output_file("01-project-inventory.md") }}` — project inventory
+    - `{{ output_file("02-echelon-manifest.yaml") }}` — echelon classification
+    - `{{ output_file("02-scan-findings.md") }}` — scan findings
+
+    The project is at `{{ target_project }}`.
+
+    ## Your Dual Mandate
+
+    ### Part 1: E3 Architectural Analysis
+
+    Process E3 findings from the manifest. These are the hardest problems:
+
+    1. **Trust Boundary Analysis** — where does trusted code meet untrusted input?
+    2. **Architecture Assessment** — what do systemic patterns reveal about
+       design health?
+    3. **Cross-Cutting Concerns** — issues that span multiple modules or layers
+    4. **Remediation Strategy** — architectural changes, not just code patches
+
+    For each E3 finding, provide status (CONFIRMED / FALSE POSITIVE) with
+    architectural context and systemic impact assessment.
+
+    ### Part 2: Independent Cross-Family Review
+
+    Do NOT simply agree with or summarize the previous findings.
+
+    1. **Independent Findings** — scan the codebase yourself. What issues
+       do YOU see that the classification missed entirely?
+    2. **Disagreements** — where do you disagree with the classifications
+       or severity assessments? Explain with evidence.
+    3. **Blind Spots** — what categories were under-represented in the scan?
+       Performance? Accessibility? Error recovery? Test coverage?
+    4. **Perspective Shift** — step back from individual findings. What does
+       the COLLECTION of issues tell you about the project's trajectory?
+
+    ## Required Output
+
+    Write to `{{ output_file("05-e3-review.md") }}` with these sections:
+
+    - **## E3 Echelon Results** — architectural analysis of E3 findings
+    - **## Independent Findings** — issues you found that were not reported
+    - **## Agreements** — findings you independently confirm (convergent signal)
+    - **## Disagreements** — where and why you disagree, with counter-evidence
+    - **## Blind Spots** — under-explored areas the previous analysis missed
+    - **## Architecture Assessment** — overall design health and trajectory
+    - **## Cross-Family Perspective** — insights from different analytical approach
+
+    {% elif stage == 6 %}
+    # Stage 6: Final Synthesis
+
+    Integrate all echelon results into a single authoritative report.
+    You have project inventory, scan findings, echelon classification,
+    E1 field results, E2 deep analysis, and E3 cross-family review.
+    Synthesize — don't concatenate.
+
+    ## Context
+    Read ALL workspace files:
+    - `{{ output_file("01-project-inventory.md") }}` — project inventory
+    - `{{ output_file("02-echelon-manifest.yaml") }}` — echelon classifications
+    - `{{ output_file("02-scan-findings.md") }}` — scan and classification details
+    - `{{ output_file("03-e1-field-results.md") }}` — E1 automated findings
+    - `{{ output_file("04-e2-analysis.md") }}` — E2 code-level analysis
+    - `{{ output_file("05-e3-review.md") }}` — E3 architectural review (cross-family)
+
+    ## Synthesis Rules
+
+    1. Where echelon analyses **AGREE**: high-confidence signal. Present as
+       confirmed findings with strong recommendations.
+    2. Where analyses **DISAGREE**: explain both positions, assess evidence
+       strength, and take a position. Don't average — argue.
+    3. What **EMERGED** from combining perspectives: insights that exist in
+       the collision but weren't stated by any single echelon.
+    4. **Echelon effectiveness**: did the classification route findings correctly?
+       Were there significant upgrades/downgrades? Was the instrument cost
+       gradient justified?
+
+    ## Required Output
+
+    Write to `{{ output_file("06-final-report.md") }}` with these sections:
+
+    - **## Executive Summary** — 5-7 bullet points, the most important findings
+    - **## Project Health Score** — rate 1-10 with justification
+    - **## Critical Issues** — must fix immediately, with file paths and fixes
+    - **## Important Issues** — should fix soon, with prioritization rationale
+    - **## Improvement Opportunities** — would improve quality over time
+    - **## Architecture Assessment** — overall design health and trajectory
+    - **## Cross-Family Insights** — what the E3 review revealed that
+      same-family analysis missed
+    - **## Echelon Analysis** — how the tiered approach distributed work:
+      what E1/E2/E3 each handled, instrument efficiency, cost distribution
+    - **## Action Plan** — prioritized list with estimated effort levels
+    - **## Methodology Note** — explain the Echelon Repair approach: classify,
+      route to instrument-matched tiers, synthesize with cross-family input
+
+    The report should be useful to someone who has never seen the codebase.
+    Be specific: file paths, line numbers, code snippets where relevant.
+
+    {% endif %}
+
+validations:
+  # --- Stage 1: Project Setup ---
+  - type: file_exists
+    path: "{workspace}/01-project-inventory.md"
+    condition: "stage == 1"
+    stage: 1
+    description: "Project inventory created"
+
+  - type: content_contains
+    path: "{workspace}/01-project-inventory.md"
+    pattern: "## Project Overview"
+    condition: "stage == 1"
+    stage: 2
+    description: "Inventory has project overview section"
+
+  - type: content_contains
+    path: "{workspace}/01-project-inventory.md"
+    pattern: "## Technology Stack"
+    condition: "stage == 1"
+    stage: 2
+    description: "Inventory has technology stack section"
+
+  # --- Stage 2: Scan & Classify (Echelon Repair: classify) ---
+  - type: file_exists
+    path: "{workspace}/02-echelon-manifest.yaml"
+    condition: "stage == 2"
+    stage: 1
+    description: "Echelon classification manifest created"
+
+  - type: file_exists
+    path: "{workspace}/02-scan-findings.md"
+    condition: "stage == 2"
+    stage: 1
+    description: "Scan findings created"
+
+  - type: command_succeeds
+    command: >
+      python3 -c "
+      import yaml;
+      m = yaml.safe_load(open('{workspace}/02-echelon-manifest.yaml'));
+      assert 'findings' in m, 'Missing findings';
+      assert 'diagnosis_summary' in m, 'Missing summary';
+      findings = m['findings'];
+      assert len(findings) > 0, 'No findings classified';
+      for f in findings:
+          assert f['echelon'] in ('E1', 'E2', 'E3'), 'Invalid echelon'
+      "
+    condition: "stage == 2"
+    stage: 2
+    description: "Classification manifest has valid structure and echelon labels"
+
+  - type: content_regex
+    path: "{workspace}/02-scan-findings.md"
+    pattern: "(?i)(CRITICAL|WARNING|INFO)"
+    condition: "stage == 2"
+    stage: 2
+    description: "Scan findings have severity ratings"
+
+  - type: content_regex
+    path: "{workspace}/02-scan-findings.md"
+    pattern: '\bE[123]\b'
+    condition: "stage == 2"
+    stage: 2
+    description: "Scan findings have echelon classifications (E1/E2/E3)"
+
+  - type: content_contains
+    path: "{workspace}/02-scan-findings.md"
+    pattern: "## Echelon Summary"
+    condition: "stage == 2"
+    stage: 2
+    description: "Scan includes echelon distribution summary"
+
+  # --- Stage 3: E1 Field Scan (Echelon Repair: e1-repair) ---
+  - type: file_exists
+    path: "{workspace}/03-e1-field-results.md"
+    condition: "stage == 3"
+    stage: 1
+    description: "E1 field scan results created"
+
+  - type: content_regex
+    path: "{workspace}/03-e1-field-results.md"
+    pattern: "(?i)(CONFIRMED|FALSE POSITIVE)"
+    condition: "stage == 3"
+    stage: 2
+    description: "E1 results have finding status classifications"
+
+  - type: content_contains
+    path: "{workspace}/03-e1-field-results.md"
+    pattern: "## Summary"
+    condition: "stage == 3"
+    stage: 2
+    description: "E1 results have summary section"
+
+  # --- Stage 4: E2 Focused Analysis (Echelon Repair: e2-repair) ---
+  - type: file_exists
+    path: "{workspace}/04-e2-analysis.md"
+    condition: "stage == 4"
+    stage: 1
+    description: "E2 deep analysis created"
+
+  - type: content_contains
+    path: "{workspace}/04-e2-analysis.md"
+    pattern: "## Recommendations"
+    condition: "stage == 4"
+    stage: 2
+    description: "E2 analysis has recommendations"
+
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/04-e2-analysis.md") -ge 300'
+    condition: "stage == 4"
+    stage: 2
+    description: "E2 analysis has substantive content (300+ words)"
+
+  # --- Stage 5: E3 Cross-Family Review (Echelon Repair: e3-repair) ---
+  - type: file_exists
+    path: "{workspace}/05-e3-review.md"
+    condition: "stage == 5"
+    stage: 1
+    description: "E3 cross-family review created"
+
+  - type: content_contains
+    path: "{workspace}/05-e3-review.md"
+    pattern: "## Independent Findings"
+    condition: "stage == 5"
+    stage: 2
+    description: "E3 review has independent findings (cross-family value)"
+
+  - type: content_contains
+    path: "{workspace}/05-e3-review.md"
+    pattern: "## Architecture Assessment"
+    condition: "stage == 5"
+    stage: 2
+    description: "E3 review has architectural assessment"
+
+  # --- Stage 6: Final Synthesis ---
+  - type: file_exists
+    path: "{workspace}/06-final-report.md"
+    condition: "stage == 6"
+    stage: 1
+    description: "Final synthesis report created"
+
+  - type: content_contains
+    path: "{workspace}/06-final-report.md"
+    pattern: "## Executive Summary"
+    condition: "stage == 6"
+    stage: 2
+    description: "Final report has executive summary"
+
+  - type: content_regex
+    path: "{workspace}/06-final-report.md"
+    pattern: "## (Action Plan|Critical Issues)"
+    condition: "stage == 6"
+    stage: 2
+    description: "Final report has actionable sections"
+
+  - type: content_contains
+    path: "{workspace}/06-final-report.md"
+    pattern: "## Echelon Analysis"
+    condition: "stage == 6"
+    stage: 2
+    description: "Final report includes echelon effectiveness analysis"
+
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/06-final-report.md") -ge 500'
+    condition: "stage == 6"
+    stage: 3
+    description: "Final report has substantive content (500+ words)"

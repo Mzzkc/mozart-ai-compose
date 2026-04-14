@@ -200,7 +200,7 @@ class TestCliNonDaemonRegression:
         result = subprocess.run(
             [
                 sys.executable, "-m", "marianne", "run",
-                "examples/simple-sheet.yaml", "--dry-run",
+                "examples/getting-started/simple-sheet.yaml", "--dry-run",
             ],
             capture_output=True,
             text=True,
@@ -226,7 +226,7 @@ class TestCliNonDaemonRegression:
         result = subprocess.run(
             [
                 sys.executable, "-m", "marianne", "validate",
-                "examples/simple-sheet.yaml",
+                "examples/getting-started/simple-sheet.yaml",
             ],
             capture_output=True,
             text=True,

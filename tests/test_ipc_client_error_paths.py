@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from contextlib import contextmanager
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -61,19 +62,31 @@ def _make_client(tmp_path: Path) -> DaemonClient:
 
 @contextmanager
 def _mock_connection(client: DaemonClient, lines: list[bytes]):
-    """Patch client._connect to return a mocked reader/writer pair.
+    """Patch the client to return a mocked reader/writer pair.
 
-    The reader is fed the given byte lines then EOF. The writer is a
-    no-op mock. Yields nothing -- just provides the patched context.
+    Mocks *both* the pool (used by ``call()``) and ``_connect()``
+    (used by ``stream()``).  The reader is fed the given byte lines
+    then EOF.  The writer is a no-op mock.
     """
     reader = _make_reader(lines)
     writer = _make_writer()
 
-    with patch.object(client, "_connect") as mock_connect:
-        mock_connect.return_value.__aenter__ = AsyncMock(
-            return_value=(reader, writer)
-        )
-        mock_connect.return_value.__aexit__ = AsyncMock(return_value=False)
+    # Pool mock for call()
+    mock_pool = MagicMock()
+    mock_pool.closed = False
+    mock_pool.acquire = AsyncMock(return_value=(reader, writer))
+    mock_pool.release = MagicMock()
+    mock_pool.discard = MagicMock()
+
+    # _connect mock for stream() — must be an async context manager
+    @asynccontextmanager
+    async def _fake_connect() -> AsyncIterator[tuple[asyncio.StreamReader, MagicMock]]:
+        yield reader, writer
+
+    with (
+        patch.object(client, "_get_pool", return_value=mock_pool),
+        patch.object(client, "_connect", _fake_connect),
+    ):
         yield
 
 

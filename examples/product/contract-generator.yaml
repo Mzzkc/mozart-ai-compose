@@ -17,9 +17,8 @@
 #   - Prefabrication: Shared analysis (01-analysis.json) guides all drafting teams
 #   - Barn Raising: Consistent formatting standards across parallel sections
 #
-# This is a Wordware comparison demo — showing how Marianne orchestrates
-# multi-stage document generation that would be a single monolithic prompt
-# in other tools.
+# Demonstrates how Marianne orchestrates multi-stage document generation
+# that would be a single monolithic prompt in other tools.
 #
 # Usage:
 #   mzt start

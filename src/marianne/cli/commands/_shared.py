@@ -33,9 +33,9 @@ from ..output import console as default_console
 if TYPE_CHECKING:
     from marianne.backends.base import Backend
     from marianne.core.config import JobConfig
+    from marianne.core.models import JobCompletionSummary
     from marianne.execution.escalation import ConsoleEscalationHandler
     from marianne.execution.grounding import GroundingEngine
-    from marianne.execution.runner import RunSummary
     from marianne.learning.global_store import GlobalLearningStore
     from marianne.learning.outcomes import OutcomeStore
 
@@ -66,9 +66,7 @@ def create_backend(
     if not quiet and is_verbose() and console:
         if config.backend.type == "recursive_light":
             rl_config = config.backend.recursive_light
-            console.print(
-                f"[dim]Using Recursive Light backend at {rl_config.endpoint}[/dim]"
-            )
+            console.print(f"[dim]Using Recursive Light backend at {rl_config.endpoint}[/dim]")
         elif config.backend.type == "anthropic_api":
             console.print(
                 f"[dim]Using Anthropic API backend with model {config.backend.model}[/dim]"
@@ -102,12 +100,8 @@ def setup_learning(
 
     if outcome_store is not None and not quiet and is_verbose() and console:
         outcome_store_path = config.get_outcome_store_path()
-        console.print(
-            f"[dim]Learning enabled: outcomes at {outcome_store_path}[/dim]"
-        )
-        console.print(
-            "[dim]Global learning enabled: cross-workspace patterns active[/dim]"
-        )
+        console.print(f"[dim]Learning enabled: outcomes at {outcome_store_path}[/dim]")
+        console.print("[dim]Global learning enabled: cross-workspace patterns active[/dim]")
 
     return outcome_store, global_learning_store
 
@@ -136,9 +130,7 @@ def setup_notifications(
     notification_manager = _setup_notifications(config)
 
     if notification_manager is not None and not quiet and is_verbose() and console:
-        console.print(
-            "[dim]Notifications enabled[/dim]"
-        )
+        console.print("[dim]Notifications enabled[/dim]")
     return notification_manager
 
 
@@ -202,9 +194,7 @@ def setup_grounding(
 
     if engine is not None and not quiet and is_verbose() and console:
         hook_count = engine.get_hook_count()
-        console.print(
-            f"[dim]Grounding enabled: {hook_count} hook(s) registered[/dim]"
-        )
+        console.print(f"[dim]Grounding enabled: {hook_count} hook(s) registered[/dim]")
 
     return engine
 
@@ -257,7 +247,7 @@ def setup_all(
     )
 
 
-def display_run_summary(summary: RunSummary) -> None:
+def display_run_summary(summary: JobCompletionSummary) -> None:
     """Display run summary as a rich panel.
 
     Shared by both `run` and `resume` commands to avoid duplication.
@@ -293,17 +283,21 @@ def display_run_summary(summary: RunSummary) -> None:
     lines.append(f"  Success Rate: {summary.success_rate:.1f}%")
 
     if summary.validation_pass_count + summary.validation_fail_count > 0:
-        lines.extend([
-            "",
-            "[bold]Validation[/bold]",
-            f"  Pass Rate: {summary.validation_pass_rate:.1f}%",
-        ])
+        lines.extend(
+            [
+                "",
+                "[bold]Validation[/bold]",
+                f"  Pass Rate: {summary.validation_pass_rate:.1f}%",
+            ]
+        )
 
     if is_verbose() or summary.total_retries > 0 or summary.rate_limit_waits > 0:
-        lines.extend([
-            "",
-            "[bold]Execution[/bold]",
-        ])
+        lines.extend(
+            [
+                "",
+                "[bold]Execution[/bold]",
+            ]
+        )
         if summary.successes_without_retry > 0:
             lines.append(
                 f"  Success Without Retry: {summary.success_without_retry_rate:.0f}% "
@@ -316,11 +310,13 @@ def display_run_summary(summary: RunSummary) -> None:
         if summary.rate_limit_waits > 0:
             lines.append(f"  Rate Limit Waits: [yellow]{summary.rate_limit_waits}[/yellow]")
 
-    default_console.print(Panel(
-        "\n".join(lines),
-        title="Run Summary",
-        border_style="green" if summary.final_status == JobStatus.COMPLETED else "yellow",
-    ))
+    default_console.print(
+        Panel(
+            "\n".join(lines),
+            title="Run Summary",
+            border_style="green" if summary.final_status == JobStatus.COMPLETED else "yellow",
+        )
+    )
 
 
 def create_progress_bar(
@@ -353,10 +349,12 @@ def create_progress_bar(
         TextColumn("ETA: {task.fields[eta]}"),
     ]
     if include_exec_status:
-        columns.extend([
-            TextColumn("\u2022"),
-            TextColumn("[dim]{task.fields[exec_status]}[/dim]"),
-        ])
+        columns.extend(
+            [
+                TextColumn("\u2022"),
+                TextColumn("[dim]{task.fields[exec_status]}[/dim]"),
+            ]
+        )
     return Progress(
         *columns,
         console=console or default_console,
@@ -367,7 +365,7 @@ def create_progress_bar(
 async def handle_job_completion(
     *,
     state: CheckpointState,
-    summary: RunSummary,
+    summary: JobCompletionSummary,
     notification_manager: NotificationManager | None,
     job_id: str,
     job_name: str,
@@ -400,9 +398,7 @@ async def handle_job_completion(
             )
     else:
         if not is_quiet():
-            _console.print(
-                f"[yellow]Score ended with status: {state.status.value}[/yellow]"
-            )
+            _console.print(f"[yellow]Score ended with status: {state.status.value}[/yellow]")
             display_run_summary(summary)
         if notification_manager and state.status == JobStatus.FAILED:
             await notification_manager.notify_job_failed(
@@ -476,9 +472,7 @@ def validate_start_sheet(start_sheet: int | None, total_sheets: int | None = Non
         return None
 
     if start_sheet < 1:
-        raise typer.BadParameter(
-            f"--start-sheet must be >= 1, got {start_sheet}"
-        )
+        raise typer.BadParameter(f"--start-sheet must be >= 1, got {start_sheet}")
 
     if total_sheets is not None and start_sheet > total_sheets:
         raise typer.BadParameter(

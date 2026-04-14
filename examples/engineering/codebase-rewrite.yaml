@@ -1,0 +1,728 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║              CODEBASE REWRITE — Iterative Language/Framework Migration      ║
+# ║                                                                             ║
+# ║  Patterns: Cathedral Construction + CEGAR Loop + Commissioning Cascade      ║
+# ║                                                                             ║
+# ║  WHY these three patterns compose for codebase rewrites:                    ║
+# ║                                                                             ║
+# ║  Cathedral Construction provides the iterative build loop. A codebase       ║
+# ║  rewrite isn't a single pass — it's multiple iterations of analyze,         ║
+# ║  rewrite, validate, review. Self-chaining with inherited workspace          ║
+# ║  carries forward state across iterations. Stage 9's CONTINUE/COMPLETE       ║
+# ║  decision gates the loop.                                                   ║
+# ║                                                                             ║
+# ║  CEGAR Loop provides progressive refinement. Stage 2 (coarse analysis)      ║
+# ║  identifies ALL potential rewrite candidates cheaply. Stage 3 (triage)      ║
+# ║  verifies which candidates are REAL vs FALSE_POSITIVE before expensive      ║
+# ║  rewrite work begins. Stage 5 (candidate gate) is the CEGAR termination    ║
+# ║  check — it verifies REAL candidates exist before committing to the         ║
+# ║  expensive build stage.                                                     ║
+# ║                                                                             ║
+# ║  Commissioning Cascade provides multi-scope validation. Unit tests          ║
+# ║  (fast, isolated) run first at stage 7. Integration tests (cross-module)    ║
+# ║  run next at stage 8. Quality review (semantic judgment) runs last at       ║
+# ║  stage 9. Staged fail-fast: if unit tests fail, skip integration.           ║
+# ║                                                                             ║
+# ║  This is NOT Echelon Repair — all candidates get the same rewrite           ║
+# ║  treatment. There's no tier routing by difficulty.                           ║
+# ║                                                                             ║
+# ║  This is NOT Fan-out + Synthesis — each iteration is sequential.            ║
+# ║  Parallelism occurs ACROSS iterations via self-chaining.                    ║
+# ║                                                                             ║
+# ║  Execution Flow (9 stages per iteration, fully sequential):                 ║
+# ║                                                                             ║
+# ║    Stage 1: Reconnaissance   → map codebase, dependencies, complexity       ║
+# ║         |                                                                   ║
+# ║    Stage 2: Coarse Analysis  → broad scan for rewrite candidates            ║
+# ║         |                                                                   ║
+# ║    Stage 3: Triage           → verify REAL vs FALSE_POSITIVE (CEGAR)        ║
+# ║         |                                                                   ║
+# ║    Stage 4: Rewrite Planning → prioritize, plan order (CEGAR refine)        ║
+# ║         |                                                                   ║
+# ║    Stage 5: Candidate Gate   → verify REAL candidates exist (CEGAR gate)    ║
+# ║         |                                                                   ║
+# ║    Stage 6: Execute Rewrite  → actual code translation (skip if CONVERGED)  ║
+# ║         |                                                                   ║
+# ║    Stage 7: Unit Validation  → run unit tests (Commissioning tier 1)        ║
+# ║         |                                                                   ║
+# ║    Stage 8: Integration      → run integration tests (Commissioning tier 2) ║
+# ║         |                                                                   ║
+# ║    Stage 9: Quality Review   → CONTINUE or COMPLETE (Cathedral gate +       ║
+# ║         |                      Commissioning acceptance)                    ║
+# ║    (on_success: self-chain if CONTINUE — Cathedral Construction loop)       ║
+# ║                                                                             ║
+# ║  Instruments (6 named definitions, matched to task grain):                  ║
+# ║    planner  (600s)  — Reasoning-focused planning: stages 1, 4              ║
+# ║    scanner  (600s)  — Fast scanning and test execution: stages 2, 7, 8     ║
+# ║    analyst  (1200s) — Deep code reasoning for triage: stage 3              ║
+# ║    gate     (300s)  — Lightweight verification: stage 5                    ║
+# ║    builder  (1800s) — Code generation with tool access: stage 6            ║
+# ║    reviewer (900s)  — Quality judgment and iteration decisions: stage 9    ║
+# ║                                                                             ║
+# ║  Usage:                                                                     ║
+# ║    1. Copy this score to your project directory                             ║
+# ║    2. Edit prompt.variables for your migration (search [CHANGE THIS])       ║
+# ║    3. Set on_success[0].job_path to this score's ABSOLUTE path              ║
+# ║    4. mzt start && mzt run codebase-rewrite.yaml                            ║
+# ║    5. mzt status codebase-rewrite --watch                                   ║
+# ║                                                                             ║
+# ║  Output (per iteration):                                                    ║
+# ║    workspace/                                                               ║
+# ║      01-reconnaissance.md       — Module inventory and dependencies         ║
+# ║      02-candidates.yaml         — Rewrite candidates with classification    ║
+# ║      03-triage.yaml             — Verified verdicts per candidate           ║
+# ║      04-rewrite-plan.md         — Prioritized rewrite plan                  ║
+# ║      05-gate-status.yaml        — PROCEED/CONVERGED gate decision           ║
+# ║      06-migration-log.md        — What was actually rewritten              ║
+# ║      07-unit-test-results.md    — Unit test outcomes                       ║
+# ║      08-integration-results.md  — Integration test outcomes                ║
+# ║      09-quality-review.md       — Quality assessment + iteration gate      ║
+# ║                                                                             ║
+# ║  Sheets: 9 per iteration | Time: ~25-45 min | Cost: ~$3-10                ║
+# ║  Expected iterations: 2-5 for medium codebases (50-200 files)              ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+name: codebase-rewrite
+description: >
+  Generic codebase rewrite with iterative refinement. Cathedral Construction
+  provides the iteration loop, CEGAR Loop provides progressive analysis
+  (coarse scan, triage, gate), and Commissioning Cascade provides
+  multi-scope validation (unit, integration, acceptance).
+
+workspace: ../workspaces/codebase-rewrite
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# INSTRUMENT CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+instrument: claude-code
+instrument_fallbacks: [anthropic_api]
+instrument_config:
+  timeout_seconds: 1200
+  skip_permissions: true
+  disable_mcp: true
+
+# Named instrument definitions — match capability to task grain.
+# CEGAR pattern guidance: sonnet-class for coarse-check, opus-class for triage.
+# Commissioning pattern guidance: CLI for test execution (Marianne has no pure
+# CLI instrument, so scanner with short timeout is the pragmatic equivalent).
+instruments:
+  planner:
+    profile: claude-code
+    config:
+      timeout_seconds: 600
+  scanner:
+    profile: claude-code
+    config:
+      timeout_seconds: 600
+  analyst:
+    profile: claude-code
+    config:
+      timeout_seconds: 1200
+  gate:
+    profile: claude-code
+    config:
+      timeout_seconds: 300
+  builder:
+    profile: claude-code
+    config:
+      timeout_seconds: 1800
+  reviewer:
+    profile: claude-code
+    config:
+      timeout_seconds: 900
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MOVEMENTS — named stages visible in `mzt status`
+# ═══════════════════════════════════════════════════════════════════════════════
+
+movements:
+  1:
+    name: Reconnaissance
+    instrument: planner
+  2:
+    name: Coarse Analysis
+    instrument: scanner
+  3:
+    name: Triage
+    instrument: analyst
+  4:
+    name: Rewrite Planning
+    instrument: planner
+  5:
+    name: Candidate Gate
+    instrument: gate
+  6:
+    name: Execute Rewrite
+    instrument: builder
+  7:
+    name: Unit Validation
+    instrument: scanner
+  8:
+    name: Integration Validation
+    instrument: scanner
+  9:
+    name: Quality Review
+    instrument: reviewer
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SHEET CONFIGURATION — 9 stages, fully sequential
+# ═══════════════════════════════════════════════════════════════════════════════
+
+sheet:
+  size: 1
+  total_items: 9
+  descriptions:
+    1: "Analyze codebase structure and map rewrite scope"
+    2: "Broad scan for modules needing rewrite"
+    3: "Verify candidates: REAL need vs FALSE_POSITIVE"
+    4: "Create prioritized rewrite plan from verified candidates"
+    5: "Gate check: verify REAL candidates exist before expensive rewrite"
+    6: "Execute code translation on priority modules"
+    7: "Run unit tests against rewritten code"
+    8: "Run integration tests"
+    9: "Review quality, decide CONTINUE or COMPLETE"
+  dependencies:
+    2: [1]
+    3: [2]
+    4: [3]
+    5: [4]
+    6: [5]
+    7: [6]
+    8: [7]
+    9: [8]
+
+  # CEGAR check-termination: skip expensive stages when no REAL candidates.
+  # Exit 0 from grep = pattern found = skip the stage.
+  skip_when_command:
+    6:
+      command: 'grep -q "status: CONVERGED" "{workspace}/05-gate-status.yaml"'
+      description: "Skip rewrite if no REAL candidates remain"
+      timeout_seconds: 10
+    7:
+      command: 'grep -q "status: CONVERGED" "{workspace}/05-gate-status.yaml"'
+      description: "Skip unit tests if no rewrite occurred"
+      timeout_seconds: 10
+    8:
+      command: 'grep -q "status: CONVERGED" "{workspace}/05-gate-status.yaml"'
+      description: "Skip integration tests if no rewrite occurred"
+      timeout_seconds: 10
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CROSS-SHEET CONTEXT — workspace files carry state across stages
+# ═══════════════════════════════════════════════════════════════════════════════
+
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 3000
+  lookback_sheets: 3
+  capture_files:
+    - "{{ workspace }}/*.md"
+    - "{{ workspace }}/*.yaml"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CATHEDRAL CONSTRUCTION — self-chaining iteration loop
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# After all 9 stages complete, the score re-submits itself with fresh: true.
+# The next iteration's Reconnaissance stage reads the inherited workspace to
+# plan what to rewrite next. Stage 9's CONTINUE/COMPLETE decision determines
+# whether to continue. max_chain_depth: 10 provides a hard stop.
+#
+# IMPORTANT: Set job_path to the ABSOLUTE path of this score file.
+# Relative paths resolve from the daemon's CWD, not the score's directory.
+
+workspace_lifecycle:
+  archive_on_fresh: true
+  max_archives: 10
+
+concert:
+  enabled: true
+  max_chain_depth: 10
+
+on_success:
+  - type: run_job
+    job_path: "[CHANGE THIS: /absolute/path/to/codebase-rewrite.yaml]"
+    description: "Cathedral Construction: self-chain for next iteration"
+    detached: true
+    fresh: true
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# RETRY AND STALE DETECTION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+retry:
+  max_retries: 3
+  base_delay_seconds: 15
+
+stale_detection:
+  enabled: true
+  idle_timeout_seconds: 1800
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PROMPT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+prompt:
+  variables:
+    source_language: "[CHANGE THIS: e.g., JavaScript, Python 2, Java 8]"
+    target_language: "[CHANGE THIS: e.g., TypeScript, Python 3, Kotlin]"
+    source_dir: "src"
+    test_command: "[CHANGE THIS: e.g., pytest tests/ -x, npm test, cargo test]"
+    integration_test_command: "[CHANGE THIS: e.g., pytest tests/integration/, npm run test:e2e]"
+    improvement_specs: |
+      - Modernize API patterns
+      - Add type safety where applicable
+      - Improve error handling
+      - Update deprecated dependencies
+
+  template: |
+    {# ── Macros ─────────────────────────────────────────────────────────── #}
+
+    {% macro write_to(filename) %}
+    ## Output
+    Write your findings to `{{ workspace }}/{{ filename }}`.
+    Ensure the file is complete, well-structured, and self-contained.
+    {% endmacro %}
+
+    {% macro read_file(filename) %}
+    Read `{{ workspace }}/{{ filename }}`.
+    {% endmacro %}
+
+    {# ── Stage 1: Reconnaissance (Cathedral: plan-iteration) ─────────── #}
+
+    {% if stage == 1 %}
+    # Reconnaissance — Codebase Analysis
+
+    Analyze the codebase at `{{ workspace }}/{{ source_dir }}` for migration
+    from **{{ source_language }}** to **{{ target_language }}**.
+
+    If previous iteration files exist in the workspace (01-reconnaissance.md,
+    09-quality-review.md), read them first — this is a subsequent Cathedral
+    Construction iteration. Focus on what REMAINS to be rewritten.
+
+    ## Tasks
+
+    1. **Inventory** all source files with approximate line counts
+    2. **Map dependencies** — imports, function calls, class inheritance
+    3. **Identify external dependencies** and their {{ target_language }} equivalents
+    4. **Assess complexity** per module: simple (1) / moderate (2-3) / complex (4-5)
+    5. **Check existing test coverage** — which modules have tests?
+    6. **Check prior iteration progress** — which modules were already rewritten?
+
+    {{ write_to("01-reconnaissance.md") }}
+    Include: module inventory table, dependency graph, complexity ratings,
+    external dependency mapping, test coverage, recommended rewrite order,
+    and (if applicable) prior iteration progress summary.
+
+    {# ── Stage 2: Coarse Analysis (CEGAR: coarse-check) ─────────────── #}
+
+    {% elif stage == 2 %}
+    # Coarse Analysis — Rewrite Candidate Identification
+
+    {{ read_file("01-reconnaissance.md") }}
+
+    Scan ALL modules and classify each:
+    - **REWRITE**: Full translation to {{ target_language }} needed
+    - **ADAPT**: Minor updates only (API changes, deprecations)
+    - **SKIP**: Already compatible, already rewritten, or trivially convertible
+
+    For each candidate, note:
+    - Difficulty rating (1-5)
+    - Specific challenges (pattern changes, API differences, type mismatches)
+    - Risks (no tests, complex dependencies, shared state)
+
+    {{ write_to("02-candidates.yaml") }}
+    Structure:
+    ```yaml
+    candidates:
+      - module: "path/to/module"
+        classification: REWRITE
+        difficulty: 3
+        challenges: ["callback-to-async conversion", "no type hints"]
+        risks: ["no existing tests", "used by 4 other modules"]
+      - module: "path/to/other"
+        classification: SKIP
+        difficulty: 1
+        challenges: []
+        risks: []
+    summary:
+      total_modules: 25
+      rewrite_count: 12
+      adapt_count: 5
+      skip_count: 8
+    ```
+
+    Be aggressive — over-classify rather than miss candidates.
+    Stage 3 (Triage) will filter false positives.
+
+    {# ── Stage 3: Triage (CEGAR: triage-findings) ───────────────────── #}
+
+    {% elif stage == 3 %}
+    # Triage — Verify Rewrite Candidates
+
+    {{ read_file("01-reconnaissance.md") }}
+    {{ read_file("02-candidates.yaml") }}
+
+    For EACH candidate classified as REWRITE or ADAPT, read the actual
+    source code and verify: is this a REAL need or a FALSE_POSITIVE
+    (simpler than the coarse scan suggested)?
+
+    Be skeptical. Coarse analysis consistently over-classifies because it
+    reads module signatures, not implementations. A module that LOOKS like
+    it needs rewriting may already be compatible.
+
+    For each candidate:
+    1. Read the source file
+    2. Check if the {{ target_language }} equivalent is simpler than expected
+    3. Check if an automated tool could handle the conversion
+    4. Assess whether the coarse difficulty rating was accurate
+
+    {{ write_to("03-triage.yaml") }}
+    Structure:
+    ```yaml
+    triage_results:
+      - module: "path/to/module"
+        original_classification: REWRITE
+        verdict: REAL
+        evidence: "Contains complex callback nesting with no direct async equivalent"
+        revised_difficulty: 4
+      - module: "path/to/other"
+        original_classification: REWRITE
+        verdict: FALSE_POSITIVE
+        evidence: "Only uses standard library calls that have 1:1 equivalents"
+        revised_difficulty: 1
+    summary:
+      real_count: 8
+      false_positive_count: 4
+      total_triaged: 12
+    ```
+
+    {# ── Stage 4: Rewrite Planning (CEGAR: refine-or-report) ────────── #}
+
+    {% elif stage == 4 %}
+    # Rewrite Planning — Prioritize Verified Candidates
+
+    {{ read_file("01-reconnaissance.md") }}
+    {{ read_file("03-triage.yaml") }}
+
+    Create a prioritized rewrite plan using ONLY modules with verdict: REAL.
+    Ignore FALSE_POSITIVE modules entirely.
+
+    Ordering rules:
+    1. Dependency leaves first (modules that nothing else imports)
+    2. Within same dependency level: easiest first (build momentum)
+    3. Group related modules when they share interfaces
+
+    For each module in the plan:
+    - Specific {{ target_language }} patterns to apply
+    - Test strategy: port existing tests, write new, or both
+    - Expected output files and their locations
+    - Estimated effort (lines of code, complexity)
+
+    Additional improvement specifications to apply during rewrite:
+    {{ improvement_specs }}
+
+    {{ write_to("04-rewrite-plan.md") }}
+    Include a priority-ordered table and detailed per-module plans.
+
+    {# ── Stage 5: Candidate Gate (CEGAR: check-termination) ─────────── #}
+
+    {% elif stage == 5 %}
+    # Candidate Gate — CEGAR Termination Check
+
+    {{ read_file("03-triage.yaml") }}
+    {{ read_file("04-rewrite-plan.md") }}
+
+    Verify whether REAL rewrite candidates exist and require work this
+    iteration. Read the triage results and the rewrite plan.
+
+    Write `{{ workspace }}/05-gate-status.yaml` with this exact structure:
+    ```yaml
+    status: PROCEED
+    real_count: 8
+    false_positive_count: 4
+    planned_modules: 8
+    gate_reason: "8 REAL candidates require rewrite work"
+    ```
+
+    Rules:
+    - If `real_count > 0` AND the rewrite plan lists modules to process:
+      set `status: PROCEED`
+    - If `real_count == 0` OR all REAL candidates were already handled
+      in prior iterations: set `status: CONVERGED`
+
+    If CONVERGED, stages 6-8 (rewrite, unit tests, integration tests)
+    will be skipped automatically. Stage 9 (Quality Review) will still
+    run to finalize the iteration decision.
+
+    {{ write_to("05-gate-status.yaml") }}
+
+    {# ── Stage 6: Execute Rewrite (Cathedral: build) ────────────────── #}
+
+    {% elif stage == 6 %}
+    # Execute Rewrite — Code Translation
+
+    {{ read_file("04-rewrite-plan.md") }}
+
+    Execute the rewrite plan in priority order:
+
+    1. **Translate** each module from {{ source_language }} to {{ target_language }}
+    2. **Apply** the improvement specifications from the plan
+    3. **Port or create** tests for each rewritten module
+    4. **Update** import paths and references in dependent modules
+
+    Write new {{ target_language }} files alongside originals in
+    `{{ workspace }}/{{ source_dir }}`. Do NOT delete originals until
+    tests confirm the rewrite works.
+
+    Work methodically — complete one module fully (translate + test) before
+    starting the next. If a module proves harder than planned, document
+    what went wrong and move on.
+
+    {{ write_to("06-migration-log.md") }}
+    Log each module: what was rewritten, changes made, tests created or
+    ported, issues encountered, and status (DONE / PARTIAL / BLOCKED).
+
+    {# ── Stage 7: Unit Validation (Commissioning: unit-check) ────────── #}
+
+    {% elif stage == 7 %}
+    # Unit Validation — Commissioning Cascade Tier 1
+
+    Run the unit test suite against the rewritten code:
+
+    ```bash
+    cd {{ workspace }} && {{ test_command }}
+    ```
+
+    Capture ALL output. If tests fail, document which tests failed and why.
+    Do NOT fix failures — that's the next iteration's job. Your role is
+    accurate reporting.
+
+    {{ write_to("07-unit-test-results.md") }}
+    Include:
+    - **Results:** PASS or FAIL
+    - **Summary:** tests run, passed, failed, skipped (with counts)
+    - **Failures:** for each failure — test name, file, error message,
+      which rewritten module is involved
+    - **Coverage notes:** any modules without test coverage
+
+    {# ── Stage 8: Integration Validation (Commissioning: integration) ── #}
+
+    {% elif stage == 8 %}
+    # Integration Validation — Commissioning Cascade Tier 2
+
+    Run the integration test suite:
+
+    ```bash
+    cd {{ workspace }} && {{ integration_test_command }}
+    ```
+
+    Capture ALL output. Focus on cross-module interaction failures that
+    unit tests wouldn't catch — import errors, interface mismatches,
+    runtime type errors at module boundaries.
+
+    {{ write_to("08-integration-results.md") }}
+    Include:
+    - **Results:** PASS or FAIL
+    - **Summary:** tests run, passed, failed, skipped (with counts)
+    - **Integration failures:** for each — which modules interact,
+      what broke at the boundary, root cause
+    - **Regression notes:** anything that worked before the rewrite
+
+    {# ── Stage 9: Quality Review (Cathedral: inspect + Commissioning: acceptance) #}
+
+    {% elif stage == 9 %}
+    # Quality Review — Iteration Gate
+
+    Read all workspace artifacts:
+    - `{{ workspace }}/04-rewrite-plan.md` — what was planned
+    - `{{ workspace }}/05-gate-status.yaml` — gate decision
+    - `{{ workspace }}/06-migration-log.md` — what was completed (if exists)
+    - `{{ workspace }}/07-unit-test-results.md` — unit test outcomes (if exists)
+    - `{{ workspace }}/08-integration-results.md` — integration outcomes (if exists)
+    - `{{ workspace }}/03-triage.yaml` — all verified candidates
+
+    Note: stages 6-8 may have been skipped if the candidate gate reported
+    CONVERGED (no REAL candidates remaining). If those files don't exist,
+    check 05-gate-status.yaml for the reason.
+
+    ## Assessment
+
+    1. **Progress:** How many REAL candidates were addressed vs remaining?
+    2. **Quality:** Are rewritten modules clean, idiomatic {{ target_language }}?
+    3. **Test health:** Do tests pass? Any regressions?
+    4. **Blockers:** Anything preventing further progress?
+
+    ## Iteration Decision
+
+    Evaluate and write ONE of these decisions on its own line:
+
+    **CONTINUE** — if ANY of these are true:
+    - Verified REAL candidates remain unaddressed
+    - Tests are failing on rewritten modules (need fixes next iteration)
+    - Quality issues were found that need another pass
+
+    **COMPLETE** — if ALL of these are true:
+    - All REAL candidates have been addressed (or gate said CONVERGED)
+    - Unit tests pass (or were skipped due to convergence)
+    - Integration tests pass (or were skipped due to convergence)
+    - Code quality meets {{ target_language }} idioms
+
+    {{ write_to("09-quality-review.md") }}
+    Include: progress summary table, quality assessment, test result summary,
+    blockers (if any), and the CONTINUE or COMPLETE decision with justification.
+
+    {% endif %}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VALIDATIONS — staged fail-fast per sheet
+#
+# Each validation uses `condition` to target the correct sheet and `stage`
+# for ordering within that sheet's validation run.
+# Stage 1 = coarse checks (file exists). Stage 2 = fine checks (content).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+validations:
+  # ── Sheet 1: Reconnaissance ────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/01-reconnaissance.md"
+    condition: "sheet_num == 1"
+    stage: 1
+    description: "Reconnaissance report created"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/01-reconnaissance.md") -ge 200'
+    condition: "sheet_num == 1"
+    stage: 2
+    description: "Reconnaissance has substantive content (200+ words)"
+
+  # ── Sheet 2: Coarse Analysis ───────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/02-candidates.yaml"
+    condition: "sheet_num == 2"
+    stage: 1
+    description: "Candidates file created"
+  - type: content_contains
+    path: "{workspace}/02-candidates.yaml"
+    pattern: "candidates:"
+    condition: "sheet_num == 2"
+    stage: 2
+    description: "Candidates file has proper YAML structure"
+  - type: content_regex
+    path: "{workspace}/02-candidates.yaml"
+    pattern: "classification: (REWRITE|ADAPT|SKIP)"
+    condition: "sheet_num == 2"
+    stage: 2
+    description: "Candidates have classification labels"
+
+  # ── Sheet 3: Triage ────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/03-triage.yaml"
+    condition: "sheet_num == 3"
+    stage: 1
+    description: "Triage results created"
+  - type: content_regex
+    path: "{workspace}/03-triage.yaml"
+    pattern: "verdict: (REAL|FALSE_POSITIVE)"
+    condition: "sheet_num == 3"
+    stage: 2
+    description: "Triage contains REAL/FALSE_POSITIVE verdicts"
+  - type: content_contains
+    path: "{workspace}/03-triage.yaml"
+    pattern: "evidence:"
+    condition: "sheet_num == 3"
+    stage: 2
+    description: "Triage verdicts include supporting evidence"
+
+  # ── Sheet 4: Rewrite Planning ──────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/04-rewrite-plan.md"
+    condition: "sheet_num == 4"
+    stage: 1
+    description: "Rewrite plan created"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/04-rewrite-plan.md") -ge 100'
+    condition: "sheet_num == 4"
+    stage: 2
+    description: "Rewrite plan has substantive content (100+ words)"
+
+  # ── Sheet 5: Candidate Gate ────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/05-gate-status.yaml"
+    condition: "sheet_num == 5"
+    stage: 1
+    description: "Gate status file created"
+  - type: content_regex
+    path: "{workspace}/05-gate-status.yaml"
+    pattern: "status: (PROCEED|CONVERGED)"
+    condition: "sheet_num == 5"
+    stage: 2
+    description: "Gate status has valid PROCEED/CONVERGED decision"
+  - type: content_contains
+    path: "{workspace}/05-gate-status.yaml"
+    pattern: "real_count:"
+    condition: "sheet_num == 5"
+    stage: 2
+    description: "Gate status includes REAL candidate count"
+
+  # ── Sheet 6: Execute Rewrite ───────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/06-migration-log.md"
+    condition: "sheet_num == 6"
+    stage: 1
+    description: "Migration log created"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/06-migration-log.md") -ge 50'
+    condition: "sheet_num == 6"
+    stage: 2
+    description: "Migration log documents actual work done"
+  - type: content_regex
+    path: "{workspace}/06-migration-log.md"
+    pattern: "(DONE|PARTIAL|BLOCKED)"
+    condition: "sheet_num == 6"
+    stage: 2
+    description: "Migration log has per-module completion status"
+
+  # ── Sheet 7: Unit Validation ───────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/07-unit-test-results.md"
+    condition: "sheet_num == 7"
+    stage: 1
+    description: "Unit test results recorded"
+  - type: content_regex
+    path: "{workspace}/07-unit-test-results.md"
+    pattern: "\\*\\*Results:\\*\\*\\s*(PASS|FAIL)"
+    condition: "sheet_num == 7"
+    stage: 2
+    description: "Unit test results contain PASS/FAIL verdict"
+
+  # ── Sheet 8: Integration Validation ────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/08-integration-results.md"
+    condition: "sheet_num == 8"
+    stage: 1
+    description: "Integration test results recorded"
+  - type: content_regex
+    path: "{workspace}/08-integration-results.md"
+    pattern: "\\*\\*Results:\\*\\*\\s*(PASS|FAIL)"
+    condition: "sheet_num == 8"
+    stage: 2
+    description: "Integration results contain PASS/FAIL verdict"
+
+  # ── Sheet 9: Quality Review ────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/09-quality-review.md"
+    condition: "sheet_num == 9"
+    stage: 1
+    description: "Quality review created"
+  - type: content_regex
+    path: "{workspace}/09-quality-review.md"
+    pattern: "\\b(CONTINUE|COMPLETE)\\b"
+    condition: "sheet_num == 9"
+    stage: 2
+    description: "Quality review has CONTINUE/COMPLETE iteration decision"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/09-quality-review.md") -ge 150'
+    condition: "sheet_num == 9"
+    stage: 2
+    description: "Quality review has substantive content (150+ words)"

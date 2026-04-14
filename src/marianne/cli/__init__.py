@@ -27,6 +27,7 @@ Package structure:
     ├── output.py             # Rich formatting (~400 LOC)
     └── commands/
         ├── __init__.py       # Command exports
+        ├── compose.py        # compose command
         ├── run.py            # run command
         ├── status.py         # status, list_jobs commands
         ├── resume.py         # resume command
@@ -56,6 +57,8 @@ from .commands import (
     # status.py
     clear,
     clear_rate_limits,
+    # compose.py
+    compose,
     # diagnose.py
     diagnose,
     # doctor.py
@@ -272,6 +275,7 @@ def main(
 
 # Getting started
 app.command(rich_help_panel="Getting Started")(init)
+app.command(rich_help_panel="Getting Started")(compose)
 
 # Job execution commands
 app.command(rich_help_panel="Jobs")(run)

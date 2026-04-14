@@ -1,0 +1,797 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║              SaaS App Builder — Full-Stack Application Generator           ║
+# ║                                                                            ║
+# ║  Patterns: Prefabrication + Shipyard Sequence + Commissioning Cascade      ║
+# ║  Category: Product Engineering                                             ║
+# ║                                                                            ║
+# ║  Problem: Generate a complete, working SaaS application with backend       ║
+# ║  API, frontend UI, and database layer — built in parallel by three         ║
+# ║  independent agents coordinated only through an architecture contract.     ║
+# ║                                                                            ║
+# ║  Pattern Composition:                                                      ║
+# ║                                                                            ║
+# ║  Prefabrication (3 stages): Interface contracts define shared              ║
+# ║  boundaries before parallel builds. Integration assembles                  ║
+# ║  pre-validated components — mechanical when the contract is precise.       ║
+# ║                                                                            ║
+# ║  Shipyard Sequence (gate): Validate contracts with structural tools        ║
+# ║  BEFORE expensive fan-out. A broken contract wastes 3x the cost.           ║
+# ║  The gate uses command-based checks, not LLM judgment alone.               ║
+# ║                                                                            ║
+# ║  Commissioning Cascade (3 scopes): Validate at contract scope              ║
+# ║  (stage 2), integration scope (stage 4), and system scope (stage 5).       ║
+# ║  Each scope uses a scope-appropriate instrument. When system tests         ║
+# ║  fail, diagnostic isolation identifies which scope broke.                  ║
+# ║                                                                            ║
+# ║  This is NOT Fan-out + Synthesis. Stage 3 runs three DIFFERENT tasks       ║
+# ║  (backend, frontend, database) against a shared contract, not N copies     ║
+# ║  of the same task on different data.                                       ║
+# ║                                                                            ║
+# ║  Execution Flow (6 stages, 8 sheets after fan-out):                        ║
+# ║                                                                            ║
+# ║    Stage 1: Architecture Design — define interface contracts               ║
+# ║         |   [Prefabrication: interface-spec]                               ║
+# ║    Stage 2: Contract Validation — structural gate before fan-out           ║
+# ║         |   [Shipyard: launch-gate + Commissioning: scope 1]               ║
+# ║    +----+----+----+                                                        ║
+# ║    v    v    v                                                             ║
+# ║   3a   3b   3c       (PARALLEL — different work, same contract)            ║
+# ║  Back  Front DB      [Prefabrication: build]                               ║
+# ║    +----+----+                                                             ║
+# ║         v                                                                  ║
+# ║    Stage 4: Integration [Prefab: integrate + Commissioning: scope 2]       ║
+# ║         v                                                                  ║
+# ║    Stage 5: System Acceptance [Commissioning: scope 3]                     ║
+# ║         v                                                                  ║
+# ║    Stage 6: Documentation [bookend]                                        ║
+# ║                                                                            ║
+# ║  Instruments:                                                              ║
+# ║    architect           (900s)  — Stage 1: deep reasoning for contracts     ║
+# ║    gate-checker        (600s)  — Stage 2: structural validation gate       ║
+# ║    builder            (1200s)  — Stage 3: code generation with tools       ║
+# ║    integrator         (1800s)  — Stage 4: wiring + mismatch resolution     ║
+# ║    acceptance-reviewer (900s)  — Stage 5: system acceptance review         ║
+# ║    documenter          (600s)  — Stage 6: documentation generation         ║
+# ║                                                                            ║
+# ║  Customization:                                                            ║
+# ║    Change prompt.variables to build a different application:               ║
+# ║    - app_name / app_description: what you're building                      ║
+# ║    - tech_stack: backend, frontend, database, auth technology              ║
+# ║    - features: list of capabilities to implement                           ║
+# ║    - tracks: the three parallel build components and directories           ║
+# ║                                                                            ║
+# ║  Usage:                                                                    ║
+# ║    mzt start                                                               ║
+# ║    mzt run saas-app-builder.yaml                                           ║
+# ║    mzt status saas-app-builder --watch                                     ║
+# ║                                                                            ║
+# ║  Output:                                                                   ║
+# ║    workspaces/saas-app-builder/                                            ║
+# ║      01-architecture.md         — Interface contracts                      ║
+# ║      02-validation-report.md    — Gate verdict (VALIDATED/BLOCKED)         ║
+# ║      backend/                   — API server source code                   ║
+# ║      frontend/                  — SPA source code                          ║
+# ║      database/                  — Schema, migrations, seeds               ║
+# ║      03-build-backend.md        — Backend track completion report          ║
+# ║      03-build-frontend.md       — Frontend track completion report         ║
+# ║      03-build-database.md       — Database track completion report         ║
+# ║      04-integration.md          — Integration wiring report                ║
+# ║      05-test-results.md         — System acceptance test results           ║
+# ║      tests/                     — E2E test files                           ║
+# ║      README.md                  — Comprehensive documentation              ║
+# ║                                                                            ║
+# ║  Time: ~30-50 minutes  |  Cost: ~$5-12  |  Sheets: 8                      ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+name: saas-app-builder
+description: >
+  Full-stack SaaS generator using Prefabrication (contract-first parallel
+  builds), Shipyard Sequence (structural validation gate before fan-out),
+  and Commissioning Cascade (multi-scope validation at contract, integration,
+  and system levels). Three independent agents build backend, frontend, and
+  database against a shared architecture contract.
+
+workspace: ../workspaces/saas-app-builder
+
+instrument: claude-code
+instrument_fallbacks: [anthropic_api]
+instrument_config:
+  timeout_seconds: 1200
+  skip_permissions: true
+  disable_mcp: true
+
+# Named instruments — each maps to a pattern role with scope-appropriate
+# capability. All use claude-code in this configuration; in production,
+# use cross-family instruments for verification stages (e.g., gemini-cli
+# for gate-checker to get independent validation).
+instruments:
+  architect:
+    profile: claude-code
+    config:
+      timeout_seconds: 900
+  gate-checker:
+    profile: claude-code
+    config:
+      timeout_seconds: 600
+  builder:
+    profile: claude-code
+    config:
+      timeout_seconds: 1200
+  integrator:
+    profile: claude-code
+    config:
+      timeout_seconds: 1800
+  acceptance-reviewer:
+    profile: claude-code
+    config:
+      timeout_seconds: 900
+  documenter:
+    profile: claude-code
+    config:
+      timeout_seconds: 600
+
+# Movement declarations — instrument assignments per stage.
+# Pattern role annotations explain why each instrument was chosen.
+movements:
+  1:
+    name: "Architecture Design"
+    instrument: architect           # Prefabrication: interface-spec — strong reasoning
+  2:
+    name: "Contract Validation Gate"
+    instrument: gate-checker        # Shipyard: launch-gate — structural checks
+  3:
+    name: "Parallel Build"
+    instrument: builder             # Prefabrication: build — code generation
+  4:
+    name: "Integration Assembly"
+    instrument: integrator          # Prefab: integrate + Commissioning: scope 2
+  5:
+    name: "System Acceptance"
+    instrument: acceptance-reviewer # Commissioning: scope 3 — acceptance review
+  6:
+    name: "Documentation"
+    instrument: documenter          # Bookend — lightweight generation
+
+sheet:
+  size: 1
+  total_items: 6
+  fan_out:
+    3: 3    # Stage 3 → 3 parallel instances (backend, frontend, database)
+  descriptions:
+    1: "Define API contracts, DB schema, component interfaces (Prefabrication: interface-spec)"
+    2: "Validate contracts with structural checks before fan-out (Shipyard: launch-gate)"
+    3: "Build backend API, frontend UI, database layer in parallel (Prefabrication: build)"
+    4: "Wire components together, verify integration (Commissioning: scope 2)"
+    5: "Full-stack acceptance testing (Commissioning: scope 3)"
+    6: "API docs, deployment guide, README"
+  dependencies:
+    2: [1]  # Gate depends on architecture (Shipyard: construct → launch-gate)
+    3: [2]  # Fan-out depends on gate (Shipyard: launch-gate → outfitting)
+    4: [3]  # Integration depends on ALL 3 tracks (Prefabrication: build → integrate)
+    5: [4]  # Acceptance depends on integration (Commissioning: scope 2 → scope 3)
+    6: [5]  # Documentation depends on verified application
+
+parallel:
+  enabled: true
+  max_concurrent: 3
+  stagger_delay_ms: 200
+
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 5000
+  lookback_sheets: 7
+  capture_files:
+    - "{{ workspace }}/*.md"
+
+retry:
+  max_retries: 2
+  base_delay_seconds: 30
+
+stale_detection:
+  enabled: true
+  idle_timeout_seconds: 1800    # Safe for build/test stages with subprocesses
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PROMPT — Data in variables, logic in template
+#
+# To build a different application, change the variables below.
+# The template logic adapts automatically.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+prompt:
+  variables:
+    app_name: "TaskFlow"
+    app_description: >
+      A project management SaaS for teams to create projects, manage tasks
+      with assignments and due dates, and track progress through a dashboard
+    tech_stack:
+      backend: "Node.js 20+ with Express.js and TypeScript"
+      frontend: "React 18 with TypeScript, Vite, and Tailwind CSS"
+      database: "PostgreSQL with Prisma ORM"
+      auth: "JWT access/refresh tokens with bcrypt password hashing"
+    features:
+      - "User authentication (signup, login, logout, token refresh)"
+      - "Project CRUD with team member management"
+      - "Task management (create, assign, set due dates, update status)"
+      - "Dashboard with project statistics and recent activity feed"
+      - "RESTful API with input validation and structured error handling"
+    tracks:
+      1:
+        name: "backend"
+        title: "Backend API"
+        dir: "backend"
+        description: >
+          REST API server with authentication middleware, project and task
+          endpoints, input validation, and structured error handling
+      2:
+        name: "frontend"
+        title: "Frontend UI"
+        dir: "frontend"
+        description: >
+          Single-page application with login/signup flows, project list and
+          detail views, task board, and analytics dashboard
+      3:
+        name: "database"
+        title: "Database Layer"
+        dir: "database"
+        description: >
+          Database schema with User, Project, Task, and ProjectMember models,
+          migration files, seed data with realistic samples, and query utilities
+
+  template: |
+    {# ── Macros ─────────────────────────────────────────────────────────── #}
+
+    {% macro contract_ref() %}
+    ## Architecture Contract
+
+    Read `{{ workspace }}/01-architecture.md` before writing any code.
+    This document defines all interfaces, data models, API endpoints,
+    and conventions. Your implementation MUST conform to the contract.
+    Deviations will be caught during integration and E2E testing.
+    {% endmacro %}
+
+    {% macro quality_standards() %}
+    ## Quality Standards
+
+    - All code must have type annotations / TypeScript types
+    - Use the tech stack specified in the architecture contract
+    - Handle errors with descriptive messages matching the contract's error format
+    - Follow the naming conventions from the contract exactly
+    - Write clean, production-ready code — not stubs or prototypes
+    - Include a `package.json` with all required dependencies
+    {% endmacro %}
+
+    {% macro build_report(track_name) %}
+    ## Build Report
+
+    When finished, create `{{ workspace }}/03-build-{{ track_name }}.md` with:
+    - **Track**: {{ track_name }}
+    - **Files created**: list every file path
+    - **Dependencies**: list all packages required
+    - **How to verify**: commands to run/build this component independently
+    - **Contract deviations**: document any (should be zero)
+    {% endmacro %}
+
+    {# ── Stage 1: Architecture Design (Prefabrication: interface-spec) ─── #}
+
+    {% if stage == 1 %}
+    # Movement 1: Architecture Design — Interface Contracts
+
+    You are a software architect designing a full-stack SaaS application.
+    Your deliverable is an interface contract precise enough that three
+    independent agents can build backend, frontend, and database in
+    parallel without any communication between them.
+
+    Ambiguity in this document becomes integration bugs in three places
+    simultaneously. Precision here saves 3x the cost downstream.
+
+    ## Application
+
+    **{{ app_name }}**: {{ app_description }}
+
+    ## Technology Stack
+    - Backend: {{ tech_stack.backend }}
+    - Frontend: {{ tech_stack.frontend }}
+    - Database: {{ tech_stack.database }}
+    - Authentication: {{ tech_stack.auth }}
+
+    ## Features to Support
+    {% for feature in features %}
+    - {{ feature }}
+    {% endfor %}
+
+    ## Your Deliverable
+
+    Create `{{ workspace }}/01-architecture.md` with ALL of these sections:
+
+    ### ## API Endpoints
+    Define every REST endpoint with: HTTP method, path, request body
+    schema (TypeScript interface), response schema, all status codes,
+    and whether authentication is required. Include at minimum:
+    - Auth: POST /api/auth/signup, POST /api/auth/login,
+      POST /api/auth/refresh, POST /api/auth/logout
+    - Projects: full CRUD on /api/projects and /api/projects/:id
+    - Tasks: CRUD nested under /api/projects/:projectId/tasks
+    - Dashboard: GET /api/dashboard (stats and recent activity)
+
+    ### ## Database Schema
+    Define every table/model with field names, types, constraints,
+    indexes, and relationships:
+    - User (id, email, name, passwordHash, timestamps)
+    - Project (id, name, description, ownerId → User, timestamps)
+    - Task (id, title, description, status, priority, dueDate,
+      projectId → Project, assigneeId → User, timestamps)
+    - ProjectMember (projectId → Project, userId → User, role, timestamps)
+
+    ### ## Data Models
+    Define TypeScript interfaces for ALL request/response bodies.
+    These are the contracts between frontend and backend. Include
+    field validation rules (min/max length, format, required/optional).
+
+    ### ## Component Interfaces
+    Define how the three tracks interact:
+    - Backend ↔ Database: Prisma model mapping, query patterns
+    - Frontend ↔ Backend: API client interface, auth token flow
+    - Shared conventions: error format, date format, pagination
+
+    ### ## Conventions
+    - Error response: `{ error: { code: string, message: string, details?: any } }`
+    - Dates: ISO 8601 strings
+    - Pagination: `{ data: T[], meta: { page, perPage, total, totalPages } }`
+    - Auth header: `Authorization: Bearer <token>`
+    - Task statuses: todo, in_progress, review, done
+    - Task priorities: low, medium, high, urgent
+    - File structure for each track directory
+
+    Print a summary of key interfaces to stdout for downstream context.
+
+    {# ── Stage 2: Contract Validation Gate (Shipyard + Commissioning 1) ── #}
+
+    {% elif stage == 2 %}
+    # Movement 2: Contract Validation — Shipyard Gate
+
+    You are a technical reviewer executing a validation gate. The
+    architecture contract must be internally consistent BEFORE three
+    parallel agents build against it. A broken contract wastes 3x the
+    fan-out cost — fail fast here.
+
+    Read `{{ workspace }}/01-architecture.md` thoroughly.
+
+    ## Structural Verification (Tool-Based)
+
+    Before semantic review, run these shell commands and record their
+    exact output. Structural checks catch contract defects objectively:
+
+    1. **Section count**: Count major sections (lines starting with `## `)
+       — Must find at least 4 (API, Database, Data Models, Conventions)
+
+    2. **Endpoint coverage**: Count HTTP method definitions
+       (POST, GET, PUT, DELETE references)
+       — Must find at least 8 endpoint definitions
+
+    3. **Model coverage**: Verify the contract mentions all core models
+       (User, Project, Task, ProjectMember) in the Database Schema section
+
+    4. **Substance check**: Count words in the document
+       — Must be at least 500 words for sufficient detail
+
+    Record every check's result in your report.
+
+    ## Semantic Consistency Checks
+
+    After structural verification, check these properties:
+
+    1. **Schema-endpoint alignment**: Every endpoint's request/response
+       types must reference data models that exist in the Database Schema.
+       Flag endpoints that reference undefined models or missing fields.
+
+    2. **Type consistency**: Field names and types must match across
+       API endpoints, data model interfaces, and database schema. A
+       `dueDate` that is a string in the API and a Date in the schema
+       is a contract violation.
+
+    3. **Relationship integrity**: Every foreign key in the database
+       schema must reference an existing table. Relations must be
+       bidirectional where appropriate.
+
+    4. **Convention compliance**: Verify the contract follows its own
+       conventions (error format, pagination format, auth header)
+       consistently across all endpoints.
+
+    5. **Feature coverage**: Every feature must have corresponding
+       endpoints, models, and schema definitions. Flag gaps.
+
+    ## Output
+
+    Write `{{ workspace }}/02-validation-report.md` with:
+    - **Structural checks**: each check, its result, PASS/FAIL
+    - **Semantic checks**: each check with specific findings
+    - Any inconsistencies found (cite specific sections)
+    - Fixes applied to `{{ workspace }}/01-architecture.md` if needed
+    - Final verdict: **VALIDATED** (contracts are internally consistent
+      and ready for parallel builds) or **BLOCKED** (critical issues)
+
+    If you find inconsistencies, fix them in the architecture document
+    and note every fix. The goal is a VALIDATED verdict — but only if
+    the contract genuinely passes all checks.
+
+    Print the verdict to stdout.
+
+    {# ── Stage 3: Parallel Build (Prefabrication: build) ─────────────── #}
+
+    {% elif stage == 3 %}
+    {% set track = tracks[instance] %}
+    # Movement 3, Voice {{ instance }}: {{ track.title }}
+
+    You are building the {{ track.title | lower }} for **{{ app_name }}**.
+    You are one of three parallel build tracks. The other tracks are
+    building different components. You coordinate ONLY through the
+    architecture contract — you cannot see the other tracks' code.
+
+    {{ contract_ref() }}
+    {{ quality_standards() }}
+
+    ## Your Track: {{ track.title }}
+
+    {{ track.description }}
+
+    {% if instance == 1 %}
+    ## Backend Deliverables
+
+    Create a complete, working REST API in `{{ workspace }}/{{ track.dir }}/`:
+
+    - Express.js application with TypeScript configuration
+    - All endpoints from the architecture contract's API Endpoints section
+    - Authentication middleware: JWT verification, token generation
+    - Input validation on all endpoints (reject malformed requests)
+    - Error handling matching the contract's error format exactly
+    - CORS middleware configured for development
+    - `package.json` with all dependencies
+    - `tsconfig.json` for TypeScript compilation
+    - Entry point that starts the server on a configurable port
+
+    The API must start with `npm install && npm run dev` (or `npm start`).
+    Use environment variables for configuration (PORT, DATABASE_URL,
+    JWT_SECRET, JWT_REFRESH_SECRET).
+
+    {% elif instance == 2 %}
+    ## Frontend Deliverables
+
+    Create a complete SPA in `{{ workspace }}/{{ track.dir }}/`:
+
+    - React 18 application bootstrapped with Vite
+    - TypeScript configuration
+    - Tailwind CSS for styling
+    - Pages: Login, Signup, Dashboard, Project List, Project Detail,
+      Task Board/List
+    - API client module with functions matching every backend endpoint
+    - Auth context: token storage, auto-refresh, protected routes
+    - Responsive layout with navigation
+    - `package.json` with all dependencies
+    - `vite.config.ts` with API proxy for development
+    - Environment configuration (VITE_API_URL)
+
+    The frontend must build with `npm install && npm run build`
+    and run in dev mode with `npm run dev`.
+
+    {% elif instance == 3 %}
+    ## Database Deliverables
+
+    Create a complete database layer in `{{ workspace }}/{{ track.dir }}/`:
+
+    - Prisma schema (`prisma/schema.prisma`) matching the contract's
+      Database Schema section exactly
+    - All models with proper relations, indexes, and constraints
+    - Migration files (generate with `npx prisma migrate dev`)
+    - Seed script with realistic data: at least 3 users, 5 projects,
+      15 tasks, team memberships
+    - Data access utilities or helper functions
+    - `package.json` with Prisma and dependencies
+    - `.env.example` with DATABASE_URL template
+    - Instructions for initializing the database
+
+    Use SQLite for development convenience (portable to PostgreSQL
+    for production). The schema must match the contract exactly.
+
+    {% endif %}
+
+    {{ build_report(track.name) }}
+
+    Print a summary of files created and verification commands to stdout.
+
+    {# ── Stage 4: Integration (Prefab: integrate + Commissioning 2) ──── #}
+
+    {% elif stage == 4 %}
+    # Movement 4: Integration Assembly — Commissioning Scope 2
+
+    The backend API, frontend UI, and database layer were built in
+    PARALLEL by three independent agents. None has seen the others'
+    code. They coordinated only through the architecture contract.
+
+    Your job: wire them into a working full-stack application.
+
+    This is scope 2 of the validation cascade. Scope 1 (contract
+    consistency) passed in stage 2. You are now verifying that the
+    independently-built components integrate correctly.
+
+    {{ contract_ref() }}
+
+    ## Read All Implementations
+
+    Read every source file in:
+    - `{{ workspace }}/backend/` — the API server
+    - `{{ workspace }}/frontend/` — the SPA
+    - `{{ workspace }}/database/` — schema and migrations
+    - `{{ workspace }}/03-build-backend.md` — backend report
+    - `{{ workspace }}/03-build-frontend.md` — frontend report
+    - `{{ workspace }}/03-build-database.md` — database report
+    - `{{ workspace }}/02-validation-report.md` — contract validation results
+
+    ## Integration Tasks
+
+    1. **Backend ↔ Database**: Wire the API server to use the Prisma
+       client from the database layer. Ensure model imports resolve,
+       query patterns match, and connection configuration aligns.
+
+    2. **Frontend ↔ Backend**: Verify the frontend API client's
+       endpoints and request/response shapes match the backend's actual
+       routes. Fix any mismatches.
+
+    3. **Configuration**: Create root-level setup:
+       - Root `package.json` with workspace scripts or startup helpers
+       - `.env.example` with all required environment variables
+       - docker-compose.yaml or equivalent for local development
+       - Startup instructions that launch all three components
+
+    4. **Fix Contract Violations**: If any track deviated from the
+       architecture contract, fix the implementation code. The
+       contract is the source of truth.
+
+    5. **Smoke Test**: Verify the application can start — database
+       initializes, backend connects, frontend reaches the API.
+
+    ## Output
+
+    Write `{{ workspace }}/04-integration.md` with:
+    - Integration checks performed and their results
+    - Incompatibilities found and how each was resolved
+    - Component wiring diagram (which files connect to what)
+    - Commands to start the full application
+    - Any remaining issues or manual steps required
+
+    Print a summary of integration status to stdout.
+
+    {# ── Stage 5: System Acceptance (Commissioning scope 3) ──────────── #}
+
+    {% elif stage == 5 %}
+    # Movement 5: System Acceptance — Commissioning Cascade Scope 3
+
+    This is the final tier of a three-scope validation cascade:
+    - **Scope 1** (stage 2): Contract consistency — VALIDATED
+    - **Scope 2** (stage 4): Integration wiring — verified
+    - **Scope 3** (this stage): Full system behavior — your job
+
+    The application is integrated. Verify it works as a complete system
+    by writing and exercising end-to-end tests.
+
+    {{ contract_ref() }}
+
+    ## Read the Codebase
+
+    Read `{{ workspace }}/04-integration.md` for wiring details,
+    then review the source code across all three directories.
+
+    Also read prior validation results:
+    - `{{ workspace }}/02-validation-report.md` — contract scope verdict
+    - `{{ workspace }}/04-integration.md` — integration scope findings
+
+    ## Test Requirements
+
+    Write end-to-end tests that exercise the full stack. Save test
+    files to `{{ workspace }}/tests/`.
+
+    Test scenarios (at minimum):
+    1. **Auth flow**: signup → login → receive tokens → use token
+       on protected endpoint → refresh token
+    2. **Project CRUD**: create project → list → get → update → delete
+    3. **Task CRUD**: create task in project → assign → update
+       status → list tasks → delete
+    4. **Dashboard**: create data, verify stats reflect actual counts
+    5. **Error handling**: invalid requests return proper error format
+    6. **Auth guards**: protected endpoints without token return 401
+
+    Run the tests if possible. If any fail, fix the application code
+    and document every fix.
+
+    ## Output
+
+    Write `{{ workspace }}/05-test-results.md` with:
+    - **Cascade Summary**: outcomes of all three validation scopes
+    - **Results:** summary table (test name, status, notes)
+    - Each test: what it verified, PASS/FAIL, any issues found
+    - Fixes applied during testing (file, issue, fix)
+    - Overall verdict: X of Y tests passing
+    - **System Acceptance**: ACCEPTED or REJECTED with justification
+
+    {# ── Stage 6: Documentation (bookend) ────────────────────────────── #}
+
+    {% elif stage == 6 %}
+    # Movement 6: Documentation
+
+    The application is built, integrated, and tested. Write documentation
+    that lets someone clone this workspace and run the app immediately.
+
+    ## Read Everything
+
+    Read:
+    - `{{ workspace }}/01-architecture.md` — the interface contract
+    - `{{ workspace }}/04-integration.md` — wiring details
+    - `{{ workspace }}/05-test-results.md` — test results
+    - Source code across `backend/`, `frontend/`, `database/`
+
+    ## Your Deliverable
+
+    Create `{{ workspace }}/README.md` with these sections:
+
+    1. **{{ app_name }}** — one-paragraph description
+    2. **Quick Start** — install, configure, and run (5 commands max,
+       every command copy-pasteable)
+    3. **Architecture** — how backend, frontend, and database connect,
+       with a text diagram showing component relationships
+    4. **API Reference** — every endpoint with method, path, request
+       body example, response example, and status codes
+    5. **Frontend** — key pages, dev mode, production build
+    6. **Database** — schema overview, migration and seed commands
+    7. **Configuration** — every environment variable with description
+    8. **Testing** — how to run the test suite
+    9. **Project Structure** — directory tree with descriptions
+    10. **How It Was Built** — explain this application was generated
+        using Marianne AI Compose with the Prefabrication, Shipyard
+        Sequence, and Commissioning Cascade patterns from the Rosetta
+        Corpus. Three independent AI agents built the backend, frontend,
+        and database in parallel, coordinated only through an architecture
+        contract. The contract was validated before building, and outputs
+        were tested at integration and system scope.
+
+    Also create:
+    - `{{ workspace }}/docs/api-reference.md` — detailed API docs
+    - `{{ workspace }}/docs/deployment-guide.md` — production deployment
+
+    The README must be comprehensive, accurate, and immediately useful.
+
+    {% endif %}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VALIDATIONS — staged fail-fast, outcome-focused
+#
+# Validation stage 1: fast structural checks (file exists)
+# Validation stage 2: content/command checks (pattern matching, word count)
+#
+# Pattern mapping:
+#   Shipyard gate        → stage 2 validations (command_succeeds + VALIDATED)
+#   Commissioning scope 1 → stage 2 validations (overlaps with Shipyard gate)
+#   Commissioning scope 2 → stage 4 validations (integration substance)
+#   Commissioning scope 3 → stage 5 validations (pass/fail verdicts)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+validations:
+  # ── Architecture (Stage 1 / Prefabrication: interface-spec) ─────────────
+  - type: file_exists
+    path: "{workspace}/01-architecture.md"
+    sheet: 1
+    stage: 1
+    description: "Architecture contracts file exists"
+  - type: content_contains
+    path: "{workspace}/01-architecture.md"
+    pattern: "## API"
+    sheet: 1
+    stage: 2
+    description: "Contracts define API endpoints"
+  - type: content_contains
+    path: "{workspace}/01-architecture.md"
+    pattern: "## Database"
+    sheet: 1
+    stage: 2
+    description: "Contracts define database schema"
+
+  # ── Contract Validation Gate (Stage 2 / Shipyard + Commissioning scope 1) ─
+  - type: file_exists
+    path: "{workspace}/02-validation-report.md"
+    sheet: 2
+    stage: 1
+    description: "Contract validation report exists"
+  - type: command_succeeds
+    command: 'test $(grep -c "^## " "{workspace}/01-architecture.md") -ge 4'
+    sheet: 2
+    stage: 2
+    description: "Architecture contract has at least 4 major sections (structural gate)"
+  - type: content_contains
+    path: "{workspace}/02-validation-report.md"
+    pattern: "VALIDATED"
+    sheet: 2
+    stage: 2
+    description: "Contracts pass consistency check (VALIDATED verdict)"
+
+  # ── Parallel Build (Stage 3 / Prefabrication: build, per-instance) ──────
+  - type: file_exists
+    path: "{workspace}/03-build-backend.md"
+    sheet: 3
+    stage: 1
+    description: "Backend build report exists"
+  - type: content_contains
+    path: "{workspace}/03-build-backend.md"
+    pattern: "Files created"
+    sheet: 3
+    stage: 2
+    description: "Backend report lists created files"
+  - type: file_exists
+    path: "{workspace}/03-build-frontend.md"
+    sheet: 4
+    stage: 1
+    description: "Frontend build report exists"
+  - type: content_contains
+    path: "{workspace}/03-build-frontend.md"
+    pattern: "Files created"
+    sheet: 4
+    stage: 2
+    description: "Frontend report lists created files"
+  - type: file_exists
+    path: "{workspace}/03-build-database.md"
+    sheet: 5
+    stage: 1
+    description: "Database build report exists"
+  - type: content_contains
+    path: "{workspace}/03-build-database.md"
+    pattern: "Files created"
+    sheet: 5
+    stage: 2
+    description: "Database report lists created files"
+
+  # ── Integration (Stage 4 / Prefab: integrate + Commissioning scope 2) ───
+  - type: file_exists
+    path: "{workspace}/04-integration.md"
+    sheet: 6
+    stage: 1
+    description: "Integration report exists"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/04-integration.md") -ge 200'
+    sheet: 6
+    stage: 2
+    description: "Integration report has substantive content (200+ words)"
+
+  # ── System Acceptance (Stage 5 / Commissioning scope 3) ─────────────────
+  - type: file_exists
+    path: "{workspace}/05-test-results.md"
+    sheet: 7
+    stage: 1
+    description: "System acceptance test results file exists"
+  - type: content_contains
+    path: "{workspace}/05-test-results.md"
+    pattern: "Results:"
+    sheet: 7
+    stage: 2
+    description: "Test results include structured output"
+  - type: content_regex
+    path: "{workspace}/05-test-results.md"
+    pattern: "(?i)(PASS|FAIL)"
+    sheet: 7
+    stage: 2
+    description: "Test results contain pass/fail verdicts"
+
+  # ── Documentation (Stage 6 / bookend) ───────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/README.md"
+    sheet: 8
+    stage: 1
+    description: "README documentation exists"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/README.md") -ge 100'
+    sheet: 8
+    stage: 2
+    description: "README has substantive content (100+ words)"
+  - type: content_contains
+    path: "{workspace}/README.md"
+    pattern: "Quick Start"
+    sheet: 8
+    stage: 2
+    description: "README includes Quick Start section"
