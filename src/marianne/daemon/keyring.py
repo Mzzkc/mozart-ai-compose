@@ -286,3 +286,7 @@ class ApiKeyKeyring:
             raise ValueError(msg)
 
         return key_value
+
+
+# Convenience alias used by validation and external consumers.
+Keyring = ApiKeyKeyring
