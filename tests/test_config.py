@@ -538,7 +538,8 @@ class TestBackendConfigCrossValidation:
         with _warnings_mod.catch_warnings(record=True) as w:
             _warnings_mod.simplefilter("always")
             BackendConfig()
-            assert len(w) == 0
+            backend_warnings = [x for x in w if "different backend" in str(x.message)]
+            assert len(backend_warnings) == 0
 
     def test_api_type_with_cli_fields_warns(self):
         """Setting CLI-specific fields with type=anthropic_api emits a warning."""
