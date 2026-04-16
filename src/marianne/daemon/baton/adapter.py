@@ -38,6 +38,8 @@ See: ``workspaces/v1-beta-v3/movement-2/step-28-wiring-analysis.md``
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
 import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
@@ -59,6 +61,7 @@ from marianne.daemon.baton.state import (
     SheetExecutionState,
 )
 from marianne.daemon.technique_router import TechniqueRouter
+from marianne.utils.process import safe_killpg as _safe_killpg
 
 if TYPE_CHECKING:
     from marianne.core.checkpoint import CheckpointState
@@ -83,6 +86,12 @@ PersistCallback = Callable[[str], None]
 
 # Backward compat aliases — tests may import these
 StateSyncCallback = Callable[[str, int, str, SheetExecutionState | None], None]
+
+# Phase 1 process lifecycle: grace window between SIGTERM and SIGKILL when
+# preempt-killing process groups for a deregistering job. The backend's own
+# finally block uses the same interval independently (belt and suspenders).
+# See docs/specs/2026-04-16-process-lifecycle-design.md (Change 3).
+_KILL_GRACE_SECONDS = 2.0
 
 
 # Phase 2: identity mappings — kept for test backward compat
@@ -386,6 +395,19 @@ class BatonAdapter:
         # Active musician tasks: (job_id, sheet_num) → Task
         self._active_tasks: dict[tuple[str, int], asyncio.Task[Any]] = {}
 
+        # Phase 1 process lifecycle: in-memory PID/PGID tracking per
+        # dispatched sheet. Populated by the backend's
+        # ``_on_process_group_spawned`` callback (wired by
+        # ``_musician_wrapper``), cleared by the wrapper's finally and by
+        # ``_on_musician_done``. Read by ``deregister_job`` to drive
+        # preemptive killpg. In-memory only — lost on conductor restart,
+        # which is Phase 4 recovery's job.
+        #
+        # Phase 3 replaces this with SheetState.process_pid/pgid; this
+        # dict may then be kept as a fast-path cache or removed entirely.
+        # See docs/specs/2026-04-16-process-lifecycle-design.md (Change 3).
+        self._active_pids: dict[tuple[str, int], tuple[int, int]] = {}
+
         # BackendPool — injected via set_backend_pool()
         self._backend_pool: BackendPool | None = None
 
@@ -583,6 +605,90 @@ class BatonAdapter:
         """
         return self._job_routers.get(job_id)
 
+    def _kill_active_pgroups(self, job_id: str) -> None:
+        """Preempt-kill process groups for all active sheets of a job.
+
+        Phase 1 item 5: sends SIGTERM to each tracked ``pgid`` synchronously,
+        then schedules a follow-up SIGKILL after a grace window. The
+        backend's own finally block performs the same escalation
+        independently (belt and suspenders: preempt for responsiveness,
+        ``finally`` for correctness). Both kill paths are idempotent.
+
+        Daemon-own-group guard: never killpg a pgid matching
+        ``os.getpgid(0)``. If ``start_new_session`` silently failed at
+        spawn the subprocess could land in the daemon's own group;
+        killing it would take the daemon down.
+
+        Entries for this job are popped from ``_active_pids`` as they are
+        processed so follow-on ``deregister_job`` work cannot re-kill.
+
+        Args:
+            job_id: The job whose active sheets should have their process
+                groups torn down.
+        """
+        keys = [k for k in self._active_pids if k[0] == job_id]
+        if not keys:
+            return
+
+        try:
+            daemon_pgid: int | None = os.getpgid(0)
+        except OSError:
+            daemon_pgid = None
+
+        sigterm_pgids: list[int] = []
+        for key in keys:
+            entry = self._active_pids.pop(key, None)
+            if entry is None:
+                continue
+            _pid, pgid = entry
+            if pgid == daemon_pgid:
+                # Suspicious: the spawned process shares our group.
+                # Refuse to kill — the spawn-site safety check should have
+                # caught this at spawn time, but guard here too.
+                _logger.warning(
+                    "adapter.deregister.pgid_matches_daemon",
+                    extra={
+                        "job_id": job_id,
+                        "sheet_num": key[1],
+                        "pgid": pgid,
+                    },
+                )
+                continue
+            try:
+                if _safe_killpg(pgid, signal.SIGTERM, context="adapter.deregister_sigterm"):
+                    sigterm_pgids.append(pgid)
+            except (ProcessLookupError, PermissionError):
+                # Process already gone (natural exit, prior kill) — OK.
+                pass
+
+        if not sigterm_pgids:
+            return
+
+        # Schedule SIGKILL escalation after grace. Fire-and-forget: if the
+        # processes already exited (most likely — SIGTERM usually wins),
+        # killpg raises ProcessLookupError, which we swallow.
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop — ``deregister_job`` was called from a
+            # non-async context (tests, shutdown). SIGTERM alone suffices
+            # for those paths; the backend's finally will escalate.
+            return
+
+        def _sigkill_pgroups(
+            pgids: list[int] = sigterm_pgids,
+            _daemon: int | None = daemon_pgid,
+        ) -> None:
+            for pgid in pgids:
+                if pgid == _daemon:
+                    continue
+                try:
+                    _safe_killpg(pgid, signal.SIGKILL, context="adapter.deregister_sigkill")
+                except (ProcessLookupError, PermissionError):
+                    pass
+
+        loop.call_later(_KILL_GRACE_SECONDS, _sigkill_pgroups)
+
     def deregister_job(self, job_id: str) -> None:
         """Remove a job from the adapter and baton.
 
@@ -591,6 +697,16 @@ class BatonAdapter:
         Args:
             job_id: The job to remove.
         """
+        # Phase 1 item 5: preempt-kill subprocess groups BEFORE cancelling
+        # asyncio tasks. Task.cancel() delivers CancelledError through the
+        # `await proc.communicate()` in the backend, whose finally block
+        # will then kill the same group — but only when the await actually
+        # wakes. A process blocked in an uninterruptible syscall would
+        # leave the finally stuck. Preempt-SIGTERM forces the process to
+        # exit, which unblocks communicate, which runs finally. Belt and
+        # suspenders.
+        self._kill_active_pgroups(job_id)
+
         # Cancel active musician tasks for this job
         keys_to_cancel = [
             key for key in self._active_tasks if key[0] == job_id
@@ -1400,6 +1516,21 @@ class BatonAdapter:
         # Must be bound before try so it's always available in finally for release.
         actual_instrument = effective_instrument or sheet.instrument_name
 
+        # Phase 1 item 4: wire the per-dispatch process-group callback so
+        # _active_pids captures (pid, pgid) at subprocess spawn time. The
+        # closure binds (job_id, sheet.num) at wire time so backend reuse
+        # (same backend instance serving different sheets sequentially)
+        # cannot smear PID/PGID across sheet keys. HTTP backends do not
+        # spawn subprocesses and lack this slot — feature-detect.
+        if hasattr(backend, "_on_process_group_spawned"):
+            _jid = job_id
+            _snum = sheet.num
+
+            def _track_process(pid: int, pgid: int) -> None:
+                self._active_pids[(_jid, _snum)] = (pid, pgid)
+
+            backend._on_process_group_spawned = _track_process
+
         try:
             # The baton inbox accepts BatonEvent (union type), but
             # sheet_task is typed to put SheetAttemptResult specifically.
@@ -1466,6 +1597,18 @@ class BatonAdapter:
                 instrument_override=actual_instrument,
             )
         finally:
+            # Phase 1 item 4: idempotent clear of the PID/PGID entry. The
+            # entry may have been cleared already by deregister_job's
+            # preempt-kill path or by _on_musician_done; pop with default
+            # is safe either way. Running here ensures cleanup even when
+            # _musician_wrapper is awaited directly (tests) rather than
+            # scheduled as a task with a done callback.
+            self._active_pids.pop((job_id, sheet.num), None)
+            # Detach the closure so a backend recycled through the free
+            # list does not smear stale state onto its next dispatch.
+            if hasattr(backend, "_on_process_group_spawned"):
+                backend._on_process_group_spawned = None
+
             # Always release the backend — use the same instrument name
             # that was used for acquire (actual_instrument), not the Sheet
             # entity's original instrument_name which doesn't change after
@@ -1511,6 +1654,11 @@ class BatonAdapter:
             task: The completed task.
         """
         self._active_tasks.pop((job_id, sheet_num), None)
+        # Phase 1 item 4: idempotent clear. The spawn-site finally already
+        # runs kill-on-exit; this pop handles the case where no subprocess
+        # was ever spawned (HTTP backend, early error) or deregister_job
+        # already preempt-killed and cleared.
+        self._active_pids.pop((job_id, sheet_num), None)
 
         if task.cancelled():
             # Cancelled tasks never report to the baton — the sheet stays

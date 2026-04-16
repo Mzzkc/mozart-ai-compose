@@ -242,6 +242,10 @@ class TestExecuteStdin:
 
         mock_proc = AsyncMock()
         mock_proc.pid = 12345
+        # Must be explicit: AsyncMock() auto-mocks returncode as a MagicMock,
+        # which is not None and would skip the liveness check in the new
+        # _kill_process_group_if_alive path (Phase 1 Process Lifecycle).
+        mock_proc.returncode = None
 
         # stdin operations succeed
         mock_stdin = MagicMock()

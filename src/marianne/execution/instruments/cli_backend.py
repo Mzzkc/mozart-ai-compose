@@ -21,6 +21,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -30,8 +31,64 @@ from marianne.backends.base import Backend, ExecutionResult
 from marianne.core.config.instruments import InstrumentProfile
 from marianne.core.logging import get_logger
 from marianne.utils.json_path import extract_json_path
+from marianne.utils.process import safe_killpg as _safe_killpg
 
 _logger = get_logger("backend.plugin_cli")
+
+
+# Phase 1 grace window for SIGTERM -> SIGKILL in the subprocess kill path.
+# Empirically long enough for pytest-xdist workers and claude-code/opencode
+# to exit cleanly after SIGTERM; short enough not to stall cancel paths.
+# See docs/specs/2026-04-16-process-lifecycle-design.md (Change 2).
+_KILL_GRACE_SECONDS = 2.0
+
+
+async def _kill_process_group_if_alive(
+    proc: asyncio.subprocess.Process | None,
+    pgid: int | None,
+) -> None:
+    """Terminate a spawned subprocess: SIGTERM -> grace -> SIGKILL.
+
+    Runs idempotently on every exit path (clean completion, timeout,
+    CancelledError, arbitrary exceptions). Does nothing if the process
+    has already exited. Falls back to ``proc.kill()`` when no process
+    group was captured (``start_new_session`` was not active).
+
+    Part of Process Lifecycle Phase 1 — ensures subprocesses die on
+    cancellation rather than surviving as orphans.
+    """
+    if proc is None or proc.returncode is not None:
+        return
+
+    if pgid is None:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        try:
+            await proc.wait()
+        except ProcessLookupError:
+            pass
+        return
+
+    # SIGTERM the group first — give pytest workers and MCP servers a chance
+    # to flush logs, release locks, and close file descriptors cleanly.
+    try:
+        _safe_killpg(pgid, signal.SIGTERM, context="cli_backend.kill_grace")
+    except (ProcessLookupError, PermissionError):
+        pass
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=_KILL_GRACE_SECONDS)
+    except asyncio.TimeoutError:
+        # Grace expired — SIGKILL the entire group.
+        try:
+            _safe_killpg(pgid, signal.SIGKILL, context="cli_backend.kill_force")
+        except (ProcessLookupError, PermissionError):
+            pass
+        try:
+            await proc.wait()
+        except ProcessLookupError:
+            pass
 
 # System env vars that are always passed through to instrument subprocesses,
 # regardless of required_env filtering. These are needed for basic process
@@ -102,6 +159,14 @@ class PluginCliBackend(Backend):
         # as None — no orphan tracking needed.
         self._on_process_spawned: Callable[[int], None] | None = None
         self._on_process_exited: Callable[[int], None] | None = None
+
+        # Process Lifecycle Phase 1 — group-aware callback.
+        # Set by the baton adapter with (pid, pgid) at spawn time. Its
+        # presence is the signal that we are on the baton path and must
+        # force start_new_session=True regardless of profile setting, so
+        # that deregister/cancel can kill the whole process tree.
+        # See docs/specs/2026-04-16-process-lifecycle-design.md (Change 1, 3).
+        self._on_process_group_spawned: Callable[[int, int], None] | None = None
 
         # Override tracking — mirrors the pattern in ClaudeCliBackend.
         # _saved_model stores the pre-override value so clear_overrides()
@@ -670,6 +735,16 @@ class PluginCliBackend(Backend):
         exit_code: int | None = None
         exit_reason = "completed"
         proc: asyncio.subprocess.Process | None = None
+        pgid: int | None = None
+
+        # Process Lifecycle Phase 1: presence of the group-aware callback is
+        # our signal that we are on the baton path. When set, force
+        # start_new_session=True regardless of profile so the whole
+        # subprocess tree (including pytest workers) is in a killable group.
+        _baton_path = self._on_process_group_spawned is not None
+        _force_new_session = (
+            True if _baton_path else self._cli.command.start_new_session
+        )
 
         try:
             # Resolve executable to full path to avoid FileNotFoundError
@@ -694,12 +769,52 @@ class PluginCliBackend(Backend):
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(self._working_directory) if self._working_directory else None,
                 env=env,
-                start_new_session=self._cli.command.start_new_session,
+                start_new_session=_force_new_session,
             )
+
+            # Capture pgid at spawn — never re-derive from proc.pid later.
+            # See docs/specs/2026-04-16-process-lifecycle-design.md (Change 1).
+            if proc.pid is not None:
+                try:
+                    pgid = os.getpgid(proc.pid)
+                except ProcessLookupError:
+                    # Process already died; nothing to kill later.
+                    pgid = None
+
+            # Daemon-own-group safety: never kill the daemon's own group.
+            # If start_new_session failed or the kernel ignored it, abort
+            # the spawn rather than risk killing ourselves in the finally.
+            if _baton_path and pgid is not None:
+                try:
+                    daemon_pgid = os.getpgid(0)
+                except ProcessLookupError:
+                    daemon_pgid = None
+                if daemon_pgid is not None and pgid == daemon_pgid:
+                    try:
+                        proc.kill()
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        await proc.wait()
+                    except ProcessLookupError:
+                        pass
+                    raise RuntimeError(
+                        f"Spawned process shares daemon pgid ({pgid}); "
+                        "refusing to continue"
+                    )
 
             # Track PID for orphan detection by the daemon's pgroup manager
             if self._on_process_spawned and proc.pid is not None:
                 self._on_process_spawned(proc.pid)
+
+            # Fire the group-aware callback (baton adapter records pid+pgid
+            # in _active_pids so deregister/cancel can killpg the tree).
+            if (
+                self._on_process_group_spawned is not None
+                and proc.pid is not None
+                and pgid is not None
+            ):
+                self._on_process_group_spawned(proc.pid, pgid)
 
             # When using stdin mode, write the assembled prompt to the
             # subprocess stdin and close it to signal EOF. This must
@@ -713,22 +828,27 @@ class PluginCliBackend(Backend):
                 proc.stdin.close()
 
             try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    proc.communicate(),
-                    timeout=effective_timeout,
-                )
-                stdout_data = stdout_bytes.decode("utf-8", errors="replace")
-                stderr_data = stderr_bytes.decode("utf-8", errors="replace")
-                exit_code = proc.returncode
-            except TimeoutError:
-                _logger.warning(
-                    "plugin_cli_timeout",
-                    instrument=self._profile.name,
-                    timeout=effective_timeout,
-                )
-                proc.kill()
-                await proc.wait()
-                exit_reason = "timeout"
+                try:
+                    stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                        proc.communicate(),
+                        timeout=effective_timeout,
+                    )
+                    stdout_data = stdout_bytes.decode("utf-8", errors="replace")
+                    stderr_data = stderr_bytes.decode("utf-8", errors="replace")
+                    exit_code = proc.returncode
+                except TimeoutError:
+                    _logger.warning(
+                        "plugin_cli_timeout",
+                        instrument=self._profile.name,
+                        timeout=effective_timeout,
+                    )
+                    exit_reason = "timeout"
+            finally:
+                # Kill-on-exit: runs on clean completion (idempotent — noop
+                # when returncode is already set), TimeoutError, CancelledError,
+                # and arbitrary exceptions. SIGTERM -> 2s grace -> SIGKILL of
+                # the process group. Closes RC-2 from the spec.
+                await _kill_process_group_if_alive(proc, pgid)
 
         except FileNotFoundError:
             # After ensuring cwd exists above, this is genuinely about

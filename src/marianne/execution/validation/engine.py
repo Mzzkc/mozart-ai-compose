@@ -9,8 +9,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import operator
+import os
 import re
 import shlex
+import signal
 import time
 import warnings
 from collections import defaultdict
@@ -23,6 +25,7 @@ from marianne.core.constants import (
     VALIDATION_COMMAND_TIMEOUT_SECONDS,
     VALIDATION_OUTPUT_TRUNCATE_CHARS,
 )
+from marianne.utils.process import safe_killpg as _safe_killpg
 
 from .models import (
     FileModificationTracker,
@@ -532,23 +535,90 @@ class ValidationEngine:
                 )
                 break
 
+        # Process Lifecycle Phase 1: spawn with start_new_session=True so
+        # bash -> pytest -> xdist workers share a killable group. SIGTERM
+        # then 2s grace then SIGKILL runs in the finally on every exit path.
+        # See docs/specs/2026-04-16-process-lifecycle-design.md (Change 1, 2).
+        proc = None
+        pgid: int | None = None
+        timed_out = False
+        cmd_timeout = rule.timeout_seconds or VALIDATION_COMMAND_TIMEOUT_SECONDS
         try:
             proc = await asyncio.create_subprocess_exec(
                 "bash", "-c", expanded_command,
                 cwd=str(cwd),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
             )
 
-            cmd_timeout = rule.timeout_seconds or VALIDATION_COMMAND_TIMEOUT_SECONDS
+            if proc.pid is not None:
+                try:
+                    pgid = os.getpgid(proc.pid)
+                except ProcessLookupError:
+                    pgid = None
+
+            # Daemon-own-group safety: abort if start_new_session failed.
+            if pgid is not None:
+                try:
+                    daemon_pgid = os.getpgid(0)
+                except ProcessLookupError:
+                    daemon_pgid = None
+                if daemon_pgid is not None and pgid == daemon_pgid:
+                    try:
+                        proc.kill()
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        await proc.wait()
+                    except ProcessLookupError:
+                        pass
+                    raise RuntimeError(
+                        f"Validation command shares daemon pgid ({pgid}); "
+                        "refusing to continue"
+                    )
+
+            stdout_bytes = b""
+            stderr_bytes = b""
             try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    proc.communicate(),
-                    timeout=cmd_timeout,
-                )
-            except TimeoutError:
-                proc.kill()
-                await proc.wait()
+                try:
+                    stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                        proc.communicate(),
+                        timeout=cmd_timeout,
+                    )
+                except TimeoutError:
+                    timed_out = True
+            finally:
+                # SIGTERM -> 2s grace -> SIGKILL of the process group on
+                # every exit path. Idempotent when process already exited.
+                if proc is not None and proc.returncode is None:
+                    if pgid is not None:
+                        try:
+                            _safe_killpg(pgid, signal.SIGTERM, context="validation.kill_grace")
+                        except (ProcessLookupError, PermissionError):
+                            pass
+                        try:
+                            await asyncio.wait_for(proc.wait(), timeout=2.0)
+                        except asyncio.TimeoutError:
+                            try:
+                                _safe_killpg(pgid, signal.SIGKILL, context="validation.kill_force")
+                            except (ProcessLookupError, PermissionError):
+                                pass
+                            try:
+                                await proc.wait()
+                            except ProcessLookupError:
+                                pass
+                    else:
+                        try:
+                            proc.kill()
+                        except ProcessLookupError:
+                            pass
+                        try:
+                            await proc.wait()
+                        except ProcessLookupError:
+                            pass
+
+            if timed_out:
                 return ValidationResult(
                     rule=rule, passed=False,
                     expected_value="exit_code=0",

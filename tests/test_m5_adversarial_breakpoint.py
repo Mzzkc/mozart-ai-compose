@@ -631,12 +631,14 @@ class TestDeregisterJobCleanup:
         adapter._job_cross_sheet = {job_id: MagicMock()}
         adapter._completion_events = {job_id: asyncio.Event()}
         adapter._completion_results = {job_id: True}
+        adapter._job_routers = {job_id: MagicMock()}
         adapter._synced_status = {
             (job_id, 1): "completed",
             (job_id, 2): "pending",
             ("other-job", 1): "in_progress",
         }
         adapter._active_tasks = {}
+        adapter._active_pids = {}
 
         adapter.deregister_job(job_id)
 
@@ -645,6 +647,7 @@ class TestDeregisterJobCleanup:
         assert job_id not in adapter._job_cross_sheet
         assert job_id not in adapter._completion_events
         assert job_id not in adapter._completion_results
+        assert job_id not in adapter._job_routers
         # _synced_status: all entries for this job removed, others preserved
         assert (job_id, 1) not in adapter._synced_status
         assert (job_id, 2) not in adapter._synced_status
@@ -663,8 +666,10 @@ class TestDeregisterJobCleanup:
         adapter._job_cross_sheet = {}
         adapter._completion_events = {}
         adapter._completion_results = {}
+        adapter._job_routers = {}
         adapter._synced_status = {}
         adapter._active_tasks = {}
+        adapter._active_pids = {}
 
         # Should not raise
         adapter.deregister_job("nonexistent-job")
