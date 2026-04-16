@@ -1,14 +1,13 @@
-"""Targeted coverage tests for execution module files outside runner/ subpackage.
+"""Targeted coverage tests for execution module infrastructure.
 
 Fills coverage gaps for:
-- execution/setup.py (0% → target 80%+)
-- execution/progress.py (0% → target 80%+)
-- execution/reconciliation.py (0% → target 80%+)
-- execution/circuit_breaker.py (61% → target 80%+)
-- execution/parallel.py (37% → target 80%+)
-- execution/hooks.py (21% → target 80%+)
-- execution/retry_strategy.py (66% → target 80%+)
-- execution/validation/engine.py (21% → target 80%+)
+- execution/setup.py
+- execution/progress.py
+- execution/reconciliation.py
+- execution/circuit_breaker.py
+- execution/hooks.py
+- execution/retry_strategy.py
+- execution/validation/engine.py
 """
 
 from __future__ import annotations
