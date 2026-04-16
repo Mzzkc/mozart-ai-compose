@@ -39,6 +39,10 @@ from marianne.validation.checks.paths import (
     WorkingDirectoryCheck,
     WorkspaceParentExistsCheck,
 )
+from marianne.validation.checks.techniques import (
+    TechniqueMcpInstrumentCheck,
+    TechniqueSkillPathCheck,
+)
 
 __all__ = [
     # Jinja checks
@@ -70,4 +74,7 @@ __all__ = [
     "VariableShadowingCheck",
     "MissingDisableMcpCheck",
     "SkipWhenSheetRangeCheck",
+    # Technique checks
+    "TechniqueSkillPathCheck",
+    "TechniqueMcpInstrumentCheck",
 ]

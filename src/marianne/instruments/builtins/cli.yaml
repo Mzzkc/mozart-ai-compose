@@ -1,0 +1,48 @@
+# CLI — Direct shell execution instrument
+#
+# Executes the prompt as a bash command. No AI model involved.
+# Use for deterministic validation stages: running tests, linting,
+# type checking, file operations, and any work expressible as shell
+# commands with exit codes.
+#
+# The prompt text is passed as the argument to `bash -c "<prompt>"`.
+# stdout/stderr captured as the sheet's output. Exit code 0 = success.
+#
+# IMPORTANT: Do NOT use preludes or cadenzas on sheets using this instrument.
+# The full rendered prompt (including injected context) is passed to bash.
+# Non-bash content in the prompt will cause execution failures.
+#
+# This instrument implements the Tool Chain pattern from the Rosetta corpus:
+# non-AI tools do primary work, AI agents appear only at judgment points.
+#
+# Auth: None required.
+# Cost: Free (no API calls).
+
+name: cli
+display_name: "CLI (Shell)"
+description: "Direct shell execution — runs the prompt as a bash command"
+kind: cli
+
+capabilities:
+  - shell_access
+
+default_model: null
+default_timeout_seconds: 300
+
+cli:
+  command:
+    executable: bash
+    # -c is the flag that introduces the command string
+    prompt_flag: "-c"
+    prompt_via_stdin: false
+  output:
+    format: text
+  errors:
+    success_exit_codes: [0]
+    rate_limit_patterns: []
+    auth_error_patterns: []
+    capacity_patterns: []
+    timeout_patterns:
+      - "timed?.?out"
+      - "Killed"
+      - "Terminated"

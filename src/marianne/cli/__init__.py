@@ -57,6 +57,8 @@ from .commands import (
     # status.py
     clear,
     clear_rate_limits,
+    # compile.py
+    compile_scores,
     # compose.py
     compose,
     # diagnose.py
@@ -276,6 +278,7 @@ def main(
 # Getting started
 app.command(rich_help_panel="Getting Started")(init)
 app.command(rich_help_panel="Getting Started")(compose)
+app.command(name="compile", rich_help_panel="Getting Started")(compile_scores)
 
 # Job execution commands
 app.command(rich_help_panel="Jobs")(run)

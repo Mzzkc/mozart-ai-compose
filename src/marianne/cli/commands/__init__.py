@@ -3,6 +3,7 @@
 # Each module in this package provides one or more CLI commands.
 
 from .cancel import cancel
+from .compile import compile_scores
 from .compose import compose
 from .diagnose import diagnose, errors, history, logs
 from .doctor import doctor
@@ -18,6 +19,8 @@ from .validate import validate
 __all__ = [
     # cancel.py
     "cancel",
+    # compile.py
+    "compile_scores",
     # compose.py
     "compose",
     # diagnose.py

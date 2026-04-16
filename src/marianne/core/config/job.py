@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 if TYPE_CHECKING:
     from marianne.core.fan_out import FanOutMetadata  # noqa: F401
 
+from marianne.core.config.a2a import AgentCard
 from marianne.core.config.backend import BackendConfig, BridgeConfig
 from marianne.core.config.execution import (
     CircuitBreakerConfig,
@@ -39,6 +40,7 @@ from marianne.core.config.orchestration import (
     PostSuccessHookConfig,
 )
 from marianne.core.config.spec import SpecCorpusConfig
+from marianne.core.config.techniques import TechniqueConfig
 from marianne.core.config.workspace import (
     AIReviewConfig,
     CrossSheetConfig,
@@ -788,6 +790,23 @@ class JobConfig(BaseModel):
         default_factory=FeedbackConfig,
         description="Developer feedback collection configuration (GH#15). "
         "When enabled, extracts structured feedback from agent output after each sheet.",
+    )
+
+    # Technique system — composable ECS components for agents
+    techniques: dict[str, TechniqueConfig] = Field(
+        default_factory=dict,
+        description="Technique declarations for this job. "
+        "Maps technique name to TechniqueConfig. "
+        "Techniques are composable components: skills (text methodology), "
+        "MCP (shared server tools), or protocols (A2A).",
+    )
+
+    # A2A agent card — registered with conductor for discovery
+    agent_card: AgentCard | None = Field(
+        default=None,
+        description="Agent identity card for A2A protocol discovery. "
+        "When set, the conductor registers this card on job start so "
+        "other agents can discover and delegate tasks.",
     )
 
     validations: list[ValidationRule] = Field(default_factory=list)
