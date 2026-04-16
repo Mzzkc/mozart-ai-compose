@@ -2,33 +2,23 @@
 
 Adding a configurable delay between parallel sheet launches reduces
 rate limit surge when many sheets hit the same API simultaneously.
+
+The baton uses inter-sheet pacing (pause_between_sheets_seconds) instead
+of the removed ParallelExecutor stagger_delay_ms.
 """
 
 from __future__ import annotations
 
-import asyncio
-import time
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
-
 import pytest
 
+from marianne.core.checkpoint import SheetStatus
 from marianne.core.config.execution import ParallelConfig
-
-try:
-    from marianne.execution.parallel import ParallelExecutionConfig, ParallelExecutor
-except ImportError:
-    ParallelExecutionConfig = None  # type: ignore[assignment,misc]
-    ParallelExecutor = None  # type: ignore[assignment,misc]
-
-_skip_parallel = pytest.mark.skipif(
-    ParallelExecutor is None,
-    reason="execution.parallel removed (baton is sole executor)",
-)
-
+from marianne.daemon.baton.core import BatonCore
+from marianne.daemon.baton.events import PacingComplete, SheetAttemptResult
+from marianne.daemon.baton.state import SheetExecutionState
 
 # ---------------------------------------------------------------------------
-# 1. ParallelConfig accepts stagger_delay_ms
+# 1. ParallelConfig accepts stagger_delay_ms (config model, still valid)
 # ---------------------------------------------------------------------------
 
 
@@ -49,17 +39,19 @@ class TestParallelConfigStagger:
         """stagger_delay_ms is accepted from YAML config."""
         from marianne.core.config import JobConfig
 
-        config = JobConfig.model_validate({
-            "name": "test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 3, "total_items": 9},
-            "prompt": {"template": "Test {{ sheet_num }}"},
-            "parallel": {
-                "enabled": True,
-                "max_concurrent": 5,
-                "stagger_delay_ms": 150,
-            },
-        })
+        config = JobConfig.model_validate(
+            {
+                "name": "test",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 3, "total_items": 9},
+                "prompt": {"template": "Test {{ sheet_num }}"},
+                "parallel": {
+                    "enabled": True,
+                    "max_concurrent": 5,
+                    "stagger_delay_ms": 150,
+                },
+            }
+        )
         assert config.parallel.stagger_delay_ms == 150
 
     def test_stagger_delay_validation_non_negative(self) -> None:
@@ -78,120 +70,130 @@ class TestParallelConfigStagger:
 
 
 # ---------------------------------------------------------------------------
-# 2. ParallelExecutionConfig accepts stagger_delay_ms
+# 2. Baton inter-sheet pacing — replaces ParallelExecutor stagger
 # ---------------------------------------------------------------------------
 
 
-@_skip_parallel
-class TestParallelExecConfigStagger:
-    """ParallelExecutionConfig dataclass must carry stagger_delay_ms."""
+class TestBatonPacingNoDelay:
+    """When pacing_seconds=0, the baton dispatches immediately."""
 
-    def test_default_value(self) -> None:
-        """Default stagger_delay_ms is 0."""
-        config = ParallelExecutionConfig()
-        assert config.stagger_delay_ms == 0
+    async def test_no_pacing_when_zero(self) -> None:
+        """When pacing_seconds=0, no delay between sheet completions."""
+        baton = BatonCore()
 
-    def test_custom_value(self) -> None:
-        """stagger_delay_ms can be set."""
-        config = ParallelExecutionConfig(stagger_delay_ms=100)
-        assert config.stagger_delay_ms == 100
+        sheets = {
+            i: SheetExecutionState(sheet_num=i, instrument_name="claude-code") for i in range(1, 4)
+        }
 
+        baton.register_job("pacing-test", sheets, {}, pacing_seconds=0.0)
 
-# ---------------------------------------------------------------------------
-# 3. ParallelExecutor uses stagger delay between launches
-# ---------------------------------------------------------------------------
+        job = baton._jobs["pacing-test"]
+        assert job.pacing_seconds == 0.0
+        assert not job.pacing_active
 
 
-@_skip_parallel
-class TestParallelExecutorStagger:
-    """ParallelExecutor must delay between sheet launches when stagger > 0."""
+class TestBatonPacingScheduled:
+    """When pacing_seconds > 0, the baton schedules a PacingComplete timer
+    after a sheet completes (when no other sheets are dispatched)."""
 
-    @pytest.mark.asyncio
-    async def test_no_stagger_when_zero(self) -> None:
-        """When stagger_delay_ms=0, no delay between launches."""
-        runner = MagicMock()
-        runner.dependency_dag = None
-        runner._state_lock = asyncio.Lock()
+    async def test_pacing_active_after_completion(self) -> None:
+        """After a sheet completes with pacing configured, pacing_active is True."""
+        baton = BatonCore()
 
-        config = ParallelExecutionConfig(
-            enabled=True,
-            max_concurrent=3,
-            stagger_delay_ms=0,
+        sheets = {
+            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
+            2: SheetExecutionState(sheet_num=2, instrument_name="claude-code"),
+        }
+
+        baton.register_job("pacing-test", sheets, {}, pacing_seconds=0.1)
+        baton.register_instrument("claude-code", max_concurrent=4)
+
+        job = baton._jobs["pacing-test"]
+        assert job.pacing_seconds == 0.1
+
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="pacing-test",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=True,
+                validation_pass_rate=100.0,
+            )
         )
-        executor = ParallelExecutor(runner, config)
 
-        # Mock sheet execution to complete immediately
-        async def fake_execute(sheet_num: int, state: Any) -> None:
-            pass
+        assert job.pacing_active, "pacing_active should be True after sheet 1 completes"
 
-        executor._execute_single_sheet = fake_execute  # type: ignore[assignment]
+    async def test_pacing_cleared_on_pacing_complete_event(self) -> None:
+        """PacingComplete event clears pacing_active."""
+        baton = BatonCore()
 
-        state = MagicMock()
-        start = time.monotonic()
-        await executor.execute_batch([1, 2, 3], state)
-        duration = time.monotonic() - start
+        sheets = {
+            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
+        }
 
-        # Without stagger, should complete in under 0.5s
-        assert duration < 0.5
+        baton.register_job("pacing-clear", sheets, {}, pacing_seconds=0.1)
 
-    @pytest.mark.asyncio
-    async def test_stagger_adds_delay(self) -> None:
-        """When stagger_delay_ms=100, there's a delay between launches."""
-        runner = MagicMock()
-        runner.dependency_dag = None
-        runner._state_lock = asyncio.Lock()
+        job = baton._jobs["pacing-clear"]
+        job.pacing_active = True
 
-        launch_times: list[float] = []
+        await baton.handle_event(PacingComplete(job_id="pacing-clear"))
 
-        config = ParallelExecutionConfig(
-            enabled=True,
-            max_concurrent=5,
-            stagger_delay_ms=100,
+        assert not job.pacing_active, "PacingComplete should clear pacing_active"
+
+    async def test_pacing_skipped_when_sheets_still_dispatched(self) -> None:
+        """GH#167: pacing is NOT activated when other sheets are still DISPATCHED."""
+        baton = BatonCore()
+
+        sheets = {
+            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
+            2: SheetExecutionState(sheet_num=2, instrument_name="claude-code"),
+        }
+        sheets[2].status = SheetStatus.DISPATCHED
+
+        baton.register_job("pacing-wave", sheets, {}, pacing_seconds=0.1)
+        baton.register_instrument("claude-code", max_concurrent=4)
+
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="pacing-wave",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=True,
+                validation_pass_rate=100.0,
+            )
         )
-        executor = ParallelExecutor(runner, config)
 
-        async def fake_execute(sheet_num: int, state: Any) -> None:
-            launch_times.append(time.monotonic())
-            await asyncio.sleep(0.01)  # Simulate minimal work
-
-        executor._execute_single_sheet = fake_execute  # type: ignore[assignment]
-
-        state = MagicMock()
-        await executor.execute_batch([1, 2, 3], state)
-
-        # Should have 3 launches
-        assert len(launch_times) == 3
-
-        # With 100ms stagger between 3 sheets, total stagger should be >= 200ms
-        # Use generous tolerance (50ms) for CI
-        if len(launch_times) >= 2:
-            gap_1_2 = launch_times[1] - launch_times[0]
-            assert gap_1_2 >= 0.05, \
-                f"Gap between sheet 1 and 2 was {gap_1_2:.3f}s, expected >= 0.05s"
-
-    @pytest.mark.asyncio
-    async def test_single_sheet_no_stagger(self) -> None:
-        """With a single sheet, no stagger delay is needed."""
-        runner = MagicMock()
-        runner.dependency_dag = None
-        runner._state_lock = asyncio.Lock()
-
-        config = ParallelExecutionConfig(
-            enabled=True,
-            max_concurrent=5,
-            stagger_delay_ms=500,  # Large delay, but should not apply
+        job = baton._jobs["pacing-wave"]
+        assert not job.pacing_active, (
+            "pacing should NOT activate when other sheets are still DISPATCHED"
         )
-        executor = ParallelExecutor(runner, config)
 
-        async def fake_execute(sheet_num: int, state: Any) -> None:
-            pass
+    async def test_pacing_activated_even_for_single_sheet(self) -> None:
+        """For a single-sheet job, pacing is still activated after completion.
+        This is acceptable — the job is already done, pacing just delays
+        the final completion acknowledgment."""
+        baton = BatonCore()
 
-        executor._execute_single_sheet = fake_execute  # type: ignore[assignment]
+        sheets = {
+            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
+        }
 
-        state = MagicMock()
-        start = time.monotonic()
-        await executor.execute_batch([1], state)
-        duration = time.monotonic() - start
+        baton.register_job("single", sheets, {}, pacing_seconds=0.5)
+        baton.register_instrument("claude-code", max_concurrent=4)
 
-        # Single sheet should complete instantly
-        assert duration < 0.5
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="single",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=True,
+                validation_pass_rate=100.0,
+            )
+        )
+
+        job = baton._jobs["single"]
+        assert sheets[1].status == SheetStatus.COMPLETED
+        assert job.pacing_active, "pacing activates after any sheet completion with pacing > 0"

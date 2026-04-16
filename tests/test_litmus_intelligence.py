@@ -84,8 +84,7 @@ Test categories:
     verify it never reaches the rendered output.
 46. F-149 Backpressure rework — rate limits don't block unrelated jobs.
     should_accept_job() only considers resource pressure, not rate limits.
-47. D-027 Baton default flip — DaemonConfig().use_baton defaults to True.
-    The baton IS the default execution model.
+47. D-027 Baton default flip — baton is the sole executor (use_baton field removed).
 48. Instrument fallback chain — three-level resolution (per-sheet > movement
     > score). Replace semantics, not merge. History capped at 50.
 49. F-271 MCP process explosion fix — profile-driven mcp_disable_args
@@ -102,10 +101,10 @@ Every test in this file answers: "Is the system smarter WITH this than WITHOUT?"
 
 from __future__ import annotations
 
-import pytest
-
 import json
 from pathlib import Path
+
+import pytest
 
 from marianne.core.config import PromptConfig, ValidationRule
 from marianne.core.config.spec import SpecFragment
@@ -129,6 +128,7 @@ from marianne.prompts.templating import PromptBuilder, SheetContext
 # =============================================================================
 # 1. PROMPT ASSEMBLY EFFECTIVENESS
 # =============================================================================
+
 
 class TestPromptAssemblyEffectiveness:
     """The litmus question: do assembled prompts give agents what they need?
@@ -156,13 +156,18 @@ class TestPromptAssemblyEffectiveness:
         )
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=1, total_sheets=3, start_item=1, end_item=10,
+            sheet_num=1,
+            total_sheets=3,
+            start_item=1,
+            end_item=10,
             workspace=Path("/tmp/test"),
             injected_context=["Context about the project"],
             injected_skills=["You can use bash"],
         )
         fragment = SpecFragment(
-            name="conventions", tags=["code"], kind="text",
+            name="conventions",
+            tags=["code"],
+            kind="text",
             content="Use snake_case",
         )
         patterns = ["Check for existing tests before writing new ones"]
@@ -175,8 +180,10 @@ class TestPromptAssemblyEffectiveness:
         ]
 
         prompt = builder.build_sheet_prompt(
-            ctx, spec_fragments=[fragment],
-            patterns=patterns, validation_rules=rules,
+            ctx,
+            spec_fragments=[fragment],
+            patterns=patterns,
+            validation_rules=rules,
         )
 
         # Requirements are the last major section
@@ -186,7 +193,8 @@ class TestPromptAssemblyEffectiveness:
         after_requirements = prompt[last_section_pos:]
         # No other ## header after requirements
         other_headers = [
-            h for h in after_requirements.split("\n")
+            h
+            for h in after_requirements.split("\n")
             if h.startswith("## ") and "Success Requirements" not in h
         ]
         assert len(other_headers) == 0, (
@@ -207,27 +215,35 @@ class TestPromptAssemblyEffectiveness:
         )
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=1, total_sheets=3, start_item=1, end_item=10,
+            sheet_num=1,
+            total_sheets=3,
+            start_item=1,
+            end_item=10,
             workspace=Path("/tmp/ws"),
             injected_context=["This project uses FastAPI"],
             injected_skills=["You have access to Read, Write, Bash"],
         )
         fragment = SpecFragment(
-            name="conventions", tags=["code"], kind="text",
+            name="conventions",
+            tags=["code"],
+            kind="text",
             content="All I/O is async. Use asyncio.",
         )
         patterns = ["Auth modules should use bcrypt for password hashing"]
         rules = [
             ValidationRule(
-                type="file_exists", path="{workspace}/auth.py",
+                type="file_exists",
+                path="{workspace}/auth.py",
                 description="Auth module",
             ),
         ]
 
         bare_prompt = builder.build_sheet_prompt(ctx)
         full_prompt = builder.build_sheet_prompt(
-            ctx, spec_fragments=[fragment],
-            patterns=patterns, validation_rules=rules,
+            ctx,
+            spec_fragments=[fragment],
+            patterns=patterns,
+            validation_rules=rules,
         )
 
         # Full prompt must be substantially larger
@@ -263,9 +279,15 @@ class TestPromptAssemblyEffectiveness:
         builder_new = PromptBuilder(config_new)
 
         ctx = SheetContext(
-            sheet_num=3, total_sheets=9, start_item=1, end_item=10,
+            sheet_num=3,
+            total_sheets=9,
+            start_item=1,
+            end_item=10,
             workspace=Path("/tmp/ws"),
-            stage=2, instance=1, fan_count=3, total_stages=3,
+            stage=2,
+            instance=1,
+            fan_count=3,
+            total_stages=3,
         )
 
         prompt_old = builder_old.build_sheet_prompt(ctx)
@@ -293,7 +315,8 @@ class TestPromptAssemblyEffectiveness:
         )
         failed = ValidationResult(
             rule=ValidationRule(
-                type="file_exists", path="missing.txt",
+                type="file_exists",
+                path="missing.txt",
                 description="Critical output",
             ),
             passed=False,
@@ -303,10 +326,12 @@ class TestPromptAssemblyEffectiveness:
         )
 
         comp_ctx = CompletionContext(
-            sheet_num=1, total_sheets=3,
+            sheet_num=1,
+            total_sheets=3,
             passed_validations=[passed],
             failed_validations=[failed],
-            completion_attempt=1, max_completion_attempts=5,
+            completion_attempt=1,
+            max_completion_attempts=5,
             original_prompt="Build everything",
             workspace=Path("/tmp/ws"),
         )
@@ -324,9 +349,11 @@ class TestPromptAssemblyEffectiveness:
         # The original context is included for reference
         assert "Build everything" in prompt
 
+
 # =============================================================================
 # 2. SPEC CORPUS PIPELINE — JSON ROUNDTRIP SURVIVAL
 # =============================================================================
+
 
 class TestSpecTagsSerializationRoundtrip:
     """The spec_tags integer key serialization risk.
@@ -417,9 +444,11 @@ class TestSpecTagsSerializationRoundtrip:
         )
         assert restored.dependencies.get(4) == [3]
 
+
 # =============================================================================
 # 3. BATON DECISION INTELLIGENCE — REALISTIC MULTI-SHEET WORKFLOWS
 # =============================================================================
+
 
 class TestBatonMultiSheetWorkflows:
     """Does the baton make smart decisions for real-world score patterns?
@@ -456,10 +485,16 @@ class TestBatonMultiSheetWorkflows:
         assert ready[0].sheet_num == 1
 
         # Complete sheet 1 → voices 2, 3, 4 should all become ready
-        await baton.handle_event(SheetAttemptResult(
-            job_id="concert", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=True, validation_pass_rate=100.0,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="concert",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=True,
+                validation_pass_rate=100.0,
+            )
+        )
         ready = baton.get_ready_sheets("concert")
         ready_nums = {s.sheet_num for s in ready}
         assert ready_nums == {2, 3, 4}, f"Voices should be ready, got {ready_nums}"
@@ -469,21 +504,32 @@ class TestBatonMultiSheetWorkflows:
 
         # Complete voices 2 and 3 — synthesis still not ready (voice 4 pending)
         for voice in [2, 3]:
-            await baton.handle_event(SheetAttemptResult(
-                job_id="concert", sheet_num=voice,
-                instrument_name="claude-code", attempt=1,
-                execution_success=True, validation_pass_rate=100.0,
-            ))
+            await baton.handle_event(
+                SheetAttemptResult(
+                    job_id="concert",
+                    sheet_num=voice,
+                    instrument_name="claude-code",
+                    attempt=1,
+                    execution_success=True,
+                    validation_pass_rate=100.0,
+                )
+            )
         ready = baton.get_ready_sheets("concert")
         ready_nums = {s.sheet_num for s in ready}
         assert 5 not in ready_nums, "Synthesis must wait for ALL voices"
         assert 4 in ready_nums, "Voice 4 still ready"
 
         # Complete voice 4 → synthesis becomes ready
-        await baton.handle_event(SheetAttemptResult(
-            job_id="concert", sheet_num=4, instrument_name="claude-code",
-            attempt=1, execution_success=True, validation_pass_rate=100.0,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="concert",
+                sheet_num=4,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=True,
+                validation_pass_rate=100.0,
+            )
+        )
         ready = baton.get_ready_sheets("concert")
         ready_nums = {s.sheet_num for s in ready}
         assert ready_nums == {5}, f"Only synthesis should be ready, got {ready_nums}"
@@ -498,7 +544,9 @@ class TestBatonMultiSheetWorkflows:
         sheets = {
             1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
             2: SheetExecutionState(
-                sheet_num=2, instrument_name="claude-code", max_retries=0,
+                sheet_num=2,
+                instrument_name="claude-code",
+                max_retries=0,
             ),
             3: SheetExecutionState(sheet_num=3, instrument_name="claude-code"),
         }
@@ -506,24 +554,34 @@ class TestBatonMultiSheetWorkflows:
         baton.register_job("j1", sheets, deps)
 
         # Complete sheet 1
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=True, validation_pass_rate=100.0,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=True,
+                validation_pass_rate=100.0,
+            )
+        )
 
         # Sheet 2 fails with AUTH_FAILURE (non-retriable)
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1", sheet_num=2, instrument_name="claude-code",
-            attempt=1, execution_success=False,
-            error_classification="AUTH_FAILURE",
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=2,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=False,
+                error_classification="AUTH_FAILURE",
+            )
+        )
 
         # Sheet 3 should be SKIPPED (blocked by failed dependency), not pending
         state3 = baton.get_sheet_state("j1", 3)
         assert state3 is not None
         assert state3.status == BatonSheetStatus.SKIPPED, (
-            f"Synthesis should be SKIPPED (blocked by failed dependency), "
-            f"got {state3.status}"
+            f"Synthesis should be SKIPPED (blocked by failed dependency), got {state3.status}"
         )
         # Job should be complete (all terminal)
         assert baton.is_job_complete("j1")
@@ -544,26 +602,36 @@ class TestBatonMultiSheetWorkflows:
         baton.register_job("j1", sheets, deps)
 
         # Complete sheet 1
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=True, validation_pass_rate=100.0,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=True,
+                validation_pass_rate=100.0,
+            )
+        )
 
         # Skip sheet 2 (e.g., skip_when condition met)
-        await baton.handle_event(SheetSkipped(
-            job_id="j1", sheet_num=2, reason="skip_when condition",
-        ))
+        await baton.handle_event(
+            SheetSkipped(
+                job_id="j1",
+                sheet_num=2,
+                reason="skip_when condition",
+            )
+        )
 
         # Sheet 3 should be ready (skipped satisfies dependencies)
         ready = baton.get_ready_sheets("j1")
         ready_nums = {s.sheet_num for s in ready}
-        assert 3 in ready_nums, (
-            f"Sheet 3 should be ready (skipped dep satisfies), got {ready_nums}"
-        )
+        assert 3 in ready_nums, f"Sheet 3 should be ready (skipped dep satisfies), got {ready_nums}"
+
 
 # =============================================================================
 # 4. INSTRUMENT STATE BRIDGE — RATE LIMIT ISOLATION
 # =============================================================================
+
 
 class TestInstrumentStateIntelligence:
     """Does the baton correctly isolate instrument states?
@@ -585,19 +653,25 @@ class TestInstrumentStateIntelligence:
 
         sheets = {
             1: SheetExecutionState(
-                sheet_num=1, instrument_name="claude-code",
+                sheet_num=1,
+                instrument_name="claude-code",
             ),
             2: SheetExecutionState(
-                sheet_num=2, instrument_name="gemini-cli",
+                sheet_num=2,
+                instrument_name="gemini-cli",
             ),
         }
         baton.register_job("j1", sheets, {})
 
         # Rate limit hits claude-code
-        await baton.handle_event(RateLimitHit(
-            instrument="claude-code", wait_seconds=3600,
-            job_id="j1", sheet_num=1,
-        ))
+        await baton.handle_event(
+            RateLimitHit(
+                instrument="claude-code",
+                wait_seconds=3600,
+                job_id="j1",
+                sheet_num=1,
+            )
+        )
 
         # Check instrument states
         claude_state = baton.get_instrument_state("claude-code")
@@ -619,7 +693,8 @@ class TestInstrumentStateIntelligence:
         baton = BatonCore()
         sheets = {
             1: SheetExecutionState(
-                sheet_num=1, instrument_name="novel-instrument",
+                sheet_num=1,
+                instrument_name="novel-instrument",
             ),
         }
         baton.register_job("j1", sheets, {})
@@ -638,16 +713,21 @@ class TestInstrumentStateIntelligence:
         baton = BatonCore()
         sheets = {
             1: SheetExecutionState(
-                sheet_num=1, instrument_name="claude-code",
+                sheet_num=1,
+                instrument_name="claude-code",
             ),
         }
         baton.register_job("j1", sheets, {})
 
         # Rate limit hits — pending sheet stays pending (correct: not yet dispatched)
-        await baton.handle_event(RateLimitHit(
-            instrument="claude-code", wait_seconds=60,
-            job_id="j1", sheet_num=1,
-        ))
+        await baton.handle_event(
+            RateLimitHit(
+                instrument="claude-code",
+                wait_seconds=60,
+                job_id="j1",
+                sheet_num=1,
+            )
+        )
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
         # Sheet stays pending because it was never dispatched
@@ -679,7 +759,9 @@ class TestInstrumentStateIntelligence:
 
         sheets = {
             i: SheetExecutionState(
-                sheet_num=i, instrument_name="flaky-tool", max_retries=0,
+                sheet_num=i,
+                instrument_name="flaky-tool",
+                max_retries=0,
             )
             for i in range(1, 6)
         }
@@ -687,11 +769,16 @@ class TestInstrumentStateIntelligence:
 
         # 5 consecutive failures
         for i in range(1, 6):
-            await baton.handle_event(SheetAttemptResult(
-                job_id="j1", sheet_num=i, instrument_name="flaky-tool",
-                attempt=1, execution_success=False,
-                error_classification="EXECUTION_ERROR",
-            ))
+            await baton.handle_event(
+                SheetAttemptResult(
+                    job_id="j1",
+                    sheet_num=i,
+                    instrument_name="flaky-tool",
+                    attempt=1,
+                    execution_success=False,
+                    error_classification="EXECUTION_ERROR",
+                )
+            )
 
         inst = baton.get_instrument_state("flaky-tool")
         assert inst is not None
@@ -699,9 +786,11 @@ class TestInstrumentStateIntelligence:
         # At minimum, consecutive_failures should be tracked
         assert inst.consecutive_failures >= 5
 
+
 # =============================================================================
 # 5. COST ENFORCEMENT — DOES THE BATON ACTUALLY STOP SPENDING?
 # =============================================================================
+
 
 class TestCostEnforcementEffectiveness:
     """Does cost enforcement actually prevent runaway spending?
@@ -723,11 +812,17 @@ class TestCostEnforcementEffectiveness:
         baton.set_job_cost_limit("j1", max_cost_usd=5.0)
 
         # Sheet 1 costs $6 — exceeds limit
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=True, validation_pass_rate=100.0,
-            cost_usd=6.0,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=True,
+                validation_pass_rate=100.0,
+                cost_usd=6.0,
+            )
+        )
 
         # Job should be paused
         assert baton.is_job_paused("j1"), "Job should pause when cost exceeded"
@@ -740,19 +835,26 @@ class TestCostEnforcementEffectiveness:
         baton = BatonCore()
         sheets = {
             1: SheetExecutionState(
-                sheet_num=1, instrument_name="claude-code", max_retries=3,
+                sheet_num=1,
+                instrument_name="claude-code",
+                max_retries=3,
             ),
         }
         baton.register_job("j1", sheets, {})
         baton.set_sheet_cost_limit("j1", 1, max_cost_usd=2.0)
 
         # Sheet 1 costs $3 — exceeds sheet limit
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=False,
-            error_classification="TRANSIENT",
-            cost_usd=3.0,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=False,
+                error_classification="TRANSIENT",
+                cost_usd=3.0,
+            )
+        )
 
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
@@ -760,9 +862,11 @@ class TestCostEnforcementEffectiveness:
             f"Sheet should be failed (cost exceeded), got {state.status}"
         )
 
+
 # =============================================================================
 # 6. EXHAUSTION DECISION TREE — HEALING → ESCALATION → FAILURE
 # =============================================================================
+
 
 class TestExhaustionDecisionTree:
     """When retries are exhausted, does the baton follow the right path?
@@ -780,21 +884,30 @@ class TestExhaustionDecisionTree:
         baton = BatonCore()
         sheets = {
             1: SheetExecutionState(
-                sheet_num=1, instrument_name="claude-code", max_retries=1,
+                sheet_num=1,
+                instrument_name="claude-code",
+                max_retries=1,
             ),
         }
         baton.register_job(
-            "j1", sheets, {},
+            "j1",
+            sheets,
+            {},
             self_healing_enabled=True,
             escalation_enabled=True,
         )
 
         # Fail once (retries exhausted — max_retries=1 means 1 normal attempt)
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=False,
-            error_classification="EXECUTION_ERROR",
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=False,
+                error_classification="EXECUTION_ERROR",
+            )
+        )
 
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
@@ -809,22 +922,31 @@ class TestExhaustionDecisionTree:
         baton = BatonCore()
         sheets = {
             1: SheetExecutionState(
-                sheet_num=1, instrument_name="claude-code", max_retries=0,
+                sheet_num=1,
+                instrument_name="claude-code",
+                max_retries=0,
             ),
         }
         baton.register_job(
-            "j1", sheets, {},
+            "j1",
+            sheets,
+            {},
             self_healing_enabled=True,
             escalation_enabled=True,
         )
 
         # Exhaust both normal retries and healing
         # First: exhaust normal retries (max_retries=0 → immediate exhaustion)
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=False,
-            error_classification="EXECUTION_ERROR",
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=False,
+                error_classification="EXECUTION_ERROR",
+            )
+        )
 
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
@@ -835,11 +957,16 @@ class TestExhaustionDecisionTree:
         await baton.handle_event(RetryDue(job_id="j1", sheet_num=1))
 
         # Healing attempt also fails
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=2, execution_success=False,
-            error_classification="EXECUTION_ERROR",
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=2,
+                execution_success=False,
+                error_classification="EXECUTION_ERROR",
+            )
+        )
 
         # Now healing is exhausted (default max_healing=1) → escalation
         assert state.status == BatonSheetStatus.FERMATA, (
@@ -851,24 +978,33 @@ class TestExhaustionDecisionTree:
         baton = BatonCore()
         sheets = {
             1: SheetExecutionState(
-                sheet_num=1, instrument_name="claude-code", max_retries=0,
+                sheet_num=1,
+                instrument_name="claude-code",
+                max_retries=0,
             ),
         }
         baton.register_job("j1", sheets, {})  # No healing, no escalation
 
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=False,
-            error_classification="EXECUTION_ERROR",
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=False,
+                error_classification="EXECUTION_ERROR",
+            )
+        )
 
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
         assert state.status == BatonSheetStatus.FAILED
 
+
 # =============================================================================
 # 7. PREAMBLE INTELLIGENCE — DOES IT HELP AGENTS ORIENT?
 # =============================================================================
+
 
 class TestPreambleIntelligence:
     """Does the preamble give agents the context they need to orient?
@@ -881,7 +1017,8 @@ class TestPreambleIntelligence:
     def test_first_run_preamble_has_essential_context(self) -> None:
         """First-run preamble contains workspace, position, and success criteria."""
         preamble = build_preamble(
-            sheet_num=3, total_sheets=10,
+            sheet_num=3,
+            total_sheets=10,
             workspace=Path("/home/user/workspaces/my-project"),
         )
         # Agent must know where it is
@@ -897,12 +1034,16 @@ class TestPreambleIntelligence:
         signal that this is a retry. It would repeat the same approach.
         """
         first_run = build_preamble(
-            sheet_num=1, total_sheets=5,
-            workspace=Path("/tmp/ws"), retry_count=0,
+            sheet_num=1,
+            total_sheets=5,
+            workspace=Path("/tmp/ws"),
+            retry_count=0,
         )
         retry = build_preamble(
-            sheet_num=1, total_sheets=5,
-            workspace=Path("/tmp/ws"), retry_count=2,
+            sheet_num=1,
+            total_sheets=5,
+            workspace=Path("/tmp/ws"),
+            retry_count=2,
         )
 
         # Retry preamble must be different
@@ -912,9 +1053,11 @@ class TestPreambleIntelligence:
         # Retry preamble tells agent to study what went wrong
         assert "previous" in retry.lower() or "failed" in retry.lower()
 
+
 # =============================================================================
 # 8. BATON MUSICIAN PROMPT RENDERING (F-104 — the critical unblock)
 # =============================================================================
+
 
 class TestBatonMusicianPromptRendering:
     """Does the baton musician's _build_prompt() make agents more effective?
@@ -937,16 +1080,21 @@ class TestBatonMusicianPromptRendering:
         from marianne.daemon.baton.state import AttemptContext
 
         sheet = Sheet(
-            num=3, movement=2, voice=1, voice_count=3,
+            num=3,
+            movement=2,
+            voice=1,
+            voice_count=3,
             workspace=Path("/tmp/litmus-test"),
             instrument_name="claude-code",
             prompt_template="Implement the {{ module }} module in {{ workspace }}",
             variables={"module": "authentication"},
             validations=[
-                VR(type="file_exists", path="{workspace}/auth.py",
-                   description="Auth module file"),
-                VR(type="command_succeeds", command="cd {workspace} && python -m pytest",
-                   description="Tests pass"),
+                VR(type="file_exists", path="{workspace}/auth.py", description="Auth module file"),
+                VR(
+                    type="command_succeeds",
+                    command="cd {workspace} && python -m pytest",
+                    description="Tests pass",
+                ),
             ],
         )
         ctx = AttemptContext(attempt_number=1, mode=AttemptMode.NORMAL)
@@ -984,7 +1132,10 @@ class TestBatonMusicianPromptRendering:
         from marianne.daemon.baton.state import AttemptContext
 
         sheet = Sheet(
-            num=1, movement=1, voice=None, voice_count=1,
+            num=1,
+            movement=1,
+            voice=None,
+            voice_count=1,
             workspace=Path("/tmp/ws"),
             instrument_name="claude-code",
             prompt_template="Build everything",
@@ -997,9 +1148,7 @@ class TestBatonMusicianPromptRendering:
 
         prompt = _build_prompt(sheet, ctx, total_sheets=1, total_movements=1)
 
-        assert "FAILED validations" in prompt, (
-            "Completion suffix must appear in the prompt"
-        )
+        assert "FAILED validations" in prompt, "Completion suffix must appear in the prompt"
         # The suffix should be at the END (last thing the agent reads)
         suffix_pos = prompt.index("FAILED validations")
         assert suffix_pos > len(prompt) * 0.7, (
@@ -1018,16 +1167,17 @@ class TestBatonMusicianPromptRendering:
         from marianne.daemon.baton.musician import _build_prompt
         from marianne.daemon.baton.state import AttemptContext
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".md", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
             f.write("You are working on movement {{ movement }} of {{ total_movements }}.")
             f.flush()
             template_path = Path(f.name)
 
         try:
             sheet = Sheet(
-                num=1, movement=2, voice=None, voice_count=1,
+                num=1,
+                movement=2,
+                voice=None,
+                voice_count=1,
                 workspace=Path("/tmp/ws"),
                 instrument_name="claude-code",
                 prompt_template="THIS SHOULD NOT APPEAR",
@@ -1055,19 +1205,26 @@ class TestBatonMusicianPromptRendering:
         from marianne.daemon.baton.state import AttemptContext
 
         sheet = Sheet(
-            num=1, movement=1, voice=None, voice_count=1,
+            num=1,
+            movement=1,
+            voice=None,
+            voice_count=1,
             workspace=Path("/tmp/ws"),
             instrument_name="claude-code",
             prompt_template="Do the work",
         )
 
         first_run = _build_prompt(
-            sheet, AttemptContext(attempt_number=1, mode=AttemptMode.NORMAL),
-            total_sheets=1, total_movements=1,
+            sheet,
+            AttemptContext(attempt_number=1, mode=AttemptMode.NORMAL),
+            total_sheets=1,
+            total_movements=1,
         )
         retry = _build_prompt(
-            sheet, AttemptContext(attempt_number=3, mode=AttemptMode.NORMAL),
-            total_sheets=1, total_movements=1,
+            sheet,
+            AttemptContext(attempt_number=3, mode=AttemptMode.NORMAL),
+            total_sheets=1,
+            total_movements=1,
         )
 
         assert first_run != retry, "Retry prompt must differ from first run"
@@ -1083,11 +1240,15 @@ class TestBatonMusicianPromptRendering:
         from marianne.daemon.baton.musician import _format_validation_requirements
 
         rules = [
-            type("Rule", (), {
-                "type": "file_exists",
-                "path": "{workspace}/output.md",
-                "description": "Output file must exist",
-            })(),
+            type(
+                "Rule",
+                (),
+                {
+                    "type": "file_exists",
+                    "path": "{workspace}/output.md",
+                    "description": "Output file must exist",
+                },
+            )(),
         ]
         template_vars = {"workspace": "/home/user/project", "sheet_num": 1}
 
@@ -1096,13 +1257,13 @@ class TestBatonMusicianPromptRendering:
         assert "/home/user/project/output.md" in result, (
             "Validation path should expand {workspace} to actual path"
         )
-        assert "{workspace}" not in result, (
-            "Raw template variable should be replaced"
-        )
+        assert "{workspace}" not in result, "Raw template variable should be replaced"
+
 
 # =============================================================================
 # 9. ERROR TAXONOMY INTELLIGENCE (E006 stale vs E001 timeout, F-098 Phase 4.5)
 # =============================================================================
+
 
 class TestErrorTaxonomyIntelligence:
     """Does the error taxonomy make meaningful distinctions?
@@ -1218,18 +1379,16 @@ class TestErrorTaxonomyIntelligence:
             exit_code=0,
         )
 
-        has_rate_limit = any(
-            e.category == ErrorCategory.RATE_LIMIT
-            for e in result.all_errors
-        )
+        has_rate_limit = any(e.category == ErrorCategory.RATE_LIMIT for e in result.all_errors)
         assert has_rate_limit, (
-            f"Rate limit in stdout should be detected. "
-            f"Got primary: {result.primary.category}"
+            f"Rate limit in stdout should be detected. Got primary: {result.primary.category}"
         )
+
 
 # =============================================================================
 # 10. SHEET ENTITY TEMPLATE VARIABLES — TERMINOLOGY COEXISTENCE
 # =============================================================================
+
 
 class TestSheetEntityIntelligence:
     """Does the Sheet entity produce template variables that serve both
@@ -1246,7 +1405,10 @@ class TestSheetEntityIntelligence:
         produce the same output as its new-terminology equivalent.
         """
         sheet = Sheet(
-            num=5, movement=2, voice=3, voice_count=4,
+            num=5,
+            movement=2,
+            voice=3,
+            voice_count=4,
             workspace=Path("/tmp/ws"),
             instrument_name="gemini-cli",
         )
@@ -1257,9 +1419,7 @@ class TestSheetEntityIntelligence:
         assert tvars["movement"] == tvars["stage"], "movement != stage"
         assert tvars["voice"] == tvars["instance"], "voice != instance"
         assert tvars["voice_count"] == tvars["fan_count"], "voice_count != fan_count"
-        assert tvars["total_movements"] == tvars["total_stages"], (
-            "total_movements != total_stages"
-        )
+        assert tvars["total_movements"] == tvars["total_stages"], "total_movements != total_stages"
 
         # Values are correct
         assert tvars["movement"] == 2
@@ -1277,7 +1437,10 @@ class TestSheetEntityIntelligence:
         should still get the real sheet number, not the user's override.
         """
         sheet = Sheet(
-            num=7, movement=3, voice=None, voice_count=1,
+            num=7,
+            movement=3,
+            voice=None,
+            voice_count=1,
             workspace=Path("/tmp/ws"),
             instrument_name="claude-code",
             variables={"sheet_num": "WRONG", "workspace": "ALSO_WRONG", "custom": "ok"},
@@ -1298,7 +1461,10 @@ class TestSheetEntityIntelligence:
         movements to correctly skip voice-specific logic.
         """
         sheet = Sheet(
-            num=1, movement=1, voice=None, voice_count=1,
+            num=1,
+            movement=1,
+            voice=None,
+            voice_count=1,
             workspace=Path("/tmp/ws"),
             instrument_name="claude-code",
         )
@@ -1307,9 +1473,11 @@ class TestSheetEntityIntelligence:
         assert tvars["voice"] is None
         assert tvars["instance"] is None  # Old alias also None
 
+
 # =============================================================================
 # 11. CROSS-SYSTEM INTEGRATION — DO THE PIECES COMPOSE?
 # =============================================================================
+
 
 class TestCrossSystemIntegration:
     """Do the intelligence subsystems compose correctly?
@@ -1398,26 +1566,32 @@ class TestCrossSystemIntegration:
         from marianne.daemon.baton.musician import _validate
 
         sheet = Sheet(
-            num=1, movement=1, voice=None, voice_count=1,
+            num=1,
+            movement=1,
+            voice=None,
+            voice_count=1,
             workspace=Path("/tmp/ws"),
             instrument_name="claude-code",
             validations=[],  # No validations
         )
         exec_result = ExecutionResult(
-            success=True, stdout="Done", stderr="", duration_seconds=1.0,
+            success=True,
+            stdout="Done",
+            stderr="",
+            duration_seconds=1.0,
             exit_code=0,
         )
 
         _passed, total, rate, _ = await _validate(sheet, exec_result)
 
-        assert rate == 100.0, (
-            f"No validations + success should be 100% pass rate, got {rate}"
-        )
+        assert rate == 100.0, f"No validations + success should be 100% pass rate, got {rate}"
         assert total == 0  # No rules means 0 total
+
 
 # =========================================================================
 # Category 11: Restart Recovery Intelligence (Step 29)
 # =========================================================================
+
 
 class TestRestartRecoveryIntelligence:
     """Does recover_job() actually rebuild the right state from a checkpoint?
@@ -1453,14 +1627,23 @@ class TestRestartRecoveryIntelligence:
         )
 
         sheets = [
-            Sheet(num=i, movement=1, voice=None, voice_count=1,
-                  workspace=Path("/tmp/ws"), instrument_name="claude-code")
+            Sheet(
+                num=i,
+                movement=1,
+                voice=None,
+                voice_count=1,
+                workspace=Path("/tmp/ws"),
+                instrument_name="claude-code",
+            )
             for i in range(1, 6)
         ]
 
         adapter = BatonAdapter(max_concurrent_sheets=10)
         adapter.recover_job(
-            "recovery-test", sheets, {}, checkpoint,
+            "recovery-test",
+            sheets,
+            {},
+            checkpoint,
             max_retries=5,
         )
 
@@ -1504,20 +1687,31 @@ class TestRestartRecoveryIntelligence:
             total_sheets=1,
             sheets={
                 1: SheetState(
-                    sheet_num=1, status=SheetStatus.IN_PROGRESS,
-                    attempt_count=4, completion_attempts=2,
+                    sheet_num=1,
+                    status=SheetStatus.IN_PROGRESS,
+                    attempt_count=4,
+                    completion_attempts=2,
                 ),
             },
         )
 
         sheets = [
-            Sheet(num=1, movement=1, voice=None, voice_count=1,
-                  workspace=Path("/tmp/ws"), instrument_name="claude-code"),
+            Sheet(
+                num=1,
+                movement=1,
+                voice=None,
+                voice_count=1,
+                workspace=Path("/tmp/ws"),
+                instrument_name="claude-code",
+            ),
         ]
 
         adapter = BatonAdapter(max_concurrent_sheets=10)
         adapter.recover_job(
-            "attempt-carry", sheets, {}, checkpoint,
+            "attempt-carry",
+            sheets,
+            {},
+            checkpoint,
             max_retries=5,
         )
 
@@ -1546,27 +1740,35 @@ class TestRestartRecoveryIntelligence:
             total_sheets=1,
             sheets={
                 1: SheetState(
-                    sheet_num=1, status=SheetStatus.IN_PROGRESS,
+                    sheet_num=1,
+                    status=SheetStatus.IN_PROGRESS,
                     attempt_count=3,
                 ),
             },
         )
 
         sheets = [
-            Sheet(num=1, movement=1, voice=None, voice_count=1,
-                  workspace=Path("/tmp/ws"), instrument_name="claude-code"),
+            Sheet(
+                num=1,
+                movement=1,
+                voice=None,
+                voice_count=1,
+                workspace=Path("/tmp/ws"),
+                instrument_name="claude-code",
+            ),
         ]
 
         adapter = BatonAdapter(max_concurrent_sheets=10)
         adapter.recover_job(
-            "exhausted-recovery", sheets, {}, checkpoint,
+            "exhausted-recovery",
+            sheets,
+            {},
+            checkpoint,
             max_retries=3,  # Already used all 3
         )
 
         s1 = adapter._baton._jobs["exhausted-recovery"].sheets[1]
-        assert not s1.can_retry, (
-            "Sheet with 3/3 normal attempts used should not be retriable"
-        )
+        assert not s1.can_retry, "Sheet with 3/3 normal attempts used should not be retriable"
         # Note: is_exhausted requires BOTH retry AND completion budgets exhausted.
         # With max_retries=3, normal_attempts=3, can_retry is False.
         # But completion mode budget is separate (max_completion=5, used=0).
@@ -1574,13 +1776,13 @@ class TestRestartRecoveryIntelligence:
         assert s1.normal_attempts == 3, (
             f"Should carry forward 3 attempts from checkpoint, got {s1.normal_attempts}"
         )
-        assert s1.max_retries == 3, (
-            f"Should have max_retries=3, got {s1.max_retries}"
-        )
+        assert s1.max_retries == 3, f"Should have max_retries=3, got {s1.max_retries}"
+
 
 # =========================================================================
 # Category 12: Completion Signaling Intelligence
 # =========================================================================
+
 
 class TestCompletionSignaling:
     """Does wait_for_completion correctly detect terminal state?
@@ -1592,13 +1794,20 @@ class TestCompletionSignaling:
     async def test_completion_signals_on_all_success(self) -> None:
         """wait_for_completion returns True when all sheets complete successfully."""
         import asyncio
+
         from marianne.daemon.baton.adapter import BatonAdapter
 
         adapter = BatonAdapter(max_concurrent_sheets=10)
 
         sheets = [
-            Sheet(num=i, movement=1, voice=None, voice_count=1,
-                  workspace=Path("/tmp/ws"), instrument_name="claude-code")
+            Sheet(
+                num=i,
+                movement=1,
+                voice=None,
+                voice_count=1,
+                workspace=Path("/tmp/ws"),
+                instrument_name="claude-code",
+            )
             for i in range(1, 4)
         ]
 
@@ -1606,11 +1815,16 @@ class TestCompletionSignaling:
 
         # Complete all sheets
         for i in range(1, 4):
-            await adapter._baton.handle_event(SheetAttemptResult(
-                job_id="signal-test", sheet_num=i,
-                instrument_name="claude-code", attempt=1,
-                execution_success=True, validation_pass_rate=100.0,
-            ))
+            await adapter._baton.handle_event(
+                SheetAttemptResult(
+                    job_id="signal-test",
+                    sheet_num=i,
+                    instrument_name="claude-code",
+                    attempt=1,
+                    execution_success=True,
+                    validation_pass_rate=100.0,
+                )
+            )
 
         # Check completions (normally called by the event loop)
         adapter._check_completions()
@@ -1625,6 +1839,7 @@ class TestCompletionSignaling:
     async def test_completion_signals_false_on_failure(self) -> None:
         """wait_for_completion returns False when any sheet fails."""
         import asyncio
+
         from marianne.daemon.baton.adapter import BatonAdapter
 
         adapter = BatonAdapter(max_concurrent_sheets=10)
@@ -1637,18 +1852,28 @@ class TestCompletionSignaling:
         adapter._completion_events["fail-signal"] = asyncio.Event()
 
         # Sheet 1 fails (max_retries=0, so immediately terminal)
-        await adapter._baton.handle_event(SheetAttemptResult(
-            job_id="fail-signal", sheet_num=1,
-            instrument_name="claude-code", attempt=1,
-            execution_success=False, error_classification="EXECUTION_ERROR",
-        ))
+        await adapter._baton.handle_event(
+            SheetAttemptResult(
+                job_id="fail-signal",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=False,
+                error_classification="EXECUTION_ERROR",
+            )
+        )
 
         # Sheet 2 succeeds
-        await adapter._baton.handle_event(SheetAttemptResult(
-            job_id="fail-signal", sheet_num=2,
-            instrument_name="claude-code", attempt=1,
-            execution_success=True, validation_pass_rate=100.0,
-        ))
+        await adapter._baton.handle_event(
+            SheetAttemptResult(
+                job_id="fail-signal",
+                sheet_num=2,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=True,
+                validation_pass_rate=100.0,
+            )
+        )
 
         adapter._check_completions()
 
@@ -1658,9 +1883,11 @@ class TestCompletionSignaling:
         )
         assert result is False, "Any failure should return False"
 
+
 # =========================================================================
 # Category 13: Credential Safety in Error Paths (F-135)
 # =========================================================================
+
 
 class TestCredentialSafetyInErrorPaths:
     """Does the musician's exception handler redact credentials?
@@ -1675,15 +1902,15 @@ class TestCredentialSafetyInErrorPaths:
         """An Anthropic key in an exception message is redacted."""
         from marianne.utils.credential_scanner import redact_credentials
 
-        error_msg = "ConnectionError: Auth failed with key sk-ant-api03-REAL_SECRET_KEY_1234567890abcdef"
+        error_msg = (
+            "ConnectionError: Auth failed with key sk-ant-api03-REAL_SECRET_KEY_1234567890abcdef"
+        )
         redacted = redact_credentials(error_msg)
 
         assert "sk-ant-api03" not in redacted, (
             "Anthropic key prefix should be redacted from error messages"
         )
-        assert "REDACTED_ANTHROPIC" in redacted, (
-            "Redaction label should appear in output"
-        )
+        assert "REDACTED_ANTHROPIC" in redacted, "Redaction label should appear in output"
 
     def test_redact_credentials_catches_multiple_key_types(self) -> None:
         """Multiple credential types in one message are all redacted."""
@@ -1711,20 +1938,19 @@ class TestCredentialSafetyInErrorPaths:
         the import and the call site.
         """
         import inspect
+
         from marianne.daemon.baton import musician
 
         source = inspect.getsource(musician)
 
         # The exception handler at line ~159 must call redact_credentials
-        assert "redact_credentials" in source, (
-            "musician.py must import and use redact_credentials"
-        )
+        assert "redact_credentials" in source, "musician.py must import and use redact_credentials"
         # The function must be called on the error_msg, not just imported
-        assert "redact_credentials(raw_error_msg)" in source or \
-               "redact_credentials(error_msg)" in source or \
-               "= redact_credentials(" in source, (
-            "redact_credentials must be called on the exception message"
-        )
+        assert (
+            "redact_credentials(raw_error_msg)" in source
+            or "redact_credentials(error_msg)" in source
+            or "= redact_credentials(" in source
+        ), "redact_credentials must be called on the exception message"
 
     def test_github_slack_hf_tokens_also_caught(self) -> None:
         """F-023: GitHub, Slack, and HF tokens are caught in error messages."""
@@ -1741,100 +1967,144 @@ class TestCredentialSafetyInErrorPaths:
         assert "xoxb-" not in redacted, "Slack bot token should be redacted"
         assert "hf_" not in redacted, "HF token should be redacted"
 
+
 # =========================================================================
-# Category 14: Parallel Executor Failure Handling (F-111, F-113)
+# Category 14: Baton Failure Propagation (F-111, F-113)
 # =========================================================================
+
 
 class TestParallelFailureIntelligence:
     """Do F-111 and F-113 fixes actually prevent the production bugs?
 
-    F-111: RateLimitExhaustedError must be preserved through parallel
-    executor so jobs PAUSE instead of FAIL.
+    F-111: RateLimitExhaustedError is preserved through the baton's event
+    model — SheetAttemptResult carries rate_limited=True so the baton
+    can distinguish rate limits from real failures (PAUSE vs FAIL).
 
-    F-113: Failed dependencies must propagate failure to downstream
-    sheets, not silently let them proceed on incomplete input.
+    F-113: Failed dependencies propagate failure to downstream sheets
+    via BatonCore._propagate_failure_to_dependents. Downstream sheets
+    that depend on a failed sheet are marked SKIPPED, not left to run
+    on incomplete input.
     """
 
-    def test_parallel_batch_result_preserves_exception_types(self) -> None:
-        """F-111: ParallelBatchResult has an exceptions dict to preserve types.
-
-        Without this, the parallel executor converts all exceptions to
-        strings in error_details, losing the exception type. The lifecycle
-        can't isinstance-check a string, so RateLimitExhaustedError becomes
-        a generic FatalError, and jobs FAIL instead of PAUSE.
-        """
-        from marianne.execution.parallel import ParallelBatchResult
-
-        # The exceptions field must exist
-        result = ParallelBatchResult(
-            sheets=[1, 2, 3],
-            completed=[1],
-            failed=[2],
-            skipped=[3],
-            error_details={2: "Rate limit exceeded"},
-            exceptions={2: RuntimeError("test")},
-        )
-
-        assert hasattr(result, "exceptions"), (
-            "ParallelBatchResult must have an exceptions field (F-111)"
-        )
-        assert isinstance(result.exceptions[2], RuntimeError), (
-            "exceptions dict must preserve the original exception object"
-        )
-
-    def test_parallel_executor_has_failure_propagation(self) -> None:
-        """F-113: ParallelExecutor must have propagate_failure_to_dependents.
+    def test_baton_has_failure_propagation_method(self) -> None:
+        """F-113: BatonCore must have _propagate_failure_to_dependents.
 
         Without this, failed fan-out voices are treated as "done" for
         dependency resolution, and synthesis sheets execute on incomplete
         input — exactly what happened in the rosetta score.
         """
-        from marianne.execution.parallel import ParallelExecutor
+        from marianne.daemon.baton.core import BatonCore
 
-        assert hasattr(ParallelExecutor, "propagate_failure_to_dependents"), (
-            "ParallelExecutor must have propagate_failure_to_dependents (F-113)"
+        assert hasattr(BatonCore, "_propagate_failure_to_dependents"), (
+            "BatonCore must have _propagate_failure_to_dependents (F-113)"
         )
 
-    def test_failed_status_in_dag_terminal_set(self) -> None:
-        """F-113/F-129: FAILED must be in the terminal set for DAG resolution.
+    def test_failed_status_in_terminal_set(self) -> None:
+        """F-113/F-129: FAILED must be in the terminal set for dependency resolution.
 
-        Without this, after a conductor restart (when _permanently_failed
-        is empty), failed sheets are not recognized as terminal by the DAG.
+        Without this, after a conductor restart, failed sheets are not
+        recognized as terminal by the baton's dependency resolver.
         Downstream sheets block forever — a deadlock.
-
-        The litmus: verify structurally that the parallel executor's
-        get_next_parallel_batch treats FAILED as terminal for dependency
-        resolution. We check the source code for the terminal set.
         """
-        import inspect
-        from marianne.execution import parallel
+        from marianne.core.checkpoint import SheetStatus
+        from marianne.daemon.baton.state import _TERMINAL_BATON_STATUSES
 
-        source = inspect.getsource(parallel)
-
-        # The F-113 fix adds FAILED to the terminal set used by
-        # get_next_parallel_batch for DAG resolution. Without it,
-        # only COMPLETED and SKIPPED are treated as "done".
-        # Look for SheetStatus.FAILED being included in the "done" set
-        assert "SheetStatus.FAILED" in source, (
-            "parallel.py must reference SheetStatus.FAILED in its terminal set (F-113)"
+        assert SheetStatus.FAILED in _TERMINAL_BATON_STATUSES, (
+            "FAILED must be in _TERMINAL_BATON_STATUSES for DAG resolution (F-113)"
         )
 
-        # Also verify propagate_failure_to_dependents exists (F-113)
-        assert "propagate_failure_to_dependents" in source, (
-            "ParallelExecutor must have propagate_failure_to_dependents (F-113)"
+    async def test_failure_propagation_marks_dependents_skipped(self) -> None:
+        """F-113: When a sheet fails, its dependents are marked SKIPPED.
+
+        The baton uses BFS to propagate failure downstream. A synthesis
+        sheet depending on a failed fan-out voice should be SKIPPED, not
+        left in PENDING to run on incomplete input.
+        """
+        from marianne.core.checkpoint import SheetStatus
+        from marianne.daemon.baton.state import SheetExecutionState
+
+        baton = BatonCore()
+
+        sheets = {
+            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
+            2: SheetExecutionState(sheet_num=2, instrument_name="claude-code"),
+            3: SheetExecutionState(sheet_num=3, instrument_name="claude-code"),
+        }
+        deps = {3: [1, 2]}
+
+        baton.register_job("f113-test", sheets, deps)
+
+        sheets[1].status = SheetStatus.FAILED
+        sheets[2].status = SheetStatus.COMPLETED
+
+        baton._propagate_failure_to_dependents("f113-test", 1)
+
+        assert sheets[3].status == SheetStatus.SKIPPED, (
+            "Sheet 3 (depends on failed sheet 1) should be SKIPPED (F-113)"
         )
 
-        # Verify the exceptions field exists on ParallelBatchResult (F-111)
-        from marianne.execution.parallel import ParallelBatchResult
+    async def test_failure_propagation_preserves_independent_sheets(self) -> None:
+        """F-113: Failure propagation only affects dependents, not siblings."""
+        from marianne.core.checkpoint import SheetStatus
+        from marianne.daemon.baton.state import SheetExecutionState
 
-        assert "exceptions" in ParallelBatchResult.__dataclass_fields__, (
-            "ParallelBatchResult must have exceptions dict to preserve "
-            "exception types like RateLimitExhaustedError (F-111)"
+        baton = BatonCore()
+
+        sheets = {
+            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
+            2: SheetExecutionState(sheet_num=2, instrument_name="claude-code"),
+            3: SheetExecutionState(sheet_num=3, instrument_name="claude-code"),
+        }
+        deps = {3: [1]}
+
+        baton.register_job("indep-test", sheets, deps)
+
+        sheets[1].status = SheetStatus.FAILED
+
+        baton._propagate_failure_to_dependents("indep-test", 1)
+
+        assert sheets[3].status == SheetStatus.SKIPPED
+        assert sheets[2].status == SheetStatus.PENDING, (
+            "Sheet 2 (no dependency on sheet 1) must remain PENDING"
         )
+
+    def test_sheet_attempt_result_carries_rate_limited_flag(self) -> None:
+        """F-111: SheetAttemptResult distinguishes rate limits from failures.
+
+        Without this, the baton cannot tell a rate-limited sheet from a
+        truly failed one, and jobs FAIL instead of waiting for recovery.
+        """
+        from marianne.daemon.baton.events import SheetAttemptResult
+
+        rate_limited_result = SheetAttemptResult(
+            job_id="test",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            rate_limited=True,
+            rate_limit_wait_seconds=30.0,
+        )
+
+        assert rate_limited_result.rate_limited is True
+        assert rate_limited_result.rate_limit_wait_seconds == 30.0
+
+        normal_failure = SheetAttemptResult(
+            job_id="test",
+            sheet_num=2,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=False,
+            error_message="Something went wrong",
+        )
+
+        assert normal_failure.rate_limited is False
+        assert normal_failure.execution_success is False
+
 
 # =========================================================================
 # Category 15: Clone Config Isolation (F-132)
 # =========================================================================
+
 
 class TestCloneConfigIsolation:
     """Does build_clone_config produce truly isolated paths?
@@ -1855,8 +2125,7 @@ class TestCloneConfigIsolation:
         clone_db = str(clone_config.state_db_path)
 
         assert clone_db != default_path, (
-            f"Clone state_db_path should differ from production default. "
-            f"Got: {clone_db}"
+            f"Clone state_db_path should differ from production default. Got: {clone_db}"
         )
         assert "clone" in clone_db.lower(), (
             f"Clone state_db_path should contain 'clone'. Got: {clone_db}"
@@ -1898,9 +2167,11 @@ class TestCloneConfigIsolation:
             "Clone state_db_path must differ from production"
         )
 
+
 # =========================================================================
 # Category 16: Cost Limit Wiring Intelligence (F-134)
 # =========================================================================
+
 
 class TestCostLimitWiringIntelligence:
     """Does _run_via_baton use the correct field for cost limits?
@@ -1937,6 +2208,7 @@ class TestCostLimitWiringIntelligence:
         correct config field name.
         """
         import inspect
+
         from marianne.daemon import manager
 
         # The fixed code should reference max_cost_per_job in config access
@@ -1967,22 +2239,27 @@ class TestCostLimitWiringIntelligence:
         baton.set_job_cost_limit("cost-wired", 0.05)  # $0.05 limit
 
         # Sheet 1 succeeds but costs $0.10 (exceeds limit)
-        await baton.handle_event(SheetAttemptResult(
-            job_id="cost-wired", sheet_num=1,
-            instrument_name="claude-code", attempt=1,
-            execution_success=True, validation_pass_rate=100.0,
-            cost_usd=0.10,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="cost-wired",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=True,
+                validation_pass_rate=100.0,
+                cost_usd=0.10,
+            )
+        )
 
         # Job should be paused due to cost limit
         job = baton._jobs["cost-wired"]
-        assert job.paused, (
-            "Job should be paused when cost exceeds limit ($0.10 > $0.05)"
-        )
+        assert job.paused, "Job should be paused when cost exceeds limit ($0.10 > $0.05)"
+
 
 # =========================================================================
 # Category 17: Baton-Runner State Mapping Totality
 # =========================================================================
+
 
 class TestBatonRunnerStateMappingTotality:
     """Does the baton ↔ checkpoint status mapping cover ALL states?
@@ -2006,9 +2283,7 @@ class TestBatonRunnerStateMappingTotality:
             except (KeyError, ValueError):
                 unmapped.append(status.value)
 
-        assert not unmapped, (
-            f"These checkpoint statuses have no baton mapping: {unmapped}"
-        )
+        assert not unmapped, f"These checkpoint statuses have no baton mapping: {unmapped}"
 
     def test_every_baton_status_maps_to_checkpoint_status(self) -> None:
         """All baton statuses have a checkpoint mapping."""
@@ -2022,13 +2297,13 @@ class TestBatonRunnerStateMappingTotality:
             except (KeyError, ValueError):
                 unmapped.append(status.value)
 
-        assert not unmapped, (
-            f"These baton statuses have no checkpoint mapping: {unmapped}"
-        )
+        assert not unmapped, f"These baton statuses have no checkpoint mapping: {unmapped}"
+
 
 # =========================================================================
 # Category 18: Score-Level Instrument Alias Resolution
 # =========================================================================
+
 
 class TestInstrumentAliasResolution:
     """Does the instrument alias system make multi-instrument scores EASIER?
@@ -2104,9 +2379,7 @@ class TestInstrumentAliasResolution:
         assert sheet.instrument_config.get("timeout_seconds") == 3600, (
             "Alias config should override score-level timeout"
         )
-        assert sheet.instrument_config.get("model") == "opus", (
-            "Alias config should add model field"
-        )
+        assert sheet.instrument_config.get("model") == "opus", "Alias config should add model field"
 
     def test_per_sheet_overrides_alias(self) -> None:
         """Per-sheet instrument takes priority over alias."""
@@ -2134,9 +2407,11 @@ class TestInstrumentAliasResolution:
         # Sheet 2: per-sheet override takes priority over alias
         assert sheets[1].instrument_name == "codex-cli"
 
+
 # =========================================================================
 # Category 19: V210 Instrument Validation with Aliases
 # =========================================================================
+
 
 class TestInstrumentValidationWithAliases:
     """Does the validator accept score-level aliases as valid instrument names?
@@ -2183,9 +2458,11 @@ class TestInstrumentValidationWithAliases:
             f"Got: {[i.message for i in alias_issues]}"
         )
 
+
 # =========================================================================
 # Category 20: F-127 Success Outcome Classification After Restart
 # =========================================================================
+
 
 class TestSuccessOutcomeAfterRestart:
     """Does diagnose correctly classify sheets that took many attempts?
@@ -2207,69 +2484,304 @@ class TestSuccessOutcomeAfterRestart:
     def test_completion_mode_classifies_correctly(self) -> None:
         """Obsolete: SheetExecutionMixin no longer exists."""
 
+
 # =========================================================================
-# Category 21: F-111 Parallel Executor Preserves Exception Types
+# Category 21: F-111 Error Classification Routing (Baton)
 # =========================================================================
 
-class TestParallelExceptionPreservation:
-    """Does the parallel batch preserve exception types for intelligent routing?
 
-    The runner's ParallelExecutor and LifecycleMixin have been removed.
-    The baton handles parallel execution and exception routing differently.
+class TestErrorClassificationRouting:
+    """Does the baton route errors by classification string?
+
+    The baton uses string-based error_classification instead of Python
+    exception types. The litmus: does the baton correctly distinguish
+    rate limits from auth failures from execution errors, and route
+    each to the appropriate path?
     """
 
-    @pytest.mark.skip(reason="Runner removed — ParallelBatchResult no longer exists")
-    def test_exceptions_dict_exists_on_batch_result(self) -> None:
-        """Obsolete: ParallelBatchResult no longer exists."""
+    def test_auth_failure_routes_to_fallback_or_fail(self) -> None:
+        """AUTH_FAILURE classification triggers instrument fallback chain
+        or permanent failure with E502."""
+        baton = BatonCore()
 
-    @pytest.mark.skip(reason="Runner removed — LifecycleMixin no longer exists")
-    def test_find_rate_limit_in_batch_extracts_correct_type(self) -> None:
-        """Obsolete: LifecycleMixin no longer exists."""
+        sheets = {
+            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
+        }
 
-    @pytest.mark.skip(reason="Runner removed — LifecycleMixin no longer exists")
-    def test_non_rate_limit_error_not_found(self) -> None:
-        """Obsolete: LifecycleMixin no longer exists."""
+        baton.register_job("auth-test", sheets, {})
+        baton.register_instrument("claude-code", max_concurrent=4)
+
+        sheet = baton._jobs["auth-test"].sheets[1]
+        sheet.status = BatonSheetStatus.IN_PROGRESS
+        sheet.normal_attempts = 1
+        sheet.max_retries = 3
+
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(
+            baton.handle_event(
+                SheetAttemptResult(
+                    job_id="auth-test",
+                    sheet_num=1,
+                    instrument_name="claude-code",
+                    attempt=1,
+                    execution_success=False,
+                    error_classification="AUTH_FAILURE",
+                    error_message="401 Unauthorized",
+                )
+            )
+        )
+
+        assert sheet.status == BatonSheetStatus.FAILED
+        assert sheet.error_code == "E502"
+
+    async def test_rate_limit_does_not_consume_retry_budget(self) -> None:
+        """Rate-limited results do NOT consume retry budget or mark as failed."""
+        baton = BatonCore()
+
+        sheets = {
+            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
+        }
+
+        baton.register_job("rl-test", sheets, {})
+        baton.register_instrument("claude-code", max_concurrent=4)
+
+        sheet = baton._jobs["rl-test"].sheets[1]
+        sheet.status = BatonSheetStatus.IN_PROGRESS
+
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="rl-test",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=False,
+                rate_limited=True,
+                rate_limit_wait_seconds=30.0,
+            )
+        )
+
+        assert sheet.status == BatonSheetStatus.WAITING
+        assert sheet.normal_attempts == 0
+
+    async def test_execution_failure_consumes_retry_budget(self) -> None:
+        """Non-rate-limited execution failure increments normal_attempts."""
+        baton = BatonCore()
+
+        sheets = {
+            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
+        }
+
+        baton.register_job("exec-test", sheets, {})
+        baton.register_instrument("claude-code", max_concurrent=4)
+
+        sheet = baton._jobs["exec-test"].sheets[1]
+        sheet.status = BatonSheetStatus.IN_PROGRESS
+        sheet.max_retries = 3
+
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="exec-test",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=False,
+                error_classification="EXECUTION_ERROR",
+                error_message="Exit code 1",
+            )
+        )
+
+        assert sheet.normal_attempts == 1
+        assert sheet.can_retry
+
+    async def test_terminal_sheet_ignores_late_result(self) -> None:
+        """A late-arriving result for a terminal sheet is silently ignored."""
+        baton = BatonCore()
+
+        sheets = {
+            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
+        }
+
+        baton.register_job("late-test", sheets, {})
+        baton.register_instrument("claude-code", max_concurrent=4)
+
+        sheet = baton._jobs["late-test"].sheets[1]
+        sheet.status = BatonSheetStatus.COMPLETED
+
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="late-test",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=False,
+                error_classification="EXECUTION_ERROR",
+                error_message="Should be ignored",
+            )
+        )
+
+        assert sheet.status == BatonSheetStatus.COMPLETED
+
 
 # =========================================================================
-# Category 22: F-113 Failure Propagation Through Dependencies
+# Category 22: F-113 Failure Propagation Through Dependencies (Baton)
 # =========================================================================
 
-@pytest.mark.skip(reason="Runner removed — ParallelExecutor no longer exists")
+
 class TestFailurePropagationIntelligence:
     """Does failure propagation prevent downstream sheets from running?
 
     The litmus question: when sheet 2 fails in a fan-out, does synthesis
-    (sheet 8, depends on all fan-out voices) also fail? Or does it run
-    with incomplete data and produce garbage?
+    (sheet 8, depends on all fan-out voices) also get blocked? Or does it
+    run with incomplete data and produce garbage?
 
-    WITHOUT the fix: failed deps treated as "done" — synthesis runs
-    against 5 of 6 inputs, produces incomplete output.
-    WITH the fix: failed deps propagate failure through the DAG.
+    The baton's _propagate_failure_to_dependents() uses BFS to cascade
+    SKIPPED status to dependents of failed sheets. A single failure does
+    NOT cascade instantly — only sheets whose dependencies are ALL
+    terminal with at least one FAILED get blocked.
     """
 
-    def test_failed_sheets_in_terminal_set_for_dag(self) -> None:
-        """FAILED status must be in the terminal set for DAG resolution.
+    def test_failed_status_is_terminal_in_baton(self) -> None:
+        """FAILED is in the baton's terminal set (structural F-129 fix).
 
-        This is the structural fix for F-129 (deadlock after restart).
         Without FAILED in the terminal set, the DAG hangs forever after
-        restart because _permanently_failed is ephemeral.
+        restart because failure state is ephemeral.
         """
-        from marianne.core.checkpoint import SheetStatus
-        from marianne.execution.parallel import ParallelExecutor
+        from marianne.daemon.baton.state import _TERMINAL_BATON_STATUSES
 
-        # Verify FAILED is recognized as terminal for DAG purposes
-        # by checking get_next_parallel_batch behavior
-        assert SheetStatus.FAILED.value == "failed"
-        # The fix is structural: SheetStatus.FAILED is now in the terminal
-        # set used by get_next_parallel_batch. The key evidence is that
-        # propagate_failure_to_dependents exists and uses iterative BFS.
-        assert hasattr(ParallelExecutor, "propagate_failure_to_dependents"), (
-            "propagate_failure_to_dependents must exist for F-113"
-        )
+        assert BatonSheetStatus.FAILED in _TERMINAL_BATON_STATUSES
+
+    async def test_single_failure_cascades_to_dependent(self) -> None:
+        """When sheet 1 fails and is the sole dependency of sheet 3,
+        sheet 3 is marked SKIPPED (not FAILED — work was never attempted)."""
+        baton = BatonCore()
+
+        sheets = {
+            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
+            2: SheetExecutionState(sheet_num=2, instrument_name="claude-code"),
+            3: SheetExecutionState(sheet_num=3, instrument_name="claude-code"),
+        }
+
+        baton.register_job("cascade-test", sheets, {3: [1, 2]})
+        baton.register_instrument("claude-code", max_concurrent=4)
+
+        sheet1 = baton._jobs["cascade-test"].sheets[1]
+        sheet1.status = BatonSheetStatus.FAILED
+        sheet1.normal_attempts = 3
+        sheet1.max_retries = 3
+
+        baton._propagate_failure_to_dependents("cascade-test", 1)
+
+        sheet3 = baton._jobs["cascade-test"].sheets[3]
+        assert sheet3.status == BatonSheetStatus.SKIPPED
+        assert "Blocked by failed dependency" in (sheet3.error_message or "")
+        assert sheet3.error_code == "E999"
+
+    async def test_fan_out_single_failure_does_not_block_other_voices(self) -> None:
+        """In a fan-out of 6 voices where voice 2 fails, voices 1,3,4,5,6
+        continue. Only the synthesis sheet (depends on all) gets blocked."""
+        baton = BatonCore()
+
+        sheets = {
+            i: SheetExecutionState(sheet_num=i, instrument_name="claude-code") for i in range(1, 8)
+        }
+        sheets[7] = SheetExecutionState(sheet_num=7, instrument_name="claude-code")
+
+        dependencies = {7: [1, 2, 3, 4, 5, 6]}
+
+        baton.register_job("fanout-test", sheets, dependencies)
+        baton.register_instrument("claude-code", max_concurrent=4)
+
+        for i in [1, 3, 4, 5, 6]:
+            sheets[i].status = BatonSheetStatus.COMPLETED
+
+        sheets[2].status = BatonSheetStatus.FAILED
+        sheets[2].normal_attempts = 3
+        sheets[2].max_retries = 3
+
+        baton._propagate_failure_to_dependents("fanout-test", 2)
+
+        assert sheets[1].status == BatonSheetStatus.COMPLETED
+        assert sheets[3].status == BatonSheetStatus.COMPLETED
+        assert sheets[2].status == BatonSheetStatus.FAILED
+        assert sheets[7].status == BatonSheetStatus.SKIPPED
+        assert "Blocked by failed dependency" in (sheets[7].error_message or "")
+
+    async def test_chained_failure_propagates_through_bfs(self) -> None:
+        """Failure in sheet 1 propagates through sheet 2 (depends on 1)
+        to sheet 3 (depends on 2) via BFS."""
+        baton = BatonCore()
+
+        sheets = {
+            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
+            2: SheetExecutionState(sheet_num=2, instrument_name="claude-code"),
+            3: SheetExecutionState(sheet_num=3, instrument_name="claude-code"),
+        }
+
+        baton.register_job("chain-test", sheets, {2: [1], 3: [2]})
+        baton.register_instrument("claude-code", max_concurrent=4)
+
+        sheets[1].status = BatonSheetStatus.FAILED
+        sheets[1].normal_attempts = 3
+        sheets[1].max_retries = 3
+
+        baton._propagate_failure_to_dependents("chain-test", 1)
+
+        assert sheets[2].status == BatonSheetStatus.SKIPPED
+        assert sheets[3].status == BatonSheetStatus.SKIPPED
+
+    async def test_completed_sheet_absorbs_failure_propagation(self) -> None:
+        """A terminal COMPLETED sheet is not modified during propagation,
+        but propagation continues through to its downstream dependents."""
+        baton = BatonCore()
+
+        sheets = {
+            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
+            2: SheetExecutionState(sheet_num=2, instrument_name="claude-code"),
+            3: SheetExecutionState(sheet_num=3, instrument_name="claude-code"),
+        }
+
+        baton.register_job("absorb-test", sheets, {2: [1], 3: [2]})
+        baton.register_instrument("claude-code", max_concurrent=4)
+
+        sheets[1].status = BatonSheetStatus.FAILED
+        sheets[1].normal_attempts = 3
+        sheets[1].max_retries = 3
+        sheets[2].status = BatonSheetStatus.COMPLETED
+
+        baton._propagate_failure_to_dependents("absorb-test", 1)
+
+        assert sheets[2].status == BatonSheetStatus.COMPLETED
+        assert sheets[3].status == BatonSheetStatus.PENDING
+
+    async def test_dep_satisfied_only_for_completed_or_clean_skip(self) -> None:
+        """_is_dep_satisfied returns True only for COMPLETED or SKIPPED
+        without error_code. FAILED, CANCELLED, and error-coded SKIPPED
+        are unsatisfied."""
+        from marianne.daemon.baton.core import BatonCore
+
+        satisfied_completed = SheetExecutionState(sheet_num=1, instrument_name="claude-code")
+        satisfied_completed.status = BatonSheetStatus.COMPLETED
+        assert BatonCore._is_dep_satisfied(satisfied_completed)
+
+        satisfied_skip = SheetExecutionState(sheet_num=2, instrument_name="claude-code")
+        satisfied_skip.status = BatonSheetStatus.SKIPPED
+        assert BatonCore._is_dep_satisfied(satisfied_skip)
+
+        failed = SheetExecutionState(sheet_num=3, instrument_name="claude-code")
+        failed.status = BatonSheetStatus.FAILED
+        assert not BatonCore._is_dep_satisfied(failed)
+
+        error_skip = SheetExecutionState(sheet_num=4, instrument_name="claude-code")
+        error_skip.status = BatonSheetStatus.SKIPPED
+        error_skip.error_code = "E999"
+        assert not BatonCore._is_dep_satisfied(error_skip)
+
 
 # =========================================================================
 # Category 23: F-119 Baton Event Stubs Log Instead of Silent Drop
 # =========================================================================
+
 
 class TestBatonEventStubLogging:
     """Do unimplemented baton event handlers log instead of silently dropping?
@@ -2294,10 +2806,12 @@ class TestBatonEventStubLogging:
         from marianne.daemon.baton.events import CronTick
 
         baton = BatonCore()
-        await baton.handle_event(CronTick(
-            entry_name="test-cron",
-            score_path="/tmp/test.yaml",
-        ))
+        await baton.handle_event(
+            CronTick(
+                entry_name="test-cron",
+                score_path="/tmp/test.yaml",
+            )
+        )
 
         captured = capsys.readouterr()
         log_output = captured.out + captured.err
@@ -2305,9 +2819,11 @@ class TestBatonEventStubLogging:
             "CronTick should produce a warning log, not silent drop"
         )
 
+
 # =========================================================================
 # Category 24: Credential Redaction Defense-in-Depth
 # =========================================================================
+
 
 class TestCredentialRedactionDefenseInDepth:
     """Are ALL three credential data paths through the musician protected?
@@ -2358,9 +2874,7 @@ class TestCredentialRedactionDefenseInDepth:
 
         # The exception handler (around line 165) must call redact_credentials
         # before storing error_msg in SheetAttemptResult
-        assert "redact_credentials" in source, (
-            "musician.py must import and use redact_credentials"
-        )
+        assert "redact_credentials" in source, "musician.py must import and use redact_credentials"
 
         # Verify it's used in the exception handling path (not just imported)
         # Look for the pattern: redact_credentials(raw_error_msg)
@@ -2382,7 +2896,7 @@ class TestCredentialRedactionDefenseInDepth:
         for i, line in enumerate(lines):
             if "redact_credentials" in line and "raw_error_msg" in line:
                 # Check context — should be near _classify_error usage
-                context = "\n".join(lines[max(0, i - 5):i + 5])
+                context = "\n".join(lines[max(0, i - 5) : i + 5])
                 if "_classify_error" in context or "error_msg" in context:
                     found_classify_redaction = True
                     break
@@ -2390,6 +2904,7 @@ class TestCredentialRedactionDefenseInDepth:
         assert found_classify_redaction, (
             "redact_credentials must be applied to _classify_error output (F-136)"
         )
+
 
 # =============================================================================
 # 25. SEMANTIC CONTEXT TAGS — F-009/F-144 FIX EFFECTIVENESS
@@ -2401,6 +2916,7 @@ class TestCredentialRedactionDefenseInDepth:
 # =============================================================================
 # 26. PROMPT RENDERER WIRING — F-158 FIX EFFECTIVENESS
 # =============================================================================
+
 
 class TestPromptRendererWiring:
     """Does the baton actually CREATE a PromptRenderer when prompt_config is provided?
@@ -2540,9 +3056,11 @@ class TestPromptRendererWiring:
             "Preamble must contain positional identity"
         )
 
+
 # =============================================================================
 # 27. DISPATCH GUARD — F-152 FIX EFFECTIVENESS
 # =============================================================================
+
 
 class TestDispatchGuardEffectiveness:
     """Does the F-152 dispatch guard actually prevent infinite loops?
@@ -2564,15 +3082,15 @@ class TestDispatchGuardEffectiveness:
         adapter = BatonAdapter(max_concurrent_sheets=10)
 
         adapter._send_dispatch_failure(
-            "job-1", 1, "unsupported-instrument",
+            "job-1",
+            1,
+            "unsupported-instrument",
             "NotImplementedError: instrument kind 'http' not supported",
         )
 
         # Must post a failure event to the baton's inbox
         inbox = adapter._baton.inbox
-        assert not inbox.empty(), (
-            "Dispatch failure must send event to baton inbox"
-        )
+        assert not inbox.empty(), "Dispatch failure must send event to baton inbox"
         event = inbox.get_nowait()
         assert isinstance(event, SheetAttemptResult), (
             f"Event must be SheetAttemptResult, got {type(event)}"
@@ -2605,8 +3123,9 @@ class TestDispatchGuardEffectiveness:
         end_idx = len(lines)
         for i, line in enumerate(lines[1:], 1):
             # Look for the next method at the same indent level
-            if (line.strip().startswith("async def ") or
-                line.strip().startswith("def ")) and not line.startswith(" " * 12):
+            if (
+                line.strip().startswith("async def ") or line.strip().startswith("def ")
+            ) and not line.startswith(" " * 12):
                 end_idx = i
                 break
 
@@ -2620,9 +3139,11 @@ class TestDispatchGuardEffectiveness:
             f"Missing calls = infinite dispatch loop potential."
         )
 
+
 # =============================================================================
 # 28. RATE LIMIT AUTO-RESUME — F-112 FIX EFFECTIVENESS
 # =============================================================================
+
 
 class TestRateLimitAutoResumeEffectiveness:
     """Does the rate limit auto-resume actually schedule a timer that clears?
@@ -2743,9 +3264,11 @@ class TestRateLimitAutoResumeEffectiveness:
         # Instrument should still be marked rate limited
         assert baton._instruments["claude-cli"].rate_limited is True
 
+
 # =============================================================================
 # 29. MODEL OVERRIDE WIRING — F-150 FIX EFFECTIVENESS
 # =============================================================================
+
 
 class TestModelOverrideEffectiveness:
     """Does the model override actually reach the backend?
@@ -2807,9 +3330,7 @@ class TestModelOverrideEffectiveness:
         assert backend._model == "opus-4"
 
         backend.clear_overrides()
-        assert backend._model == "default-model", (
-            "Model must be restored after clear_overrides"
-        )
+        assert backend._model == "default-model", "Model must be restored after clear_overrides"
         assert backend._has_overrides is False
 
     def test_empty_overrides_are_noop(self) -> None:
@@ -2829,9 +3350,11 @@ class TestModelOverrideEffectiveness:
         assert backend._model == "default-model"
         assert backend._has_overrides is False
 
+
 # =============================================================================
 # 30. CONCERT CHAINING COMPLETENESS — F-145 FIX EFFECTIVENESS
 # =============================================================================
+
 
 class TestConcertChainingEffectiveness:
     """Does the baton path correctly detect completed_new_work for concerts?
@@ -2893,23 +3416,20 @@ class TestConcertChainingEffectiveness:
         source = Path("src/marianne/daemon/manager.py").read_text()
 
         # The baton execution path must wire completed_new_work
-        assert "has_completed_sheets" in source, (
-            "manager.py must call has_completed_sheets (F-145)"
-        )
-        assert "completed_new_work" in source, (
-            "manager.py must set completed_new_work flag (F-145)"
-        )
+        assert "has_completed_sheets" in source, "manager.py must call has_completed_sheets (F-145)"
+        assert "completed_new_work" in source, "manager.py must set completed_new_work flag (F-145)"
 
         # Both must appear within the baton code path (near _run_via_baton)
-        baton_section = source[source.find("_run_via_baton"):]
+        baton_section = source[source.find("_run_via_baton") :]
         assert "has_completed_sheets" in baton_section, (
-            "has_completed_sheets must be in the baton code path, not just "
-            "anywhere in manager.py"
+            "has_completed_sheets must be in the baton code path, not just anywhere in manager.py"
         )
+
 
 # =============================================================================
 # 31. RATE LIMIT WAIT CAP — F-160 FIX EFFECTIVENESS
 # =============================================================================
+
 
 class TestRateLimitWaitCapEffectiveness:
     """Does the rate limit wait cap prevent adversarial timer durations?
@@ -2930,9 +3450,7 @@ class TestRateLimitWaitCapEffectiveness:
             f"Wait cap must be ≤24h (86400s), got {RESET_TIME_MAXIMUM_WAIT_SECONDS}. "
             f"Anything longer is indistinguishable from 'broken'."
         )
-        assert RESET_TIME_MAXIMUM_WAIT_SECONDS > 0, (
-            "Wait cap must be positive"
-        )
+        assert RESET_TIME_MAXIMUM_WAIT_SECONDS > 0, "Wait cap must be positive"
 
     def test_clamp_wait_reduces_astronomical_values(self) -> None:
         """_clamp_wait (or equivalent) reduces values above the cap."""
@@ -2962,9 +3480,11 @@ class TestRateLimitWaitCapEffectiveness:
             f"Reasonable wait (600s, within range) should not be modified, got {result}"
         )
 
+
 # =============================================================================
 # 32. CROSS-SHEET CONTEXT IN BATON PROMPTS (F-210)
 # =============================================================================
+
 
 class TestCrossSheetContextInBatonPrompts:
     """F-210 litmus: does the baton's PromptRenderer actually deliver
@@ -2994,8 +3514,12 @@ class TestCrossSheetContextInBatonPrompts:
         )
 
         sheet = Sheet(
-            num=2, movement=1, voice_count=1, instrument_name="claude-code",
-            workspace=Path("/tmp/ws"), prompt_template=template,
+            num=2,
+            movement=1,
+            voice_count=1,
+            instrument_name="claude-code",
+            workspace=Path("/tmp/ws"),
+            prompt_template=template,
         )
         ctx = AttemptContext(
             attempt_number=1,
@@ -3026,8 +3550,12 @@ class TestCrossSheetContextInBatonPrompts:
         )
 
         sheet = Sheet(
-            num=2, movement=1, voice_count=1, instrument_name="claude-code",
-            workspace=Path("/tmp/ws"), prompt_template=template,
+            num=2,
+            movement=1,
+            voice_count=1,
+            instrument_name="claude-code",
+            workspace=Path("/tmp/ws"),
+            prompt_template=template,
         )
         ctx = AttemptContext(
             attempt_number=1,
@@ -3060,8 +3588,12 @@ class TestCrossSheetContextInBatonPrompts:
         )
 
         sheet = Sheet(
-            num=2, movement=1, voice_count=1, instrument_name="claude-code",
-            workspace=Path("/tmp/ws"), prompt_template=template,
+            num=2,
+            movement=1,
+            voice_count=1,
+            instrument_name="claude-code",
+            workspace=Path("/tmp/ws"),
+            prompt_template=template,
         )
         # Empty cross-sheet context
         ctx = AttemptContext(
@@ -3077,9 +3609,11 @@ class TestCrossSheetContextInBatonPrompts:
             "have no previous outputs."
         )
 
+
 # =============================================================================
 # 33. SKIPPED UPSTREAM VISIBILITY (#120)
 # =============================================================================
+
 
 class TestSkippedUpstreamVisibility:
     """#120 litmus: does the [SKIPPED] placeholder give downstream sheets
@@ -3199,9 +3733,11 @@ class TestSkippedUpstreamVisibility:
                 f"not '[SKIPPED]'. Inconsistent signals confuse agents."
             )
 
+
 # =============================================================================
 # 34. AUTO-FRESH DETECTION (#103)
 # =============================================================================
+
 
 class TestAutoFreshDetection:
     """#103 litmus: does _should_auto_fresh prevent stale reruns when
@@ -3275,9 +3811,11 @@ class TestAutoFreshDetection:
             "Can't detect modification without a baseline timestamp."
         )
 
+
 # =============================================================================
 # 35. BACKPRESSURE REJECTION INTELLIGENCE (F-110)
 # =============================================================================
+
 
 class TestBackpressureRejectionIntelligence:
     """F-110 litmus: does rejection_reason() distinguish rate-limit pressure
@@ -3361,9 +3899,11 @@ class TestBackpressureRejectionIntelligence:
             "False rejections prevent users from submitting work."
         )
 
+
 # =============================================================================
 # 36. CROSS-SHEET CREDENTIAL REDACTION (F-250)
 # =============================================================================
+
 
 class TestCrossSheetCredentialRedaction:
     """F-250 litmus: are credentials redacted BEFORE entering cross-sheet
@@ -3429,9 +3969,11 @@ class TestCrossSheetCredentialRedaction:
             "False positive redaction corrupts legitimate data."
         )
 
+
 # =============================================================================
 # 37. METHODNOT FOUNDERROR DIFFERENTIATION (F-450)
 # =============================================================================
+
 
 class TestMethodNotFoundErrorDifferentiation:
     """F-450 litmus: does the error hierarchy distinguish "unknown method"
@@ -3478,8 +4020,8 @@ class TestMethodNotFoundErrorDifferentiation:
         """JSON-RPC error code -32601 maps to MethodNotFoundError."""
         from marianne.daemon.exceptions import MethodNotFoundError
         from marianne.daemon.ipc.errors import (
-            METHOD_NOT_FOUND,
             _CODE_EXCEPTION_MAP,
+            METHOD_NOT_FOUND,
         )
 
         assert METHOD_NOT_FOUND in _CODE_EXCEPTION_MAP, (
@@ -3492,9 +4034,11 @@ class TestMethodNotFoundErrorDifferentiation:
             f"not {_CODE_EXCEPTION_MAP[METHOD_NOT_FOUND].__name__}."
         )
 
+
 # =============================================================================
 # 38. COST JSON EXTRACTION VS CHAR ESTIMATION (D-024)
 # =============================================================================
+
 
 class TestCostJsonExtractionEffectiveness:
     """D-024 litmus: does JSON token extraction produce BETTER cost data
@@ -3516,13 +4060,15 @@ class TestCostJsonExtractionEffectiveness:
         backend = ClaudeCliBackend.__new__(ClaudeCliBackend)
         backend.output_format = "json"
 
-        stdout = json.dumps({
-            "result": "some output",
-            "usage": {
-                "input_tokens": 15000,
-                "output_tokens": 3000,
-            },
-        })
+        stdout = json.dumps(
+            {
+                "result": "some output",
+                "usage": {
+                    "input_tokens": 15000,
+                    "output_tokens": 3000,
+                },
+            }
+        )
 
         input_tokens, output_tokens = backend._extract_tokens_from_json(stdout)
 
@@ -3558,9 +4104,7 @@ class TestCostJsonExtractionEffectiveness:
         backend = ClaudeCliBackend.__new__(ClaudeCliBackend)
         backend.output_format = "json"
 
-        input_tokens, output_tokens = backend._extract_tokens_from_json(
-            "not valid json {{"
-        )
+        input_tokens, output_tokens = backend._extract_tokens_from_json("not valid json {{")
 
         assert input_tokens is None and output_tokens is None, (
             "D-024: Malformed JSON must return None, not crash. "
@@ -3579,13 +4123,15 @@ class TestCostJsonExtractionEffectiveness:
         backend = ClaudeCliBackend.__new__(ClaudeCliBackend)
         backend.output_format = "json"
 
-        stdout = json.dumps({
-            "result": "x" * 500,  # 500 chars of output
-            "usage": {
-                "input_tokens": 15000,
-                "output_tokens": 3000,
-            },
-        })
+        stdout = json.dumps(
+            {
+                "result": "x" * 500,  # 500 chars of output
+                "usage": {
+                    "input_tokens": 15000,
+                    "output_tokens": 3000,
+                },
+            }
+        )
 
         input_tokens, _ = backend._extract_tokens_from_json(stdout)
 
@@ -3600,9 +4146,11 @@ class TestCostJsonExtractionEffectiveness:
             f"that char estimation underestimates by 10-100x."
         )
 
+
 # =============================================================================
 # 39. F-255.3: PluginCliBackend MCP CONFIG GAP
 # =============================================================================
+
 
 class TestPluginCliBackendMcpGap:
     """F-255.3 litmus: does PluginCliBackend handle MCP configuration?
@@ -3675,12 +4223,8 @@ class TestPluginCliBackendMcpGap:
 
         # F-271 FIXED (Canyon, M5): PluginCliBackend injects
         # mcp_disable_args from the profile.
-        assert "--strict-mcp-config" in cmd, (
-            "F-271: PluginCliBackend must inject mcp_disable_args"
-        )
-        assert "--mcp-config" in cmd, (
-            "F-271: PluginCliBackend must inject mcp_disable_args"
-        )
+        assert "--strict-mcp-config" in cmd, "F-271: PluginCliBackend must inject mcp_disable_args"
+        assert "--mcp-config" in cmd, "F-271: PluginCliBackend must inject mcp_disable_args"
         mcp_idx = cmd.index("--mcp-config")
         assert cmd[mcp_idx + 1] == '{"mcpServers":{}}', (
             "F-271: empty MCP config must disable all servers"
@@ -3690,17 +4234,12 @@ class TestPluginCliBackendMcpGap:
         """ClaudeCliBackend has disable_mcp=True — the behavior PluginCliBackend lacks."""
         from marianne.backends.claude_cli import ClaudeCliBackend
 
-        backend = ClaudeCliBackend.__new__(ClaudeCliBackend)
-        # The constructor sets disable_mcp=True by default
-        assert ClaudeCliBackend.__init__.__defaults__ is not None or True
-        # Check the parameter default in the signature
+        _backend = ClaudeCliBackend.__new__(ClaudeCliBackend)
         import inspect
 
         sig = inspect.signature(ClaudeCliBackend.__init__)
         disable_mcp_param = sig.parameters.get("disable_mcp")
-        assert disable_mcp_param is not None, (
-            "ClaudeCliBackend must have a disable_mcp parameter"
-        )
+        assert disable_mcp_param is not None, "ClaudeCliBackend must have a disable_mcp parameter"
         assert disable_mcp_param.default is True, (
             "F-255.3: ClaudeCliBackend.disable_mcp defaults to True — this "
             "is the protection that PluginCliBackend lacks. The baton uses "
@@ -3708,9 +4247,11 @@ class TestPluginCliBackendMcpGap:
             "servers while legacy runner sheets don't."
         )
 
+
 # =============================================================================
 # 40. F-211: CHECKPOINT SYNC DUCK TYPING COVERAGE
 # =============================================================================
+
 
 class TestCheckpointSyncDuckTyping:
     """F-211 litmus: does _sync_sheet_status handle ALL event types that
@@ -3746,28 +4287,34 @@ class TestCheckpointSyncDuckTyping:
         )
 
         single_sheet_events = [
-            ("SheetAttemptResult", SheetAttemptResult(
-                job_id="j1", sheet_num=1, instrument_name="claude-code", attempt=1
-            )),
+            (
+                "SheetAttemptResult",
+                SheetAttemptResult(
+                    job_id="j1", sheet_num=1, instrument_name="claude-code", attempt=1
+                ),
+            ),
             ("SheetSkipped", SheetSkipped(job_id="j1", sheet_num=1, reason="skip_when")),
-            ("EscalationResolved", EscalationResolved(
-                job_id="j1", sheet_num=1, decision="retry"
-            )),
-            ("EscalationTimeout", EscalationTimeout(
-                job_id="j1", sheet_num=1,
-            )),
-            ("RateLimitHit", RateLimitHit(
-                instrument="claude-code", wait_seconds=60,
-                job_id="j1", sheet_num=1,
-            )),
-            ("EscalationNeeded", EscalationNeeded(
-                job_id="j1", sheet_num=1, reason="low quality"
-            )),
+            ("EscalationResolved", EscalationResolved(job_id="j1", sheet_num=1, decision="retry")),
+            (
+                "EscalationTimeout",
+                EscalationTimeout(
+                    job_id="j1",
+                    sheet_num=1,
+                ),
+            ),
+            (
+                "RateLimitHit",
+                RateLimitHit(
+                    instrument="claude-code",
+                    wait_seconds=60,
+                    job_id="j1",
+                    sheet_num=1,
+                ),
+            ),
+            ("EscalationNeeded", EscalationNeeded(job_id="j1", sheet_num=1, reason="low quality")),
             ("RetryDue", RetryDue(job_id="j1", sheet_num=1)),
             ("StaleCheck", StaleCheck(job_id="j1", sheet_num=1)),
-            ("ProcessExited", ProcessExited(
-                job_id="j1", sheet_num=1, exit_code=1, pid=12345
-            )),
+            ("ProcessExited", ProcessExited(job_id="j1", sheet_num=1, exit_code=1, pid=12345)),
         ]
 
         for name, event in single_sheet_events:
@@ -3824,6 +4371,7 @@ class TestCheckpointSyncDuckTyping:
             "all WAITING sheets for an instrument across all jobs."
         )
 
+
 # =============================================================================
 # 41. F-211: STATE-DIFF DEDUP PREVENTS DUPLICATE SYNC
 # =============================================================================
@@ -3831,6 +4379,7 @@ class TestCheckpointSyncDuckTyping:
 # =============================================================================
 # 42. F-202: BATON/LEGACY FAILED SHEET CONTEXT PARITY
 # =============================================================================
+
 
 class TestBatonLegacyFailedSheetParity:
     """F-202 litmus: does the baton handle FAILED sheets in cross-sheet
@@ -3887,9 +4436,11 @@ class TestBatonLegacyFailedSheetParity:
             "upstream sheets produced. See adapter.py:738."
         )
 
+
 # =============================================================================
 # 43. F-255.1: _load_checkpoint READS FROM DAEMON DB
 # =============================================================================
+
 
 class TestLoadCheckpointFromDaemonDb:
     """F-255.1 litmus: does _load_checkpoint read from the daemon's registry
@@ -3923,8 +4474,12 @@ class TestLoadCheckpointFromDaemonDb:
         )
 
         # Verify it does NOT read workspace JSON files
-        assert "workspace / " not in source.replace(" ", "").lower() or \
-               ".json" not in source.split("workspace")[0] if "workspace" in source else True, (
+        assert (
+            "workspace / " not in source.replace(" ", "").lower()
+            or ".json" not in source.split("workspace")[0]
+            if "workspace" in source
+            else True
+        ), (
             "F-255.1: _load_checkpoint must NOT fall back to workspace JSON. "
             "Three state stores disagreeing is how F-255 happened."
         )
@@ -3943,9 +4498,11 @@ class TestLoadCheckpointFromDaemonDb:
             "to signal that daemon DB is the sole authority."
         )
 
+
 # =============================================================================
 # 44. F-110: PENDING JOB QUEUE FIFO ORDERING
 # =============================================================================
+
 
 class TestPendingJobQueueOrdering:
     """F-110 litmus: when multiple jobs are queued during rate limits, do
@@ -3968,9 +4525,7 @@ class TestPendingJobQueueOrdering:
 
         import sys
 
-        assert sys.version_info >= (3, 7), (
-            "Python 3.7+ required for dict insertion ordering"
-        )
+        assert sys.version_info >= (3, 7), "Python 3.7+ required for dict insertion ordering"
 
         # Verify the implementation uses a plain dict (not unordered set or similar)
         import inspect
@@ -4014,9 +4569,11 @@ class TestPendingJobQueueOrdering:
             "of pending keys (FIFO order) to avoid modification during iteration."
         )
 
+
 # =============================================================================
 # 45. F-250 + F-210: CROSS-SHEET CREDENTIAL PIPELINE END-TO-END
 # =============================================================================
+
 
 class TestCrossSheetCredentialPipelineEndToEnd:
     """F-250 + F-210 litmus: does the complete cross-sheet pipeline —
@@ -4099,9 +4656,11 @@ class TestCrossSheetCredentialPipelineEndToEnd:
             "the baton path leaks credentials through cross-sheet context."
         )
 
+
 # =============================================================================
 # 46. F-149 BACKPRESSURE REWORK — RATE LIMITS DON'T BLOCK UNRELATED JOBS
 # =============================================================================
+
 
 class TestBackpressureReworkIntelligence:
     """F-149 litmus: when instrument A is rate-limited, does the system still
@@ -4168,10 +4727,10 @@ class TestBackpressureReworkIntelligence:
 
         # Test every relevant combination of state
         for mem_pct, accepting, has_limits, expected in [
-            (0.2, True, True, None),       # Low mem, rate limits → accept
-            (0.2, True, False, None),      # Low mem, no limits → accept
-            (0.9, True, True, "resource"), # High mem + limits → resource
-            (0.9, True, False, "resource"),# High mem, no limits → resource
+            (0.2, True, True, None),  # Low mem, rate limits → accept
+            (0.2, True, False, None),  # Low mem, no limits → accept
+            (0.9, True, True, "resource"),  # High mem + limits → resource
+            (0.9, True, False, "resource"),  # High mem, no limits → resource
             (0.5, False, False, "resource"),  # Process limit → resource
         ]:
             controller = BackpressureController.__new__(BackpressureController)
@@ -4181,9 +4740,7 @@ class TestBackpressureReworkIntelligence:
             controller._monitor.is_degraded = False
             controller._monitor.is_accepting_work.return_value = accepting
             controller._rate_coordinator = MagicMock()
-            controller._rate_coordinator.active_limits = (
-                {"claude-cli": 60} if has_limits else {}
-            )
+            controller._rate_coordinator.active_limits = {"claude-cli": 60} if has_limits else {}
 
             reason = controller.rejection_reason()
 
@@ -4211,9 +4768,9 @@ class TestBackpressureReworkIntelligence:
             "system resource pressure."
         )
         assert "rate_limit" not in source.replace("F-149", "").replace("rate-limit", ""), (
-            "F-149: should_accept_job() source should not reference rate limit "
-            "state variables."
+            "F-149: should_accept_job() source should not reference rate limit state variables."
         )
+
 
 # =============================================================================
 # 47. D-027 BATON DEFAULT FLIP — COMPLETED
@@ -4224,6 +4781,7 @@ class TestBackpressureReworkIntelligence:
 # =============================================================================
 # 48. INSTRUMENT FALLBACK CHAIN — THREE-LEVEL RESOLUTION
 # =============================================================================
+
 
 class TestInstrumentFallbackChainIntelligence:
     """Litmus: does the fallback chain walk through per-sheet → movement → score?
@@ -4345,21 +4903,25 @@ class TestInstrumentFallbackChainIntelligence:
 
         # Add 60 records — should be trimmed to 50
         for i in range(60):
-            state.add_fallback_to_history({
-                "from": f"instrument-{i}",
-                "to": f"instrument-{i + 1}",
-                "reason": "rate_limit",
-                "timestamp": "2026-04-06T00:00:00Z",
-            })
+            state.add_fallback_to_history(
+                {
+                    "from": f"instrument-{i}",
+                    "to": f"instrument-{i + 1}",
+                    "reason": "rate_limit",
+                    "timestamp": "2026-04-06T00:00:00Z",
+                }
+            )
 
         assert len(state.instrument_fallback_history) <= 50, (
             f"F-252: Fallback history must be capped at 50 entries. "
             f"Got: {len(state.instrument_fallback_history)}"
         )
 
+
 # =============================================================================
 # 49. F-271 MCP PROCESS EXPLOSION FIX
 # =============================================================================
+
 
 class TestMcpProcessExplosionFixIntelligence:
     """F-271 litmus: does profile-driven mcp_disable_args prevent unwanted
@@ -4469,14 +5031,19 @@ class TestMcpProcessExplosionFixIntelligence:
             },
         )
 
-        assert claude_profile.cli.command.mcp_disable_args != generic_profile.cli.command.mcp_disable_args, (
+        assert (
+            claude_profile.cli.command.mcp_disable_args
+            != generic_profile.cli.command.mcp_disable_args
+        ), (
             "F-271: Different profiles MUST be able to define different MCP "
             "disable strategies. The mechanism is profile-driven, not hardcoded."
         )
 
+
 # =============================================================================
 # 50. USER VARIABLES IN VALIDATIONS
 # =============================================================================
+
 
 class TestUserVariablesInValidationsIntelligence:
     """Litmus: do prompt.variables resolve during `mzt validate`?
@@ -4517,9 +5084,11 @@ class TestUserVariablesInValidationsIntelligence:
             "during `mzt validate` and `marianne recover`."
         )
 
+
 # =============================================================================
 # 51. D-029 STATUS BEAUTIFICATION
 # =============================================================================
+
 
 class TestStatusBeautificationIntelligence:
     """D-029 litmus: does beautified output convey MORE USEFUL information?
@@ -4547,7 +5116,7 @@ class TestStatusBeautificationIntelligence:
         now = datetime.now(UTC)
         result = format_relative_time(now - timedelta(seconds=5), now=now)
 
-        assert "5s ago" == result or "just now" in result, (
+        assert result == "5s ago" or "just now" in result, (
             f"D-029: <60s delta should return seconds or 'just now'. Got: {result!r}"
         )
 
@@ -4560,7 +5129,7 @@ class TestStatusBeautificationIntelligence:
         now = datetime.now(UTC)
         result = format_relative_time(now - timedelta(minutes=15), now=now)
 
-        assert "15m ago" == result, (
+        assert result == "15m ago", (
             f"D-029: 15 minutes delta should return '15m ago'. Got: {result!r}"
         )
 
@@ -4573,7 +5142,7 @@ class TestStatusBeautificationIntelligence:
         now = datetime.now(UTC)
         result = format_relative_time(now - timedelta(hours=3, minutes=15), now=now)
 
-        assert "3h 15m ago" == result, (
+        assert result == "3h 15m ago", (
             f"D-029: 3h15m delta should return '3h 15m ago'. Got: {result!r}"
         )
 
@@ -4586,7 +5155,7 @@ class TestStatusBeautificationIntelligence:
         now = datetime.now(UTC)
         result = format_relative_time(now - timedelta(days=6, hours=12), now=now)
 
-        assert "6d 12h ago" == result, (
+        assert result == "6d 12h ago", (
             f"D-029: 6d12h delta should return '6d 12h ago'. Got: {result!r}"
         )
 
@@ -4596,13 +5165,13 @@ class TestStatusBeautificationIntelligence:
 
         result = format_relative_time(None)
 
-        assert result == "-", (
-            f"D-029: None datetime should return '-'. Got: {result!r}"
-        )
+        assert result == "-", f"D-029: None datetime should return '-'. Got: {result!r}"
+
 
 # =============================================================================
 # 52. F-490 PROCESS CONTROL — SAFE KILL GUARDS
 # =============================================================================
+
 
 class TestProcessControlSafeKillGuardsIntelligence:
     """F-490 litmus: do all os.killpg calls go through _safe_killpg with
@@ -4649,7 +5218,6 @@ class TestProcessControlSafeKillGuardsIntelligence:
 
     def test_no_direct_os_killpg_outside_safe_wrapper(self) -> None:
         """Source inspection: no os.killpg outside _safe_killpg and pgroup.py."""
-        import ast
         from pathlib import Path
 
         src_root = Path("src/marianne")
@@ -4658,8 +5226,8 @@ class TestProcessControlSafeKillGuardsIntelligence:
         # Files that are ALLOWED to call os.killpg directly
         allowed_files = {
             "backends/claude_cli.py",  # legacy _safe_killpg (pre-refactor)
-            "daemon/pgroup.py",        # ProcessGroupManager (SIG_IGN guarded)
-            "utils/process.py",        # _safe_killpg canonical location (F-490)
+            "daemon/pgroup.py",  # ProcessGroupManager (SIG_IGN guarded)
+            "utils/process.py",  # _safe_killpg canonical location (F-490)
         }
 
         for py_file in src_root.rglob("*.py"):
