@@ -79,7 +79,7 @@ class TestJobServiceInstantiation:
         assert service._learning_store is mock_store
 
 
-# TestStartJob — removed: tested runner-based start_job API (replaced by baton)
+# TestStartJob — removed (replaced by baton)
 
 
 # ─── pause_job ────────────────────────────────────────────────────────────

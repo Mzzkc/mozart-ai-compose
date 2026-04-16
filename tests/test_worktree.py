@@ -906,7 +906,7 @@ class TestCheckpointStateWorktreeFields:
 # --- Isolation Setup Tests ---
 
 
-class TestRunnerIsolationSetup:
+class TestIsolationSetup:
     """Tests for isolation setup during sheet execution."""
 
     @pytest.fixture
@@ -999,7 +999,7 @@ isolation:
         assert config.isolation.fallback_on_error is True
 
 
-class TestRunnerIsolationCleanup:
+class TestIsolationCleanup:
     """Tests for isolation cleanup after sheet execution."""
 
     def test_cleanup_isolation_no_worktree(self) -> None:
@@ -1035,7 +1035,7 @@ class TestRunnerIsolationCleanup:
         assert state.worktree_path is not None
 
 
-class TestRunnerBackendWorkingDirectory:
+class TestBackendWorkingDirectory:
     """Tests for backend.working_directory override during isolation."""
 
     def test_backend_working_directory_override(self) -> None:
