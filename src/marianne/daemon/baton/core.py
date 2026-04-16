@@ -1139,9 +1139,9 @@ class BatonCore:
         # normal_attempts for non-rate-limited results).
         sheet.record_attempt(event)
 
-        if event.rate_limited:
-            # Rate limit — NOT a failure. record_attempt() already
-            # skipped normal_attempts increment for rate-limited results.
+        if event.rate_limited and not event.execution_success:
+            # Rate limit AND failed — genuine rate limit that prevented
+            # execution. Handle as rate limit: wait and retry.
             sheet.status = BatonSheetStatus.WAITING
             self._state_dirty = True
             _logger.info(
@@ -1167,6 +1167,21 @@ class BatonCore:
                 )
             )
             return
+
+        if event.rate_limited and event.execution_success:
+            # B5 fix: rate limit detected in stderr but execution succeeded.
+            # The instrument handled the rate limit internally (e.g.,
+            # gemini-cli retries 429s). Do NOT discard the successful work
+            # by treating this as a rate limit. Fall through to the normal
+            # success/failure handling below.
+            _logger.info(
+                "baton.sheet.rate_limit_but_succeeded",
+                extra={
+                    "job_id": event.job_id,
+                    SHEET_NUM_KEY: event.sheet_num,
+                    "instrument": event.instrument_name,
+                },
+            )
 
         # F-018 guard: when execution succeeds with no validations,
         # treat as 100% pass rate regardless of the default value.

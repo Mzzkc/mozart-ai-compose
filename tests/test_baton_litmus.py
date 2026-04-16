@@ -167,11 +167,12 @@ class TestConflictingSignals:
     """When event fields conflict, the baton must have clear priority."""
 
     @pytest.mark.adversarial
-    async def test_rate_limited_takes_priority_over_success(self) -> None:
-        """rate_limited=True takes priority regardless of execution_success.
+    async def test_success_takes_priority_over_rate_limited(self) -> None:
+        """execution_success=True takes priority when rate_limited is also True.
 
-        In code: the rate_limited check (line 398) comes before the
-        success+validation check (line 412). This test proves it.
+        B5 fix: instruments that retry rate limits internally (e.g., gemini-cli
+        retries 429s) report rate_limited=True in stderr but succeed. The baton
+        must not discard the successful work by treating it as a rate limit.
         """
         baton = BatonCore()
         sheets = {
@@ -193,9 +194,8 @@ class TestConflictingSignals:
 
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
-        # rate_limited wins — sheet is waiting, NOT completed
-        assert state.status == BatonSheetStatus.WAITING
-        assert state.normal_attempts == 0
+        # B5: success wins — instrument handled the rate limit internally
+        assert state.status == BatonSheetStatus.COMPLETED
 
     @pytest.mark.adversarial
     async def test_rate_limited_does_not_count_as_failure(self) -> None:

@@ -109,6 +109,11 @@ class PluginCliBackend(Backend):
         self._saved_model: str | None = None
         self._has_overrides: bool = False
 
+        # MCP config path — set by conductor when shared MCP pool is active.
+        # When set AND the instrument profile has mcp_config_flag, the command
+        # builder uses --mcp-config <path> instead of mcp_disable_args.
+        self._mcp_config_path: Path | None = None
+
         _logger.debug(
             "plugin_cli_backend_initialized",
             instrument=profile.name,
@@ -157,6 +162,18 @@ class PluginCliBackend(Backend):
     def set_output_log_path(self, path: Path | None) -> None:
         """Set base path for real-time output logging."""
         self._output_log_path = path
+
+    def set_mcp_config(self, config_path: Path | None) -> None:
+        """Set path to an MCP config file for the shared MCP pool.
+
+        When set, ``_build_command()`` uses the instrument's ``mcp_config_flag``
+        to point the CLI instrument at the shared pool's config file instead of
+        injecting ``mcp_disable_args``.
+
+        Args:
+            config_path: Path to the MCP config JSON file, or None to clear.
+        """
+        self._mcp_config_path = config_path
 
     def _build_prompt(self, prompt: str) -> str:
         """Assemble the full prompt with preamble and extensions.
@@ -249,10 +266,14 @@ class PluginCliBackend(Backend):
             else:
                 args.append(full_prompt)
 
-        # MCP disabling (F-271): inject profile-defined args to disable
-        # MCP servers and prevent child process explosion. Each instrument
-        # specifies its own disable mechanism in mcp_disable_args.
-        if cmd.mcp_disable_args:
+        # MCP configuration: connect to shared pool or disable.
+        # When a shared MCP pool config path is set AND the instrument
+        # has a config flag, point the instrument at the pool config.
+        # Otherwise fall back to disabling MCP (F-271).
+        if self._mcp_config_path and cmd.mcp_config_flag:
+            args.append(cmd.mcp_config_flag)
+            args.append(str(self._mcp_config_path))
+        elif cmd.mcp_disable_args:
             args.extend(cmd.mcp_disable_args)
 
         # Extra flags (always last)
@@ -517,6 +538,12 @@ class PluginCliBackend(Backend):
         Returns:
             True if rate limiting was detected.
         """
+        # B1 fix: if the instrument succeeded, it handled the rate limit
+        # internally (e.g., gemini-cli retries 429s and logs them to stderr).
+        # Marianne should not override a successful result with rate_limited.
+        if is_success:
+            return False
+
         text = stderr
         for pattern in self._cli.errors.rate_limit_patterns:
             match = re.search(pattern, text, re.IGNORECASE)

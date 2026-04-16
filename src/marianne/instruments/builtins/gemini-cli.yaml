@@ -5,6 +5,12 @@
 #
 # Auth: Requires GOOGLE_API_KEY or gcloud auth.
 #
+# SECURITY NOTE: Vendor sandboxing is disabled by default (--sandbox false).
+# Marianne manages workspace isolation at the orchestration layer. Scores
+# requiring locked-down environments should override extra_flags per-sheet
+# to re-enable sandboxing (--sandbox true). See design rationale in
+# docs/specs/2026-04-16-process-lifecycle-design.md.
+#
 # Verified: 2026-03-31 against gemini-cli 0.35.1
 #   - JSON output: clean on stdout, preamble (YOLO warnings, keychain) on stderr
 #   - Error format: {"error": {"type": "...", "message": "...", "code": N}} on stdout
@@ -85,6 +91,15 @@ cli:
     auto_approve_flag: "--yolo"
     output_format_flag: "-o"
     output_format_value: "json"
+    # Vendor sandboxing disabled: Marianne manages workspace isolation and
+    # instrument security (credential filtering, workspace boundaries) at the
+    # orchestration layer. Gemini's built-in sandbox restricts file access to
+    # cwd, which breaks when musicians need to access the project root from a
+    # workspace subdirectory. Scores requiring locked-down environments should
+    # override extra_flags per-sheet to re-enable sandboxing.
+    extra_flags:
+      - "--sandbox"
+      - "false"
   output:
     format: json
     result_path: "response"
@@ -97,7 +112,7 @@ cli:
   errors:
     # Exit codes
     success_exit_codes: [0]
-    # Rate limit patterns (stdout + stderr are both checked)
+    # Rate limit patterns (GH#189: stderr only — agent stdout is not scanned)
     rate_limit_patterns:
       - "rate.?limit"
       - "quota.?exceeded"
