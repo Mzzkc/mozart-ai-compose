@@ -2499,7 +2499,7 @@ class TestErrorClassificationRouting:
     each to the appropriate path?
     """
 
-    def test_auth_failure_routes_to_fallback_or_fail(self) -> None:
+    async def test_auth_failure_routes_to_fallback_or_fail(self) -> None:
         """AUTH_FAILURE classification triggers instrument fallback chain
         or permanent failure with E502."""
         baton = BatonCore()
@@ -2516,19 +2516,15 @@ class TestErrorClassificationRouting:
         sheet.normal_attempts = 1
         sheet.max_retries = 3
 
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(
-            baton.handle_event(
-                SheetAttemptResult(
-                    job_id="auth-test",
-                    sheet_num=1,
-                    instrument_name="claude-code",
-                    attempt=1,
-                    execution_success=False,
-                    error_classification="AUTH_FAILURE",
-                    error_message="401 Unauthorized",
-                )
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="auth-test",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=False,
+                error_classification="AUTH_FAILURE",
+                error_message="401 Unauthorized",
             )
         )
 

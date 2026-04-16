@@ -52,6 +52,7 @@ from marianne.daemon.baton.state import (
 # Helpers
 # =========================================================================
 
+
 def _make_sheet_state(
     sheet_num: int,
     status: BatonSheetStatus = BatonSheetStatus.PENDING,
@@ -75,6 +76,7 @@ def _make_sheet_state(
     state.total_cost_usd = total_cost_usd
     return state
 
+
 def _success_result(
     job_id: str,
     sheet_num: int,
@@ -93,6 +95,7 @@ def _success_result(
         validations_total=1,
         cost_usd=cost,
     )
+
 
 def _failure_result(
     job_id: str,
@@ -116,9 +119,11 @@ def _failure_result(
         error_message="Command failed",
     )
 
+
 # =========================================================================
 # 1. State Mapping Completeness
 # =========================================================================
+
 
 class TestStateMappingCompleteness:
     """Verify that every status in both enums has a mapping in both directions."""
@@ -188,9 +193,11 @@ class TestStateMappingCompleteness:
                 f"{baton_status.name} → '{actual}', expected '{expected_cp}'"
             )
 
+
 # =========================================================================
 # 2. Recovery with Edge-Case Checkpoint Data (via Adapter)
 # =========================================================================
+
 
 class TestRecoveryEdgeCases:
     """Test adapter.recover_job with adversarial checkpoint states."""
@@ -237,13 +244,15 @@ class TestRecoveryEdgeCases:
         """
         adapter = self._make_adapter()
         sheets = self._make_mock_sheets([1, 2, 3])
-        checkpoint = self._make_checkpoint({
-            1: {"status": "completed"},
-            2: {"status": "in_progress"},
-            3: {"status": "pending"},
-            4: {"status": "completed"},  # Extra — not in config
-            5: {"status": "failed"},  # Extra — not in config
-        })
+        checkpoint = self._make_checkpoint(
+            {
+                1: {"status": "completed"},
+                2: {"status": "in_progress"},
+                3: {"status": "pending"},
+                4: {"status": "completed"},  # Extra — not in config
+                5: {"status": "failed"},  # Extra — not in config
+            }
+        )
 
         adapter.recover_job("test-job", sheets, {}, checkpoint, max_retries=3)
 
@@ -261,10 +270,12 @@ class TestRecoveryEdgeCases:
         """
         adapter = self._make_adapter()
         sheets = self._make_mock_sheets([1, 2, 3, 4])
-        checkpoint = self._make_checkpoint({
-            1: {"status": "completed"},
-            2: {"status": "failed"},
-        })
+        checkpoint = self._make_checkpoint(
+            {
+                1: {"status": "completed"},
+                2: {"status": "failed"},
+            }
+        )
 
         adapter.recover_job("test-job", sheets, {}, checkpoint, max_retries=3)
 
@@ -286,9 +297,11 @@ class TestRecoveryEdgeCases:
         """
         adapter = self._make_adapter()
         sheets = self._make_mock_sheets([1])
-        checkpoint = self._make_checkpoint({
-            1: {"status": "in_progress", "attempt_count": 2, "completion_attempts": 1},
-        })
+        checkpoint = self._make_checkpoint(
+            {
+                1: {"status": "in_progress", "attempt_count": 2, "completion_attempts": 1},
+            }
+        )
 
         adapter.recover_job("test-job", sheets, {}, checkpoint, max_retries=3)
 
@@ -307,11 +320,13 @@ class TestRecoveryEdgeCases:
         """
         adapter = self._make_adapter()
         sheets = self._make_mock_sheets([1, 2, 3])
-        checkpoint = self._make_checkpoint({
-            1: {"status": "in_progress"},
-            2: {"status": "in_progress"},
-            3: {"status": "completed"},
-        })
+        checkpoint = self._make_checkpoint(
+            {
+                1: {"status": "in_progress"},
+                2: {"status": "in_progress"},
+                3: {"status": "completed"},
+            }
+        )
 
         adapter.recover_job("test-job", sheets, {}, checkpoint, max_retries=3)
 
@@ -337,11 +352,13 @@ class TestRecoveryEdgeCases:
         """All terminal checkpoint states must map to terminal baton states."""
         adapter = self._make_adapter()
         sheets = self._make_mock_sheets([1, 2, 3])
-        checkpoint = self._make_checkpoint({
-            1: {"status": "completed"},
-            2: {"status": "failed"},
-            3: {"status": "skipped"},
-        })
+        checkpoint = self._make_checkpoint(
+            {
+                1: {"status": "completed"},
+                2: {"status": "failed"},
+                3: {"status": "skipped"},
+            }
+        )
 
         adapter.recover_job("test-job", sheets, {}, checkpoint, max_retries=3)
 
@@ -350,9 +367,11 @@ class TestRecoveryEdgeCases:
         assert job.sheets[2].status == BatonSheetStatus.FAILED
         assert job.sheets[3].status == BatonSheetStatus.SKIPPED
 
+
 # =========================================================================
 # 3. Recovery + Cost Limit Interactions
 # =========================================================================
+
 
 class TestRecoveryCostInteractions:
     """Test that cost limits work correctly after recovery."""
@@ -408,9 +427,11 @@ class TestRecoveryCostInteractions:
         assert baton._jobs["j1"].sheets[2].status == BatonSheetStatus.COMPLETED
         assert baton._jobs["j1"].paused, "Job should be paused after exceeding cost limit"
 
+
 # =========================================================================
 # 4. F-143 Regression: Resume Handler Cost Limit Re-Check
 # =========================================================================
+
 
 class TestF143ResumeHandlerCostLimitRecheck:
     """Verify F-143 fix holds: _handle_resume_job checks cost after unpausing."""
@@ -431,9 +452,7 @@ class TestF143ResumeHandlerCostLimitRecheck:
 
         await baton.handle_event(ResumeJob(job_id="j1"))
 
-        assert job.paused, (
-            "F-143 regression: resume should re-pause when cost is exceeded"
-        )
+        assert job.paused, "F-143 regression: resume should re-pause when cost is exceeded"
 
     @pytest.mark.asyncio
     async def test_resume_under_cost_limit_actually_unpauses(self) -> None:
@@ -476,13 +495,14 @@ class TestF143ResumeHandlerCostLimitRecheck:
 
         assert job.paused, "Job should be cost-paused"
         assert not job.user_paused, (
-            "user_paused should be False after explicit resume, "
-            "even if cost re-pauses the job"
+            "user_paused should be False after explicit resume, even if cost re-pauses the job"
         )
+
 
 # =========================================================================
 # 5. Dependency Propagation After Recovery
 # =========================================================================
+
 
 class TestRecoveryDependencyPropagation:
     """Test that dependency satisfaction works correctly after recovery."""
@@ -553,16 +573,14 @@ class TestRecoveryDependencyPropagation:
         ready_nums = {s.sheet_num for s in ready}
         assert 3 not in ready_nums, "Sheet 3 blocked by failed dep 2"
 
+
 # =========================================================================
 # 6. F-111 Rate Limit Regression
 # =========================================================================
 
+
 class TestF111RateLimitRegression:
     """Verify the F-111 fix in the parallel executor still holds."""
-
-    @pytest.mark.skip(reason="Runner removed — ParallelBatchResult no longer exists")
-    def test_parallel_batch_result_preserves_exception_types(self) -> None:
-        """Obsolete: ParallelBatchResult no longer exists."""
 
     def test_rate_limit_error_resume_after_survives_storage(self) -> None:
         """The resume_after timestamp must survive being stored and retrieved."""
@@ -592,107 +610,11 @@ class TestF111RateLimitRegression:
         state = baton._jobs["j1"].sheets[1]
         assert state.normal_attempts == 0, "Rate-limited attempt should not consume retry budget"
 
-# =========================================================================
-# 7. F-113 Failure Propagation Regression (Parallel Executor)
-# =========================================================================
-
-@pytest.mark.skip(reason="Runner removed — ParallelExecutor no longer exists")
-class TestF113FailurePropagationRegression:
-    """Verify F-113 fix holds — obsolete after runner removal."""
-
-    @staticmethod
-    def _make_executor(deps: dict[int, list[int]], total: int = 5) -> Any:
-        """Create a ParallelExecutor with a mocked runner and real DAG."""
-        from marianne.execution.dag import DependencyDAG
-        from marianne.execution.parallel import ParallelExecutor
-
-        dag = DependencyDAG.from_dependencies(total, deps)
-        runner = MagicMock()
-        runner.dependency_dag = dag
-
-        config = MagicMock()
-        config.max_concurrent = 5
-        config.fail_fast = False
-
-        return ParallelExecutor(runner, config)
-
-    def test_propagation_bfs_reaches_transitive_deps(self) -> None:
-        """Failure of sheet 1 must propagate through entire dependency chain."""
-        from marianne.core.checkpoint import SheetStatus
-
-        executor = self._make_executor({2: [1], 3: [2], 4: [3]}, total=4)
-
-        state = MagicMock()
-        sheet_states: dict[int, MagicMock] = {}
-        for num in [1, 2, 3, 4]:
-            s = MagicMock()
-            s.status = SheetStatus.PENDING
-            sheet_states[num] = s
-        state.sheets = sheet_states
-
-        executor.propagate_failure_to_dependents(state, 1)
-
-        assert state.sheets[2].status == SheetStatus.FAILED
-        assert state.sheets[3].status == SheetStatus.FAILED
-        assert state.sheets[4].status == SheetStatus.FAILED
-
-    def test_propagation_does_not_overwrite_completed(self) -> None:
-        """Failure propagation must not overwrite terminal states."""
-        from marianne.core.checkpoint import SheetStatus
-
-        executor = self._make_executor({2: [1], 3: [1]}, total=3)
-
-        state = MagicMock()
-        s2 = MagicMock()
-        s2.status = SheetStatus.COMPLETED
-        s3 = MagicMock()
-        s3.status = SheetStatus.PENDING
-        state.sheets = {1: MagicMock(status=SheetStatus.PENDING), 2: s2, 3: s3}
-
-        executor.propagate_failure_to_dependents(state, 1)
-
-        assert s2.status == SheetStatus.COMPLETED, "COMPLETED must not be overwritten"
-        assert s3.status == SheetStatus.FAILED
-
-    def test_propagation_diamond_dependency(self) -> None:
-        """Diamond: A → B, A → C, B → D, C → D. Failure of A propagates to all."""
-        from marianne.core.checkpoint import SheetStatus
-
-        executor = self._make_executor({2: [1], 3: [1], 4: [2, 3]}, total=4)
-
-        state = MagicMock()
-        sheet_states: dict[int, MagicMock] = {}
-        for num in [1, 2, 3, 4]:
-            s = MagicMock()
-            s.status = SheetStatus.PENDING
-            sheet_states[num] = s
-        state.sheets = sheet_states
-
-        executor.propagate_failure_to_dependents(state, 1)
-
-        assert state.sheets[2].status == SheetStatus.FAILED
-        assert state.sheets[3].status == SheetStatus.FAILED
-        assert state.sheets[4].status == SheetStatus.FAILED
-
-    def test_propagation_with_no_dag_is_safe(self) -> None:
-        """Propagation with no DAG should be a no-op, not crash."""
-        from marianne.execution.parallel import ParallelExecutor
-
-        runner = MagicMock()
-        runner.dependency_dag = None
-        config = MagicMock()
-        config.max_concurrent = 5
-        config.fail_fast = False
-
-        executor = ParallelExecutor(runner, config)
-
-        state = MagicMock()
-        # Should not raise
-        executor.propagate_failure_to_dependents(state, 1)
 
 # =========================================================================
 # 8. Double Recovery / Duplicate Registration
 # =========================================================================
+
 
 class TestDoubleRecovery:
     """Test what happens when the same job is recovered/registered twice."""
@@ -735,9 +657,11 @@ class TestDoubleRecovery:
         job = adapter._baton._jobs["j1"]
         assert job.sheets[1].status == BatonSheetStatus.COMPLETED
 
+
 # =========================================================================
 # 9. Terminal State Resistance During Recovery Events
 # =========================================================================
+
 
 class TestTerminalStateResistanceDuringRecovery:
     """Verify terminal states resist all events even in recovered jobs."""
@@ -775,9 +699,14 @@ class TestTerminalStateResistanceDuringRecovery:
         states = {1: _make_sheet_state(1, BatonSheetStatus.COMPLETED)}
         baton.register_job("j1", states, {})
 
-        await baton.handle_event(ProcessExited(
-            job_id="j1", sheet_num=1, exit_code=1, pid=12345,
-        ))
+        await baton.handle_event(
+            ProcessExited(
+                job_id="j1",
+                sheet_num=1,
+                exit_code=1,
+                pid=12345,
+            )
+        )
 
         assert baton._jobs["j1"].sheets[1].status == BatonSheetStatus.COMPLETED
 
@@ -797,9 +726,11 @@ class TestTerminalStateResistanceDuringRecovery:
 
         assert baton._jobs["j1"].sheets[1].status == BatonSheetStatus.FAILED
 
+
 # =========================================================================
 # 10. Completion Detection for Partially-Recovered Jobs
 # =========================================================================
+
 
 class TestCompletionDetectionAfterRecovery:
     """Test is_job_complete for recovered jobs."""
@@ -838,9 +769,7 @@ class TestCompletionDetectionAfterRecovery:
 
         assert baton.is_job_complete("j1")
         job = baton._jobs["j1"]
-        all_success = all(
-            s.status == BatonSheetStatus.COMPLETED for s in job.sheets.values()
-        )
+        all_success = all(s.status == BatonSheetStatus.COMPLETED for s in job.sheets.values())
         assert all_success
 
     def test_completed_with_failed_is_not_all_success(self) -> None:
@@ -854,15 +783,14 @@ class TestCompletionDetectionAfterRecovery:
 
         assert baton.is_job_complete("j1")
         job = baton._jobs["j1"]
-        all_success = all(
-            s.status == BatonSheetStatus.COMPLETED for s in job.sheets.values()
-        )
+        all_success = all(s.status == BatonSheetStatus.COMPLETED for s in job.sheets.values())
         assert not all_success
 
     def test_unknown_job_is_not_complete(self) -> None:
         """is_job_complete for a non-existent job returns False."""
         baton = BatonCore()
         assert not baton.is_job_complete("nonexistent")
+
 
 # =========================================================================
 # 11. State Sync Callback
@@ -871,6 +799,7 @@ class TestCompletionDetectionAfterRecovery:
 # =========================================================================
 # 12. Credential Redaction Coverage
 # =========================================================================
+
 
 class TestCredentialRedactionCoverage:
     """Verify credential redaction covers recovery-relevant paths."""
@@ -906,9 +835,11 @@ class TestCredentialRedactionCoverage:
         result = redact_credentials(None)
         assert result is None
 
+
 # =========================================================================
 # 13. Pause → Resume → Cost Re-check Integration
 # =========================================================================
+
 
 class TestPauseResumeCostIntegration:
     """End-to-end test of the pause → cost-exceed → resume → re-check flow."""
