@@ -5,9 +5,8 @@ and verify completion.  The full stack is exercised: DaemonProcess boot,
 IPC server bind, JSON-RPC dispatch, JobManager task management, health
 probes, and graceful shutdown.
 
-NOTE: Most tests mock JobService.start_job() which was removed during
-the baton migration. Tests that depend on the old runner API are skipped
-until rewritten for the baton execution path.
+NOTE: Most tests exercise the baton execution path through the daemon
+IPC layer. Some legacy tests are skipped pending baton-equivalent rewrites.
 """
 
 from __future__ import annotations
@@ -758,7 +757,7 @@ class TestRealExecution:
         assert resp.status == "accepted"
 
         # Wait for completion — baton dispatch cycle needs more time than
-        # the old runner's synchronous path.
+        # the previous synchronous path.
         for _ in range(50):
             jobs = await client.list_jobs()
             job = next((j for j in jobs if j["job_id"] == resp.job_id), None)
@@ -1020,7 +1019,7 @@ class TestRealE2EExecution:
         - Config is parsed from YAML
         - Workspace is created on disk
         - Backend is selected and instantiated
-        - Runner executes sheets through the state machine
+        - Baton executes sheets through the state machine
         - Checkpoint state is persisted to disk
         - Job completion status is queryable via IPC
         """

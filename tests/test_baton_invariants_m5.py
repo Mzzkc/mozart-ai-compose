@@ -2,8 +2,8 @@
 
 Extends the invariant suite to cover M5 features: instrument fallback
 chain mechanics, _safe_killpg session guard, backpressure level
-monotonicity, use_baton default flip, and fallback state serialization
-round-trips.
+monotonicity, DaemonConfig field removal verification, and fallback state
+serialization round-trips.
 
 86. Fallback chain ordering — advance_fallback consumes in declaration order
 87. Fallback chain monotonicity — current_instrument_index only increases
@@ -16,7 +16,7 @@ round-trips.
 94. Backpressure delay monotonicity — level ordering matches delay ordering
 95. Backpressure rate limit escalation — active rate limits → level ≥ HIGH
 96. Backpressure critical exclusivity — can_start_sheet rejects iff CRITICAL
-97. use_baton default totality — DaemonConfig() always has use_baton=True
+97. use_baton default totality — DaemonConfig field removed; baton is sole executor
 98. Fallback state round-trip — to_dict/from_dict preserves all fallback fields
 
 Found by: Theorem, Movement 5
@@ -45,10 +45,18 @@ from marianne.daemon.baton.state import (
 # Strategies
 # =============================================================================
 
-_INSTRUMENT_NAMES = st.sampled_from([
-    "claude-code", "gemini-cli", "ollama", "codex-cli",
-    "custom-backend", "gpt-4o", "mistral-large", "deepseek-v3",
-])
+_INSTRUMENT_NAMES = st.sampled_from(
+    [
+        "claude-code",
+        "gemini-cli",
+        "ollama",
+        "codex-cli",
+        "custom-backend",
+        "gpt-4o",
+        "mistral-large",
+        "deepseek-v3",
+    ]
+)
 
 _FALLBACK_CHAINS = st.lists(
     _INSTRUMENT_NAMES,
@@ -58,7 +66,7 @@ _FALLBACK_CHAINS = st.lists(
 
 _PGID_VALUES = st.one_of(
     st.integers(min_value=-100, max_value=100),  # boundary values
-    st.integers(min_value=2, max_value=100_000),   # valid range
+    st.integers(min_value=2, max_value=100_000),  # valid range
     st.just(0),
     st.just(1),
     st.just(-1),
@@ -83,9 +91,7 @@ class TestFallbackChainOrdering:
         chain=_FALLBACK_CHAINS,
     )
     @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
-    def test_advance_returns_chain_in_order(
-        self, primary: str, chain: list[str]
-    ) -> None:
+    def test_advance_returns_chain_in_order(self, primary: str, chain: list[str]) -> None:
         """Each advance_fallback call returns the next chain element in order."""
         state = SheetExecutionState(
             sheet_num=1,
@@ -109,9 +115,7 @@ class TestFallbackChainOrdering:
         chain=st.lists(_INSTRUMENT_NAMES, min_size=1, max_size=5),
     )
     @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
-    def test_instrument_name_updates_on_advance(
-        self, primary: str, chain: list[str]
-    ) -> None:
+    def test_instrument_name_updates_on_advance(self, primary: str, chain: list[str]) -> None:
         """After advance_fallback(), instrument_name equals the returned value."""
         state = SheetExecutionState(
             sheet_num=1,
@@ -249,9 +253,7 @@ class TestFallbackHistoryBounded:
         ),
     )
     @settings(max_examples=30, suppress_health_check=[HealthCheck.too_slow])
-    def test_history_capped_at_max(
-        self, primary: str, chain_length: int
-    ) -> None:
+    def test_history_capped_at_max(self, primary: str, chain_length: int) -> None:
         """Even with many fallbacks, history is trimmed to MAX_FALLBACK_HISTORY."""
         # Build a chain longer than MAX_FALLBACK_HISTORY
         chain = [f"instrument-{i}" for i in range(chain_length)]
@@ -335,8 +337,10 @@ class TestSafeKillpgGuard:
 
         from marianne.backends.claude_cli import _safe_killpg
 
-        with patch("marianne.backends.claude_cli.os.killpg") as mock_killpg, \
-             patch("marianne.backends.claude_cli.os.getpgid", return_value=9999):
+        with (
+            patch("marianne.backends.claude_cli.os.killpg") as mock_killpg,
+            patch("marianne.backends.claude_cli.os.getpgid", return_value=9999),
+        ):
             result = _safe_killpg(pgid, signal.SIGTERM, context="test")
             assert result is False
             mock_killpg.assert_not_called()
@@ -349,8 +353,10 @@ class TestSafeKillpgGuard:
         """pgid == own process group is refused."""
         from marianne.backends.claude_cli import _safe_killpg
 
-        with patch("marianne.backends.claude_cli.os.killpg") as mock_killpg, \
-             patch("marianne.backends.claude_cli.os.getpgid", return_value=own_pgid):
+        with (
+            patch("marianne.backends.claude_cli.os.killpg") as mock_killpg,
+            patch("marianne.backends.claude_cli.os.getpgid", return_value=own_pgid),
+        ):
             result = _safe_killpg(own_pgid, signal.SIGTERM, context="test")
             assert result is False
             mock_killpg.assert_not_called()
@@ -366,8 +372,10 @@ class TestSafeKillpgGuard:
 
         from marianne.backends.claude_cli import _safe_killpg
 
-        with patch("marianne.backends.claude_cli.os.killpg") as mock_killpg, \
-             patch("marianne.backends.claude_cli.os.getpgid", return_value=own_pgid):
+        with (
+            patch("marianne.backends.claude_cli.os.killpg") as mock_killpg,
+            patch("marianne.backends.claude_cli.os.getpgid", return_value=own_pgid),
+        ):
             result = _safe_killpg(pgid, signal.SIGTERM, context="test")
             assert result is True
             mock_killpg.assert_called_once_with(pgid, signal.SIGTERM)
@@ -392,8 +400,10 @@ class TestSafeKillpgExceptionTolerance:
         """With os.getpgid raising, valid pgid > 1 is still permitted."""
         from marianne.backends.claude_cli import _safe_killpg
 
-        with patch("marianne.backends.claude_cli.os.killpg") as mock_killpg, \
-             patch("marianne.backends.claude_cli.os.getpgid", side_effect=OSError("no pgid")):
+        with (
+            patch("marianne.backends.claude_cli.os.killpg") as mock_killpg,
+            patch("marianne.backends.claude_cli.os.getpgid", side_effect=OSError("no pgid")),
+        ):
             result = _safe_killpg(pgid, signal.SIGTERM, context="test")
             assert result is True
             mock_killpg.assert_called_once_with(pgid, signal.SIGTERM)
@@ -404,8 +414,10 @@ class TestSafeKillpgExceptionTolerance:
         """With os.getpgid raising, pgid ≤ 1 is still refused."""
         from marianne.backends.claude_cli import _safe_killpg
 
-        with patch("marianne.backends.claude_cli.os.killpg") as mock_killpg, \
-             patch("marianne.backends.claude_cli.os.getpgid", side_effect=OSError("no pgid")):
+        with (
+            patch("marianne.backends.claude_cli.os.killpg") as mock_killpg,
+            patch("marianne.backends.claude_cli.os.getpgid", side_effect=OSError("no pgid")),
+        ):
             result = _safe_killpg(pgid, signal.SIGTERM, context="test")
             assert result is False
             mock_killpg.assert_not_called()
@@ -428,9 +440,7 @@ class TestBackpressureLevelMonotonicity:
         mem_pct2=st.floats(min_value=0.0, max_value=1.0, allow_nan=False),
     )
     @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
-    def test_higher_memory_weakly_higher_level(
-        self, mem_pct1: float, mem_pct2: float
-    ) -> None:
+    def test_higher_memory_weakly_higher_level(self, mem_pct1: float, mem_pct2: float) -> None:
         """Memory monotonicity: pct1 < pct2 → level1 ≤ level2."""
         assume(mem_pct1 <= mem_pct2)
 
@@ -530,8 +540,10 @@ class TestBackpressureRateLimitEscalation:
         current_mem = mem_pct * max_mem
 
         _monitor_spec = [
-            "current_memory_mb", "is_degraded",
-            "max_memory_mb", "is_accepting_work",
+            "current_memory_mb",
+            "is_degraded",
+            "max_memory_mb",
+            "is_accepting_work",
         ]
         monitor = MagicMock(spec=_monitor_spec)
         monitor.current_memory_mb.return_value = current_mem
@@ -568,8 +580,10 @@ class TestBackpressureCriticalExclusivity:
         )
 
         mock_spec = [
-            "current_memory_mb", "is_degraded",
-            "max_memory_mb", "is_accepting_work",
+            "current_memory_mb",
+            "is_degraded",
+            "max_memory_mb",
+            "is_accepting_work",
         ]
         monitor = MagicMock(spec=mock_spec)
         monitor.current_memory_mb.return_value = 9800  # 98% of 10000
@@ -599,8 +613,10 @@ class TestBackpressureCriticalExclusivity:
         current_mem = mem_pct * max_mem
 
         mock_spec = [
-            "current_memory_mb", "is_degraded",
-            "max_memory_mb", "is_accepting_work",
+            "current_memory_mb",
+            "is_degraded",
+            "max_memory_mb",
+            "is_accepting_work",
         ]
         monitor = MagicMock(spec=mock_spec)
         monitor.current_memory_mb.return_value = current_mem
@@ -623,8 +639,10 @@ class TestBackpressureCriticalExclusivity:
         )
 
         _monitor_spec = [
-            "current_memory_mb", "is_degraded",
-            "max_memory_mb", "is_accepting_work",
+            "current_memory_mb",
+            "is_degraded",
+            "max_memory_mb",
+            "is_accepting_work",
         ]
         monitor = MagicMock(spec=_monitor_spec)
         monitor.current_memory_mb.return_value = 100  # Low memory
@@ -645,8 +663,10 @@ class TestBackpressureCriticalExclusivity:
         )
 
         _monitor_spec = [
-            "current_memory_mb", "is_degraded",
-            "max_memory_mb", "is_accepting_work",
+            "current_memory_mb",
+            "is_degraded",
+            "max_memory_mb",
+            "is_accepting_work",
         ]
         monitor = MagicMock(spec=_monitor_spec)
         monitor.current_memory_mb.return_value = None

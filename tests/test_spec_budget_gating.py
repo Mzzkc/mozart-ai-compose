@@ -8,21 +8,22 @@ Covers:
     - Budget uses instrument-aware window size (BG-05)
     - Partial inclusion with deterministic ordering (BG-03)
 
-Test design: These tests exercise the budget gating method directly on
-SheetExecutionMixin and the PromptBuilder integration. They do NOT mock
+Test design: These tests exercise the budget gating method via the
+baton prompt assembly and PromptBuilder integration. They do NOT mock
 TokenBudgetTracker — the tracker is exercised through the real code path
 to catch integration bugs (learned lesson: mocks mask real failures).
 
-NOTE: The runner's SheetExecutionMixin has been removed. Budget gating is
-now handled by the baton's prompt assembly. These tests are skipped pending
-migration to the new prompt path.
+NOTE: SheetExecutionMixin has been removed. Budget gating is now handled
+by the baton's prompt assembly. These tests are skipped pending migration
+to the new prompt path.
 """
+
 from __future__ import annotations
 
 import pytest
 
 pytestmark = pytest.mark.skip(
-    reason="Runner removed — SheetExecutionMixin._apply_spec_budget_gating no longer exists"
+    reason="SheetExecutionMixin removed — budget gating now in baton prompt assembly"
 )
 
 from pathlib import Path
@@ -84,8 +85,8 @@ class _FakeConfig:
 class _BudgetGatingHost:
     """Minimal host that provides _apply_spec_budget_gating for unit testing.
 
-    Imports and calls the real method from SheetExecutionMixin by
-    delegation, avoiding the need to construct a full JobRunner.
+    Imports and calls the real budget-gating method by delegation,
+    avoiding the need to construct a full execution context.
     """
 
     def __init__(self, config: _FakeConfig | None = None) -> None:
@@ -97,8 +98,8 @@ class _BudgetGatingHost:
         fragments: list[Any],
         sheet_num: int,
     ) -> list[Any]:
-        """Stub — SheetExecutionMixin was removed with the runner."""
-        raise NotImplementedError("Runner removed — SheetExecutionMixin no longer exists")
+        """Stub — SheetExecutionMixin was removed in baton migration."""
+        raise NotImplementedError("SheetExecutionMixin no longer exists")
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -260,7 +261,7 @@ class TestBackwardCompatibility:
         assert "Injected Specs" not in prompt_empty
 
     def test_no_spec_config_produces_empty_fragments(self) -> None:
-        """BC-01: A config with no spec_dir produces no fragments on the runner."""
+        """BC-01: A config with no spec_dir produces no fragments for budget gating."""
         # SpecCorpusConfig with default (empty) spec_dir
         config = SpecCorpusConfig()
         assert config.spec_dir == ""

@@ -242,9 +242,7 @@ class TestCreateWorktree:
         assert result.worktree.path.parent == custom_base
 
     @pytest.mark.asyncio
-    async def test_create_with_lock(
-        self, manager: GitWorktreeManager, temp_git_repo: Path
-    ) -> None:
+    async def test_create_with_lock(self, manager: GitWorktreeManager, temp_git_repo: Path) -> None:
         """Test worktree creation with locking enabled."""
         result = await manager.create_worktree(
             job_id="locked-job",
@@ -327,7 +325,10 @@ class TestCreateWorktreeDetached:
         test_file = temp_git_repo / "test.txt"
         test_file.write_text("test content")
         subprocess.run(
-            ["git", "add", "test.txt"], cwd=temp_git_repo, check=True, capture_output=True,
+            ["git", "add", "test.txt"],
+            cwd=temp_git_repo,
+            check=True,
+            capture_output=True,
         )
         subprocess.run(
             ["git", "commit", "-m", "Second commit"],
@@ -451,9 +452,7 @@ class TestRemoveWorktree:
     """Tests for GitWorktreeManager.remove_worktree()."""
 
     @pytest.mark.asyncio
-    async def test_remove_existing(
-        self, manager: GitWorktreeManager, temp_git_repo: Path
-    ) -> None:
+    async def test_remove_existing(self, manager: GitWorktreeManager, temp_git_repo: Path) -> None:
         """Test removing an existing worktree."""
         # Create first
         create_result = await manager.create_worktree(job_id="to-remove", lock=False)
@@ -514,9 +513,7 @@ class TestLockUnlock:
     """Tests for worktree locking operations."""
 
     @pytest.mark.asyncio
-    async def test_lock_worktree(
-        self, manager: GitWorktreeManager, temp_git_repo: Path
-    ) -> None:
+    async def test_lock_worktree(self, manager: GitWorktreeManager, temp_git_repo: Path) -> None:
         """Test locking a worktree."""
         create_result = await manager.create_worktree(job_id="to-lock", lock=False)
         assert create_result.worktree is not None
@@ -544,9 +541,7 @@ class TestLockUnlock:
         assert lock_result.success is True
 
     @pytest.mark.asyncio
-    async def test_unlock_worktree(
-        self, manager: GitWorktreeManager, temp_git_repo: Path
-    ) -> None:
+    async def test_unlock_worktree(self, manager: GitWorktreeManager, temp_git_repo: Path) -> None:
         """Test unlocking a worktree."""
         create_result = await manager.create_worktree(job_id="to-unlock", lock=True)
         assert create_result.worktree is not None
@@ -581,9 +576,7 @@ class TestListWorktrees:
     """Tests for GitWorktreeManager.list_worktrees()."""
 
     @pytest.mark.asyncio
-    async def test_list_empty(
-        self, manager: GitWorktreeManager, temp_git_repo: Path
-    ) -> None:
+    async def test_list_empty(self, manager: GitWorktreeManager, temp_git_repo: Path) -> None:
         """Test listing worktrees when none exist (except main)."""
         # With prefix filter, should be empty
         worktrees = await manager.list_worktrees(prefix_filter="marianne")
@@ -628,9 +621,7 @@ class TestGetWorktreeInfo:
     """Tests for GitWorktreeManager.get_worktree_info()."""
 
     @pytest.mark.asyncio
-    async def test_get_existing(
-        self, manager: GitWorktreeManager, temp_git_repo: Path
-    ) -> None:
+    async def test_get_existing(self, manager: GitWorktreeManager, temp_git_repo: Path) -> None:
         """Test getting info for existing worktree."""
         create_result = await manager.create_worktree(job_id="info-test", lock=False)
         assert create_result.worktree is not None
@@ -642,9 +633,7 @@ class TestGetWorktreeInfo:
         assert info.branch == "marianne/info-test"
 
     @pytest.mark.asyncio
-    async def test_get_nonexistent(
-        self, manager: GitWorktreeManager, temp_git_repo: Path
-    ) -> None:
+    async def test_get_nonexistent(self, manager: GitWorktreeManager, temp_git_repo: Path) -> None:
         """Test getting info for nonexistent worktree returns None."""
         nonexistent = temp_git_repo / "nonexistent"
         info = await manager.get_worktree_info(nonexistent)
@@ -658,17 +647,13 @@ class TestPruneOrphaned:
     """Tests for GitWorktreeManager.prune_orphaned()."""
 
     @pytest.mark.asyncio
-    async def test_prune_no_orphans(
-        self, manager: GitWorktreeManager, temp_git_repo: Path
-    ) -> None:
+    async def test_prune_no_orphans(self, manager: GitWorktreeManager, temp_git_repo: Path) -> None:
         """Test pruning when no orphans exist."""
         orphaned = await manager.prune_orphaned()
         assert orphaned == []
 
     @pytest.mark.asyncio
-    async def test_prune_dry_run(
-        self, manager: GitWorktreeManager, temp_git_repo: Path
-    ) -> None:
+    async def test_prune_dry_run(self, manager: GitWorktreeManager, temp_git_repo: Path) -> None:
         """Test dry run doesn't actually prune."""
         # Create and manually delete worktree directory
         create_result = await manager.create_worktree(job_id="orphan-test", lock=False)
@@ -677,6 +662,7 @@ class TestPruneOrphaned:
 
         # Manually remove directory (orphan it)
         import shutil
+
         shutil.rmtree(worktree_path)
 
         # Dry run should report but not prune
@@ -792,6 +778,7 @@ prompt:
   template: "Test prompt"
 """
         import yaml
+
         data = yaml.safe_load(config_yaml)
         job_config = JobConfig.model_validate(data)
 
@@ -816,6 +803,7 @@ isolation:
   branch_prefix: test
 """
         import yaml
+
         data = yaml.safe_load(config_yaml)
         job_config = JobConfig.model_validate(data)
 
@@ -915,11 +903,11 @@ class TestCheckpointStateWorktreeFields:
         assert restored.isolation_mode == state.isolation_mode
 
 
-# --- Runner Integration Tests (Sheet 7: Runner Integration) ---
+# --- Isolation Setup Tests ---
 
 
 class TestRunnerIsolationSetup:
-    """Tests for JobRunner._setup_isolation() method."""
+    """Tests for isolation setup during sheet execution."""
 
     @pytest.fixture
     def mock_backend(self):  # type: ignore[no-untyped-def]
@@ -967,7 +955,9 @@ isolation:
         assert minimal_config.isolation.enabled is False
 
     def test_setup_isolation_not_git_repo_fallback(
-        self, tmp_path: Path, mock_backend  # type: ignore[no-untyped-def]
+        self,
+        tmp_path: Path,
+        mock_backend,  # type: ignore[no-untyped-def]
     ) -> None:
         """Test _setup_isolation falls back when not in git repo."""
         import yaml
@@ -1003,14 +993,14 @@ isolation:
         )
 
         # The state should track that fallback was used
-        # (We can't easily test the full runner without mocking more, but
-        # we can test the config is set up correctly)
+        # (We can't easily test the full baton execution without mocking more,
+        # but we can test the config is set up correctly)
         assert config.isolation.enabled is True
         assert config.isolation.fallback_on_error is True
 
 
 class TestRunnerIsolationCleanup:
-    """Tests for JobRunner._cleanup_isolation() method."""
+    """Tests for isolation cleanup after sheet execution."""
 
     def test_cleanup_isolation_no_worktree(self) -> None:
         """Test _cleanup_isolation does nothing when no worktree path."""

@@ -42,11 +42,13 @@ def sample_job_config(tmp_path: Path) -> JobConfig:
     config = JobConfig.from_yaml(FIXTURE_CONFIG)
     # Override workspace to a unique tmp_path per test and bump sheet count
     # for tests that rely on 5 sheets; disable learning for isolation
-    return config.model_copy(update={
-        "workspace": tmp_path / "test-workspace",
-        "sheet": config.sheet.model_copy(update={"size": 2, "total_items": 10}),
-        "learning": config.learning.model_copy(update={"enabled": False}),
-    })
+    return config.model_copy(
+        update={
+            "workspace": tmp_path / "test-workspace",
+            "sheet": config.sheet.model_copy(update={"size": 2, "total_items": 10}),
+            "learning": config.learning.model_copy(update={"enabled": False}),
+        }
+    )
 
 
 # ─── Instantiation ────────────────────────────────────────────────────────
@@ -77,7 +79,7 @@ class TestJobServiceInstantiation:
         assert service._learning_store is mock_store
 
 
-# TestStartJob — removed: tested old runner-based start_job API (baton migration)
+# TestStartJob — removed: tested runner-based start_job API (replaced by baton)
 
 
 # ─── pause_job ────────────────────────────────────────────────────────────
@@ -87,9 +89,7 @@ class TestPauseJob:
     """Tests for JobService.pause_job()."""
 
     @pytest.mark.asyncio
-    async def test_pause_creates_signal_file(
-        self, job_service: JobService, tmp_path: Path
-    ):
+    async def test_pause_creates_signal_file(self, job_service: JobService, tmp_path: Path):
         """Test pause_job creates a signal file in the workspace."""
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -102,9 +102,7 @@ class TestPauseJob:
             status=JobStatus.RUNNING,
         )
 
-        with patch.object(
-            JobService, "_find_job_state", new_callable=AsyncMock
-        ) as mock_find:
+        with patch.object(JobService, "_find_job_state", new_callable=AsyncMock) as mock_find:
             mock_backend = AsyncMock()
             mock_find.return_value = (state, mock_backend)
             result = await job_service.pause_job("test-job", workspace)
@@ -114,9 +112,7 @@ class TestPauseJob:
         assert signal_file.exists()
 
     @pytest.mark.asyncio
-    async def test_pause_non_running_job_raises(
-        self, job_service: JobService, tmp_path: Path
-    ):
+    async def test_pause_non_running_job_raises(self, job_service: JobService, tmp_path: Path):
         """Test pause_job raises when job is not RUNNING."""
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -128,18 +124,14 @@ class TestPauseJob:
             status=JobStatus.COMPLETED,
         )
 
-        with patch.object(
-            JobService, "_find_job_state", new_callable=AsyncMock
-        ) as mock_find:
+        with patch.object(JobService, "_find_job_state", new_callable=AsyncMock) as mock_find:
             mock_find.return_value = (state, AsyncMock())
 
             with pytest.raises(JobSubmissionError, match="not running"):
                 await job_service.pause_job("test-job", workspace)
 
     @pytest.mark.asyncio
-    async def test_pause_paused_job_raises(
-        self, job_service: JobService, tmp_path: Path
-    ):
+    async def test_pause_paused_job_raises(self, job_service: JobService, tmp_path: Path):
         """Test pause_job raises when job is already PAUSED."""
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -151,9 +143,7 @@ class TestPauseJob:
             status=JobStatus.PAUSED,
         )
 
-        with patch.object(
-            JobService, "_find_job_state", new_callable=AsyncMock
-        ) as mock_find:
+        with patch.object(JobService, "_find_job_state", new_callable=AsyncMock) as mock_find:
             mock_find.return_value = (state, AsyncMock())
 
             with pytest.raises(JobSubmissionError, match="not running"):
@@ -167,9 +157,7 @@ class TestGetStatus:
     """Tests for JobService.get_status()."""
 
     @pytest.mark.asyncio
-    async def test_returns_state_when_found(
-        self, job_service: JobService, tmp_path: Path
-    ):
+    async def test_returns_state_when_found(self, job_service: JobService, tmp_path: Path):
         """Test get_status returns CheckpointState when job exists."""
         state = CheckpointState(
             job_id="test-job",
@@ -181,9 +169,7 @@ class TestGetStatus:
         mock_backend = AsyncMock()
         mock_backend.load = AsyncMock(return_value=state)
 
-        with patch.object(
-            JobService, "_create_state_backend", return_value=mock_backend
-        ):
+        with patch.object(JobService, "_create_state_backend", return_value=mock_backend):
             result = await job_service.get_status("test-job", tmp_path)
 
         assert result is not None
@@ -191,16 +177,12 @@ class TestGetStatus:
         assert result.status == JobStatus.RUNNING
 
     @pytest.mark.asyncio
-    async def test_returns_none_when_not_found(
-        self, job_service: JobService, tmp_path: Path
-    ):
+    async def test_returns_none_when_not_found(self, job_service: JobService, tmp_path: Path):
         """Test get_status returns None when job doesn't exist."""
         mock_backend = AsyncMock()
         mock_backend.load = AsyncMock(return_value=None)
 
-        with patch.object(
-            JobService, "_create_state_backend", return_value=mock_backend
-        ):
+        with patch.object(JobService, "_create_state_backend", return_value=mock_backend):
             result = await job_service.get_status("nonexistent", tmp_path)
 
         assert result is None
@@ -222,8 +204,10 @@ class TestPublishingBackend:
 
         backend = _PublishingBackend(inner, callback)
         state = CheckpointState(
-            job_id="pub-test", job_name="pub-test",
-            total_sheets=3, status=JobStatus.RUNNING,
+            job_id="pub-test",
+            job_name="pub-test",
+            total_sheets=3,
+            status=JobStatus.RUNNING,
         )
 
         await backend.save(state)
@@ -244,8 +228,10 @@ class TestPublishingBackend:
 
         backend = _PublishingBackend(inner, bad_callback)
         state = CheckpointState(
-            job_id="err-test", job_name="err-test",
-            total_sheets=2, status=JobStatus.RUNNING,
+            job_id="err-test",
+            job_name="err-test",
+            total_sheets=2,
+            status=JobStatus.RUNNING,
         )
 
         # Should not raise
@@ -302,9 +288,7 @@ class TestCreateBackend:
         mock_config = MagicMock()
         mock_config.backend.type = "claude_cli"
 
-        with patch(
-            "marianne.backends.claude_cli.ClaudeCliBackend.from_config"
-        ) as mock_from_config:
+        with patch("marianne.backends.claude_cli.ClaudeCliBackend.from_config") as mock_from_config:
             mock_from_config.return_value = MagicMock()
             create_backend(mock_config)
             mock_from_config.assert_called_once_with(mock_config.backend)
@@ -344,9 +328,7 @@ class TestCreateBackend:
         mock_config = MagicMock()
         mock_config.backend.type = "unknown_type"
 
-        with patch(
-            "marianne.backends.claude_cli.ClaudeCliBackend.from_config"
-        ) as mock_from_config:
+        with patch("marianne.backends.claude_cli.ClaudeCliBackend.from_config") as mock_from_config:
             mock_from_config.return_value = MagicMock()
             create_backend(mock_config)
             mock_from_config.assert_called_once_with(mock_config.backend)
@@ -387,9 +369,7 @@ class TestFindJobState:
     """Tests for JobService._find_job_state()."""
 
     @pytest.mark.asyncio
-    async def test_workspace_not_found_raises(
-        self, job_service: JobService, tmp_path: Path
-    ):
+    async def test_workspace_not_found_raises(self, job_service: JobService, tmp_path: Path):
         """Test _find_job_state raises when workspace doesn't exist."""
         nonexistent = tmp_path / "does-not-exist"
 
@@ -397,9 +377,7 @@ class TestFindJobState:
             await job_service._find_job_state("test-job", nonexistent)
 
     @pytest.mark.asyncio
-    async def test_job_not_found_raises(
-        self, job_service: JobService, tmp_path: Path
-    ):
+    async def test_job_not_found_raises(self, job_service: JobService, tmp_path: Path):
         """Test _find_job_state raises when job doesn't exist in any backend."""
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -408,9 +386,7 @@ class TestFindJobState:
             await job_service._find_job_state("nonexistent-job", workspace)
 
     @pytest.mark.asyncio
-    async def test_finds_job_in_json_backend(
-        self, job_service: JobService, tmp_path: Path
-    ):
+    async def test_finds_job_in_json_backend(self, job_service: JobService, tmp_path: Path):
         """Test _find_job_state finds job via JsonStateBackend."""
         from marianne.state import JsonStateBackend
 
@@ -427,30 +403,12 @@ class TestFindJobState:
         )
         await backend.save(state)
 
-        found_state, found_backend = await job_service._find_job_state(
-            "test-job", workspace
-        )
+        found_state, found_backend = await job_service._find_job_state("test-job", workspace)
         assert found_state.job_id == "test-job"
         assert found_state.status == JobStatus.RUNNING
 
 
 # ─── resume_job validation ────────────────────────────────────────────────
-
-
-class TestResumeJobValidation:
-    """Tests for resume_job edge cases and validation.
-
-    The resume_job method was removed from JobService as part of the
-    runner removal — resume is now handled by the conductor/baton.
-    """
-
-    @pytest.mark.skip(reason="Runner removed — resume_job no longer exists on JobService")
-    async def test_resume_completed_job_raises(self) -> None:
-        """Obsolete: resume_job removed from JobService."""
-
-    @pytest.mark.skip(reason="Runner removed — resume_job no longer exists on JobService")
-    async def test_resume_pending_job_raises(self) -> None:
-        """Obsolete: resume_job removed from JobService."""
 
 
 # ─── _reconstruct_config ─────────────────────────────────────────────────
@@ -560,7 +518,8 @@ class TestReconstructConfig:
         mock_state.config_snapshot = {"name": "snapshot"}
 
         result, was_reloaded = job_service._reconstruct_config(
-            mock_state, config_path=config_file,
+            mock_state,
+            config_path=config_file,
         )
         assert result.name == "override-job"
         assert was_reloaded is True
@@ -589,10 +548,10 @@ class TestReconstructConfig:
         assert was_reloaded is False
 
 
-# TestStartJobExecution — removed: tested old runner-based start_job execution paths (baton migration)
+# TestStartJobExecution — removed (replaced by baton)
 
 
-# TestResumeJobExecution — removed: tested old runner-based resume_job execution API (baton migration)
+# TestResumeJobExecution — removed (replaced by baton)
 
 
 # ─── _setup_components ───────────────────────────────────────────────────
@@ -602,7 +561,9 @@ class TestSetupComponents:
     """Tests for JobService._setup_components()."""
 
     def test_basic_setup_no_learning_no_notifications(
-        self, job_service: JobService, sample_job_config: JobConfig,
+        self,
+        job_service: JobService,
+        sample_job_config: JobConfig,
     ):
         """Test _setup_components with learning/notifications/grounding disabled."""
         components = job_service._setup_components(sample_job_config)
@@ -615,25 +576,26 @@ class TestSetupComponents:
         assert components["grounding_engine"] is None
 
     def test_setup_with_learning_enabled(
-        self, job_service: JobService, sample_job_config: JobConfig,
+        self,
+        job_service: JobService,
+        sample_job_config: JobConfig,
     ):
         """Test _setup_components creates learning stores when enabled."""
         config = sample_job_config.model_copy(
-            update={"learning": sample_job_config.learning.model_copy(
-                update={"enabled": True},
-            )},
+            update={
+                "learning": sample_job_config.learning.model_copy(
+                    update={"enabled": True},
+                )
+            },
         )
         components = job_service._setup_components(config)
 
         from marianne.learning.outcomes import JsonOutcomeStore
+
         assert isinstance(components["outcome_store"], JsonOutcomeStore)
         assert components["global_learning_store"] is not None
 
 
-# TestRealComponentWiring — removed: tested old runner-based start_job/component wiring API (baton migration)
-
-
-# TestExecuteRunner — removed: tested old runner-based _execute_runner API (baton migration)
-
-
-# TestConfigPathWiring — removed: tested old runner-based config_path wiring API (baton migration)
+# TestRealComponentWiring — removed (replaced by baton)
+# TestExecuteRunner — removed (replaced by baton)
+# TestConfigPathWiring — removed (replaced by baton)

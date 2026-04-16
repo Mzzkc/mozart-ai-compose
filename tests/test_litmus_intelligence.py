@@ -363,7 +363,7 @@ class TestSpecTagsSerializationRoundtrip:
     JSON roundtrip: {"1": ["goals"], "3": ["code"]}
     After roundtrip: dict[str, list[str]] → {"1": ["goals"], "3": ["code"]}
 
-    The runner at sheet.py:1992 does: spec_tags.get(sheet_num)
+    The baton's spec tag lookup does: spec_tags.get(sheet_num)
     where sheet_num is an int. After JSON roundtrip, keys are strings.
     spec_tags.get(1) returns None because "1" != 1.
 
@@ -3355,8 +3355,6 @@ class TestModelOverrideEffectiveness:
 class TestConcertChainingEffectiveness:
     """Does the baton path correctly detect completed_new_work for concerts?
 
-    F-145: The baton path was missing the completed_new_work flag used by
-    concert chaining to prevent zero-work loops. Without it, concert scores
     under use_baton would chain forever even when no sheet completed new work.
 
     The litmus: has_completed_sheets returns True when sheets complete,
@@ -3903,7 +3901,7 @@ class TestBackpressureRejectionIntelligence:
 
 class TestCrossSheetCredentialRedaction:
     """F-250 litmus: are credentials redacted BEFORE entering cross-sheet
-    context (both legacy runner and baton adapter paths)?
+    context (baton adapter path)?
 
     WITHOUT F-250: agent writes an API key to a workspace file → cross-sheet
     capture reads it → key appears in the next sheet's prompt → leaked.
@@ -4387,7 +4385,7 @@ class TestBatonLegacyFailedSheetParity:
     SKIPPED sheets (adapter.py:738). FAILED sheets are silently excluded.
 
     This is a KNOWN behavioral gap (F-202, P3). Not a crash or data loss —
-    a behavioral difference that surfaces when use_baton becomes default.
+    a behavioral difference that surfaces when the baton processes FAILED sheets.
     The litmus: document that the gap exists and WHERE it lives in code.
     """
 

@@ -6,7 +6,6 @@ These tests cover:
 - Job submission → baton registration
 - Dispatch callback → backend acquisition → musician spawning
 - EventBus integration (baton events → ObserverEvents)
-- Feature flag (use_baton: true/false)
 - Job completion detection and cleanup
 
 TDD: Tests written first (red), then implementation (green).
@@ -277,9 +276,7 @@ class TestJobRegistration:
         adapter = BatonAdapter()
         sheets = [_make_sheet(num=1)]
 
-        adapter.register_job(
-            "test-job", sheets, dependencies={}, max_cost_usd=10.0
-        )
+        adapter.register_job("test-job", sheets, dependencies={}, max_cost_usd=10.0)
 
         # Verify cost limit was set (internal state)
         assert "test-job" in adapter.baton._job_cost_limits
@@ -535,7 +532,7 @@ class TestJobCompletionDetection:
 
 
 # =========================================================================
-# Feature flag — DaemonConfig.use_baton
+# DaemonConfig field removal guard
 # =========================================================================
 
 
@@ -588,9 +585,7 @@ class TestSheetsToExecutionState:
         from marianne.daemon.baton.adapter import sheets_to_execution_states
 
         sheets = [_make_sheet(num=1)]
-        states = sheets_to_execution_states(
-            sheets, max_retries=7, max_completion=15
-        )
+        states = sheets_to_execution_states(sheets, max_retries=7, max_completion=15)
 
         assert states[1].max_retries == 7
         assert states[1].max_completion == 15
@@ -620,8 +615,8 @@ class TestDependencyExtraction:
             meta.stage = i
             meta.instance = 1
             meta.fan_count = 1
-            mock_config.sheet.get_fan_out_metadata.side_effect = (
-                lambda n: MagicMock(stage=n, instance=1, fan_count=1)
+            mock_config.sheet.get_fan_out_metadata.side_effect = lambda n: MagicMock(
+                stage=n, instance=1, fan_count=1
             )
 
         deps = extract_dependencies(mock_config)
@@ -682,7 +677,13 @@ class TestDependencyExtraction:
 
         # Pre-expanded dependencies (as config model produces them)
         mock_config.sheet.dependencies = {
-            2: [1], 3: [1], 4: [1], 5: [1], 6: [1], 7: [1], 8: [1],
+            2: [1],
+            3: [1],
+            4: [1],
+            5: [1],
+            6: [1],
+            7: [1],
+            8: [1],
             9: [2, 3, 4, 5, 6, 7, 8],  # synthesis depends on ALL fan-out sheets
         }
 
@@ -707,8 +708,7 @@ class TestDependencyExtraction:
 
         # Sheet 9 (synthesis): depends on ALL of sheets 2-8
         assert sorted(deps[9]) == [2, 3, 4, 5, 6, 7, 8], (
-            f"Sheet 9 (synthesis) must depend on all fan-out sheets [2-8], "
-            f"got {sorted(deps[9])}"
+            f"Sheet 9 (synthesis) must depend on all fan-out sheets [2-8], got {sorted(deps[9])}"
         )
 
 
@@ -809,9 +809,7 @@ class TestCompletionSignaling:
             adapter._check_completions()
 
         task = asyncio.create_task(_complete_later())
-        result = await asyncio.wait_for(
-            adapter.wait_for_completion("j1"), timeout=2.0
-        )
+        result = await asyncio.wait_for(adapter.wait_for_completion("j1"), timeout=2.0)
         assert result is True
         await task
 

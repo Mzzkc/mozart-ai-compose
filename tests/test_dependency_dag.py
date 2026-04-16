@@ -638,12 +638,8 @@ prompt:
 
 
 # =============================================================================
-# Runner Integration Tests
+# Baton Integration Tests
 # =============================================================================
-
-
-# TestRunnerIntegration removed — tested JobRunner DAG integration
-# which no longer exists (runner package deleted).
 
 
 # =============================================================================
