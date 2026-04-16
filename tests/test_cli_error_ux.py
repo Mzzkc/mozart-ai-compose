@@ -12,7 +12,6 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from typer.testing import CliRunner
 
 from marianne.cli import app
@@ -71,7 +70,9 @@ class TestF031YamlSyntaxError:
         assert result.exit_code != 0
         output = result.output.lower()
         # Should say it needs to be a mapping/dict, not show internal Python error
-        assert "mapping" in output or "key-value" in output or "empty" in output or "invalid" in output
+        assert (
+            "mapping" in output or "key-value" in output or "empty" in output or "invalid" in output
+        )
 
     def test_yaml_error_includes_hint(self, tmp_path: Path) -> None:
         """YAML syntax errors should include a helpful hint."""
@@ -108,9 +109,7 @@ class TestF110BackpressureUX:
             yaml.dump(config, f)
         return config_path
 
-    def test_backpressure_rejection_no_not_running_message(
-        self, tmp_path: Path
-    ) -> None:
+    def test_backpressure_rejection_no_not_running_message(self, tmp_path: Path) -> None:
         """Backpressure rejection shows rejection reason, not 'not running'."""
         config_path = self._make_config(tmp_path)
 
@@ -143,9 +142,7 @@ class TestF110BackpressureUX:
         # Should show the actual rejection reason
         assert "rejected" in output or "pressure" in output or "try again" in output
 
-    def test_shutdown_rejection_no_not_running_message(
-        self, tmp_path: Path
-    ) -> None:
+    def test_shutdown_rejection_no_not_running_message(self, tmp_path: Path) -> None:
         """Shutdown rejection shows shutdown reason, not 'not running'."""
         config_path = self._make_config(tmp_path)
 
@@ -175,9 +172,7 @@ class TestF110BackpressureUX:
         assert "not running" not in output
         assert "shutting down" in output or "rejected" in output
 
-    def test_genuine_not_running_still_shows_not_running(
-        self, tmp_path: Path
-    ) -> None:
+    def test_genuine_not_running_still_shows_not_running(self, tmp_path: Path) -> None:
         """When daemon is genuinely not reachable, 'not running' IS shown."""
         config_path = self._make_config(tmp_path)
 
@@ -222,9 +217,7 @@ class TestHintVsHintsAPIMismatch:
             yaml.dump(config, f)
         return config_path
 
-    def test_not_running_hint_visible_in_terminal(
-        self, tmp_path: Path
-    ) -> None:
+    def test_not_running_hint_visible_in_terminal(self, tmp_path: Path) -> None:
         """The 'mzt start' hint must appear in terminal output."""
         config_path = self._make_config(tmp_path)
 
@@ -239,9 +232,7 @@ class TestHintVsHintsAPIMismatch:
         # The hint "Start it with: mzt start" must be visible
         assert "mzt start" in result.output
 
-    def test_not_running_hint_uses_hints_parameter(
-        self, tmp_path: Path
-    ) -> None:
+    def test_not_running_hint_uses_hints_parameter(self, tmp_path: Path) -> None:
         """Verify hints= (list) is used, not hint= (goes to json_extras)."""
         config_path = self._make_config(tmp_path)
 
@@ -269,6 +260,4 @@ class TestHintVsHintsAPIMismatch:
             f"output_error called with {kwargs.keys()} — expected 'hints' parameter"
         )
         assert isinstance(kwargs["hints"], list)
-        assert "hint" not in kwargs, (
-            "'hint=' goes to **json_extras — invisible in terminal mode"
-        )
+        assert "hint" not in kwargs, "'hint=' goes to **json_extras — invisible in terminal mode"

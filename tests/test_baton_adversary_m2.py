@@ -32,10 +32,10 @@ from marianne.daemon.baton.state import (
     SheetExecutionState,
 )
 
-
 # =====================================================================
 # Helpers
 # =====================================================================
+
 
 def _make_sheets(
     count: int = 3,
@@ -218,9 +218,7 @@ class TestF063ProcessExitedRecordAttempt:
         assert sheet is not None
         sheet.status = BatonSheetStatus.DISPATCHED
 
-        await baton.handle_event(
-            ProcessExited(job_id="test-job", sheet_num=1, pid=100)
-        )
+        await baton.handle_event(ProcessExited(job_id="test-job", sheet_num=1, pid=100))
         assert sheet.normal_attempts == 1
 
     @pytest.mark.asyncio
@@ -249,9 +247,7 @@ class TestF063ProcessExitedRecordAttempt:
 
         for i in range(2):
             sheet.status = BatonSheetStatus.DISPATCHED
-            await baton.handle_event(
-                ProcessExited(job_id="test-job", sheet_num=1, pid=100 + i)
-            )
+            await baton.handle_event(ProcessExited(job_id="test-job", sheet_num=1, pid=100 + i))
 
         assert len(sheet.attempt_results) == 2
         assert sheet.normal_attempts == 2
@@ -265,9 +261,7 @@ class TestF063ProcessExitedRecordAttempt:
         assert sheet is not None
         sheet.status = BatonSheetStatus.DISPATCHED
 
-        await baton.handle_event(
-            ProcessExited(job_id="test-job", sheet_num=1, pid=42)
-        )
+        await baton.handle_event(ProcessExited(job_id="test-job", sheet_num=1, pid=42))
         assert sheet.total_cost_usd == 0.0
         assert sheet.attempt_results[0].cost_usd == 0.0
 
@@ -395,9 +389,7 @@ class TestF066MultipleFermataSheets:
     @pytest.mark.asyncio
     async def test_resolve_one_of_two_fermata_stays_paused(self) -> None:
         """Resolving sheet 1's escalation while sheet 2 is in FERMATA → paused."""
-        baton = _make_baton_with_job(
-            sheet_count=3, escalation_enabled=True, max_retries=1
-        )
+        baton = _make_baton_with_job(sheet_count=3, escalation_enabled=True, max_retries=1)
         # Exhaust sheets 1 and 2 to trigger escalation
         for sn in [1, 2]:
             sheet = baton.get_sheet_state("test-job", sn)
@@ -405,8 +397,11 @@ class TestF066MultipleFermataSheets:
             sheet.status = BatonSheetStatus.DISPATCHED
             await baton.handle_event(
                 _attempt_result(
-                    sheet_num=sn, execution_success=False, attempt=1,
-                    validation_pass_rate=0.0, validations_total=0,
+                    sheet_num=sn,
+                    execution_success=False,
+                    attempt=1,
+                    validation_pass_rate=0.0,
+                    validations_total=0,
                 )
             )
 
@@ -430,17 +425,18 @@ class TestF066MultipleFermataSheets:
     @pytest.mark.asyncio
     async def test_resolve_last_fermata_unpauses(self) -> None:
         """Resolving the last FERMATA sheet unpauses the job."""
-        baton = _make_baton_with_job(
-            sheet_count=2, escalation_enabled=True, max_retries=1
-        )
+        baton = _make_baton_with_job(sheet_count=2, escalation_enabled=True, max_retries=1)
         for sn in [1, 2]:
             sheet = baton.get_sheet_state("test-job", sn)
             assert sheet is not None
             sheet.status = BatonSheetStatus.DISPATCHED
             await baton.handle_event(
                 _attempt_result(
-                    sheet_num=sn, execution_success=False, attempt=1,
-                    validation_pass_rate=0.0, validations_total=0,
+                    sheet_num=sn,
+                    execution_success=False,
+                    attempt=1,
+                    validation_pass_rate=0.0,
+                    validations_total=0,
                 )
             )
 
@@ -458,24 +454,23 @@ class TestF066MultipleFermataSheets:
     @pytest.mark.asyncio
     async def test_timeout_one_of_two_fermata_stays_paused(self) -> None:
         """Timeout on one escalation while another is pending → still paused."""
-        baton = _make_baton_with_job(
-            sheet_count=2, escalation_enabled=True, max_retries=1
-        )
+        baton = _make_baton_with_job(sheet_count=2, escalation_enabled=True, max_retries=1)
         for sn in [1, 2]:
             sheet = baton.get_sheet_state("test-job", sn)
             assert sheet is not None
             sheet.status = BatonSheetStatus.DISPATCHED
             await baton.handle_event(
                 _attempt_result(
-                    sheet_num=sn, execution_success=False, attempt=1,
-                    validation_pass_rate=0.0, validations_total=0,
+                    sheet_num=sn,
+                    execution_success=False,
+                    attempt=1,
+                    validation_pass_rate=0.0,
+                    validations_total=0,
                 )
             )
 
         # Timeout on sheet 1
-        await baton.handle_event(
-            EscalationTimeout(job_id="test-job", sheet_num=1)
-        )
+        await baton.handle_event(EscalationTimeout(job_id="test-job", sheet_num=1))
 
         s1 = baton.get_sheet_state("test-job", 1)
         assert s1 is not None and s1.status == BatonSheetStatus.FAILED
@@ -484,17 +479,18 @@ class TestF066MultipleFermataSheets:
     @pytest.mark.asyncio
     async def test_user_paused_preserved_after_all_fermata_resolved(self) -> None:
         """User pause survives even after all escalations resolve."""
-        baton = _make_baton_with_job(
-            sheet_count=2, escalation_enabled=True, max_retries=1
-        )
+        baton = _make_baton_with_job(sheet_count=2, escalation_enabled=True, max_retries=1)
         for sn in [1, 2]:
             sheet = baton.get_sheet_state("test-job", sn)
             assert sheet is not None
             sheet.status = BatonSheetStatus.DISPATCHED
             await baton.handle_event(
                 _attempt_result(
-                    sheet_num=sn, execution_success=False, attempt=1,
-                    validation_pass_rate=0.0, validations_total=0,
+                    sheet_num=sn,
+                    execution_success=False,
+                    attempt=1,
+                    validation_pass_rate=0.0,
+                    validations_total=0,
                 )
             )
 
@@ -516,16 +512,17 @@ class TestF066MultipleFermataSheets:
     @pytest.mark.asyncio
     async def test_duplicate_escalation_resolved_is_safe(self) -> None:
         """Double-resolving the same sheet doesn't crash or corrupt state."""
-        baton = _make_baton_with_job(
-            sheet_count=1, escalation_enabled=True, max_retries=1
-        )
+        baton = _make_baton_with_job(sheet_count=1, escalation_enabled=True, max_retries=1)
         sheet = baton.get_sheet_state("test-job", 1)
         assert sheet is not None
         sheet.status = BatonSheetStatus.DISPATCHED
         await baton.handle_event(
             _attempt_result(
-                sheet_num=1, execution_success=False, attempt=1,
-                validation_pass_rate=0.0, validations_total=0,
+                sheet_num=1,
+                execution_success=False,
+                attempt=1,
+                validation_pass_rate=0.0,
+                validations_total=0,
             )
         )
         assert sheet.status == BatonSheetStatus.FERMATA
@@ -554,18 +551,14 @@ class TestF067EscalationRespectsCost:
     @pytest.mark.asyncio
     async def test_resolve_escalation_with_exceeded_cost_stays_paused(self) -> None:
         """Cost-exceeded job stays paused after escalation resolves."""
-        baton = _make_baton_with_job(
-            sheet_count=2, escalation_enabled=True, max_retries=1
-        )
+        baton = _make_baton_with_job(sheet_count=2, escalation_enabled=True, max_retries=1)
         baton.set_job_cost_limit("test-job", 0.50)
 
         # Run sheet 1 successfully with high cost
         s1 = baton.get_sheet_state("test-job", 1)
         assert s1 is not None
         s1.status = BatonSheetStatus.DISPATCHED
-        await baton.handle_event(
-            _attempt_result(sheet_num=1, cost_usd=0.60)
-        )
+        await baton.handle_event(_attempt_result(sheet_num=1, cost_usd=0.60))
         # Sheet 1 completed but job is over cost
         assert s1.status == BatonSheetStatus.COMPLETED
         assert baton.is_job_paused("test-job")
@@ -576,8 +569,11 @@ class TestF067EscalationRespectsCost:
         s2.status = BatonSheetStatus.DISPATCHED
         await baton.handle_event(
             _attempt_result(
-                sheet_num=2, execution_success=False, attempt=1,
-                validation_pass_rate=0.0, validations_total=0,
+                sheet_num=2,
+                execution_success=False,
+                attempt=1,
+                validation_pass_rate=0.0,
+                validations_total=0,
                 cost_usd=0.10,
             )
         )
@@ -593,9 +589,7 @@ class TestF067EscalationRespectsCost:
     @pytest.mark.asyncio
     async def test_resolve_escalation_under_cost_unpauses(self) -> None:
         """Job under cost limit unpauses after escalation resolves."""
-        baton = _make_baton_with_job(
-            sheet_count=2, escalation_enabled=True, max_retries=1
-        )
+        baton = _make_baton_with_job(sheet_count=2, escalation_enabled=True, max_retries=1)
         baton.set_job_cost_limit("test-job", 100.0)
 
         # Exhaust sheet 1
@@ -604,8 +598,12 @@ class TestF067EscalationRespectsCost:
         s1.status = BatonSheetStatus.DISPATCHED
         await baton.handle_event(
             _attempt_result(
-                sheet_num=1, execution_success=False, attempt=1,
-                cost_usd=0.10, validation_pass_rate=0.0, validations_total=0,
+                sheet_num=1,
+                execution_success=False,
+                attempt=1,
+                cost_usd=0.10,
+                validation_pass_rate=0.0,
+                validations_total=0,
             )
         )
         assert s1.status == BatonSheetStatus.FERMATA
@@ -620,9 +618,7 @@ class TestF067EscalationRespectsCost:
     @pytest.mark.asyncio
     async def test_timeout_with_exceeded_cost_stays_paused(self) -> None:
         """Escalation timeout with cost exceeded → still paused."""
-        baton = _make_baton_with_job(
-            sheet_count=1, escalation_enabled=True, max_retries=1
-        )
+        baton = _make_baton_with_job(sheet_count=1, escalation_enabled=True, max_retries=1)
         baton.set_job_cost_limit("test-job", 0.01)
 
         sheet = baton.get_sheet_state("test-job", 1)
@@ -630,15 +626,17 @@ class TestF067EscalationRespectsCost:
         sheet.status = BatonSheetStatus.DISPATCHED
         await baton.handle_event(
             _attempt_result(
-                sheet_num=1, execution_success=False, attempt=1,
-                cost_usd=0.50, validation_pass_rate=0.0, validations_total=0,
+                sheet_num=1,
+                execution_success=False,
+                attempt=1,
+                cost_usd=0.50,
+                validation_pass_rate=0.0,
+                validations_total=0,
             )
         )
         assert sheet.status == BatonSheetStatus.FERMATA
 
-        await baton.handle_event(
-            EscalationTimeout(job_id="test-job", sheet_num=1)
-        )
+        await baton.handle_event(EscalationTimeout(job_id="test-job", sheet_num=1))
 
         # Sheet failed + cost exceeded → job stays paused
         assert baton.is_job_paused("test-job")
@@ -725,9 +723,7 @@ class TestF066F067EscalationCostIntersection:
     @pytest.mark.asyncio
     async def test_resolve_all_fermata_but_cost_exceeded(self) -> None:
         """All FERMATA sheets resolved but job over cost → still paused."""
-        baton = _make_baton_with_job(
-            sheet_count=3, escalation_enabled=True, max_retries=1
-        )
+        baton = _make_baton_with_job(sheet_count=3, escalation_enabled=True, max_retries=1)
         baton.set_job_cost_limit("test-job", 0.01)
 
         # Exhaust all 3 sheets (with cost)
@@ -737,8 +733,12 @@ class TestF066F067EscalationCostIntersection:
             sheet.status = BatonSheetStatus.DISPATCHED
             await baton.handle_event(
                 _attempt_result(
-                    sheet_num=sn, execution_success=False, attempt=1,
-                    cost_usd=0.10, validation_pass_rate=0.0, validations_total=0,
+                    sheet_num=sn,
+                    execution_success=False,
+                    attempt=1,
+                    cost_usd=0.10,
+                    validation_pass_rate=0.0,
+                    validations_total=0,
                 )
             )
 
@@ -748,9 +748,7 @@ class TestF066F067EscalationCostIntersection:
         # Resolve all three
         for sn in [1, 2, 3]:
             await baton.handle_event(
-                EscalationResolved(
-                    job_id="test-job", sheet_num=sn, decision="retry"
-                )
+                EscalationResolved(job_id="test-job", sheet_num=sn, decision="retry")
             )
 
         # All FERMATA resolved, but cost > limit → still paused
@@ -777,9 +775,7 @@ class TestProcessCrashCostIntersection:
         # 5 crashes — all $0 cost
         for i in range(5):
             sheet.status = BatonSheetStatus.DISPATCHED
-            await baton.handle_event(
-                ProcessExited(job_id="test-job", sheet_num=1, pid=100 + i)
-            )
+            await baton.handle_event(ProcessExited(job_id="test-job", sheet_num=1, pid=100 + i))
 
         # Cost is still $0 — crashes don't generate API costs
         assert sheet.total_cost_usd == 0.0
@@ -799,24 +795,23 @@ class TestEscalationDecisionEdgeCases:
     @pytest.mark.asyncio
     async def test_unknown_decision_fails_sheet(self) -> None:
         """Unknown escalation decision defaults to FAILED."""
-        baton = _make_baton_with_job(
-            sheet_count=1, escalation_enabled=True, max_retries=1
-        )
+        baton = _make_baton_with_job(sheet_count=1, escalation_enabled=True, max_retries=1)
         sheet = baton.get_sheet_state("test-job", 1)
         assert sheet is not None
         sheet.status = BatonSheetStatus.DISPATCHED
         await baton.handle_event(
             _attempt_result(
-                sheet_num=1, execution_success=False, attempt=1,
-                validation_pass_rate=0.0, validations_total=0,
+                sheet_num=1,
+                execution_success=False,
+                attempt=1,
+                validation_pass_rate=0.0,
+                validations_total=0,
             )
         )
         assert sheet.status == BatonSheetStatus.FERMATA
 
         await baton.handle_event(
-            EscalationResolved(
-                job_id="test-job", sheet_num=1, decision="invalid_decision"
-            )
+            EscalationResolved(job_id="test-job", sheet_num=1, decision="invalid_decision")
         )
 
         # Unknown decision → FAILED (the else branch)
@@ -825,23 +820,22 @@ class TestEscalationDecisionEdgeCases:
     @pytest.mark.asyncio
     async def test_accept_decision_marks_completed(self) -> None:
         """'accept' decision marks the sheet as COMPLETED."""
-        baton = _make_baton_with_job(
-            sheet_count=1, escalation_enabled=True, max_retries=1
-        )
+        baton = _make_baton_with_job(sheet_count=1, escalation_enabled=True, max_retries=1)
         sheet = baton.get_sheet_state("test-job", 1)
         assert sheet is not None
         sheet.status = BatonSheetStatus.DISPATCHED
         await baton.handle_event(
             _attempt_result(
-                sheet_num=1, execution_success=False, attempt=1,
-                validation_pass_rate=0.0, validations_total=0,
+                sheet_num=1,
+                execution_success=False,
+                attempt=1,
+                validation_pass_rate=0.0,
+                validations_total=0,
             )
         )
 
         await baton.handle_event(
-            EscalationResolved(
-                job_id="test-job", sheet_num=1, decision="accept"
-            )
+            EscalationResolved(job_id="test-job", sheet_num=1, decision="accept")
         )
         assert sheet.status == BatonSheetStatus.COMPLETED
 
@@ -859,15 +853,16 @@ class TestEscalationDecisionEdgeCases:
         sheet.status = BatonSheetStatus.DISPATCHED
         await baton.handle_event(
             _attempt_result(
-                sheet_num=1, execution_success=False, attempt=1,
-                validation_pass_rate=0.0, validations_total=0,
+                sheet_num=1,
+                execution_success=False,
+                attempt=1,
+                validation_pass_rate=0.0,
+                validations_total=0,
             )
         )
 
         await baton.handle_event(
-            EscalationResolved(
-                job_id="test-job", sheet_num=1, decision="fail"
-            )
+            EscalationResolved(job_id="test-job", sheet_num=1, decision="fail")
         )
 
         # Sheet 1 failed, sheets 2 and 3 should be SKIPPED (blocked by failed dependency)
@@ -895,9 +890,7 @@ class TestZeroCostLimit:
         assert sheet is not None
         sheet.status = BatonSheetStatus.DISPATCHED
 
-        await baton.handle_event(
-            _attempt_result(cost_usd=0.01)
-        )
+        await baton.handle_event(_attempt_result(cost_usd=0.01))
         # $0.01 > $0.00 → job paused
         assert baton.is_job_paused("test-job")
 
@@ -959,9 +952,7 @@ class TestZeroCostLimit:
         assert sheet is not None
         sheet.status = BatonSheetStatus.DISPATCHED
 
-        await baton.handle_event(
-            _attempt_result(cost_usd=0.0)
-        )
+        await baton.handle_event(_attempt_result(cost_usd=0.0))
         # $0.00 is NOT > $0.00 → sheet completes normally
         assert sheet.status == BatonSheetStatus.COMPLETED
 
@@ -982,9 +973,7 @@ class TestEscalationTerminalGuard:
         assert sheet is not None
         sheet.status = BatonSheetStatus.COMPLETED
 
-        await baton.handle_event(
-            EscalationNeeded(job_id="test-job", sheet_num=1, reason="test")
-        )
+        await baton.handle_event(EscalationNeeded(job_id="test-job", sheet_num=1, reason="test"))
         assert sheet.status == BatonSheetStatus.COMPLETED
 
     @pytest.mark.asyncio
@@ -996,9 +985,7 @@ class TestEscalationTerminalGuard:
         sheet.status = BatonSheetStatus.FAILED
 
         await baton.handle_event(
-            EscalationResolved(
-                job_id="test-job", sheet_num=1, decision="retry"
-            )
+            EscalationResolved(job_id="test-job", sheet_num=1, decision="retry")
         )
         # Still FAILED — was not in FERMATA
         assert sheet.status == BatonSheetStatus.FAILED
@@ -1048,9 +1035,7 @@ class TestProcessCrashStatusGuard:
         assert sheet is not None
         assert sheet.status == BatonSheetStatus.PENDING
 
-        await baton.handle_event(
-            ProcessExited(job_id="test-job", sheet_num=1, pid=1)
-        )
+        await baton.handle_event(ProcessExited(job_id="test-job", sheet_num=1, pid=1))
         assert sheet.status == BatonSheetStatus.PENDING
         assert sheet.normal_attempts == 0
 
@@ -1062,9 +1047,7 @@ class TestProcessCrashStatusGuard:
         assert sheet is not None
         sheet.status = BatonSheetStatus.COMPLETED
 
-        await baton.handle_event(
-            ProcessExited(job_id="test-job", sheet_num=1, pid=1)
-        )
+        await baton.handle_event(ProcessExited(job_id="test-job", sheet_num=1, pid=1))
         assert sheet.status == BatonSheetStatus.COMPLETED
         assert sheet.normal_attempts == 0
 
@@ -1072,9 +1055,7 @@ class TestProcessCrashStatusGuard:
     async def test_crash_on_unknown_job_ignored(self) -> None:
         """A crash event for an unknown job is silently ignored."""
         baton = BatonCore()
-        await baton.handle_event(
-            ProcessExited(job_id="phantom", sheet_num=1, pid=1)
-        )
+        await baton.handle_event(ProcessExited(job_id="phantom", sheet_num=1, pid=1))
         # No crash, no error
         assert baton.job_count == 0
 
@@ -1087,8 +1068,6 @@ class TestProcessCrashStatusGuard:
         assert sheet is not None
         sheet.status = BatonSheetStatus.RETRY_SCHEDULED
 
-        await baton.handle_event(
-            ProcessExited(job_id="test-job", sheet_num=1, pid=1)
-        )
+        await baton.handle_event(ProcessExited(job_id="test-job", sheet_num=1, pid=1))
         assert sheet.status == BatonSheetStatus.RETRY_SCHEDULED
         assert sheet.normal_attempts == 0

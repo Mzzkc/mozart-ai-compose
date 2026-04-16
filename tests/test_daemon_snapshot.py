@@ -269,6 +269,7 @@ _GIT_ISOLATED_ENV = {
 def _git(args: list[str], cwd: Path) -> subprocess.CompletedProcess[bytes]:
     """Run a git command with isolated config."""
     import os
+
     env = {**os.environ, **_GIT_ISOLATED_ENV}
     return subprocess.run(  # noqa: S603
         ["git", *args],
@@ -382,7 +383,9 @@ class TestConfigCapture:
 
         manager = SnapshotManager(base_dir=tmp_path / "snapshots")
         snapshot_path = manager.capture(
-            "test-job", workspace, config_path=missing_config,
+            "test-job",
+            workspace,
+            config_path=missing_config,
         )
         assert snapshot_path is not None
         # No config file should be in the snapshot
@@ -463,9 +466,7 @@ class TestObserverSummaryCapture:
 
         jsonl = workspace / ".marianne-observer.jsonl"
         jsonl.write_text(
-            '{"event":"observer.file_created"}\n'
-            'not valid json\n'
-            '{"event":"observer.file_deleted"}\n'
+            '{"event":"observer.file_created"}\nnot valid json\n{"event":"observer.file_deleted"}\n'
         )
 
         manager = SnapshotManager(base_dir=tmp_path / "snapshots")

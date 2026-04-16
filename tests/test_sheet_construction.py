@@ -12,11 +12,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
-from marianne.core.config.execution import ValidationRule
-from marianne.core.config.job import InjectionCategory, InjectionItem
-
 
 class TestBuildSheetsBasic:
     """Test basic Sheet construction from JobConfig."""

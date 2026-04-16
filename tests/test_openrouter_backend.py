@@ -26,7 +26,6 @@ import pytest
 
 from marianne.backends.openrouter import OpenRouterBackend
 
-
 # ============================================================================
 # Helpers
 # ============================================================================
@@ -182,7 +181,8 @@ class TestExecuteSuccess:
         assert result.duration_seconds > 0
 
     async def test_actual_model_differs_from_requested(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Response model field overrides the requested model in result."""
         backend = _backend_with_key(monkeypatch)
@@ -238,7 +238,8 @@ class TestExecuteSuccess:
         assert result.tokens_used is None
 
     async def test_null_content_in_message(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Null content in message is treated as empty string."""
         backend = _backend_with_key(monkeypatch)
@@ -270,7 +271,8 @@ class TestRateLimit:
     """Test rate limit detection and handling."""
 
     async def test_429_with_retry_after_header(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """HTTP 429 with Retry-After header extracts wait time."""
         backend = _backend_with_key(monkeypatch)
@@ -292,7 +294,8 @@ class TestRateLimit:
         assert result.error_type == "rate_limit"
 
     async def test_429_without_header_falls_back_to_body(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """HTTP 429 without header tries to extract wait from body text."""
         backend = _backend_with_key(monkeypatch)
@@ -311,7 +314,8 @@ class TestRateLimit:
         assert result.rate_limit_wait_seconds is not None
 
     async def test_429_no_wait_info(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """HTTP 429 without any wait info returns None for wait seconds."""
         backend = _backend_with_key(monkeypatch)
@@ -336,7 +340,8 @@ class TestHttpErrors:
     """Test HTTP error response handling."""
 
     async def test_401_authentication(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """HTTP 401 produces authentication error type."""
         backend = _backend_with_key(monkeypatch)
@@ -352,7 +357,8 @@ class TestHttpErrors:
         assert result.error_type == "authentication"
 
     async def test_400_bad_request(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """HTTP 400 produces bad_request error type."""
         backend = _backend_with_key(monkeypatch)
@@ -368,7 +374,8 @@ class TestHttpErrors:
         assert result.error_type == "bad_request"
 
     async def test_402_insufficient_credits(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """HTTP 402 produces insufficient_credits error type."""
         backend = _backend_with_key(monkeypatch)
@@ -384,7 +391,8 @@ class TestHttpErrors:
         assert result.error_type == "insufficient_credits"
 
     async def test_503_service_unavailable(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """HTTP 503 produces service_unavailable error type."""
         backend = _backend_with_key(monkeypatch)
@@ -400,7 +408,8 @@ class TestHttpErrors:
         assert result.error_type == "service_unavailable"
 
     async def test_500_generic_error(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """HTTP 500 produces generic api_error type."""
         backend = _backend_with_key(monkeypatch)
@@ -444,7 +453,8 @@ class TestConnectionErrors:
     """Test connection and timeout error handling."""
 
     async def test_connection_error(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Connection error returns structured result (not exception)."""
         backend = _backend_with_key(monkeypatch)
@@ -462,7 +472,8 @@ class TestConnectionErrors:
         assert "Connection refused" in result.stderr
 
     async def test_timeout_error(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Timeout exception returns structured result."""
         backend = _backend_with_key(monkeypatch)
@@ -480,7 +491,8 @@ class TestConnectionErrors:
         assert result.error_type == "timeout"
 
     async def test_unexpected_exception_re_raises(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Unexpected exceptions are re-raised after logging."""
         backend = _backend_with_key(monkeypatch)
@@ -507,11 +519,13 @@ class TestOverrides:
         backend = _backend_with_key(monkeypatch)
         original_model = backend.model
 
-        backend.apply_overrides({
-            "model": "google/gemma-4",
-            "temperature": 0.1,
-            "max_tokens": 4096,
-        })
+        backend.apply_overrides(
+            {
+                "model": "google/gemma-4",
+                "temperature": 0.1,
+                "max_tokens": 4096,
+            }
+        )
 
         assert backend.model == "google/gemma-4"
         assert backend.temperature == 0.1
@@ -520,7 +534,8 @@ class TestOverrides:
         assert backend._saved_model == original_model
 
     def test_clear_overrides_restores(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """clear_overrides restores original values."""
         backend = _backend_with_key(monkeypatch)
@@ -537,7 +552,8 @@ class TestOverrides:
         assert backend._has_overrides is False
 
     def test_clear_without_apply_is_noop(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """clear_overrides without prior apply is safe no-op."""
         backend = _backend_with_key(monkeypatch)
@@ -546,7 +562,8 @@ class TestOverrides:
         assert backend.model == original_model
 
     def test_empty_overrides_is_noop(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Empty overrides dict does not save state."""
         backend = _backend_with_key(monkeypatch)
@@ -577,7 +594,8 @@ class TestHealthCheck:
             assert await backend.health_check() is True
 
     async def test_unhealthy_status(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Health check returns False on non-200 response."""
         backend = _backend_with_key(monkeypatch)
@@ -598,7 +616,8 @@ class TestHealthCheck:
         assert await backend.health_check() is False
 
     async def test_connection_error(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Health check returns False on connection error."""
         backend = _backend_with_key(monkeypatch)
@@ -620,7 +639,8 @@ class TestAvailabilityCheck:
     """Test availability check (no HTTP requests)."""
 
     async def test_available_with_key(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Availability check returns True when key is set."""
         backend = _backend_with_key(monkeypatch)
@@ -641,7 +661,8 @@ class TestClose:
     """Test close() and async context manager."""
 
     async def test_close_idempotent(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Calling close() multiple times is safe."""
         backend = _backend_with_key(monkeypatch)
@@ -649,7 +670,8 @@ class TestClose:
         await backend.close()  # Should not raise
 
     async def test_context_manager(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Backend works as async context manager."""
         monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
@@ -667,7 +689,8 @@ class TestPreambleExtensions:
     """Test prompt assembly with preamble and extensions."""
 
     async def test_preamble_prepended(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Preamble is prepended to the prompt."""
         backend = _backend_with_key(monkeypatch)
@@ -688,7 +711,8 @@ class TestPreambleExtensions:
         assert "Do the work" in prompt_text
 
     async def test_extensions_appended(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Prompt extensions are appended."""
         backend = _backend_with_key(monkeypatch)
@@ -708,7 +732,8 @@ class TestPreambleExtensions:
         assert "Extension 2" in prompt_text
 
     def test_set_prompt_extensions_filters_empty(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Empty/whitespace-only extensions are filtered out."""
         backend = _backend_with_key(monkeypatch)
@@ -725,7 +750,8 @@ class TestOutputLogFile:
     """Test output log file writing."""
 
     def test_set_output_log_path(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Setting log path creates stdout and stderr paths."""
         backend = _backend_with_key(monkeypatch)
@@ -734,7 +760,8 @@ class TestOutputLogFile:
         assert backend._stderr_log_path == Path("/tmp/test/sheet-1.stderr.log")
 
     def test_clear_output_log_path(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Setting None clears both paths."""
         backend = _backend_with_key(monkeypatch)
@@ -744,7 +771,9 @@ class TestOutputLogFile:
         assert backend._stderr_log_path is None
 
     async def test_success_writes_stdout_log(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         """Successful execution writes content to stdout log."""
         backend = _backend_with_key(monkeypatch)
@@ -792,7 +821,8 @@ class TestOverrideLock:
     """Test override_lock property."""
 
     def test_returns_asyncio_lock(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """override_lock returns an asyncio.Lock instance."""
         backend = _backend_with_key(monkeypatch)
@@ -800,7 +830,8 @@ class TestOverrideLock:
         assert isinstance(lock, asyncio.Lock)
 
     def test_returns_same_instance(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Repeated calls return the same lock instance."""
         backend = _backend_with_key(monkeypatch)

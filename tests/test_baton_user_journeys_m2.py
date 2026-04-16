@@ -21,7 +21,6 @@ from __future__ import annotations
 import pytest
 
 from marianne.daemon.baton.core import BatonCore
-from marianne.daemon.baton.state import BatonSheetStatus, SheetExecutionState
 from marianne.daemon.baton.events import (
     CancelJob,
     EscalationResolved,
@@ -33,7 +32,7 @@ from marianne.daemon.baton.events import (
     SheetAttemptResult,
     ShutdownRequested,
 )
-
+from marianne.daemon.baton.state import BatonSheetStatus, SheetExecutionState
 
 # =============================================================================
 # Helpers
@@ -109,7 +108,9 @@ class TestUserPauseDuringEscalation:
         baton = _make_baton()
         sheets = _make_sheets(3)
         baton.register_job(
-            "j1", sheets, {},
+            "j1",
+            sheets,
+            {},
             escalation_enabled=True,
         )
 
@@ -132,9 +133,7 @@ class TestUserPauseDuringEscalation:
         assert sheets[1].status == BatonSheetStatus.FERMATA
 
         # Escalation can still be resolved
-        await baton.handle_event(
-            EscalationResolved(job_id="j1", sheet_num=1, decision="retry")
-        )
+        await baton.handle_event(EscalationResolved(job_id="j1", sheet_num=1, decision="retry"))
         # Sheet should be retryable after escalation resolution
         assert sheets[1].status == BatonSheetStatus.PENDING
 
@@ -202,9 +201,7 @@ class TestCancelDuringRateLimit:
         await baton.handle_event(CancelJob(job_id="j1"))
 
         # Rate limit expires — job is gone
-        await baton.handle_event(
-            RateLimitExpired(instrument="claude-code")
-        )
+        await baton.handle_event(RateLimitExpired(instrument="claude-code"))
         # Should not crash, no state change
         assert "j1" not in baton._jobs
 
@@ -234,9 +231,7 @@ class TestProcessCrashWithCostLimits:
         sheets[2].total_cost_usd = 4.50  # Close to limit
 
         # Process crashes
-        await baton.handle_event(
-            ProcessExited(job_id="j1", sheet_num=2, pid=12345, exit_code=137)
-        )
+        await baton.handle_event(ProcessExited(job_id="j1", sheet_num=2, pid=12345, exit_code=137))
 
         # Sheet should be in RETRY_SCHEDULED (crash consumed a retry)
         assert sheets[2].status == BatonSheetStatus.RETRY_SCHEDULED
@@ -252,9 +247,7 @@ class TestProcessCrashWithCostLimits:
 
         sheets[1].status = BatonSheetStatus.PENDING
 
-        await baton.handle_event(
-            ProcessExited(job_id="j1", sheet_num=1, pid=12345, exit_code=137)
-        )
+        await baton.handle_event(ProcessExited(job_id="j1", sheet_num=1, pid=12345, exit_code=137))
 
         # Should not change — PENDING sheets can't crash
         assert sheets[1].status == BatonSheetStatus.PENDING
@@ -332,9 +325,7 @@ class TestShutdownBehavior:
         sheets[1].status = BatonSheetStatus.DISPATCHED
         sheets[2].status = BatonSheetStatus.COMPLETED
 
-        await baton.handle_event(
-            ShutdownRequested(graceful=True)
-        )
+        await baton.handle_event(ShutdownRequested(graceful=True))
 
         # Dispatched sheet should still be dispatched
         assert sheets[1].status == BatonSheetStatus.DISPATCHED
@@ -351,9 +342,7 @@ class TestShutdownBehavior:
         sheets[2].status = BatonSheetStatus.COMPLETED
         sheets[3].status = BatonSheetStatus.FERMATA
 
-        await baton.handle_event(
-            ShutdownRequested(graceful=False)
-        )
+        await baton.handle_event(ShutdownRequested(graceful=False))
 
         assert sheets[1].status == BatonSheetStatus.CANCELLED
         assert sheets[2].status == BatonSheetStatus.COMPLETED  # Terminal, unchanged
@@ -370,9 +359,7 @@ class TestShutdownBehavior:
         baton.register_job("j1", sheets, {}, escalation_enabled=True)
         sheets[1].status = BatonSheetStatus.FERMATA
 
-        await baton.handle_event(
-            ShutdownRequested(graceful=True)
-        )
+        await baton.handle_event(ShutdownRequested(graceful=True))
 
         assert sheets[1].status == BatonSheetStatus.FERMATA
 
@@ -443,9 +430,7 @@ class TestRateLimitCrossJobIsolation:
         sheets_a[1].status = BatonSheetStatus.WAITING
         sheets_b[1].status = BatonSheetStatus.WAITING
 
-        await baton.handle_event(
-            RateLimitExpired(instrument="claude-code")
-        )
+        await baton.handle_event(RateLimitExpired(instrument="claude-code"))
 
         assert sheets_a[1].status == BatonSheetStatus.PENDING
         assert sheets_b[1].status == BatonSheetStatus.PENDING
@@ -469,7 +454,9 @@ class TestCompletionModeEdgeCases:
         baton = _make_baton()
         sheets = _make_sheets(1, max_retries=3)
         baton.register_job(
-            "j1", sheets, {},
+            "j1",
+            sheets,
+            {},
             escalation_enabled=True,
         )
 
@@ -477,7 +464,8 @@ class TestCompletionModeEdgeCases:
         for i in range(1, 7):  # More than max_completion (5)
             sheets[1].status = BatonSheetStatus.DISPATCHED
             result = _attempt_result(
-                "j1", 1,
+                "j1",
+                1,
                 pass_rate=60.0,
                 validations_total=5,
                 attempt=i,
@@ -510,7 +498,8 @@ class TestCompletionModeEdgeCases:
         for i in range(1, 12):
             sheets[1].status = BatonSheetStatus.DISPATCHED
             result = _attempt_result(
-                "j1", 1,
+                "j1",
+                1,
                 pass_rate=60.0,
                 validations_total=5,
                 attempt=i,
@@ -557,9 +546,7 @@ class TestLateArrivingEvents:
 
         sheets[1].status = BatonSheetStatus.COMPLETED
 
-        await baton.handle_event(
-            ProcessExited(job_id="j1", sheet_num=1, pid=12345, exit_code=137)
-        )
+        await baton.handle_event(ProcessExited(job_id="j1", sheet_num=1, pid=12345, exit_code=137))
 
         assert sheets[1].status == BatonSheetStatus.COMPLETED
 
@@ -583,21 +570,13 @@ class TestLateArrivingEvents:
         baton = _make_baton()
 
         # No jobs registered — these should all be no-ops
-        await baton.handle_event(
-            _attempt_result("ghost-job", 1)
-        )
+        await baton.handle_event(_attempt_result("ghost-job", 1))
         await baton.handle_event(
             ProcessExited(job_id="ghost-job", sheet_num=1, pid=99999, exit_code=1)
         )
-        await baton.handle_event(
-            PauseJob(job_id="ghost-job")
-        )
-        await baton.handle_event(
-            ResumeJob(job_id="ghost-job")
-        )
-        await baton.handle_event(
-            CancelJob(job_id="ghost-job")
-        )
+        await baton.handle_event(PauseJob(job_id="ghost-job"))
+        await baton.handle_event(ResumeJob(job_id="ghost-job"))
+        await baton.handle_event(CancelJob(job_id="ghost-job"))
         # No crash = success
 
 
@@ -626,7 +605,10 @@ class TestDiamondDependencyPropagation:
         sheets[1].status = BatonSheetStatus.DISPATCHED
         # Sheet 1 fails (execution failure, 1 retry = exhausted)
         result = _attempt_result(
-            "j1", 1, execution_success=False, attempt=1,
+            "j1",
+            1,
+            execution_success=False,
+            attempt=1,
         )
         await baton.handle_event(result)
 
@@ -651,7 +633,10 @@ class TestDiamondDependencyPropagation:
         sheets[1].status = BatonSheetStatus.DISPATCHED
 
         result = _attempt_result(
-            "j1", 1, execution_success=False, attempt=1,
+            "j1",
+            1,
+            execution_success=False,
+            attempt=1,
         )
         await baton.handle_event(result)
 

@@ -11,7 +11,7 @@ learning store:
 
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -29,10 +29,10 @@ from marianne.learning.outcomes import SheetOutcome
 from marianne.learning.patterns import DetectedPattern, PatternType
 from marianne.learning.weighter import PatternWeighter
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def store(tmp_path: Path) -> GlobalLearningStore:
@@ -91,6 +91,7 @@ def _make_outcome(
 # AggregationResult
 # ===========================================================================
 
+
 class TestAggregationResult:
     """Tests for AggregationResult initialization and repr."""
 
@@ -138,6 +139,7 @@ class TestAggregationResult:
 # EnhancedAggregationResult
 # ===========================================================================
 
+
 class TestEnhancedAggregationResult:
     """Tests for EnhancedAggregationResult initialization and repr."""
 
@@ -178,6 +180,7 @@ class TestEnhancedAggregationResult:
 # PatternAggregator: initialization
 # ===========================================================================
 
+
 class TestPatternAggregatorInit:
     """Tests for PatternAggregator initialization."""
 
@@ -196,9 +199,7 @@ class TestPatternAggregatorInit:
         assert aggregator.weighter is custom_weighter
         assert aggregator.weighter.decay_rate_per_month == 0.2
 
-    def test_init_without_weighter_creates_default(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_init_without_weighter_creates_default(self, store: GlobalLearningStore) -> None:
         """PatternAggregator should create a default PatternWeighter when None."""
         aggregator = PatternAggregator(store, weighter=None)
         assert isinstance(aggregator.weighter, PatternWeighter)
@@ -207,6 +208,7 @@ class TestPatternAggregatorInit:
 # ===========================================================================
 # PatternAggregator: aggregate_outcomes with empty list
 # ===========================================================================
+
 
 class TestAggregateOutcomesEmpty:
     """Tests for aggregate_outcomes() with empty input."""
@@ -239,6 +241,7 @@ class TestAggregateOutcomesEmpty:
 # PatternAggregator: aggregate_outcomes with mock outcomes
 # ===========================================================================
 
+
 class TestAggregateOutcomesWithOutcomes:
     """Tests for aggregate_outcomes() with actual SheetOutcome data."""
 
@@ -254,9 +257,7 @@ class TestAggregateOutcomesWithOutcomes:
         assert result.outcomes_recorded == 1
         assert result.priorities_updated is True
 
-    def test_multiple_outcomes_recorded(
-        self, store: GlobalLearningStore, workspace: Path
-    ) -> None:
+    def test_multiple_outcomes_recorded(self, store: GlobalLearningStore, workspace: Path) -> None:
         """Multiple outcomes should all be recorded."""
         aggregator = PatternAggregator(store)
         outcomes = [
@@ -270,16 +271,12 @@ class TestAggregateOutcomesWithOutcomes:
         assert result.outcomes_recorded == 3
         assert result.priorities_updated is True
 
-    def test_model_passed_to_store(
-        self, store: GlobalLearningStore, workspace: Path
-    ) -> None:
+    def test_model_passed_to_store(self, store: GlobalLearningStore, workspace: Path) -> None:
         """The model parameter should be forwarded to the store."""
         aggregator = PatternAggregator(store)
         outcome = _make_outcome(sheet_id="sheet-1")
 
-        result = aggregator.aggregate_outcomes(
-            [outcome], workspace, model="claude-3-opus"
-        )
+        result = aggregator.aggregate_outcomes([outcome], workspace, model="claude-3-opus")
 
         assert result.outcomes_recorded == 1
         # Verify the execution was recorded with the model
@@ -318,12 +315,11 @@ class TestAggregateOutcomesWithOutcomes:
 # PatternAggregator: _merge_pattern
 # ===========================================================================
 
+
 class TestMergePattern:
     """Tests for the _merge_pattern internal method."""
 
-    def test_merge_pattern_succeeds(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_merge_pattern_succeeds(self, store: GlobalLearningStore) -> None:
         """_merge_pattern should record a pattern and return its ID."""
         aggregator = PatternAggregator(store)
 
@@ -340,9 +336,7 @@ class TestMergePattern:
         assert pattern_id is not None
         assert len(pattern_id) > 0
 
-    def test_merge_pattern_creates_correct_name_with_tag(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_merge_pattern_creates_correct_name_with_tag(self, store: GlobalLearningStore) -> None:
         """_generate_pattern_name should use type:first_tag format."""
         aggregator = PatternAggregator(store)
 
@@ -355,9 +349,7 @@ class TestMergePattern:
         name = aggregator._generate_pattern_name(pattern)
         assert name == "retry_success:retry:effective"
 
-    def test_merge_pattern_creates_name_without_tags(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_merge_pattern_creates_name_without_tags(self, store: GlobalLearningStore) -> None:
         """_generate_pattern_name should fall back to truncated description."""
         aggregator = PatternAggregator(store)
 
@@ -371,9 +363,7 @@ class TestMergePattern:
         assert name.startswith("completion_mode:")
         assert "completion_mode_effective" in name
 
-    def test_merge_pattern_handles_exception(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_merge_pattern_handles_exception(self, store: GlobalLearningStore) -> None:
         """_merge_pattern should return None and log warning on error."""
         aggregator = PatternAggregator(store)
 
@@ -384,9 +374,7 @@ class TestMergePattern:
         )
 
         # Make record_pattern raise an exception
-        with patch.object(
-            store, "record_pattern", side_effect=RuntimeError("db error")
-        ):
+        with patch.object(store, "record_pattern", side_effect=RuntimeError("db error")):
             result = aggregator._merge_pattern(pattern)
 
         assert result is None
@@ -395,6 +383,7 @@ class TestMergePattern:
 # ===========================================================================
 # PatternAggregator: merge_with_conflict_resolution
 # ===========================================================================
+
 
 class TestMergeWithConflictResolution:
     """Tests for the merge_with_conflict_resolution method."""
@@ -442,14 +431,10 @@ class TestMergeWithConflictResolution:
         merged = aggregator.merge_with_conflict_resolution(existing, new)
         assert merged["occurrence_count"] == 13
 
-    def test_effectiveness_weighted_average(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_effectiveness_weighted_average(self, store: GlobalLearningStore) -> None:
         """Effectiveness should be a weighted average by occurrence count."""
         aggregator = PatternAggregator(store)
-        existing = self._make_pattern_record(
-            occurrence_count=10, effectiveness_score=0.6
-        )
+        existing = self._make_pattern_record(occurrence_count=10, effectiveness_score=0.6)
 
         new = DetectedPattern(
             pattern_type=PatternType.VALIDATION_FAILURE,
@@ -481,14 +466,10 @@ class TestMergeWithConflictResolution:
         merged = aggregator.merge_with_conflict_resolution(existing, new)
         assert "2025-06-01" in str(merged["last_seen"])
 
-    def test_suggested_action_keeps_better_effectiveness(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_suggested_action_keeps_better_effectiveness(self, store: GlobalLearningStore) -> None:
         """If new pattern improves effectiveness, adopt its guidance."""
         aggregator = PatternAggregator(store)
-        existing = self._make_pattern_record(
-            occurrence_count=5, effectiveness_score=0.3
-        )
+        existing = self._make_pattern_record(occurrence_count=5, effectiveness_score=0.3)
 
         new = DetectedPattern(
             pattern_type=PatternType.VALIDATION_FAILURE,
@@ -524,14 +505,10 @@ class TestMergeWithConflictResolution:
         merged = aggregator.merge_with_conflict_resolution(existing, new)
         assert merged["suggested_action"] == "keep this action"
 
-    def test_zero_total_gives_neutral_effectiveness(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_zero_total_gives_neutral_effectiveness(self, store: GlobalLearningStore) -> None:
         """When both have zero counts, effectiveness should be 0.5."""
         aggregator = PatternAggregator(store)
-        existing = self._make_pattern_record(
-            occurrence_count=0, effectiveness_score=0.0
-        )
+        existing = self._make_pattern_record(occurrence_count=0, effectiveness_score=0.0)
 
         new = DetectedPattern(
             pattern_type=PatternType.VALIDATION_FAILURE,
@@ -547,6 +524,7 @@ class TestMergeWithConflictResolution:
 # ===========================================================================
 # PatternAggregator: _update_all_priorities
 # ===========================================================================
+
 
 class TestUpdateAllPriorities:
     """Tests for _update_all_priorities."""
@@ -578,12 +556,11 @@ class TestUpdateAllPriorities:
 # PatternAggregator: prune_deprecated_patterns
 # ===========================================================================
 
+
 class TestPruneDeprecatedPatterns:
     """Tests for prune_deprecated_patterns."""
 
-    def test_prune_sets_priority_to_zero(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_prune_sets_priority_to_zero(self, store: GlobalLearningStore) -> None:
         """Deprecated patterns should have their priority set to 0."""
         aggregator = PatternAggregator(store)
 
@@ -617,9 +594,7 @@ class TestPruneDeprecatedPatterns:
         if deprecated:
             assert deprecated[0].priority_score == 0.0
 
-    def test_prune_does_not_affect_healthy_patterns(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_prune_does_not_affect_healthy_patterns(self, store: GlobalLearningStore) -> None:
         """Patterns with good effectiveness should not be deprecated."""
         aggregator = PatternAggregator(store)
 
@@ -640,7 +615,7 @@ class TestPruneDeprecatedPatterns:
                 retry_count_after=0,
             )
 
-        deprecated_count = aggregator.prune_deprecated_patterns()
+        aggregator.prune_deprecated_patterns()
 
         # The good pattern should NOT be deprecated (or none should be deprecated)
         patterns = store.get_patterns(min_priority=0.0, limit=100)
@@ -648,9 +623,7 @@ class TestPruneDeprecatedPatterns:
         assert len(good) == 1
         assert good[0].priority_score > 0.0
 
-    def test_prune_returns_zero_when_nothing_to_prune(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_prune_returns_zero_when_nothing_to_prune(self, store: GlobalLearningStore) -> None:
         """prune_deprecated_patterns should return 0 when no patterns exist."""
         aggregator = PatternAggregator(store)
         deprecated_count = aggregator.prune_deprecated_patterns()
@@ -660,6 +633,7 @@ class TestPruneDeprecatedPatterns:
 # ===========================================================================
 # PatternAggregator: error handling during aggregation
 # ===========================================================================
+
 
 class TestAggregationErrorHandling:
     """Tests for error handling during aggregation."""
@@ -710,23 +684,22 @@ class TestAggregationErrorHandling:
         aggregator = PatternAggregator(store)
         outcome = _make_outcome(sheet_id="sheet-1")
 
-        with patch.object(
-            store, "record_outcome", side_effect=RuntimeError("db write failed")
+        with (
+            patch.object(store, "record_outcome", side_effect=RuntimeError("db write failed")),
+            pytest.raises(RuntimeError, match="db write failed"),
         ):
-            with pytest.raises(RuntimeError, match="db write failed"):
-                aggregator.aggregate_outcomes([outcome], workspace)
+            aggregator.aggregate_outcomes([outcome], workspace)
 
 
 # ===========================================================================
 # EnhancedPatternAggregator
 # ===========================================================================
 
+
 class TestEnhancedPatternAggregator:
     """Tests for EnhancedPatternAggregator."""
 
-    def test_init_creates_output_extractor(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_init_creates_output_extractor(self, store: GlobalLearningStore) -> None:
         """EnhancedPatternAggregator should create an OutputPatternExtractor."""
         aggregator = EnhancedPatternAggregator(store)
         assert aggregator.output_extractor is not None
@@ -791,9 +764,9 @@ class TestEnhancedPatternAggregator:
         aggregator = EnhancedPatternAggregator(store)
 
         summary = {
-            "import_error": 3,   # >= 2, should be converted
-            "timeout": 1,        # < 2, should NOT be converted
-            "rate_limit": 5,     # >= 2, should be converted
+            "import_error": 3,  # >= 2, should be converted
+            "timeout": 1,  # < 2, should NOT be converted
+            "rate_limit": 5,  # >= 2, should be converted
         }
 
         detected = aggregator._convert_output_patterns_to_detected(summary)
@@ -804,9 +777,7 @@ class TestEnhancedPatternAggregator:
         assert any("rate_limit" in n for n in names)
         assert not any("timeout" in n for n in names)
 
-    def test_convert_output_patterns_confidence_capped(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_convert_output_patterns_confidence_capped(self, store: GlobalLearningStore) -> None:
         """Confidence should be capped at 0.85."""
         aggregator = EnhancedPatternAggregator(store)
 
@@ -828,9 +799,7 @@ class TestEnhancedPatternAggregator:
         assert len(detected) == 1
         assert detected[0].pattern_type == PatternType.OUTPUT_PATTERN
 
-    def test_convert_output_patterns_empty_summary(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_convert_output_patterns_empty_summary(self, store: GlobalLearningStore) -> None:
         """Empty summary should produce no detected patterns."""
         aggregator = EnhancedPatternAggregator(store)
 
@@ -841,6 +810,7 @@ class TestEnhancedPatternAggregator:
 # ===========================================================================
 # Convenience functions
 # ===========================================================================
+
 
 class TestConvenienceFunctions:
     """Tests for aggregate_job_outcomes and aggregate_job_outcomes_enhanced."""
@@ -909,6 +879,7 @@ class TestConvenienceFunctions:
 # Integration: full aggregation pipeline
 # ===========================================================================
 
+
 class TestAggregationIntegration:
     """Integration tests exercising the full aggregation pipeline."""
 
@@ -928,17 +899,13 @@ class TestAggregationIntegration:
                 sheet_id="sheet-4",
                 validation_pass_rate=0.0,
                 success_without_retry=False,
-                validation_results=[
-                    {"rule_type": "file_exists", "passed": False}
-                ],
+                validation_results=[{"rule_type": "file_exists", "passed": False}],
             ),
             _make_outcome(
                 sheet_id="sheet-5",
                 validation_pass_rate=0.0,
                 success_without_retry=False,
-                validation_results=[
-                    {"rule_type": "file_exists", "passed": False}
-                ],
+                validation_results=[{"rule_type": "file_exists", "passed": False}],
             ),
         ]
 
@@ -961,9 +928,7 @@ class TestAggregationIntegration:
                 sheet_id=f"sheet-{i}",
                 validation_pass_rate=0.0,
                 success_without_retry=False,
-                validation_results=[
-                    {"rule_type": "file_exists", "passed": False}
-                ],
+                validation_results=[{"rule_type": "file_exists", "passed": False}],
                 stdout_tail="ImportError: No module named 'missing'",
             )
             for i in range(5)
@@ -976,9 +941,7 @@ class TestAggregationIntegration:
         assert result.patterns_detected >= 1
         assert result.priorities_updated is True
 
-    def test_aggregate_then_prune(
-        self, store: GlobalLearningStore, workspace: Path
-    ) -> None:
+    def test_aggregate_then_prune(self, store: GlobalLearningStore, workspace: Path) -> None:
         """After aggregation, pruning should work on the stored patterns."""
         aggregator = PatternAggregator(store)
 
@@ -993,9 +956,7 @@ class TestAggregationIntegration:
         assert isinstance(deprecated_count, int)
         assert deprecated_count >= 0
 
-    def test_record_pattern_applications_is_noop(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_record_pattern_applications_is_noop(self, store: GlobalLearningStore) -> None:
         """_record_pattern_applications should be a no-op (stub)."""
         aggregator = PatternAggregator(store)
         outcome = _make_outcome(sheet_id="sheet-1")

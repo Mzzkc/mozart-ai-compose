@@ -11,12 +11,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from marianne.core.checkpoint import CheckpointState, JobStatus
-
 
 # =========================================================================
 # F-068: Completed timestamp shown for RUNNING scores
@@ -211,8 +210,9 @@ prompt:
 
     def test_for_loop_variable_not_flagged(self, checker: object) -> None:
         """{% for id, char in items %} should NOT flag char or id."""
-        from marianne.validation.checks.jinja import JinjaUndefinedVariableCheck
         import jinja2
+
+        from marianne.validation.checks.jinja import JinjaUndefinedVariableCheck
 
         template = "{% for id, char in characters.items() %}{{ char.name }}{% endfor %}"
         env = jinja2.Environment()
@@ -226,8 +226,9 @@ prompt:
 
     def test_set_variable_not_flagged(self, checker: object) -> None:
         """{% set char = expr %} should NOT flag char."""
-        from marianne.validation.checks.jinja import JinjaUndefinedVariableCheck
         import jinja2
+
+        from marianne.validation.checks.jinja import JinjaUndefinedVariableCheck
 
         template = "{% set char = characters[instance] %}{{ char.name }}"
         env = jinja2.Environment()
@@ -240,8 +241,9 @@ prompt:
 
     def test_conditional_branch_set_not_flagged(self, checker: object) -> None:
         """{% set %} inside {% elif %} should NOT cause false positive."""
-        from marianne.validation.checks.jinja import JinjaUndefinedVariableCheck
         import jinja2
+
+        from marianne.validation.checks.jinja import JinjaUndefinedVariableCheck
 
         template = (
             "{% if stage == 1 %}"
@@ -261,8 +263,9 @@ prompt:
 
     def test_truly_undefined_variable_still_flagged(self, checker: object) -> None:
         """Variables that are genuinely undefined should still be flagged."""
-        from marianne.validation.checks.jinja import JinjaUndefinedVariableCheck
         import jinja2
+
+        from marianne.validation.checks.jinja import JinjaUndefinedVariableCheck
 
         template = "{{ totally_undefined }}"
         env = jinja2.Environment()

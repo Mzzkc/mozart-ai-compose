@@ -17,7 +17,6 @@ from marianne.core.checkpoint import (
 )
 from marianne.schema.converters import deserialize_field, serialize_field
 from marianne.schema.registry import (
-    ColumnSource,
     TableMapping,
     generate_create_table,
     generate_upsert,
@@ -27,7 +26,6 @@ from marianne.schema.registry import (
     get_sqlite_type,
     get_state_registry,
 )
-
 
 # ── Type mapping ─────────────────────────────────────────────────────────
 
@@ -198,7 +196,9 @@ class TestGenerateCreateTable:
         assert "id TEXT PRIMARY KEY" in sql
         # Original model field names should NOT appear as columns
         lines = sql.split("\n")
-        column_lines = [l.strip() for l in lines if l.strip() and not l.strip().startswith(("CREATE", ")"))]
+        column_lines = [
+            l.strip() for l in lines if l.strip() and not l.strip().startswith(("CREATE", ")"))
+        ]
         col_names = [l.split()[0] for l in column_lines]
         assert "job_id" not in col_names
         assert "job_name" not in col_names
@@ -431,9 +431,7 @@ class TestStateRegistry:
         for mapping in reg:
             conn.execute(generate_create_table(mapping))
         # Verify both exist
-        cursor = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-        )
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         tables = {row[0] for row in cursor.fetchall()}
         assert "jobs" in tables
         assert "sheets" in tables
@@ -586,10 +584,7 @@ class TestRoundTrip:
     def test_optional_datetime(self) -> None:
         v = datetime(2026, 1, 1)
         assert deserialize_field(serialize_field(v, datetime | None), datetime | None) == v
-        assert (
-            deserialize_field(serialize_field(None, datetime | None), datetime | None)
-            is None
-        )
+        assert deserialize_field(serialize_field(None, datetime | None), datetime | None) is None
 
     def test_nested_list_of_dicts(self) -> None:
         v = [{"id": "p1", "description": "test"}, {"id": "p2", "description": "test2"}]

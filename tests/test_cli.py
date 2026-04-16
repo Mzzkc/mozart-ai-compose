@@ -26,13 +26,13 @@ def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
     Tests that need conductor behavior should mock try_daemon_route
     explicitly with the desired return value.
     """
-    async def _fake_route(
-        method: str, params: dict, *, socket_path=None
-    ) -> tuple[bool, None]:
+
+    async def _fake_route(method: str, params: dict, *, socket_path=None) -> tuple[bool, None]:
         return False, None
 
     monkeypatch.setattr(
-        "marianne.daemon.detect.try_daemon_route", _fake_route,
+        "marianne.daemon.detect.try_daemon_route",
+        _fake_route,
     )
 
 
@@ -82,21 +82,30 @@ class TestListCommand:
     @staticmethod
     def _mock_route(jobs: list[dict]):
         """Return a patch that makes try_daemon_route return *jobs*."""
+
         async def _fake_route(method, params):
             return (True, jobs)
+
         return patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_route)
 
     @staticmethod
     def _mock_route_down():
         """Return a patch simulating no daemon running."""
+
         async def _fake_route(method, params):
             return (False, None)
+
         return patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_route)
 
     def test_list_no_active_jobs(self) -> None:
         """Default list shows 'no active jobs' when only historical jobs exist."""
         jobs = [
-            {"job_id": "job-0", "status": "completed", "workspace": "/w0", "submitted_at": 1707900000.0},
+            {
+                "job_id": "job-0",
+                "status": "completed",
+                "workspace": "/w0",
+                "submitted_at": 1707900000.0,
+            },
         ]
         with self._mock_route(jobs):
             result = runner.invoke(app, ["list"])
@@ -107,9 +116,24 @@ class TestListCommand:
     def test_list_shows_active_jobs(self) -> None:
         """Default list shows running/queued/paused jobs."""
         jobs = [
-            {"job_id": "running-1", "status": "running", "workspace": "/w0", "submitted_at": 1707900000.0},
-            {"job_id": "completed-1", "status": "completed", "workspace": "/w1", "submitted_at": 1707900001.0},
-            {"job_id": "queued-1", "status": "queued", "workspace": "/w2", "submitted_at": 1707900002.0},
+            {
+                "job_id": "running-1",
+                "status": "running",
+                "workspace": "/w0",
+                "submitted_at": 1707900000.0,
+            },
+            {
+                "job_id": "completed-1",
+                "status": "completed",
+                "workspace": "/w1",
+                "submitted_at": 1707900001.0,
+            },
+            {
+                "job_id": "queued-1",
+                "status": "queued",
+                "workspace": "/w2",
+                "submitted_at": 1707900002.0,
+            },
         ]
         with self._mock_route(jobs):
             result = runner.invoke(app, ["list"])
@@ -122,9 +146,24 @@ class TestListCommand:
     def test_list_all_shows_everything(self) -> None:
         """--all flag shows all jobs including completed/failed."""
         jobs = [
-            {"job_id": "job-0", "status": "completed", "workspace": "/w0", "submitted_at": 1707900000.0},
-            {"job_id": "job-1", "status": "failed", "workspace": "/w1", "submitted_at": 1707900001.0},
-            {"job_id": "job-2", "status": "queued", "workspace": "/w2", "submitted_at": 1707900002.0},
+            {
+                "job_id": "job-0",
+                "status": "completed",
+                "workspace": "/w0",
+                "submitted_at": 1707900000.0,
+            },
+            {
+                "job_id": "job-1",
+                "status": "failed",
+                "workspace": "/w1",
+                "submitted_at": 1707900001.0,
+            },
+            {
+                "job_id": "job-2",
+                "status": "queued",
+                "workspace": "/w2",
+                "submitted_at": 1707900002.0,
+            },
         ]
         with self._mock_route(jobs):
             result = runner.invoke(app, ["list", "--all"])
@@ -137,9 +176,24 @@ class TestListCommand:
     def test_list_filter_by_status(self) -> None:
         """--status filter overrides default active-only view."""
         jobs = [
-            {"job_id": "job-0", "status": "completed", "workspace": "/w0", "submitted_at": 1707900000.0},
-            {"job_id": "job-1", "status": "failed", "workspace": "/w1", "submitted_at": 1707900001.0},
-            {"job_id": "job-2", "status": "completed", "workspace": "/w2", "submitted_at": 1707900002.0},
+            {
+                "job_id": "job-0",
+                "status": "completed",
+                "workspace": "/w0",
+                "submitted_at": 1707900000.0,
+            },
+            {
+                "job_id": "job-1",
+                "status": "failed",
+                "workspace": "/w1",
+                "submitted_at": 1707900001.0,
+            },
+            {
+                "job_id": "job-2",
+                "status": "completed",
+                "workspace": "/w2",
+                "submitted_at": 1707900002.0,
+            },
         ]
         with self._mock_route(jobs):
             result = runner.invoke(app, ["list", "--status", "completed"])
@@ -152,7 +206,12 @@ class TestListCommand:
     def test_list_filter_no_matches(self) -> None:
         """Status filter with no matches shows appropriate message."""
         jobs = [
-            {"job_id": "job-0", "status": "completed", "workspace": "/w0", "submitted_at": 1707900000.0},
+            {
+                "job_id": "job-0",
+                "status": "completed",
+                "workspace": "/w0",
+                "submitted_at": 1707900000.0,
+            },
         ]
         with self._mock_route(jobs):
             result = runner.invoke(app, ["list", "--status", "running"])
@@ -162,7 +221,12 @@ class TestListCommand:
     def test_list_with_limit(self) -> None:
         """--limit option caps results."""
         jobs = [
-            {"job_id": f"job-{i}", "status": "running", "workspace": f"/w{i}", "submitted_at": 1707900000.0 + i}
+            {
+                "job_id": f"job-{i}",
+                "status": "running",
+                "workspace": f"/w{i}",
+                "submitted_at": 1707900000.0 + i,
+            }
             for i in range(5)
         ]
         with self._mock_route(jobs):
@@ -237,9 +301,7 @@ class TestStatusCommand:
         state_file = tmp_path / "test-job-status.json"
         state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
 
-        result = runner.invoke(
-            app, ["status", "test-job-status", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["status", "test-job-status", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Test Job for Status" in result.stdout
         assert "test-job-status" in result.stdout
@@ -252,9 +314,7 @@ class TestStatusCommand:
         workspace = tmp_path / "empty_ws"
         workspace.mkdir()
 
-        result = runner.invoke(
-            app, ["status", "nonexistent-job", "--workspace", str(workspace)]
-        )
+        result = runner.invoke(app, ["status", "nonexistent-job", "--workspace", str(workspace)])
         assert result.exit_code == 1
         assert "Score not found" in result.stdout
         assert "nonexistent-job" in result.stdout
@@ -350,9 +410,7 @@ class TestStatusCommand:
         state_file = tmp_path / "sheet-details-job.json"
         state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
 
-        result = runner.invoke(
-            app, ["status", "sheet-details-job", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["status", "sheet-details-job", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Sheet Details" in result.stdout
         assert "Max retries exceeded" in result.stdout
@@ -364,9 +422,7 @@ class TestStatusCommand:
         """Test status command with nonexistent workspace."""
         fake_workspace = tmp_path / "does_not_exist"
 
-        result = runner.invoke(
-            app, ["status", "some-job", "--workspace", str(fake_workspace)]
-        )
+        result = runner.invoke(app, ["status", "some-job", "--workspace", str(fake_workspace)])
         assert result.exit_code == 1
         assert "Workspace not found" in result.stdout
 
@@ -382,16 +438,19 @@ class TestResumeCommand:
         monkeypatch.chdir(workspace)
 
         # F-502: Mock conductor to test local validation logic
-        with patch("marianne.daemon.detect.try_daemon_route", new_callable=AsyncMock, return_value=(False, None)):
-            result = runner.invoke(
-                app, ["resume", "nonexistent-job"]
-            )
+        with patch(
+            "marianne.daemon.detect.try_daemon_route",
+            new_callable=AsyncMock,
+            return_value=(False, None),
+        ):
+            result = runner.invoke(app, ["resume", "nonexistent-job"])
         assert result.exit_code == 1
         # With conductor unavailable, we get "conductor not running" error
         assert "conductor" in result.stdout.lower() or "daemon" in result.stdout.lower()
 
     def test_resume_completed_job_blocked(self, tmp_path: Path, monkeypatch) -> None:
         """Test resume shows error for completed jobs without --force."""
+
         # Resume routes through conductor; mock a rejection response
         async def _fake_route(method, params, *, socket_path=None):
             return True, {
@@ -401,14 +460,13 @@ class TestResumeCommand:
             }
 
         with patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_route):
-            result = runner.invoke(
-                app, ["resume", "completed-job"]
-            )
+            result = runner.invoke(app, ["resume", "completed-job"])
         assert result.exit_code == 1
         assert "already completed" in result.stdout
 
     def test_resume_pending_job_blocked(self, tmp_path: Path, monkeypatch) -> None:
         """Test resume shows error for pending (never started) jobs."""
+
         # Resume routes through conductor; mock a rejection response
         async def _fake_route(method, params, *, socket_path=None):
             return True, {
@@ -418,9 +476,7 @@ class TestResumeCommand:
             }
 
         with patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_route):
-            result = runner.invoke(
-                app, ["resume", "pending-job"]
-            )
+            result = runner.invoke(app, ["resume", "pending-job"])
         assert result.exit_code == 1
         assert "not been started yet" in result.stdout
 
@@ -428,6 +484,7 @@ class TestResumeCommand:
         self, tmp_path: Path, sample_config_dict: dict, monkeypatch
     ) -> None:
         """Test resume of paused job is accepted by conductor."""
+
         # Resume routes through conductor; mock an accepted response
         async def _fake_route(method, params, *, socket_path=None):
             return True, {
@@ -437,15 +494,16 @@ class TestResumeCommand:
             }
 
         with patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_route):
-            result = runner.invoke(
-                app, ["resume", "paused-job"]
-            )
+            result = runner.invoke(app, ["resume", "paused-job"])
 
         assert result.exit_code == 0
         assert "Resume accepted" in result.stdout
 
-    def test_resume_failed_job_allowed(self, tmp_path: Path, sample_config_dict: dict, monkeypatch) -> None:
+    def test_resume_failed_job_allowed(
+        self, tmp_path: Path, sample_config_dict: dict, monkeypatch
+    ) -> None:
         """Test resume is allowed for failed jobs."""
+
         # Resume routes through conductor; mock an accepted response
         async def _fake_route(method, params, *, socket_path=None):
             assert params["job_id"] == "failed-job"
@@ -456,15 +514,14 @@ class TestResumeCommand:
             }
 
         with patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_route):
-            result = runner.invoke(
-                app, ["resume", "failed-job"]
-            )
+            result = runner.invoke(app, ["resume", "failed-job"])
 
         assert result.exit_code == 0
         assert "Resume accepted" in result.stdout
 
     def test_resume_missing_config(self, tmp_path: Path, monkeypatch) -> None:
         """Test resume shows error when no config is available."""
+
         # Resume routes through conductor; mock a rejection about missing config
         async def _fake_route(method, params, *, socket_path=None):
             return True, {
@@ -474,9 +531,7 @@ class TestResumeCommand:
             }
 
         with patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_route):
-            result = runner.invoke(
-                app, ["resume", "no-config-job"]
-            )
+            result = runner.invoke(app, ["resume", "no-config-job"])
         assert result.exit_code == 1
         assert "No config available" in result.stdout
 
@@ -484,6 +539,7 @@ class TestResumeCommand:
         self, tmp_path: Path, sample_yaml_config: Path, monkeypatch
     ) -> None:
         """Test resume with explicit --config file passes config_path to conductor."""
+
         # Resume routes through conductor; verify config_path is passed
         async def _fake_route(method, params, *, socket_path=None):
             assert params["config_path"] is not None
@@ -495,10 +551,13 @@ class TestResumeCommand:
 
         with patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_route):
             result = runner.invoke(
-                app, [
-                    "resume", "test-job",
-                    "--config", str(sample_yaml_config),
-                ]
+                app,
+                [
+                    "resume",
+                    "test-job",
+                    "--config",
+                    str(sample_yaml_config),
+                ],
             )
 
         assert result.exit_code == 0
@@ -508,6 +567,7 @@ class TestResumeCommand:
         self, tmp_path: Path, sample_config_dict: dict, monkeypatch
     ) -> None:
         """Test resume with --force is accepted by conductor."""
+
         # Resume routes through conductor; mock an accepted response
         async def _fake_route(method, params, *, socket_path=None):
             return True, {
@@ -518,10 +578,12 @@ class TestResumeCommand:
 
         with patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_route):
             result = runner.invoke(
-                app, [
-                    "resume", "force-job",
+                app,
+                [
+                    "resume",
+                    "force-job",
                     "--force",
-                ]
+                ],
             )
 
         assert result.exit_code == 0
@@ -559,9 +621,7 @@ class TestFindJobState:
         state_file = tmp_path / "test-job.json"
         state_file.write_text(json.dumps(paused_state.model_dump(mode="json"), default=str))
 
-        found_state, found_backend = asyncio.run(
-            _find_job_state("test-job", force=False)
-        )
+        found_state, found_backend = asyncio.run(_find_job_state("test-job", force=False))
         assert found_state.job_id == "test-job"
         assert found_state.status == JobStatus.PAUSED
 
@@ -583,9 +643,7 @@ class TestFindJobState:
         sqlite_backend = SQLiteStateBackend(sqlite_path)
         asyncio.run(sqlite_backend.save(paused_state))
 
-        found_state, found_backend = asyncio.run(
-            _find_job_state("test-job", force=False)
-        )
+        found_state, found_backend = asyncio.run(_find_job_state("test-job", force=False))
         assert found_state.job_id == "test-job"
         # SQLite is checked second in CWD (JSON first, then SQLite)
         # Note: order changed in F-502 - CWD searches JSON first
@@ -645,9 +703,7 @@ class TestFindJobState:
         state_file = tmp_path / "done-job.json"
         state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
 
-        found_state, _ = asyncio.run(
-            _find_job_state("done-job", force=True)
-        )
+        found_state, _ = asyncio.run(_find_job_state("done-job", force=True))
         assert found_state.status == JobStatus.COMPLETED
 
     def test_find_job_state_pending_blocked(self, tmp_path: Path, monkeypatch) -> None:
@@ -703,9 +759,7 @@ class TestFindJobState:
         state_file = tmp_path / "running-job.json"
         state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
 
-        found_state, _ = asyncio.run(
-            _find_job_state("running-job", force=False)
-        )
+        found_state, _ = asyncio.run(_find_job_state("running-job", force=False))
         assert found_state.status == JobStatus.RUNNING
 
 
@@ -754,7 +808,9 @@ class TestReconstructConfig:
         assert config.name == "test-job"
         assert was_reloaded is True
 
-    def test_priority2_auto_reload_from_stored_path(self, tmp_path: Path, config_dict: dict) -> None:
+    def test_priority2_auto_reload_from_stored_path(
+        self, tmp_path: Path, config_dict: dict
+    ) -> None:
         """Test Priority 2: auto-reload from stored config_path when file exists."""
         import yaml
 
@@ -776,7 +832,9 @@ class TestReconstructConfig:
         assert config.name == "test-job"
         assert was_reloaded is True
 
-    def test_priority2_file_missing_falls_through_to_snapshot(self, tmp_path: Path, config_dict: dict) -> None:
+    def test_priority2_file_missing_falls_through_to_snapshot(
+        self, tmp_path: Path, config_dict: dict
+    ) -> None:
         """Test Priority 2 -> 3: missing file falls through to snapshot."""
         from marianne.cli.commands.resume import _reconstruct_config
 
@@ -801,11 +859,15 @@ class TestReconstructConfig:
         from marianne.cli.commands.resume import _reconstruct_config
 
         config_path = tmp_path / "original.yaml"
-        config_path.write_text(yaml.dump({
-            "name": "yaml-config",
-            "sheet": {"size": 5, "total_items": 10},
-            "prompt": {"template": "From YAML"},
-        }))
+        config_path.write_text(
+            yaml.dump(
+                {
+                    "name": "yaml-config",
+                    "sheet": {"size": 5, "total_items": 10},
+                    "prompt": {"template": "From YAML"},
+                }
+            )
+        )
 
         state = CheckpointState(
             job_id="test-job",
@@ -909,13 +971,12 @@ class TestDashboardCommand:
     def test_dashboard_starts_with_default_options(self, tmp_path: Path) -> None:
         """Test dashboard command starts server with default options (mocked)."""
         import sys
+
         mock_uvicorn = AsyncMock()
         mock_uvicorn.run = lambda *args, **kwargs: None
 
         with patch.dict(sys.modules, {"uvicorn": mock_uvicorn}):
-            result = runner.invoke(
-                app, ["dashboard", "--workspace", str(tmp_path)]
-            )
+            result = runner.invoke(app, ["dashboard", "--workspace", str(tmp_path)])
 
             assert result.exit_code == 0
             assert "Marianne Dashboard" in result.stdout
@@ -925,6 +986,7 @@ class TestDashboardCommand:
     def test_dashboard_custom_port(self, tmp_path: Path) -> None:
         """Test dashboard command with custom port."""
         import sys
+
         mock_uvicorn = AsyncMock()
         mock_uvicorn.run = lambda *args, **kwargs: None
 
@@ -939,6 +1001,7 @@ class TestDashboardCommand:
     def test_dashboard_custom_host(self, tmp_path: Path) -> None:
         """Test dashboard command with custom host."""
         import sys
+
         mock_uvicorn = AsyncMock()
         mock_uvicorn.run = lambda *args, **kwargs: None
 
@@ -958,9 +1021,7 @@ class TestDashboardCommand:
         mock_uvicorn.run = lambda *args, **kwargs: None
 
         with patch.dict(sys.modules, {"uvicorn": mock_uvicorn}):
-            result = runner.invoke(
-                app, ["dashboard", "--workspace", str(tmp_path)]
-            )
+            result = runner.invoke(app, ["dashboard", "--workspace", str(tmp_path)])
 
             assert result.exit_code == 0
             assert "Marianne Dashboard" in result.stdout
@@ -968,13 +1029,12 @@ class TestDashboardCommand:
     def test_dashboard_shows_docs_url(self, tmp_path: Path) -> None:
         """Test dashboard shows Swagger docs URL in startup message."""
         import sys
+
         mock_uvicorn = AsyncMock()
         mock_uvicorn.run = lambda *args, **kwargs: None
 
         with patch.dict(sys.modules, {"uvicorn": mock_uvicorn}):
-            result = runner.invoke(
-                app, ["dashboard", "--workspace", str(tmp_path)]
-            )
+            result = runner.invoke(app, ["dashboard", "--workspace", str(tmp_path)])
 
             assert result.exit_code == 0
             assert "/docs" in result.stdout
@@ -983,6 +1043,7 @@ class TestDashboardCommand:
     def test_dashboard_creates_app_with_correct_settings(self, tmp_path: Path) -> None:
         """Test dashboard creates app with correct title and workspace."""
         import sys
+
         mock_uvicorn = AsyncMock()
         mock_uvicorn.run = lambda *args, **kwargs: None
 
@@ -1033,9 +1094,7 @@ class TestRunCommandJsonOutput:
 
     def test_run_dry_run_with_json_flag(self, sample_yaml_config: Path) -> None:
         """Test run --dry-run --json outputs valid JSON."""
-        result = runner.invoke(
-            app, ["run", str(sample_yaml_config), "--dry-run", "--json"]
-        )
+        result = runner.invoke(app, ["run", str(sample_yaml_config), "--dry-run", "--json"])
         assert result.exit_code == 0
 
         # Parse output as JSON
@@ -1046,9 +1105,7 @@ class TestRunCommandJsonOutput:
 
     def test_run_json_short_flag(self, sample_yaml_config: Path) -> None:
         """Test run --dry-run -j uses short flag."""
-        result = runner.invoke(
-            app, ["run", str(sample_yaml_config), "--dry-run", "-j"]
-        )
+        result = runner.invoke(app, ["run", str(sample_yaml_config), "--dry-run", "-j"])
         assert result.exit_code == 0
 
         # Should be valid JSON
@@ -1057,9 +1114,7 @@ class TestRunCommandJsonOutput:
 
     def test_run_quiet_mode_hides_config_panel(self, sample_yaml_config: Path) -> None:
         """Test run with --quiet hides job configuration panel."""
-        result = runner.invoke(
-            app, ["-q", "run", str(sample_yaml_config), "--dry-run"]
-        )
+        result = runner.invoke(app, ["-q", "run", str(sample_yaml_config), "--dry-run"])
         assert result.exit_code == 0
         # In quiet mode, config panel is hidden
         assert "Score Configuration" not in result.stdout
@@ -1110,20 +1165,23 @@ class TestLoggingOptions:
 
     def test_log_level_short_flag(self, sample_yaml_config: Path) -> None:
         """Test -L short flag for log level."""
-        result = runner.invoke(
-            app, ["-L", "DEBUG", "run", str(sample_yaml_config), "--dry-run"]
-        )
+        result = runner.invoke(app, ["-L", "DEBUG", "run", str(sample_yaml_config), "--dry-run"])
         assert result.exit_code == 0
 
     def test_log_file_option(self, tmp_path: Path, sample_yaml_config: Path) -> None:
         """Test --log-file option creates log file."""
         log_file = tmp_path / "test.log"
         result = runner.invoke(
-            app, [
-                "--log-level", "DEBUG",
-                "--log-file", str(log_file),
-                "run", str(sample_yaml_config), "--dry-run",
-            ]
+            app,
+            [
+                "--log-level",
+                "DEBUG",
+                "--log-file",
+                str(log_file),
+                "run",
+                str(sample_yaml_config),
+                "--dry-run",
+            ],
         )
         assert result.exit_code == 0
         # Note: The log file may or may not have content depending on what
@@ -1152,52 +1210,57 @@ class TestLoggingOptions:
         assert result.exit_code == 1
         assert "file_path is required" in result.stdout
 
-    def test_log_format_both_with_log_file(
-        self, tmp_path: Path, sample_yaml_config: Path
-    ) -> None:
+    def test_log_format_both_with_log_file(self, tmp_path: Path, sample_yaml_config: Path) -> None:
         """Test --log-format both works with --log-file."""
         log_file = tmp_path / "test.log"
         result = runner.invoke(
-            app, [
-                "--log-format", "both",
-                "--log-file", str(log_file),
-                "run", str(sample_yaml_config), "--dry-run",
-            ]
+            app,
+            [
+                "--log-format",
+                "both",
+                "--log-file",
+                str(log_file),
+                "run",
+                str(sample_yaml_config),
+                "--dry-run",
+            ],
         )
         assert result.exit_code == 0
 
-    def test_all_logging_options_combined(
-        self, tmp_path: Path, sample_yaml_config: Path
-    ) -> None:
+    def test_all_logging_options_combined(self, tmp_path: Path, sample_yaml_config: Path) -> None:
         """Test all logging options can be combined."""
         log_file = tmp_path / "combined.log"
         result = runner.invoke(
-            app, [
-                "--log-level", "DEBUG",
-                "--log-format", "both",
-                "--log-file", str(log_file),
-                "run", str(sample_yaml_config), "--dry-run",
-            ]
+            app,
+            [
+                "--log-level",
+                "DEBUG",
+                "--log-format",
+                "both",
+                "--log-file",
+                str(log_file),
+                "run",
+                str(sample_yaml_config),
+                "--dry-run",
+            ],
         )
         assert result.exit_code == 0
 
     def test_log_level_with_validate_command(self, sample_yaml_config: Path) -> None:
         """Test --log-level works with validate command."""
-        result = runner.invoke(
-            app, ["--log-level", "DEBUG", "validate", str(sample_yaml_config)]
-        )
+        result = runner.invoke(app, ["--log-level", "DEBUG", "validate", str(sample_yaml_config)])
         assert result.exit_code == 0
         # New enhanced validation shows different output
         assert "Configuration valid" in result.stdout or "YAML syntax valid" in result.stdout
 
     def test_log_level_with_list_command(self) -> None:
         """Test --log-level works with list command."""
+
         async def _fake_route(method, params):
             return (True, [])
+
         with patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_route):
-            result = runner.invoke(
-                app, ["--log-level", "WARNING", "list"]
-            )
+            result = runner.invoke(app, ["--log-level", "WARNING", "list"])
         assert result.exit_code == 0
         assert "No active scores" in result.stdout
 
@@ -1229,9 +1292,7 @@ class TestLoggingOptions:
         )
         assert result.exit_code == 0
 
-    def test_cli_option_overrides_env_var(
-        self, tmp_path: Path, sample_yaml_config: Path
-    ) -> None:
+    def test_cli_option_overrides_env_var(self, tmp_path: Path, sample_yaml_config: Path) -> None:
         """Test CLI option takes precedence over environment variable."""
         # Set env var to WARNING, but CLI to DEBUG
         result = runner.invoke(
@@ -1250,9 +1311,7 @@ class TestErrorsCommand:
         workspace = tmp_path / "empty_ws"
         workspace.mkdir()
 
-        result = runner.invoke(
-            app, ["errors", "nonexistent-job", "--workspace", str(workspace)]
-        )
+        result = runner.invoke(app, ["errors", "nonexistent-job", "--workspace", str(workspace)])
         assert result.exit_code == 1
         assert "Score not found" in result.stdout
 
@@ -1291,9 +1350,7 @@ class TestErrorsCommand:
         state_file = tmp_path / "clean-job.json"
         state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
 
-        result = runner.invoke(
-            app, ["errors", "clean-job", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["errors", "clean-job", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "No errors found" in result.stdout
 
@@ -1335,9 +1392,7 @@ class TestErrorsCommand:
         state_file = tmp_path / "failed-job.json"
         state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
 
-        result = runner.invoke(
-            app, ["errors", "failed-job", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["errors", "failed-job", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Errors for Score" in result.stdout
         assert "Max retries exceeded" in result.stdout or "validation" in result.stdout
@@ -1480,9 +1535,7 @@ class TestDiagnoseCommand:
         workspace = tmp_path / "empty_ws"
         workspace.mkdir()
 
-        result = runner.invoke(
-            app, ["diagnose", "nonexistent-job", "--workspace", str(workspace)]
-        )
+        result = runner.invoke(app, ["diagnose", "nonexistent-job", "--workspace", str(workspace)])
         assert result.exit_code == 1
         assert "Score not found" in result.stdout
 
@@ -1525,9 +1578,7 @@ class TestDiagnoseCommand:
         state_file = tmp_path / "diagnose-test.json"
         state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
 
-        result = runner.invoke(
-            app, ["diagnose", "diagnose-test", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["diagnose", "diagnose-test", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Diagnostic Report" in result.stdout
         assert "Diagnose Test Job" in result.stdout
@@ -1566,9 +1617,7 @@ class TestDiagnoseCommand:
         state_file = tmp_path / "diagnose-errors.json"
         state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
 
-        result = runner.invoke(
-            app, ["diagnose", "diagnose-errors", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["diagnose", "diagnose-errors", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Errors" in result.stdout
         assert "FAILED" in result.stdout
@@ -1605,9 +1654,7 @@ class TestDiagnoseCommand:
         state_file = tmp_path / "diagnose-warnings.json"
         state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
 
-        result = runner.invoke(
-            app, ["diagnose", "diagnose-warnings", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["diagnose", "diagnose-warnings", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Preflight Warnings" in result.stdout
 
@@ -1707,9 +1754,7 @@ class TestDiagnoseCommand:
         state_file = tmp_path / "diagnose-timeline.json"
         state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
 
-        result = runner.invoke(
-            app, ["diagnose", "diagnose-timeline", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["diagnose", "diagnose-timeline", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Execution Timeline" in result.stdout
 
@@ -1755,9 +1800,7 @@ class TestEnhancedStatusCommand:
         state_file = tmp_path / "status-errors.json"
         state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
 
-        result = runner.invoke(
-            app, ["status", "status-errors", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["status", "status-errors", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Recent Errors" in result.stdout
         assert "mzt errors" in result.stdout  # Hint to use errors command
@@ -1795,9 +1838,7 @@ class TestEnhancedStatusCommand:
         state_file = tmp_path / "status-activity.json"
         state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
 
-        result = runner.invoke(
-            app, ["status", "status-activity", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["status", "status-activity", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         # Beautified output shows last activity in compact Stats section
         assert "Last activity" in result.stdout or "Stats" in result.stdout
@@ -1819,24 +1860,34 @@ class TestEnhancedStatusCommand:
                 3: SheetState(sheet_num=3, status=SheetStatus.COMPLETED, attempt_count=1),
                 # Consecutive failures that would trigger circuit breaker
                 4: SheetState(
-                    sheet_num=4, status=SheetStatus.FAILED,
-                    attempt_count=3, error_message="Failed 1",
+                    sheet_num=4,
+                    status=SheetStatus.FAILED,
+                    attempt_count=3,
+                    error_message="Failed 1",
                 ),
                 5: SheetState(
-                    sheet_num=5, status=SheetStatus.FAILED,
-                    attempt_count=3, error_message="Failed 2",
+                    sheet_num=5,
+                    status=SheetStatus.FAILED,
+                    attempt_count=3,
+                    error_message="Failed 2",
                 ),
                 6: SheetState(
-                    sheet_num=6, status=SheetStatus.FAILED,
-                    attempt_count=3, error_message="Failed 3",
+                    sheet_num=6,
+                    status=SheetStatus.FAILED,
+                    attempt_count=3,
+                    error_message="Failed 3",
                 ),
                 7: SheetState(
-                    sheet_num=7, status=SheetStatus.FAILED,
-                    attempt_count=3, error_message="Failed 4",
+                    sheet_num=7,
+                    status=SheetStatus.FAILED,
+                    attempt_count=3,
+                    error_message="Failed 4",
                 ),
                 8: SheetState(
-                    sheet_num=8, status=SheetStatus.FAILED,
-                    attempt_count=3, error_message="Failed 5",
+                    sheet_num=8,
+                    status=SheetStatus.FAILED,
+                    attempt_count=3,
+                    error_message="Failed 5",
                 ),
             },
         )
@@ -1844,9 +1895,7 @@ class TestEnhancedStatusCommand:
         state_file = tmp_path / "status-cb.json"
         state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
 
-        result = runner.invoke(
-            app, ["status", "status-cb", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["status", "status-cb", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         # Should show inferred circuit breaker state with consecutive failures
         assert "Circuit Breaker" in result.stdout
@@ -1915,9 +1964,7 @@ class TestDiagnoseCommandSmoke:
         """Test diagnose with nonexistent job ID returns error."""
         workspace = tmp_path / "empty_ws"
         workspace.mkdir()
-        result = runner.invoke(
-            app, ["diagnose", "no-such-job-xyz", "--workspace", str(workspace)]
-        )
+        result = runner.invoke(app, ["diagnose", "no-such-job-xyz", "--workspace", str(workspace)])
         assert result.exit_code == 1
         assert "not found" in result.stdout.lower() or "no-such-job-xyz" in result.stdout
 
@@ -1934,9 +1981,7 @@ class TestPauseCommandSmoke:
     def test_pause_nonexistent_workspace(self, tmp_path: Path) -> None:
         """Test pause with nonexistent workspace returns error."""
         fake_workspace = tmp_path / "does_not_exist"
-        result = runner.invoke(
-            app, ["pause", "no-such-job", "--workspace", str(fake_workspace)]
-        )
+        result = runner.invoke(app, ["pause", "no-such-job", "--workspace", str(fake_workspace)])
         assert result.exit_code != 0
 
 

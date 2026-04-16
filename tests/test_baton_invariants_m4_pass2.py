@@ -162,9 +162,7 @@ class TestCredentialRedactionIdempotence:
         deadline=None,
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
-    def test_redaction_converges_after_one_pass(
-        self, text: str, iterations: int
-    ) -> None:
+    def test_redaction_converges_after_one_pass(self, text: str, iterations: int) -> None:
         """N applications of redaction == 1 application."""
         result = text
         for _ in range(iterations):
@@ -385,9 +383,7 @@ class TestAutoFreshTimestampTransitivity:
         deadline=None,
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
-    def test_timestamp_comparison_is_transitive(
-        self, t1: float, t2: float, t3: float
-    ) -> None:
+    def test_timestamp_comparison_is_transitive(self, t1: float, t2: float, t3: float) -> None:
         """Timestamp ordering is transitive."""
         # Sort to ensure t1 >= t2 >= t3
         timestamps = sorted([t1, t2, t3], reverse=True)
@@ -420,9 +416,7 @@ class TestClearRateLimitTotality:
         deadline=None,
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
-    def test_clear_returns_nonnegative_count(
-        self, instrument_name: str | None
-    ) -> None:
+    def test_clear_returns_nonnegative_count(self, instrument_name: str | None) -> None:
         """Clearing rate limits returns a non-negative count."""
         # Simulate clear logic
         rate_limits: dict[str, float] = {

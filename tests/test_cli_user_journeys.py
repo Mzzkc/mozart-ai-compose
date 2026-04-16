@@ -161,18 +161,14 @@ class TestTomsBadDay:
     @pytest.mark.adversarial
     def test_init_spaces_in_name_rejected(self, tmp_path: Path) -> None:
         """Spaces in score name give a helpful suggestion."""
-        result = runner.invoke(
-            app, ["init", "--path", str(tmp_path), "--name", "my bad name"]
-        )
+        result = runner.invoke(app, ["init", "--path", str(tmp_path), "--name", "my bad name"])
         assert result.exit_code != 0
         assert "space" in result.stdout.lower() or "hyphen" in result.stdout.lower()
 
     @pytest.mark.adversarial
     def test_init_empty_name_rejected(self, tmp_path: Path) -> None:
         """Empty name is rejected with guidance."""
-        result = runner.invoke(
-            app, ["init", "--path", str(tmp_path), "--name", ""]
-        )
+        result = runner.invoke(app, ["init", "--path", str(tmp_path), "--name", ""])
         assert result.exit_code != 0
         assert "empty" in result.stdout.lower()
 
@@ -296,9 +292,7 @@ class TestBobTheScripter:
     @pytest.mark.adversarial
     def test_init_json_output_is_parseable(self, tmp_path: Path) -> None:
         """Init --json produces parseable JSON."""
-        result = runner.invoke(
-            app, ["init", "--path", str(tmp_path), "--json"]
-        )
+        result = runner.invoke(app, ["init", "--path", str(tmp_path), "--json"])
         assert result.exit_code == 0
         data = json.loads(result.stdout)
         assert "success" in data
@@ -420,9 +414,7 @@ class TestCancelJourney:
 
         assert result.exit_code != 0
         output = result.output.lower()
-        assert "list" in output, (
-            "Cancel not-found should suggest 'mzt list' like other commands"
-        )
+        assert "list" in output, "Cancel not-found should suggest 'mzt list' like other commands"
 
     @pytest.mark.adversarial
     def test_cancel_wrong_name_exits_nonzero(self) -> None:
@@ -436,6 +428,4 @@ class TestCancelJourney:
         ):
             result = runner.invoke(app, ["cancel", "nonexistent"])
 
-        assert result.exit_code != 0, (
-            "Cancel failing should be exit code 1, not 0"
-        )
+        assert result.exit_code != 0, "Cancel failing should be exit code 1, not 0"

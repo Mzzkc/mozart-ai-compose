@@ -15,7 +15,6 @@ import pytest
 
 from marianne.daemon.system_probe import SystemProbe
 
-
 # ─── get_memory_mb ─────────────────────────────────────────────────────
 
 
@@ -51,10 +50,7 @@ class TestGetMemoryMb:
     def test_proc_fallback_parses_vmrss(self):
         """Falls back to /proc/self/status and parses VmRSS line."""
         proc_status = (
-            "Name:\tpython3\n"
-            "VmPeak:\t 204800 kB\n"
-            "VmRSS:\t  102400 kB\n"
-            "VmSize:\t 204800 kB\n"
+            "Name:\tpython3\nVmPeak:\t 204800 kB\nVmRSS:\t  102400 kB\nVmSize:\t 204800 kB\n"
         )
         with (
             patch("marianne.daemon.system_probe._psutil", None),
@@ -111,15 +107,18 @@ class TestGetChildCount:
 
         def fake_ppid(pid_str: str) -> int | None:
             return {
-                "1001": my_pid,   # child
-                "1002": my_pid,   # child
-                "1003": 999,      # not our child
-                "1004": None,     # unreadable
+                "1001": my_pid,  # child
+                "1002": my_pid,  # child
+                "1003": 999,  # not our child
+                "1004": None,  # unreadable
             }.get(pid_str)
 
         with (
             patch("marianne.daemon.system_probe._psutil", None),
-            patch("marianne.daemon.system_probe.os.listdir", return_value=["1001", "1002", "1003", "1004", "self"]),
+            patch(
+                "marianne.daemon.system_probe.os.listdir",
+                return_value=["1001", "1002", "1003", "1004", "self"],
+            ),
             patch("marianne.daemon.system_probe.os.getpid", return_value=my_pid),
             patch.object(SystemProbe, "_read_proc_ppid", side_effect=fake_ppid),
         ):
@@ -131,7 +130,9 @@ class TestGetChildCount:
         """Returns None when /proc listdir fails entirely."""
         with (
             patch("marianne.daemon.system_probe._psutil", None),
-            patch("marianne.daemon.system_probe.os.listdir", side_effect=OSError("permission denied")),
+            patch(
+                "marianne.daemon.system_probe.os.listdir", side_effect=OSError("permission denied")
+            ),
         ):
             result = SystemProbe.get_child_count()
             assert result is None
@@ -245,7 +246,8 @@ class TestCountGroupMembers:
         with patch("marianne.daemon.system_probe._psutil", None):
             # Just test it doesn't crash
             result = SystemProbe.count_group_members(
-                os.getpgrp(), exclude_pid=os.getpid(),
+                os.getpgrp(),
+                exclude_pid=os.getpid(),
             )
             assert isinstance(result, int)
             assert result >= 0
@@ -256,9 +258,9 @@ class TestCountGroupMembers:
 
         # /proc/{pid}/stat format: pid (comm) state ppid pgid ...
         stat_entries = {
-            "100": f"100 (python) S 99 {target_pgid} 100 0",    # matches
-            "200": f"200 (node) S 99 {target_pgid} 200 0",      # matches
-            "300": "300 (bash) S 99 9999 300 0",                  # different pgid
+            "100": f"100 (python) S 99 {target_pgid} 100 0",  # matches
+            "200": f"200 (node) S 99 {target_pgid} 200 0",  # matches
+            "300": "300 (bash) S 99 9999 300 0",  # different pgid
         }
 
         def fake_open(path, **_):
@@ -269,7 +271,10 @@ class TestCountGroupMembers:
 
         with (
             patch("marianne.daemon.system_probe._psutil", None),
-            patch("marianne.daemon.system_probe.os.listdir", return_value=["100", "200", "300", "self"]),
+            patch(
+                "marianne.daemon.system_probe.os.listdir",
+                return_value=["100", "200", "300", "self"],
+            ),
             patch("builtins.open", side_effect=fake_open),
         ):
             result = SystemProbe.count_group_members(target_pgid, exclude_pid=0)

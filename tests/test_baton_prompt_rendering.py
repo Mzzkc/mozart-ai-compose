@@ -20,7 +20,6 @@ from marianne.daemon.baton.events import SheetAttemptResult
 from marianne.daemon.baton.musician import _build_prompt
 from marianne.daemon.baton.state import AttemptContext, AttemptMode
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -92,7 +91,9 @@ class TestJinja2Rendering:
 
     def test_renders_movement_and_voice(self) -> None:
         sheet = _make_sheet(
-            movement=2, voice=3, voice_count=5,
+            movement=2,
+            voice=3,
+            voice_count=5,
             prompt_template="M{{ movement }} V{{ voice }} of {{ voice_count }}",
         )
         prompt = _build_prompt(sheet, _make_context(), total_sheets=10, total_movements=4)
@@ -113,7 +114,8 @@ class TestJinja2Rendering:
 
     def test_builtin_variables_override_custom(self) -> None:
         sheet = _make_sheet(
-            num=7, prompt_template="Sheet {{ sheet_num }}",
+            num=7,
+            prompt_template="Sheet {{ sheet_num }}",
             variables={"sheet_num": 999},
         )
         prompt = _build_prompt(sheet, _make_context(), total_sheets=10, total_movements=1)
@@ -121,7 +123,9 @@ class TestJinja2Rendering:
 
     def test_renders_old_terminology_aliases(self) -> None:
         sheet = _make_sheet(
-            movement=2, voice=1, voice_count=3,
+            movement=2,
+            voice=1,
+            voice_count=3,
             prompt_template="Stage {{ stage }} instance {{ instance }}",
         )
         prompt = _build_prompt(sheet, _make_context(), total_sheets=5, total_movements=2)
@@ -224,13 +228,15 @@ class TestValidationInjection:
     def test_validation_rules_injected(self) -> None:
         rules = [
             ValidationRule(
-                type="file_exists", path="{workspace}/output.md",
+                type="file_exists",
+                path="{workspace}/output.md",
                 description="Output report",
             ),
         ]
         sheet = _make_sheet(
             prompt_template="Write the report",
-            validations=rules, workspace=Path("/tmp/ws"),
+            validations=rules,
+            workspace=Path("/tmp/ws"),
         )
         prompt = _build_prompt(sheet, _make_context(), total_sheets=1, total_movements=1)
         assert "Output report" in prompt
@@ -244,7 +250,8 @@ class TestValidationInjection:
     def test_command_succeeds_rule_shown(self) -> None:
         rules = [
             ValidationRule(
-                type="command_succeeds", command="pytest tests/ -x",
+                type="command_succeeds",
+                command="pytest tests/ -x",
                 description="Tests pass",
             ),
         ]
@@ -302,16 +309,20 @@ class TestAttemptContextBackwardCompat:
 
     def test_custom_values(self) -> None:
         ctx = AttemptContext(
-            attempt_number=1, mode=AttemptMode.NORMAL,
-            total_sheets=100, total_movements=15,
+            attempt_number=1,
+            mode=AttemptMode.NORMAL,
+            total_sheets=100,
+            total_movements=15,
         )
         assert ctx.total_sheets == 100
         assert ctx.total_movements == 15
 
     def test_existing_fields_preserved(self) -> None:
         ctx = AttemptContext(
-            attempt_number=2, mode=AttemptMode.COMPLETION,
-            completion_prompt_suffix="Fix it", learned_patterns=["Pattern 1"],
+            attempt_number=2,
+            mode=AttemptMode.COMPLETION,
+            completion_prompt_suffix="Fix it",
+            learned_patterns=["Pattern 1"],
         )
         assert ctx.attempt_number == 2
         assert ctx.mode == AttemptMode.COMPLETION
@@ -337,9 +348,16 @@ class TestSheetTaskIntegration:
         backend = AsyncMock()
         backend.execute = AsyncMock(
             return_value=MagicMock(
-                success=True, exit_code=0, stdout="Done", stderr="",
-                duration_seconds=1.0, rate_limited=False, error_message=None,
-                input_tokens=100, output_tokens=50, model="test-model",
+                success=True,
+                exit_code=0,
+                stdout="Done",
+                stderr="",
+                duration_seconds=1.0,
+                rate_limited=False,
+                error_message=None,
+                input_tokens=100,
+                output_tokens=50,
+                model="test-model",
             )
         )
         backend.set_preamble = MagicMock()
@@ -348,9 +366,13 @@ class TestSheetTaskIntegration:
         inbox: asyncio.Queue[SheetAttemptResult] = asyncio.Queue()
 
         await sheet_task(
-            job_id="test-job", sheet=sheet, backend=backend,
-            attempt_context=_make_context(), inbox=inbox,
-            total_sheets=5, total_movements=3,
+            job_id="test-job",
+            sheet=sheet,
+            backend=backend,
+            attempt_context=_make_context(),
+            inbox=inbox,
+            total_sheets=5,
+            total_movements=3,
         )
 
         backend.execute.assert_called_once()

@@ -120,9 +120,7 @@ async def test_list_jobs_handles_individual_failure(
 
 @pytest.mark.asyncio
 async def test_save_raises(adapter: DaemonStateAdapter) -> None:
-    state = CheckpointState(
-        job_id="x", job_name="x", total_sheets=1
-    )
+    state = CheckpointState(job_id="x", job_name="x", total_sheets=1)
     with pytest.raises(NotImplementedError, match="read-only"):
         await adapter.save(state)
 

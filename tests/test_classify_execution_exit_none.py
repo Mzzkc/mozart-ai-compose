@@ -31,7 +31,9 @@ class TestClassifyExecutionExitNone:
     def test_exit_none_empty_output(self) -> None:
         """exit_code=None with no output → TRANSIENT."""
         result = self.classifier.classify_execution(
-            stdout="", stderr="", exit_code=None,
+            stdout="",
+            stderr="",
+            exit_code=None,
         )
         assert result.primary.category == ErrorCategory.TRANSIENT
         assert result.primary.retriable is True

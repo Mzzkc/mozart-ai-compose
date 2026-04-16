@@ -32,41 +32,45 @@ class TestTryParseJsonErrors:
         assert try_parse_json_errors(output) == []
 
     def test_single_system_error(self) -> None:
-        output = json.dumps({
-            "result": "",
-            "errors": [
-                {"type": "system", "message": "Rate limit exceeded"}
-            ],
-        })
+        output = json.dumps(
+            {
+                "result": "",
+                "errors": [{"type": "system", "message": "Rate limit exceeded"}],
+            }
+        )
         result = try_parse_json_errors(output)
         assert len(result) == 1
         assert result[0].error_type == "system"
         assert result[0].message == "Rate limit exceeded"
 
     def test_multiple_errors(self) -> None:
-        output = json.dumps({
-            "result": "",
-            "errors": [
-                {"type": "system", "message": "Rate limit exceeded"},
-                {"type": "user", "message": "spawn claude ENOENT"},
-            ],
-        })
+        output = json.dumps(
+            {
+                "result": "",
+                "errors": [
+                    {"type": "system", "message": "Rate limit exceeded"},
+                    {"type": "user", "message": "spawn claude ENOENT"},
+                ],
+            }
+        )
         result = try_parse_json_errors(output)
         assert len(result) == 2
         assert result[0].message == "Rate limit exceeded"
         assert result[1].message == "spawn claude ENOENT"
 
     def test_tool_error_with_tool_name(self) -> None:
-        output = json.dumps({
-            "errors": [
-                {
-                    "type": "tool",
-                    "message": "MCP server unreachable",
-                    "tool_name": "mcp_fetch",
-                    "metadata": {"server": "localhost:3000"},
-                }
-            ],
-        })
+        output = json.dumps(
+            {
+                "errors": [
+                    {
+                        "type": "tool",
+                        "message": "MCP server unreachable",
+                        "tool_name": "mcp_fetch",
+                        "metadata": {"server": "localhost:3000"},
+                    }
+                ],
+            }
+        )
         result = try_parse_json_errors(output)
         assert len(result) == 1
         assert result[0].error_type == "tool"
@@ -76,9 +80,11 @@ class TestTryParseJsonErrors:
     def test_non_json_preamble_before_json(self) -> None:
         """CLI startup messages precede JSON output."""
         preamble = "Starting Claude CLI v1.2.3\nInitializing...\n"
-        json_part = json.dumps({
-            "errors": [{"type": "system", "message": "Auth failed"}],
-        })
+        json_part = json.dumps(
+            {
+                "errors": [{"type": "system", "message": "Auth failed"}],
+            }
+        )
         output = preamble + json_part
         result = try_parse_json_errors(output)
         assert len(result) == 1
@@ -86,46 +92,56 @@ class TestTryParseJsonErrors:
 
     def test_errors_in_stderr(self) -> None:
         """Some errors appear in stderr instead of stdout."""
-        stderr = json.dumps({
-            "errors": [{"type": "user", "message": "permission denied"}],
-        })
+        stderr = json.dumps(
+            {
+                "errors": [{"type": "user", "message": "permission denied"}],
+            }
+        )
         result = try_parse_json_errors("", stderr)
         assert len(result) == 1
         assert result[0].message == "permission denied"
 
     def test_deduplicates_across_stdout_stderr(self) -> None:
         """Same error in both streams is deduplicated."""
-        data = json.dumps({
-            "errors": [{"type": "system", "message": "Rate limit"}],
-        })
+        data = json.dumps(
+            {
+                "errors": [{"type": "system", "message": "Rate limit"}],
+            }
+        )
         result = try_parse_json_errors(data, data)
         assert len(result) == 1
 
     def test_non_dict_error_items_skipped(self) -> None:
         """errors[] items that aren't dicts are skipped."""
-        output = json.dumps({
-            "errors": [
-                "string error",
-                42,
-                {"type": "system", "message": "Real error"},
-            ],
-        })
+        output = json.dumps(
+            {
+                "errors": [
+                    "string error",
+                    42,
+                    {"type": "system", "message": "Real error"},
+                ],
+            }
+        )
         result = try_parse_json_errors(output)
         assert len(result) == 1
         assert result[0].message == "Real error"
 
     def test_missing_type_defaults_to_unknown(self) -> None:
-        output = json.dumps({
-            "errors": [{"message": "Something went wrong"}],
-        })
+        output = json.dumps(
+            {
+                "errors": [{"message": "Something went wrong"}],
+            }
+        )
         result = try_parse_json_errors(output)
         assert len(result) == 1
         assert result[0].error_type == "unknown"
 
     def test_missing_message_defaults_to_empty(self) -> None:
-        output = json.dumps({
-            "errors": [{"type": "system"}],
-        })
+        output = json.dumps(
+            {
+                "errors": [{"type": "system"}],
+            }
+        )
         result = try_parse_json_errors(output)
         assert len(result) == 1
         assert result[0].message == ""
@@ -250,7 +266,8 @@ class TestClassifySingleJsonError:
     def test_exit_reason_passed_through(self) -> None:
         error = ParsedCliError(error_type="system", message="Rate limit")
         result = classify_single_json_error(
-            error, exit_reason="timeout",
+            error,
+            exit_reason="timeout",
         )
         assert result.exit_reason == "timeout"
 
@@ -435,11 +452,11 @@ class TestJsonParsingEdgeCases:
 
     def test_escaped_quotes_in_message(self) -> None:
         """Backslash-escaped quotes inside error messages."""
-        output = json.dumps({
-            "errors": [
-                {"type": "system", "message": 'Path is "C:\\\\Users\\\\test"'}
-            ],
-        })
+        output = json.dumps(
+            {
+                "errors": [{"type": "system", "message": 'Path is "C:\\\\Users\\\\test"'}],
+            }
+        )
         result = try_parse_json_errors(output)
         assert len(result) == 1
         assert "Users" in result[0].message
@@ -455,9 +472,11 @@ class TestJsonParsingEdgeCases:
     def test_multiple_json_objects_takes_first_with_errors(self) -> None:
         """When multiple JSON objects exist, errors from first valid one win."""
         json1 = json.dumps({"result": "ok"})  # No errors
-        json2 = json.dumps({
-            "errors": [{"type": "user", "message": "second object error"}],
-        })
+        json2 = json.dumps(
+            {
+                "errors": [{"type": "user", "message": "second object error"}],
+            }
+        )
         output = json1 + "\n" + json2
         result = try_parse_json_errors(output)
         assert len(result) == 1

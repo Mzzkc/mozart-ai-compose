@@ -36,21 +36,26 @@ from marianne.daemon.baton.events import (
     to_observer_event,
 )
 
-
 # =============================================================================
 # All event types in the union — used for parametrized tests
 # =============================================================================
+
 
 def _make_all_events() -> list[BatonEvent]:
     """Create one instance of every BatonEvent type with minimal args."""
     return [
         SheetAttemptResult(
-            job_id="test-job", sheet_num=1, instrument_name="claude-code", attempt=1,
+            job_id="test-job",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
         ),
         SheetSkipped(job_id="test-job", sheet_num=2, reason="skip_when"),
         RateLimitHit(
-            instrument="claude-code", wait_seconds=60.0,
-            job_id="test-job", sheet_num=3,
+            instrument="claude-code",
+            wait_seconds=60.0,
+            job_id="test-job",
+            sheet_num=3,
         ),
         RateLimitExpired(instrument="claude-code"),
         RetryDue(job_id="test-job", sheet_num=4),
@@ -59,7 +64,9 @@ def _make_all_events() -> list[BatonEvent]:
         JobTimeout(job_id="test-job"),
         PacingComplete(job_id="test-job"),
         EscalationNeeded(
-            job_id="test-job", sheet_num=6, reason="low confidence",
+            job_id="test-job",
+            sheet_num=6,
+            reason="low confidence",
             options=["retry", "accept", "skip"],
         ),
         EscalationResolved(job_id="test-job", sheet_num=6, decision="retry"),
@@ -89,8 +96,10 @@ class TestSheetAttemptResult:
 
     def test_minimal_construction(self) -> None:
         result = SheetAttemptResult(
-            job_id="my-job", sheet_num=1,
-            instrument_name="claude-code", attempt=1,
+            job_id="my-job",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
         )
         assert result.job_id == "my-job"
         assert result.sheet_num == 1
@@ -102,18 +111,26 @@ class TestSheetAttemptResult:
 
     def test_full_construction(self) -> None:
         result = SheetAttemptResult(
-            job_id="research", sheet_num=3,
-            instrument_name="gemini-cli", attempt=2,
-            execution_success=True, exit_code=0,
+            job_id="research",
+            sheet_num=3,
+            instrument_name="gemini-cli",
+            attempt=2,
+            execution_success=True,
+            exit_code=0,
             duration_seconds=45.2,
-            validations_passed=4, validations_total=5,
+            validations_passed=4,
+            validations_total=5,
             validation_pass_rate=80.0,
             validation_details={"file_exists": True, "content_match": False},
-            error_classification=None, error_message=None,
+            error_classification=None,
+            error_message=None,
             rate_limited=False,
-            cost_usd=0.42, input_tokens=1500, output_tokens=3200,
+            cost_usd=0.42,
+            input_tokens=1500,
+            output_tokens=3200,
             model_used="gemini-2.5-pro",
-            stdout_tail="Last 10KB...", stderr_tail="",
+            stdout_tail="Last 10KB...",
+            stderr_tail="",
         )
         assert result.validation_pass_rate == 80.0
         assert result.cost_usd == 0.42
@@ -126,8 +143,12 @@ class TestSheetAttemptResult:
         retry budget — it re-queues the sheet for when the instrument recovers.
         """
         result = SheetAttemptResult(
-            job_id="job", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=False, rate_limited=True,
+            job_id="job",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=False,
+            rate_limited=True,
         )
         assert result.rate_limited is True
         assert result.execution_success is False
@@ -135,7 +156,10 @@ class TestSheetAttemptResult:
     def test_timestamp_auto_populated(self) -> None:
         before = time.time()
         result = SheetAttemptResult(
-            job_id="job", sheet_num=1, instrument_name="x", attempt=1,
+            job_id="job",
+            sheet_num=1,
+            instrument_name="x",
+            attempt=1,
         )
         after = time.time()
         assert before <= result.timestamp <= after
@@ -144,7 +168,9 @@ class TestSheetAttemptResult:
 class TestSheetSkipped:
     def test_construction(self) -> None:
         event = SheetSkipped(
-            job_id="job", sheet_num=2, reason="start_sheet override",
+            job_id="job",
+            sheet_num=2,
+            reason="start_sheet override",
         )
         assert event.reason == "start_sheet override"
 
@@ -156,8 +182,10 @@ class TestSheetSkipped:
 class TestRateLimitEvents:
     def test_hit_construction(self) -> None:
         event = RateLimitHit(
-            instrument="gemini-cli", wait_seconds=3600.0,
-            job_id="job", sheet_num=5,
+            instrument="gemini-cli",
+            wait_seconds=3600.0,
+            job_id="job",
+            sheet_num=5,
         )
         assert event.instrument == "gemini-cli"
         assert event.wait_seconds == 3600.0
@@ -192,7 +220,9 @@ class TestTimerEvents:
 class TestEscalationEvents:
     def test_needed_with_options(self) -> None:
         event = EscalationNeeded(
-            job_id="j", sheet_num=5, reason="low confidence",
+            job_id="j",
+            sheet_num=5,
+            reason="low confidence",
             options=["retry", "accept", "skip"],
         )
         assert len(event.options) == 3
@@ -200,13 +230,17 @@ class TestEscalationEvents:
 
     def test_needed_default_empty_options(self) -> None:
         event = EscalationNeeded(
-            job_id="j", sheet_num=5, reason="ambiguous",
+            job_id="j",
+            sheet_num=5,
+            reason="ambiguous",
         )
         assert event.options == []
 
     def test_resolved(self) -> None:
         event = EscalationResolved(
-            job_id="j", sheet_num=5, decision="accept",
+            job_id="j",
+            sheet_num=5,
+            decision="accept",
         )
         assert event.decision == "accept"
 
@@ -238,7 +272,8 @@ class TestExternalCommandEvents:
 
     def test_config_reloaded(self) -> None:
         event = ConfigReloaded(
-            job_id="j", new_config={"backend": {"type": "gemini-cli"}},
+            job_id="j",
+            new_config={"backend": {"type": "gemini-cli"}},
         )
         assert event.new_config["backend"]["type"] == "gemini-cli"
 
@@ -254,7 +289,10 @@ class TestExternalCommandEvents:
 class TestObserverEvents:
     def test_process_exited(self) -> None:
         event = ProcessExited(
-            job_id="j", sheet_num=3, pid=12345, exit_code=137,
+            job_id="j",
+            sheet_num=3,
+            pid=12345,
+            exit_code=137,
         )
         assert event.pid == 12345
         assert event.exit_code == 137
@@ -265,7 +303,9 @@ class TestObserverEvents:
 
     def test_resource_anomaly(self) -> None:
         event = ResourceAnomaly(
-            severity="critical", metric="memory", value=95.0,
+            severity="critical",
+            metric="memory",
+            value=95.0,
         )
         assert event.severity == "critical"
         assert event.metric == "memory"
@@ -297,16 +337,19 @@ def test_event_is_immutable(event: BatonEvent) -> None:
 def test_union_type_covers_all_event_classes() -> None:
     """BatonEvent union type must include every event class defined in events.py."""
     # Get all event classes from the module
-    import marianne.daemon.baton.events as mod
     from dataclasses import is_dataclass
 
+    import marianne.daemon.baton.events as mod
+
     event_classes = {
-        name: obj for name, obj in vars(mod).items()
+        name: obj
+        for name, obj in vars(mod).items()
         if isinstance(obj, type) and is_dataclass(obj) and name != "BatonEvent"
     }
 
     # BatonEvent is a type alias (Union), get its args
     from typing import get_args
+
     union_args = set(get_args(mod.BatonEvent))
 
     for name, cls in event_classes.items():
@@ -353,17 +396,19 @@ def test_to_observer_event_uses_baton_namespace(event: BatonEvent) -> None:
     """All baton events use the baton.* event namespace."""
     result = to_observer_event(event)
     assert result["event"].startswith("baton."), (
-        f"{type(event).__name__} event name '{result['event']}' "
-        "does not start with 'baton.'"
+        f"{type(event).__name__} event name '{result['event']}' does not start with 'baton.'"
     )
 
 
 def test_sheet_attempt_result_observer_event_data() -> None:
     """SheetAttemptResult carries rich data in its observer event."""
     event = SheetAttemptResult(
-        job_id="research", sheet_num=3,
-        instrument_name="gemini-cli", attempt=2,
-        execution_success=True, cost_usd=0.42,
+        job_id="research",
+        sheet_num=3,
+        instrument_name="gemini-cli",
+        attempt=2,
+        execution_success=True,
+        cost_usd=0.42,
         validation_pass_rate=80.0,
         model_used="gemini-2.5-pro",
         duration_seconds=30.5,
@@ -379,8 +424,10 @@ def test_sheet_attempt_result_observer_event_data() -> None:
 def test_rate_limit_hit_observer_event_data() -> None:
     """RateLimitHit observer event includes instrument and wait time."""
     event = RateLimitHit(
-        instrument="claude-code", wait_seconds=3600.0,
-        job_id="job", sheet_num=5,
+        instrument="claude-code",
+        wait_seconds=3600.0,
+        job_id="job",
+        sheet_num=5,
     )
     result = to_observer_event(event)
     assert result["event"] == "baton.rate_limit.active"
@@ -391,7 +438,8 @@ def test_rate_limit_hit_observer_event_data() -> None:
 def test_escalation_observer_event_data() -> None:
     """EscalationNeeded includes reason and options for the dashboard."""
     event = EscalationNeeded(
-        job_id="j", sheet_num=5,
+        job_id="j",
+        sheet_num=5,
         reason="low confidence",
         options=["retry", "accept", "skip"],
     )
@@ -427,8 +475,12 @@ def test_shutdown_observer_event_data() -> None:
 def test_sheet_attempt_result_with_empty_strings() -> None:
     """SheetAttemptResult handles empty string fields gracefully."""
     result = SheetAttemptResult(
-        job_id="", sheet_num=0, instrument_name="", attempt=0,
-        stdout_tail="", stderr_tail="",
+        job_id="",
+        sheet_num=0,
+        instrument_name="",
+        attempt=0,
+        stdout_tail="",
+        stderr_tail="",
     )
     assert result.job_id == ""
     obs = to_observer_event(result)
@@ -440,7 +492,10 @@ def test_sheet_attempt_result_with_large_output() -> None:
     """SheetAttemptResult can carry large stdout_tail without issue."""
     large_output = "x" * 100_000
     result = SheetAttemptResult(
-        job_id="j", sheet_num=1, instrument_name="x", attempt=1,
+        job_id="j",
+        sheet_num=1,
+        instrument_name="x",
+        attempt=1,
         stdout_tail=large_output,
     )
     assert len(result.stdout_tail) == 100_000
@@ -450,7 +505,10 @@ def test_sheet_attempt_result_with_large_output() -> None:
 def test_negative_cost_is_accepted() -> None:
     """Negative cost isn't validated at the event level — baton decides."""
     result = SheetAttemptResult(
-        job_id="j", sheet_num=1, instrument_name="x", attempt=1,
+        job_id="j",
+        sheet_num=1,
+        instrument_name="x",
+        attempt=1,
         cost_usd=-1.0,
     )
     assert result.cost_usd == -1.0
@@ -465,7 +523,10 @@ def test_validation_details_with_nested_data() -> None:
         "composite": {"children": [{"type": "file_count", "count": 3}]},
     }
     result = SheetAttemptResult(
-        job_id="j", sheet_num=1, instrument_name="x", attempt=1,
+        job_id="j",
+        sheet_num=1,
+        instrument_name="x",
+        attempt=1,
         validation_details=details,
     )
     assert result.validation_details is not None

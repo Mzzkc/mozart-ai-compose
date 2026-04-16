@@ -115,7 +115,8 @@ class TestAllFallbacksExhausted:
         baton._instruments["claude-code"].circuit_breaker = CircuitBreakerState.OPEN
         # gemini-cli auto-registered but also broken
         baton._instruments["gemini-cli"] = InstrumentState(
-            name="gemini-cli", max_concurrent=4,
+            name="gemini-cli",
+            max_concurrent=4,
         )
         baton._instruments["gemini-cli"].circuit_breaker = CircuitBreakerState.OPEN
 
@@ -136,9 +137,7 @@ class TestDuplicateInstrumentsInChain:
         """Chain [claude-code, gemini-cli, claude-code] — second claude-code
         gets fresh retry budget."""
         baton = BatonCore()
-        sheet = _make_sheet(
-            1, "claude-code", ["gemini-cli", "claude-code"], max_retries=1
-        )
+        sheet = _make_sheet(1, "claude-code", ["gemini-cli", "claude-code"], max_retries=1)
         baton.register_job("j1", {1: sheet}, {1: []})
 
         # Exhaust first claude-code run
@@ -192,9 +191,12 @@ class TestSerializationRoundtrip:
         sheet.current_instrument_index = 1
         sheet.fallback_attempts = {"claude-code": 3}
         sheet.instrument_fallback_history = [
-            {"from": "claude-code", "to": "gemini-cli",
-             "reason": "rate_limit_exhausted",
-             "timestamp": "2026-04-06T00:00:00"},
+            {
+                "from": "claude-code",
+                "to": "gemini-cli",
+                "reason": "rate_limit_exhausted",
+                "timestamp": "2026-04-06T00:00:00",
+            },
         ]
 
         data = sheet.to_dict()

@@ -12,14 +12,10 @@ Covers:
 TDD: Tests define the contract. Implementation fulfills it.
 """
 
-import asyncio
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
-import pytest
-
-from marianne.backends.base import ExecutionResult
 from marianne.core.config.instruments import (
     CliCommand,
     CliErrorConfig,
@@ -28,7 +24,6 @@ from marianne.core.config.instruments import (
     InstrumentProfile,
     ModelCapacity,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -148,7 +143,8 @@ class TestCommandConstruction:
         from marianne.execution.instruments.cli_backend import PluginCliBackend
 
         profile = _make_profile(
-            executable="claude", auto_approve_flag="--dangerously-skip-permissions",
+            executable="claude",
+            auto_approve_flag="--dangerously-skip-permissions",
         )
         backend = PluginCliBackend(profile)
         cmd = backend._build_command("prompt", timeout_seconds=None)
@@ -159,7 +155,8 @@ class TestCommandConstruction:
         from marianne.execution.instruments.cli_backend import PluginCliBackend
 
         profile = _make_profile(
-            executable="gemini", model_flag="--model",
+            executable="gemini",
+            model_flag="--model",
         )
         backend = PluginCliBackend(profile)
         cmd = backend._build_command("prompt", timeout_seconds=None)
@@ -258,10 +255,12 @@ class TestOutputParsing:
             output_tokens_path="usage.output_tokens",
         )
         backend = PluginCliBackend(profile)
-        stdout = json.dumps({
-            "text": "response",
-            "usage": {"input_tokens": 150, "output_tokens": 75},
-        })
+        stdout = json.dumps(
+            {
+                "text": "response",
+                "usage": {"input_tokens": 150, "output_tokens": 75},
+            }
+        )
         result = backend._parse_output(stdout, "", exit_code=0)
         assert result.input_tokens == 150
         assert result.output_tokens == 75
@@ -342,7 +341,9 @@ class TestErrorClassification:
         )
         backend = PluginCliBackend(profile)
         result = backend._parse_output(
-            "", "Error: rate limit exceeded", exit_code=1,
+            "",
+            "Error: rate limit exceeded",
+            exit_code=1,
         )
         assert result.rate_limited is True
 
@@ -375,7 +376,9 @@ class TestErrorClassification:
         )
         backend = PluginCliBackend(profile)
         result = backend._parse_output(
-            "", "Error: invalid api key", exit_code=1,
+            "",
+            "Error: invalid api key",
+            exit_code=1,
         )
         assert result.error_type == "auth"
 
@@ -388,7 +391,9 @@ class TestErrorClassification:
         )
         backend = PluginCliBackend(profile)
         result = backend._parse_output(
-            "", "Error: request timed out after 300s", exit_code=1,
+            "",
+            "Error: request timed out after 300s",
+            exit_code=1,
         )
         assert result.error_type == "timeout"
 
@@ -401,7 +406,9 @@ class TestErrorClassification:
         )
         backend = PluginCliBackend(profile)
         result = backend._parse_output(
-            "", "segmentation fault (core dumped)", exit_code=139,
+            "",
+            "segmentation fault (core dumped)",
+            exit_code=139,
         )
         assert result.error_type == "crash"
 
@@ -414,7 +421,9 @@ class TestErrorClassification:
         )
         backend = PluginCliBackend(profile)
         result = backend._parse_output(
-            "", "Stale: no output for 1800s", exit_code=1,
+            "",
+            "Stale: no output for 1800s",
+            exit_code=1,
         )
         assert result.error_type == "stale"
 
@@ -427,7 +436,9 @@ class TestErrorClassification:
         )
         backend = PluginCliBackend(profile)
         result = backend._parse_output(
-            "", "Error: server overloaded, try again later", exit_code=1,
+            "",
+            "Error: server overloaded, try again later",
+            exit_code=1,
         )
         assert result.error_type == "capacity"
 
@@ -441,7 +452,9 @@ class TestErrorClassification:
         )
         backend = PluginCliBackend(profile)
         result = backend._parse_output(
-            "", "Some other error", exit_code=1,
+            "",
+            "Some other error",
+            exit_code=1,
         )
         assert result.error_type is None
 
@@ -455,7 +468,9 @@ class TestErrorClassification:
         backend = PluginCliBackend(profile)
         # Even if "auth" appears in output, success means no error classification
         result = backend._parse_output(
-            "auth check passed", "", exit_code=0,
+            "auth check passed",
+            "",
+            exit_code=0,
         )
         assert result.error_type is None
 
@@ -469,7 +484,9 @@ class TestErrorClassification:
         )
         backend = PluginCliBackend(profile)
         result = backend._parse_output(
-            "", "rate limit error", exit_code=1,
+            "",
+            "rate limit error",
+            exit_code=1,
         )
         assert result.rate_limited is True
 

@@ -222,9 +222,7 @@ class TestMockDesktopNotifier:
 
     def test_custom_events(self):
         """Test custom event subscription."""
-        notifier = MockDesktopNotifier(
-            events={NotificationEvent.SHEET_COMPLETE}
-        )
+        notifier = MockDesktopNotifier(events={NotificationEvent.SHEET_COMPLETE})
         assert NotificationEvent.SHEET_COMPLETE in notifier.subscribed_events
         assert NotificationEvent.JOB_COMPLETE not in notifier.subscribed_events
 
@@ -271,25 +269,29 @@ class TestMockDesktopNotifier:
             events={NotificationEvent.JOB_COMPLETE, NotificationEvent.JOB_FAILED}
         )
 
-        await notifier.send(NotificationContext(
-            event=NotificationEvent.JOB_COMPLETE,
-            job_id="1",
-            job_name="test1",
-        ))
-        await notifier.send(NotificationContext(
-            event=NotificationEvent.JOB_FAILED,
-            job_id="2",
-            job_name="test2",
-        ))
-        await notifier.send(NotificationContext(
-            event=NotificationEvent.JOB_COMPLETE,
-            job_id="3",
-            job_name="test3",
-        ))
-
-        complete_notifs = notifier.get_notifications_for_event(
-            NotificationEvent.JOB_COMPLETE
+        await notifier.send(
+            NotificationContext(
+                event=NotificationEvent.JOB_COMPLETE,
+                job_id="1",
+                job_name="test1",
+            )
         )
+        await notifier.send(
+            NotificationContext(
+                event=NotificationEvent.JOB_FAILED,
+                job_id="2",
+                job_name="test2",
+            )
+        )
+        await notifier.send(
+            NotificationContext(
+                event=NotificationEvent.JOB_COMPLETE,
+                job_id="3",
+                job_name="test3",
+            )
+        )
+
+        complete_notifs = notifier.get_notifications_for_event(NotificationEvent.JOB_COMPLETE)
         assert len(complete_notifs) == 2
         assert all(n.event == NotificationEvent.JOB_COMPLETE for n in complete_notifs)
 
@@ -297,11 +299,13 @@ class TestMockDesktopNotifier:
     async def test_close_clears_notifications(self):
         """Test that close() clears recorded notifications."""
         notifier = MockDesktopNotifier()
-        await notifier.send(NotificationContext(
-            event=NotificationEvent.JOB_COMPLETE,
-            job_id="1",
-            job_name="test",
-        ))
+        await notifier.send(
+            NotificationContext(
+                event=NotificationEvent.JOB_COMPLETE,
+                job_id="1",
+                job_name="test",
+            )
+        )
         assert notifier.get_notification_count() == 1
 
         await notifier.close()
@@ -320,9 +324,7 @@ class TestDesktopNotifier:
 
     def test_custom_events(self):
         """Test custom event subscription."""
-        notifier = DesktopNotifier(
-            events={NotificationEvent.SHEET_COMPLETE}
-        )
+        notifier = DesktopNotifier(events={NotificationEvent.SHEET_COMPLETE})
         assert NotificationEvent.SHEET_COMPLETE in notifier.subscribed_events
         assert NotificationEvent.JOB_COMPLETE not in notifier.subscribed_events
 
@@ -409,9 +411,7 @@ class TestNotificationManager:
     @pytest.mark.asyncio
     async def test_notify_sends_to_subscribed(self):
         """Test notify sends to subscribed notifiers."""
-        mock = MockDesktopNotifier(
-            events={NotificationEvent.JOB_COMPLETE}
-        )
+        mock = MockDesktopNotifier(events={NotificationEvent.JOB_COMPLETE})
         manager = NotificationManager([mock])
 
         ctx = NotificationContext(
@@ -427,9 +427,7 @@ class TestNotificationManager:
     @pytest.mark.asyncio
     async def test_notify_skips_unsubscribed(self):
         """Test notify skips notifiers not subscribed to event."""
-        mock = MockDesktopNotifier(
-            events={NotificationEvent.JOB_FAILED}
-        )
+        mock = MockDesktopNotifier(events={NotificationEvent.JOB_FAILED})
         manager = NotificationManager([mock])
 
         # Send a JOB_COMPLETE event - mock is only subscribed to JOB_FAILED
@@ -578,11 +576,13 @@ class TestNotificationManager:
     async def test_close(self):
         """Test close clears all notifiers."""
         mock = MockDesktopNotifier()
-        await mock.send(NotificationContext(
-            event=NotificationEvent.JOB_COMPLETE,
-            job_id="1",
-            job_name="test",
-        ))
+        await mock.send(
+            NotificationContext(
+                event=NotificationEvent.JOB_COMPLETE,
+                job_id="1",
+                job_name="test",
+            )
+        )
 
         manager = NotificationManager([mock])
         await manager.close()
@@ -787,16 +787,20 @@ class TestMockSlackNotifier:
     async def test_get_notifications_for_event(self):
         """Test filtering by event type."""
         notifier = MockSlackNotifier()
-        await notifier.send(NotificationContext(
-            event=NotificationEvent.JOB_COMPLETE,
-            job_id="1",
-            job_name="test1",
-        ))
-        await notifier.send(NotificationContext(
-            event=NotificationEvent.JOB_FAILED,
-            job_id="2",
-            job_name="test2",
-        ))
+        await notifier.send(
+            NotificationContext(
+                event=NotificationEvent.JOB_COMPLETE,
+                job_id="1",
+                job_name="test1",
+            )
+        )
+        await notifier.send(
+            NotificationContext(
+                event=NotificationEvent.JOB_FAILED,
+                job_id="2",
+                job_name="test2",
+            )
+        )
 
         complete = notifier.get_notifications_for_event(NotificationEvent.JOB_COMPLETE)
         assert len(complete) == 1
@@ -849,10 +853,12 @@ class TestWebhookNotifier:
     def test_expand_env_headers(self):
         """Test environment variable expansion in headers."""
         with patch.dict(os.environ, {"API_TOKEN": "secret123"}):
-            headers = WebhookNotifier._expand_env_headers({
-                "Authorization": "Bearer ${API_TOKEN}",
-                "X-Static": "value",
-            })
+            headers = WebhookNotifier._expand_env_headers(
+                {
+                    "Authorization": "Bearer ${API_TOKEN}",
+                    "X-Static": "value",
+                }
+            )
             assert headers["Authorization"] == "Bearer secret123"
             assert headers["X-Static"] == "value"
 
@@ -982,11 +988,13 @@ class TestMockWebhookNotifier:
     async def test_close_clears_data(self):
         """Test close clears recorded data."""
         notifier = MockWebhookNotifier()
-        await notifier.send(NotificationContext(
-            event=NotificationEvent.JOB_COMPLETE,
-            job_id="1",
-            job_name="test",
-        ))
+        await notifier.send(
+            NotificationContext(
+                event=NotificationEvent.JOB_COMPLETE,
+                job_id="1",
+                job_name="test",
+            )
+        )
         assert notifier.get_notification_count() == 1
 
         await notifier.close()

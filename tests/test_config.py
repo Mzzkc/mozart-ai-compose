@@ -90,7 +90,8 @@ class TestSheetConfig:
     def test_skip_when_accepts_conditions(self):
         """Test skip_when accepts condition strings per sheet."""
         config = SheetConfig(
-            size=1, total_items=5,
+            size=1,
+            total_items=5,
             skip_when={
                 3: "sheets.get(1) and sheets[1].validation_passed",
                 5: "job.total_retry_count > 10",
@@ -107,10 +108,13 @@ class TestSheetConfig:
     def test_skip_when_command_accepts_rules(self):
         """Test skip_when_command accepts SkipWhenCommand per sheet."""
         config = SheetConfig(
-            size=1, total_items=10,
+            size=1,
+            total_items=10,
             skip_when_command={
-                8: {"command": 'grep -q "TOTAL_PHASES: [1]$" "{workspace}/plan.md"',
-                    "description": "Skip phase 2 if plan has only 1 phase"},
+                8: {
+                    "command": 'grep -q "TOTAL_PHASES: [1]$" "{workspace}/plan.md"',
+                    "description": "Skip phase 2 if plan has only 1 phase",
+                },
                 9: {"command": 'grep -q "TOTAL_PHASES: [1]$" "{workspace}/plan.md"'},
             },
         )
@@ -121,16 +125,19 @@ class TestSheetConfig:
 
     def test_skip_when_command_in_jobconfig(self):
         """Test skip_when_command works in full JobConfig."""
-        config = JobConfig.model_validate({
-            "name": "test",
-            "sheet": {
-                "size": 1, "total_items": 5,
-                "skip_when_command": {
-                    3: {"command": "test -f /tmp/skip", "description": "test"},
+        config = JobConfig.model_validate(
+            {
+                "name": "test",
+                "sheet": {
+                    "size": 1,
+                    "total_items": 5,
+                    "skip_when_command": {
+                        3: {"command": "test -f /tmp/skip", "description": "test"},
+                    },
                 },
-            },
-            "prompt": {"template": "{{ sheet_num }}"},
-        })
+                "prompt": {"template": "{{ sheet_num }}"},
+            }
+        )
         assert 3 in config.sheet.skip_when_command
         assert config.sheet.skip_when_command[3].timeout_seconds == 10.0
 
@@ -142,7 +149,8 @@ class TestSheetConfig:
     def test_prompt_extensions_accepts_per_sheet(self):
         """Test sheet prompt_extensions accepts per-sheet directives."""
         config = SheetConfig(
-            size=1, total_items=5,
+            size=1,
+            total_items=5,
             prompt_extensions={
                 2: ["Be careful with imports"],
                 4: ["Run linter before committing", "Check type annotations"],
@@ -154,16 +162,19 @@ class TestSheetConfig:
 
     def test_prompt_extensions_in_jobconfig(self):
         """Test sheet prompt_extensions works in full JobConfig."""
-        config = JobConfig.model_validate({
-            "name": "test",
-            "sheet": {
-                "size": 1, "total_items": 3,
-                "prompt_extensions": {
-                    2: ["Extra directive for sheet 2"],
+        config = JobConfig.model_validate(
+            {
+                "name": "test",
+                "sheet": {
+                    "size": 1,
+                    "total_items": 3,
+                    "prompt_extensions": {
+                        2: ["Extra directive for sheet 2"],
+                    },
                 },
-            },
-            "prompt": {"template": "{{ sheet_num }}"},
-        })
+                "prompt": {"template": "{{ sheet_num }}"},
+            }
+        )
         assert 2 in config.sheet.prompt_extensions
         assert "Extra directive for sheet 2" in config.sheet.prompt_extensions[2]
 
@@ -211,20 +222,22 @@ class TestPreludeCadenza:
 
     def test_prelude_cadenza_in_jobconfig(self):
         """Test prelude/cadenzas work via YAML-like dict in JobConfig."""
-        config = JobConfig.model_validate({
-            "name": "test",
-            "sheet": {
-                "size": 1,
-                "total_items": 3,
-                "prelude": [
-                    {"file": "context.md", "as": "context"},
-                ],
-                "cadenzas": {
-                    1: [{"file": "setup.md", "as": "skill"}],
+        config = JobConfig.model_validate(
+            {
+                "name": "test",
+                "sheet": {
+                    "size": 1,
+                    "total_items": 3,
+                    "prelude": [
+                        {"file": "context.md", "as": "context"},
+                    ],
+                    "cadenzas": {
+                        1: [{"file": "setup.md", "as": "skill"}],
+                    },
                 },
-            },
-            "prompt": {"template": "{{ sheet_num }}"},
-        })
+                "prompt": {"template": "{{ sheet_num }}"},
+            }
+        )
         assert len(config.sheet.prelude) == 1
         assert config.sheet.prelude[0].file == "context.md"
         assert 1 in config.sheet.cadenzas
@@ -236,11 +249,13 @@ class TestPreludeCadenza:
 
     def test_backward_compat_no_prelude(self):
         """Test existing configs without prelude/cadenzas still parse."""
-        config = JobConfig.model_validate({
-            "name": "legacy",
-            "sheet": {"size": 5, "total_items": 10},
-            "prompt": {"template": "{{ sheet_num }}"},
-        })
+        config = JobConfig.model_validate(
+            {
+                "name": "legacy",
+                "sheet": {"size": 5, "total_items": 10},
+                "prompt": {"template": "{{ sheet_num }}"},
+            }
+        )
         assert config.sheet.prelude == []
         assert config.sheet.cadenzas == {}
 
@@ -740,12 +755,10 @@ class TestConductorConfig:
         assert restored.role == original.role
         assert restored.identity_context == original.identity_context
         assert (
-            restored.preferences.prefer_minimal_output
-            == original.preferences.prefer_minimal_output
+            restored.preferences.prefer_minimal_output == original.preferences.prefer_minimal_output
         )
         assert (
-            restored.preferences.notification_channels
-            == original.preferences.notification_channels
+            restored.preferences.notification_channels == original.preferences.notification_channels
         )
 
 
@@ -854,6 +867,7 @@ class TestWorkspacePathResolution109:
 
     def _load(self, score_file: "Path") -> "JobConfig":
         import warnings
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             return JobConfig.from_yaml(score_file)
@@ -876,7 +890,9 @@ class TestWorkspacePathResolution109:
     def test_absolute_path_unchanged(self, tmp_path: "Path") -> None:
         """Absolute workspace in score must be preserved as-is."""
         score_file = tmp_path / "score.yaml"
-        score_file.write_text(self._SCORE_TEMPLATE.format(name="test-job", workspace="/absolute/path"))
+        score_file.write_text(
+            self._SCORE_TEMPLATE.format(name="test-job", workspace="/absolute/path")
+        )
         config = self._load(score_file)
         assert config.workspace == Path("/absolute/path")
 
@@ -887,7 +903,9 @@ class TestWorkspacePathResolution109:
         score_dir = tmp_path / "a" / "b" / "c"
         score_dir.mkdir(parents=True)
         score_file = score_dir / "score.yaml"
-        score_file.write_text(self._SCORE_TEMPLATE.format(name="test-job", workspace="../../shared"))
+        score_file.write_text(
+            self._SCORE_TEMPLATE.format(name="test-job", workspace="../../shared")
+        )
         monkeypatch.chdir(tmp_path)
         config = self._load(score_file)
         expected = (tmp_path / "a" / "shared").resolve()
@@ -901,7 +919,9 @@ class TestWorkspacePathResolution109:
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         score_file = project_dir / "score.yaml"
-        score_file.write_text(self._SCORE_TEMPLATE.format(name="test-job", workspace="./workspaces/job"))
+        score_file.write_text(
+            self._SCORE_TEMPLATE.format(name="test-job", workspace="./workspaces/job")
+        )
         monkeypatch.chdir(tmp_path)
         config = self._load(score_file)
         expected = (project_dir / "workspaces" / "job").resolve()
@@ -1045,7 +1065,9 @@ class TestCostLimitAutoEnable:
         the dict and skips auto-enable.
         """
         config = CostLimitConfig(
-            enabled=False, max_cost_per_job=10.0, max_cost_per_sheet=5.0,
+            enabled=False,
+            max_cost_per_job=10.0,
+            max_cost_per_sheet=5.0,
         )
         assert config.enabled is False
 
@@ -1061,19 +1083,23 @@ class TestCostLimitAutoEnable:
         passed to model_validate. The mode="before" validator sees the
         raw dict, not keyword args.
         """
-        config = CostLimitConfig.model_validate({
-            "max_cost_per_job": 1.00,
-            "max_cost_per_sheet": 0.50,
-        })
+        config = CostLimitConfig.model_validate(
+            {
+                "max_cost_per_job": 1.00,
+                "max_cost_per_sheet": 0.50,
+            }
+        )
         assert config.enabled is True
         assert config.max_cost_per_job == 1.00
 
     def test_auto_enable_via_model_validate_explicit_false(self):
         """Explicit enabled: false in YAML dict is respected."""
-        config = CostLimitConfig.model_validate({
-            "enabled": False,
-            "max_cost_per_job": 10.0,
-        })
+        config = CostLimitConfig.model_validate(
+            {
+                "enabled": False,
+                "max_cost_per_job": 10.0,
+            }
+        )
         assert config.enabled is False
 
 
@@ -1100,60 +1126,70 @@ class TestJobConfigEdgeCases:
 
     def test_minimal_config_from_yaml_dict(self):
         """Minimal YAML-like dict should produce a valid config."""
-        config = JobConfig.model_validate({
-            "name": "minimal",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 5, "total_items": 10},
-            "prompt": {"template": "{{ sheet_num }}"},
-        })
+        config = JobConfig.model_validate(
+            {
+                "name": "minimal",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 5, "total_items": 10},
+                "prompt": {"template": "{{ sheet_num }}"},
+            }
+        )
         assert config.name == "minimal"
         assert config.sheet.total_sheets == 2
 
     def test_missing_name_raises(self):
         with pytest.raises(ValidationError):
-            JobConfig.model_validate({
-                "backend": {"type": "claude_cli"},
-                "sheet": {"size": 5, "total_items": 10},
-                "prompt": {"template": "x"},
-            })
+            JobConfig.model_validate(
+                {
+                    "backend": {"type": "claude_cli"},
+                    "sheet": {"size": 5, "total_items": 10},
+                    "prompt": {"template": "x"},
+                }
+            )
 
     def test_string_workspace_coerces_to_path(self):
         """String workspace from YAML should coerce to Path."""
-        config = JobConfig.model_validate({
-            "name": "test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 5, "total_items": 10},
-            "prompt": {"template": "x"},
-            "workspace": "/tmp/test-workspace",
-        })
+        config = JobConfig.model_validate(
+            {
+                "name": "test",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 5, "total_items": 10},
+                "prompt": {"template": "x"},
+                "workspace": "/tmp/test-workspace",
+            }
+        )
         assert isinstance(config.workspace, Path)
         assert str(config.workspace) == "/tmp/test-workspace"
 
     def test_nested_validation_rule_types(self):
         """ValidationRules with different types should all parse."""
-        config = JobConfig.model_validate({
-            "name": "test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 5, "total_items": 10},
-            "prompt": {"template": "x"},
-            "validations": [
-                {"type": "file_exists", "path": "{workspace}/out.txt", "description": "check"},
-                {"type": "command_succeeds", "command": "echo ok", "description": "run"},
-            ],
-        })
+        config = JobConfig.model_validate(
+            {
+                "name": "test",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 5, "total_items": 10},
+                "prompt": {"template": "x"},
+                "validations": [
+                    {"type": "file_exists", "path": "{workspace}/out.txt", "description": "check"},
+                    {"type": "command_succeeds", "command": "echo ok", "description": "run"},
+                ],
+            }
+        )
         assert len(config.validations) == 2
         assert config.validations[0].type == "file_exists"
         assert config.validations[1].type == "command_succeeds"
 
     def test_model_dump_roundtrip(self):
         """Config should survive model_dump -> model_validate roundtrip."""
-        original = JobConfig.model_validate({
-            "name": "roundtrip",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 10, "total_items": 50},
-            "prompt": {"template": "{{ sheet_num }}"},
-            "retry": {"max_retries": 5},
-        })
+        original = JobConfig.model_validate(
+            {
+                "name": "roundtrip",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 10, "total_items": 50},
+                "prompt": {"template": "{{ sheet_num }}"},
+                "retry": {"max_retries": 5},
+            }
+        )
         dumped = original.model_dump()
         restored = JobConfig.model_validate(dumped)
         assert restored.name == original.name
@@ -1188,21 +1224,25 @@ class TestFeedbackConfig:
 
     def test_jobconfig_includes_feedback(self):
         """JobConfig should include feedback as a top-level field."""
-        config = JobConfig.model_validate({
-            "name": "feedback-test",
-            "sheet": {"size": 1, "total_items": 5},
-            "prompt": {"template": "test"},
-            "feedback": {"enabled": True},
-        })
+        config = JobConfig.model_validate(
+            {
+                "name": "feedback-test",
+                "sheet": {"size": 1, "total_items": 5},
+                "prompt": {"template": "test"},
+                "feedback": {"enabled": True},
+            }
+        )
         assert config.feedback.enabled is True
 
     def test_jobconfig_feedback_defaults(self):
         """JobConfig should have feedback with defaults if not specified."""
-        config = JobConfig.model_validate({
-            "name": "minimal",
-            "sheet": {"size": 1, "total_items": 5},
-            "prompt": {"template": "test"},
-        })
+        config = JobConfig.model_validate(
+            {
+                "name": "minimal",
+                "sheet": {"size": 1, "total_items": 5},
+                "prompt": {"template": "test"},
+            }
+        )
         assert config.feedback.enabled is False
 
 

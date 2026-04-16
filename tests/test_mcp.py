@@ -23,6 +23,7 @@ from marianne.mcp.tools import ArtifactTools, ControlTools, JobTools, ScoreTools
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_state(
     job_id: str = "test-job",
     status: JobStatus = JobStatus.COMPLETED,
@@ -380,7 +381,10 @@ class TestControlTools:
         backend = _mock_state_backend()
         tools = ControlTools(backend, tmp_path)
         action_result = JobActionResult(
-            success=True, job_id="test-job", status="paused", message="Job paused",
+            success=True,
+            job_id="test-job",
+            status="paused",
+            message="Job paused",
         )
         tools.job_control.pause_job = AsyncMock(return_value=action_result)
 
@@ -393,7 +397,10 @@ class TestControlTools:
         backend = _mock_state_backend()
         tools = ControlTools(backend, tmp_path)
         action_result = JobActionResult(
-            success=False, job_id="test-job", status="running", message="Cannot pause",
+            success=False,
+            job_id="test-job",
+            status="running",
+            message="Cannot pause",
         )
         tools.job_control.pause_job = AsyncMock(return_value=action_result)
 
@@ -405,7 +412,10 @@ class TestControlTools:
         backend = _mock_state_backend()
         tools = ControlTools(backend, tmp_path)
         action_result = JobActionResult(
-            success=True, job_id="test-job", status="running", message="Job resumed",
+            success=True,
+            job_id="test-job",
+            status="running",
+            message="Job resumed",
         )
         tools.job_control.resume_job = AsyncMock(return_value=action_result)
 
@@ -416,7 +426,10 @@ class TestControlTools:
         backend = _mock_state_backend()
         tools = ControlTools(backend, tmp_path)
         action_result = JobActionResult(
-            success=True, job_id="test-job", status="cancelled", message="Job cancelled",
+            success=True,
+            job_id="test-job",
+            status="cancelled",
+            message="Job cancelled",
         )
         tools.job_control.cancel_job = AsyncMock(return_value=action_result)
 
@@ -459,10 +472,13 @@ class TestArtifactTools:
 
     async def test_list_files_security_traversal(self, tmp_path: Path) -> None:
         tools = ArtifactTools(tmp_path)
-        result = await tools.call_tool("marianne_artifact_list", {
-            "workspace": str(tmp_path),
-            "path": "../../etc",
-        })
+        result = await tools.call_tool(
+            "marianne_artifact_list",
+            {
+                "workspace": str(tmp_path),
+                "path": "../../etc",
+            },
+        )
         assert result.get("isError") is True
 
     async def test_read_file(self, tmp_path: Path) -> None:
@@ -470,19 +486,25 @@ class TestArtifactTools:
         test_file.write_text("hello world")
 
         tools = ArtifactTools(tmp_path)
-        result = await tools.call_tool("marianne_artifact_read", {
-            "workspace": str(tmp_path),
-            "file_path": "test.txt",
-        })
+        result = await tools.call_tool(
+            "marianne_artifact_read",
+            {
+                "workspace": str(tmp_path),
+                "file_path": "test.txt",
+            },
+        )
         assert not result.get("isError")
         assert "hello world" in result["content"][0]["text"]
 
     async def test_read_file_not_found(self, tmp_path: Path) -> None:
         tools = ArtifactTools(tmp_path)
-        result = await tools.call_tool("marianne_artifact_read", {
-            "workspace": str(tmp_path),
-            "file_path": "nonexistent.txt",
-        })
+        result = await tools.call_tool(
+            "marianne_artifact_read",
+            {
+                "workspace": str(tmp_path),
+                "file_path": "nonexistent.txt",
+            },
+        )
         assert result.get("isError") is True
 
     async def test_read_file_too_large(self, tmp_path: Path) -> None:
@@ -490,27 +512,36 @@ class TestArtifactTools:
         big_file.write_text("x" * 1000)
 
         tools = ArtifactTools(tmp_path)
-        result = await tools.call_tool("marianne_artifact_read", {
-            "workspace": str(tmp_path),
-            "file_path": "big.txt",
-            "max_size": 10,
-        })
+        result = await tools.call_tool(
+            "marianne_artifact_read",
+            {
+                "workspace": str(tmp_path),
+                "file_path": "big.txt",
+                "max_size": 10,
+            },
+        )
         assert result.get("isError") is True
 
     async def test_read_file_security_traversal(self, tmp_path: Path) -> None:
         tools = ArtifactTools(tmp_path)
-        result = await tools.call_tool("marianne_artifact_read", {
-            "workspace": str(tmp_path),
-            "file_path": "../../etc/passwd",
-        })
+        result = await tools.call_tool(
+            "marianne_artifact_read",
+            {
+                "workspace": str(tmp_path),
+                "file_path": "../../etc/passwd",
+            },
+        )
         assert result.get("isError") is True
 
     async def test_get_logs_no_log_files(self, tmp_path: Path) -> None:
         tools = ArtifactTools(tmp_path)
-        result = await tools.call_tool("marianne_artifact_get_logs", {
-            "job_id": "test-job",
-            "workspace": str(tmp_path),
-        })
+        result = await tools.call_tool(
+            "marianne_artifact_get_logs",
+            {
+                "job_id": "test-job",
+                "workspace": str(tmp_path),
+            },
+        )
         assert result.get("isError") is True
 
     async def test_get_logs_with_log_file(self, tmp_path: Path) -> None:
@@ -518,10 +549,13 @@ class TestArtifactTools:
         log_file.write_text("INFO Starting job\nERROR Something failed\nINFO Done\n")
 
         tools = ArtifactTools(tmp_path)
-        result = await tools.call_tool("marianne_artifact_get_logs", {
-            "job_id": "test-job",
-            "workspace": str(tmp_path),
-        })
+        result = await tools.call_tool(
+            "marianne_artifact_get_logs",
+            {
+                "job_id": "test-job",
+                "workspace": str(tmp_path),
+            },
+        )
         assert not result.get("isError")
         text = result["content"][0]["text"]
         assert "Starting job" in text
@@ -531,11 +565,14 @@ class TestArtifactTools:
         log_file.write_text("INFO Starting\nERROR Failed\nINFO Done\n")
 
         tools = ArtifactTools(tmp_path)
-        result = await tools.call_tool("marianne_artifact_get_logs", {
-            "job_id": "test-job",
-            "workspace": str(tmp_path),
-            "level": "error",
-        })
+        result = await tools.call_tool(
+            "marianne_artifact_get_logs",
+            {
+                "job_id": "test-job",
+                "workspace": str(tmp_path),
+                "level": "error",
+            },
+        )
         text = result["content"][0]["text"]
         assert "Failed" in text
 
@@ -545,10 +582,13 @@ class TestArtifactTools:
         (tmp_path / "state.json").write_text("{}")
 
         tools = ArtifactTools(tmp_path)
-        result = await tools.call_tool("marianne_artifact_list_artifacts", {
-            "job_id": "test-job",
-            "workspace": str(tmp_path),
-        })
+        result = await tools.call_tool(
+            "marianne_artifact_list_artifacts",
+            {
+                "job_id": "test-job",
+                "workspace": str(tmp_path),
+            },
+        )
         assert not result.get("isError")
         text = result["content"][0]["text"]
         assert "output.txt" in text or "error.log" in text
@@ -558,21 +598,27 @@ class TestArtifactTools:
         artifact.write_text('{"status": "ok"}')
 
         tools = ArtifactTools(tmp_path)
-        result = await tools.call_tool("marianne_artifact_get_artifact", {
-            "job_id": "test-job",
-            "artifact_path": "results.json",
-            "workspace": str(tmp_path),
-        })
+        result = await tools.call_tool(
+            "marianne_artifact_get_artifact",
+            {
+                "job_id": "test-job",
+                "artifact_path": "results.json",
+                "workspace": str(tmp_path),
+            },
+        )
         assert not result.get("isError")
         assert "ok" in result["content"][0]["text"]
 
     async def test_get_artifact_security_traversal(self, tmp_path: Path) -> None:
         tools = ArtifactTools(tmp_path)
-        result = await tools.call_tool("marianne_artifact_get_artifact", {
-            "job_id": "test-job",
-            "artifact_path": "../../etc/passwd",
-            "workspace": str(tmp_path),
-        })
+        result = await tools.call_tool(
+            "marianne_artifact_get_artifact",
+            {
+                "job_id": "test-job",
+                "artifact_path": "../../etc/passwd",
+                "workspace": str(tmp_path),
+            },
+        )
         assert result.get("isError") is True
 
     async def test_categorize_artifact(self) -> None:
@@ -619,9 +665,12 @@ class TestScoreTools:
 
     async def test_validate_score_workspace_not_found(self, tmp_path: Path) -> None:
         tools = ScoreTools(tmp_path)
-        result = await tools.call_tool("validate_score", {
-            "workspace": str(tmp_path / "nonexistent"),
-        })
+        result = await tools.call_tool(
+            "validate_score",
+            {
+                "workspace": str(tmp_path / "nonexistent"),
+            },
+        )
         assert result.get("isError") is True
 
     async def test_generate_score(self, tmp_path: Path) -> None:
@@ -656,11 +705,16 @@ class MockFactory:
 
     @staticmethod
     def job_action(
-        success: bool, job_id: str = "test-job",
-        status: str = "running", message: str = "",
+        success: bool,
+        job_id: str = "test-job",
+        status: str = "running",
+        message: str = "",
     ) -> JobActionResult:
         return JobActionResult(
-            success=success, job_id=job_id, status=status, message=message,
+            success=success,
+            job_id=job_id,
+            status=status,
+            message=message,
         )
 
 
@@ -680,14 +734,20 @@ class TestControlToolsParametrized:
         ],
     )
     async def test_control_action_success(
-        self, tmp_path: Path, tool_name: str, action_method: str,
-        status: str, expected_text: str,
+        self,
+        tmp_path: Path,
+        tool_name: str,
+        action_method: str,
+        status: str,
+        expected_text: str,
     ) -> None:
         """All control actions share the same success pattern."""
         backend = MockFactory.state_backend()
         tools = ControlTools(backend, tmp_path)
         action_result = MockFactory.job_action(
-            success=True, status=status, message=f"Job {status}",
+            success=True,
+            status=status,
+            message=f"Job {status}",
         )
         setattr(tools.job_control, action_method, AsyncMock(return_value=action_result))
 
@@ -696,19 +756,27 @@ class TestControlToolsParametrized:
         text = result["content"][0]["text"].lower()
         assert expected_text in text
 
-    @pytest.mark.parametrize("tool_name,action_method", [
-        ("pause_job", "pause_job"),
-        ("resume_job", "resume_job"),
-        ("cancel_job", "cancel_job"),
-    ])
+    @pytest.mark.parametrize(
+        "tool_name,action_method",
+        [
+            ("pause_job", "pause_job"),
+            ("resume_job", "resume_job"),
+            ("cancel_job", "cancel_job"),
+        ],
+    )
     async def test_control_action_failure(
-        self, tmp_path: Path, tool_name: str, action_method: str,
+        self,
+        tmp_path: Path,
+        tool_name: str,
+        action_method: str,
     ) -> None:
         """All control actions share the same failure pattern."""
         backend = MockFactory.state_backend()
         tools = ControlTools(backend, tmp_path)
         action_result = MockFactory.job_action(
-            success=False, status="running", message="Cannot perform action",
+            success=False,
+            status="running",
+            message="Cannot perform action",
         )
         setattr(tools.job_control, action_method, AsyncMock(return_value=action_result))
 
@@ -720,26 +788,32 @@ class TestControlToolsParametrized:
 class TestArtifactCategorization:
     """Parametrized tests for artifact categorization logic."""
 
-    @pytest.mark.parametrize("filename,expected_category", [
-        ("app.log", "log"),
-        ("debug.log", "log"),
-        ("state.json", "state"),
-        ("checkpoint.json", "state"),
-        ("error-output.txt", "error"),
-        ("output-results.md", "output"),
-        ("data.csv", "other"),
-        ("image.png", "other"),
-    ])
+    @pytest.mark.parametrize(
+        "filename,expected_category",
+        [
+            ("app.log", "log"),
+            ("debug.log", "log"),
+            ("state.json", "state"),
+            ("checkpoint.json", "state"),
+            ("error-output.txt", "error"),
+            ("output-results.md", "output"),
+            ("data.csv", "other"),
+            ("image.png", "other"),
+        ],
+    )
     def test_categorize_artifact(self, filename: str, expected_category: str) -> None:
         assert ArtifactTools._categorize_artifact(Path(filename)) == expected_category
 
-    @pytest.mark.parametrize("size,expected", [
-        (500, "500B"),
-        (1024, "1.0KB"),
-        (1024 * 1024, "1.0MB"),
-        (1024 * 1024 * 1024, "1.0GB"),
-        (0, "0B"),
-    ])
+    @pytest.mark.parametrize(
+        "size,expected",
+        [
+            (500, "500B"),
+            (1024, "1.0KB"),
+            (1024 * 1024, "1.0MB"),
+            (1024 * 1024 * 1024, "1.0GB"),
+            (0, "0B"),
+        ],
+    )
     def test_format_size(self, tmp_path: Path, size: int, expected: str) -> None:
         tools = ArtifactTools(tmp_path)
         assert tools._format_size(size) == expected
@@ -748,12 +822,15 @@ class TestArtifactCategorization:
 class TestResourceURIParametrized:
     """Parametrized tests for ConfigResources URI routing."""
 
-    @pytest.mark.parametrize("uri,expected_key", [
-        ("config://schema", "properties"),
-        ("config://backend-options", "available_backends"),
-        ("config://validation-types", "available_validation_types"),
-        ("config://learning-options", "learning_system"),
-    ])
+    @pytest.mark.parametrize(
+        "uri,expected_key",
+        [
+            ("config://schema", "properties"),
+            ("config://backend-options", "available_backends"),
+            ("config://validation-types", "available_validation_types"),
+            ("config://learning-options", "learning_system"),
+        ],
+    )
     async def test_static_resource_uris(self, uri: str, expected_key: str) -> None:
         """All static config resources should return valid JSON with expected keys."""
         resources = ConfigResources()

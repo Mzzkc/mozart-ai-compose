@@ -22,7 +22,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from marianne.backends.claude_cli import ClaudeCliBackend
-from marianne.core.checkpoint import SheetState
 
 
 def _make_mock_process(
@@ -90,9 +89,9 @@ class TestCancelledErrorTriggersCleanup:
                 "os.getpgid",
                 side_effect=lambda pid: real_own_pgid if pid == 0 else 12345,
             ),
+            pytest.raises(asyncio.CancelledError),
         ):
-            with pytest.raises(asyncio.CancelledError):
-                await backend._execute_impl("test prompt")
+            await backend._execute_impl("test prompt")
 
         # Must have killed the process group
         mock_killpg.assert_called_once_with(12345, signal.SIGKILL)
@@ -115,9 +114,9 @@ class TestCancelledErrorTriggersCleanup:
             patch.object(backend, "_prepare_log_files"),
             patch.object(backend, "_stream_with_progress", side_effect=_raise_cancelled),
             patch("os.killpg") as mock_killpg,
+            pytest.raises(asyncio.CancelledError),
         ):
-            with pytest.raises(asyncio.CancelledError):
-                await backend._execute_impl("test prompt")
+            await backend._execute_impl("test prompt")
 
         # Process already exited — should NOT attempt kill
         mock_killpg.assert_not_called()
@@ -136,9 +135,9 @@ class TestCancelledErrorTriggersCleanup:
             ),
             patch.object(backend, "_build_command", return_value=["claude", "-p", "test"]),
             patch.object(backend, "_prepare_log_files"),
+            pytest.raises(asyncio.CancelledError),
         ):
-            with pytest.raises(asyncio.CancelledError):
-                await backend._execute_impl("test prompt")
+            await backend._execute_impl("test prompt")
 
 
 class TestStreamCancelledErrorReapsZombie:
@@ -169,13 +168,13 @@ class TestStreamCancelledErrorReapsZombie:
                 "os.getpgid",
                 side_effect=lambda pid: real_own_pgid if pid == 0 else proc.pid,
             ),
+            pytest.raises(asyncio.CancelledError),
         ):
-            with pytest.raises(asyncio.CancelledError):
-                await backend._stream_with_progress(
-                    proc,
-                    start_time=0.0,
-                    notify_progress=lambda phase: None,
-                )
+            await backend._stream_with_progress(
+                proc,
+                start_time=0.0,
+                notify_progress=lambda phase: None,
+            )
 
         # Must kill process group: SIGTERM (graceful) then SIGKILL (force)
         assert mock_killpg.call_count == 2

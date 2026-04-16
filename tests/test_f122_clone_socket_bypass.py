@@ -232,9 +232,7 @@ class TestJobControlServiceCloneAware:
         )
         assert "DaemonClient(_resolve_socket_path" in source or (
             "DaemonClient" in source and "_resolve_socket_path(None)" in source
-        ), (
-            "_create_daemon_client does not pass _resolve_socket_path result to DaemonClient"
-        )
+        ), "_create_daemon_client does not pass _resolve_socket_path result to DaemonClient"
 
     def test_job_control_no_hardcoded_fallback(self) -> None:
         """JobControlService should not hardcode daemon.sock path."""
@@ -280,9 +278,7 @@ class TestDashboardAppCloneAware:
         # And must construct DaemonClient with the resolved path
         assert "DaemonClient(_resolve_socket_path" in source or (
             "DaemonClient" in source and "_resolve_socket_path(None)" in source
-        ), (
-            "_create_daemon_client does not pass _resolve_socket_path result to DaemonClient"
-        )
+        ), "_create_daemon_client does not pass _resolve_socket_path result to DaemonClient"
 
     def test_app_factory_no_hardcoded_socket(self) -> None:
         """_create_daemon_client should not use DaemonConfig().socket.path."""

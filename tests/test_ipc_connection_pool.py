@@ -15,7 +15,6 @@ from marianne.daemon.ipc.client import ConnectionPool, DaemonClient
 from marianne.daemon.ipc.handler import RequestHandler
 from marianne.daemon.ipc.server import DaemonServer
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -75,7 +74,7 @@ async def test_pool_acquire_release_reuse(socket_path: Path) -> None:
 
         # Acquire a connection
         r1, w1 = await pool.acquire()
-        peer1 = w1.get_extra_info("sockname")
+        w1.get_extra_info("sockname")
 
         # Release it
         pool.release(r1, w1)
@@ -248,9 +247,7 @@ async def test_client_concurrent_calls(socket_path: Path) -> None:
     server = await _start_server(socket_path, handler)
     try:
         async with DaemonClient(socket_path, pool_size=4) as client:
-            results = await asyncio.gather(
-                *[client.call("test.count") for _ in range(4)]
-            )
+            results = await asyncio.gather(*[client.call("test.count") for _ in range(4)])
             assert len(results) == 4
             assert counter["total"] == 4
     finally:
@@ -376,6 +373,7 @@ async def test_client_application_error_releases_connection(
 
     async def _fail(params: dict[str, Any], writer: asyncio.StreamWriter) -> dict[str, Any]:
         from marianne.daemon.exceptions import JobSubmissionError
+
         raise JobSubmissionError("test failure")
 
     handler.register("test.fail", _fail)

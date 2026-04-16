@@ -23,7 +23,6 @@ import yaml
 
 from marianne.core.config import JobConfig
 
-
 SCORE_PATH = Path(__file__).parent.parent / "examples" / "engineering" / "issue-solver.yaml"
 
 
@@ -110,15 +109,12 @@ class TestFanOutStage12:
 class TestSkipWhenCommandTargetsValidSheets:
     """All skip_when_command keys are within the valid stage range."""
 
-    def test_skip_when_command_targets_valid_sheets(
-        self, raw_yaml: dict
-    ) -> None:
+    def test_skip_when_command_targets_valid_sheets(self, raw_yaml: dict) -> None:
         total_stages = raw_yaml["sheet"]["total_items"]  # 17 (pre-expansion)
         skip_keys = raw_yaml["sheet"]["skip_when_command"]
         for stage_num in skip_keys:
             assert 1 <= stage_num <= total_stages, (
-                f"skip_when_command key {stage_num} is outside valid "
-                f"stage range 1-{total_stages}"
+                f"skip_when_command key {stage_num} is outside valid stage range 1-{total_stages}"
             )
 
     def test_skip_when_command_has_expected_stages(self, raw_yaml: dict) -> None:
@@ -138,17 +134,13 @@ class TestDependenciesAreValid:
         total_stages = raw_yaml["sheet"]["total_items"]
         deps = raw_yaml["sheet"]["dependencies"]
         for stage, dep_list in deps.items():
-            assert 1 <= stage <= total_stages, (
-                f"Dependency key {stage} outside valid range"
-            )
+            assert 1 <= stage <= total_stages, f"Dependency key {stage} outside valid range"
             for dep in dep_list:
                 assert 1 <= dep <= total_stages, (
                     f"Stage {stage} depends on {dep}, outside valid range"
                 )
 
-    def test_expanded_dependencies_reference_valid_sheets(
-        self, config: JobConfig
-    ) -> None:
+    def test_expanded_dependencies_reference_valid_sheets(self, config: JobConfig) -> None:
         """Post-expansion: all dependency keys and values within 1..total_sheets."""
         total_sheets = config.sheet.total_sheets
         deps = config.sheet.dependencies
@@ -165,9 +157,7 @@ class TestDependenciesAreValid:
     def test_no_self_dependencies(self, config: JobConfig) -> None:
         """No sheet depends on itself."""
         for sheet_num, dep_list in config.sheet.dependencies.items():
-            assert sheet_num not in dep_list, (
-                f"Sheet {sheet_num} has a self-dependency"
-            )
+            assert sheet_num not in dep_list, f"Sheet {sheet_num} has a self-dependency"
 
     def test_dependency_chain_is_complete(self, raw_yaml: dict) -> None:
         """Every stage 2-17 has at least one dependency (linear chain)."""
@@ -407,7 +397,5 @@ class TestTemplateRendersForAllSheets:
 
         # Verify each hits the correct reviewer branch
         assert "Functional" in renders[1], "Instance 1 should be Functional Reviewer"
-        assert "E2E" in renders[2] or "Smoke" in renders[2], (
-            "Instance 2 should be E2E/Smoke Tester"
-        )
+        assert "E2E" in renders[2] or "Smoke" in renders[2], "Instance 2 should be E2E/Smoke Tester"
         assert "Code Quality" in renders[3], "Instance 3 should be Code Quality Reviewer"

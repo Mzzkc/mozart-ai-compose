@@ -47,12 +47,7 @@ def sample_config_file(tmp_path: Path) -> Path:
     """Create a minimal config YAML file for submit tests."""
     config = tmp_path / "test-job.yaml"
     config.write_text(
-        "name: test-job\n"
-        "sheet:\n"
-        "  size: 1\n"
-        "  total_items: 1\n"
-        "prompt:\n"
-        "  template: test prompt\n"
+        "name: test-job\nsheet:\n  size: 1\n  total_items: 1\nprompt:\n  template: test prompt\n"
     )
     return config
 
@@ -65,7 +60,10 @@ class TestSubmitJob:
 
     @pytest.mark.asyncio
     async def test_submit_returns_accepted(
-        self, manager: JobManager, sample_config_file: Path, tmp_path: Path,
+        self,
+        manager: JobManager,
+        sample_config_file: Path,
+        tmp_path: Path,
     ):
         """Submitting a valid job returns accepted response."""
         request = JobRequest(config_path=sample_config_file, workspace=tmp_path / "ws")
@@ -77,7 +75,10 @@ class TestSubmitJob:
 
     @pytest.mark.asyncio
     async def test_submit_creates_task(
-        self, manager: JobManager, sample_config_file: Path, tmp_path: Path,
+        self,
+        manager: JobManager,
+        sample_config_file: Path,
+        tmp_path: Path,
     ):
         """submit_job creates an asyncio.Task tracked in _jobs."""
         request = JobRequest(config_path=sample_config_file, workspace=tmp_path / "ws")
@@ -88,7 +89,9 @@ class TestSubmitJob:
 
     @pytest.mark.asyncio
     async def test_submit_nonexistent_config_rejected(
-        self, manager: JobManager, tmp_path: Path,
+        self,
+        manager: JobManager,
+        tmp_path: Path,
     ):
         """Submitting a job with nonexistent config is rejected."""
         request = JobRequest(config_path=tmp_path / "nonexistent.yaml")
@@ -99,7 +102,9 @@ class TestSubmitJob:
 
     @pytest.mark.asyncio
     async def test_submit_unparseable_config_without_workspace_rejected(
-        self, manager: JobManager, tmp_path: Path,
+        self,
+        manager: JobManager,
+        tmp_path: Path,
     ):
         """Submitting a job with unparseable config and no workspace is rejected."""
         bad_config = tmp_path / "bad-job.yaml"
@@ -112,7 +117,9 @@ class TestSubmitJob:
 
     @pytest.mark.asyncio
     async def test_submit_during_shutdown_rejected(
-        self, manager: JobManager, sample_config_file: Path,
+        self,
+        manager: JobManager,
+        sample_config_file: Path,
     ):
         """Jobs submitted during shutdown are rejected."""
         manager._shutting_down = True
@@ -124,7 +131,10 @@ class TestSubmitJob:
 
     @pytest.mark.asyncio
     async def test_submit_rejects_duplicate_active(
-        self, manager: JobManager, sample_config_file: Path, tmp_path: Path,
+        self,
+        manager: JobManager,
+        sample_config_file: Path,
+        tmp_path: Path,
     ):
         """Submitting same config while active is rejected."""
         r1 = JobRequest(config_path=sample_config_file, workspace=tmp_path / "ws1")
@@ -205,6 +215,7 @@ class TestCancelJob:
     @pytest.mark.asyncio
     async def test_cancel_existing_job(self, manager: JobManager):
         """Cancelling an existing job cancels the task and updates meta."""
+
         # Create a long-running task manually
         async def long_running():
             await asyncio.sleep(100)
@@ -267,6 +278,7 @@ class TestShutdown:
     @pytest.mark.asyncio
     async def test_forceful_shutdown_cancels_tasks(self, manager: JobManager):
         """Forceful shutdown cancels all running tasks."""
+
         async def long_task():
             await asyncio.sleep(100)
 
@@ -326,6 +338,7 @@ class TestOnTaskDone:
     @pytest.mark.asyncio
     async def test_on_task_done_removes_from_jobs(self, manager: JobManager):
         """_on_task_done removes the job from the _jobs dict."""
+
         async def quick():
             pass
 
@@ -346,6 +359,7 @@ class TestOnTaskDone:
     @pytest.mark.asyncio
     async def test_on_task_done_sets_failed_on_exception(self, manager: JobManager):
         """_on_task_done marks status as failed when task has an exception."""
+
         async def failing():
             raise RuntimeError("boom")
 
@@ -376,6 +390,7 @@ class TestOnTaskDone:
     @pytest.mark.asyncio
     async def test_on_task_done_cancelled_does_not_set_failed(self, manager: JobManager):
         """_on_task_done does not mark cancelled tasks as failed."""
+
         async def cancellable():
             await asyncio.sleep(100)
 
@@ -592,7 +607,8 @@ class TestPauseJob:
         await manager.pause_job("job-1")
 
         manager._service.pause_job.assert_awaited_once_with(
-            "job-1", Path("/tmp/meta-workspace"),
+            "job-1",
+            Path("/tmp/meta-workspace"),
         )
 
 
@@ -986,7 +1002,9 @@ class TestExceptionNarrowing:
 
     @pytest.mark.asyncio
     async def test_config_parse_catches_value_error(
-        self, manager: JobManager, tmp_path: Path,
+        self,
+        manager: JobManager,
+        tmp_path: Path,
     ) -> None:
         """Config parse failure (ValueError) returns rejected JobResponse."""
         config_path = tmp_path / "bad.yaml"
@@ -1002,7 +1020,9 @@ class TestExceptionNarrowing:
 
     @pytest.mark.asyncio
     async def test_config_parse_catches_os_error(
-        self, manager: JobManager, tmp_path: Path,
+        self,
+        manager: JobManager,
+        tmp_path: Path,
     ) -> None:
         """Config parse failure (OSError) returns rejected JobResponse."""
         config_path = tmp_path / "unreadable.yaml"
@@ -1019,7 +1039,8 @@ class TestExceptionNarrowing:
 
     @pytest.mark.asyncio
     async def test_on_task_done_handles_expected_exceptions(
-        self, manager: JobManager,
+        self,
+        manager: JobManager,
     ) -> None:
         """_on_task_done handles KeyError/OSError/RuntimeError without crashing."""
         task = MagicMock(spec=asyncio.Task)
@@ -1038,7 +1059,9 @@ class TestWorkspaceValidation:
 
     @pytest.mark.asyncio
     async def test_submit_rejects_nonexistent_workspace_parent(
-        self, manager: JobManager, sample_config_file: Path,
+        self,
+        manager: JobManager,
+        sample_config_file: Path,
     ):
         """Jobs are rejected when workspace parent directory doesn't exist."""
         request = JobRequest(
@@ -1052,7 +1075,10 @@ class TestWorkspaceValidation:
 
     @pytest.mark.asyncio
     async def test_submit_rejects_unwritable_workspace_parent(
-        self, manager: JobManager, sample_config_file: Path, tmp_path: Path,
+        self,
+        manager: JobManager,
+        sample_config_file: Path,
+        tmp_path: Path,
     ):
         """Jobs are rejected when workspace parent directory is not writable."""
         # Create a read-only directory
@@ -1075,7 +1101,10 @@ class TestWorkspaceValidation:
 
     @pytest.mark.asyncio
     async def test_submit_accepts_valid_workspace_parent(
-        self, manager: JobManager, sample_config_file: Path, tmp_path: Path,
+        self,
+        manager: JobManager,
+        sample_config_file: Path,
+        tmp_path: Path,
     ):
         """Jobs with a valid, writable workspace parent are accepted."""
         request = JobRequest(
@@ -1154,7 +1183,8 @@ class TestSemanticAnalyzerIntegration:
 
     @pytest.mark.asyncio
     async def test_analyzer_failure_does_not_prevent_start(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ):
         """If SemanticAnalyzer startup fails, the manager still starts."""
         config = DaemonConfig(
@@ -1179,7 +1209,8 @@ class TestSemanticAnalyzerIntegration:
 
     @pytest.mark.asyncio
     async def test_analyzer_receives_event_bus_reference(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ):
         """SemanticAnalyzer receives the same EventBus as the manager."""
         config = DaemonConfig(
@@ -1272,6 +1303,7 @@ class TestWaitForShutdown:
     @pytest.mark.asyncio
     async def test_wait_unblocks_after_shutdown(self, manager: JobManager):
         """wait_for_shutdown returns after shutdown is called."""
+
         async def trigger():
             await asyncio.sleep(0.05)
             await manager.shutdown(graceful=True)
@@ -1334,7 +1366,10 @@ class TestBackpressure:
 
     @pytest.mark.asyncio
     async def test_rejects_under_pressure(
-        self, manager: JobManager, sample_config_file: Path, tmp_path: Path,
+        self,
+        manager: JobManager,
+        sample_config_file: Path,
+        tmp_path: Path,
     ):
         """Jobs are rejected when backpressure says no."""
         manager._backpressure = MagicMock()
@@ -1348,7 +1383,10 @@ class TestBackpressure:
 
     @pytest.mark.asyncio
     async def test_accepts_when_no_pressure(
-        self, manager: JobManager, sample_config_file: Path, tmp_path: Path,
+        self,
+        manager: JobManager,
+        sample_config_file: Path,
+        tmp_path: Path,
     ):
         """Jobs are accepted when backpressure allows."""
         request = JobRequest(config_path=sample_config_file, workspace=tmp_path / "ws")
@@ -1403,7 +1441,10 @@ class TestDuplicateJobRejection:
 
     @pytest.mark.asyncio
     async def test_rejects_when_active(
-        self, manager: JobManager, sample_config_file: Path, tmp_path: Path,
+        self,
+        manager: JobManager,
+        sample_config_file: Path,
+        tmp_path: Path,
     ):
         """Submitting same config while job is active is rejected."""
         r1 = JobRequest(config_path=sample_config_file, workspace=tmp_path / "ws1")
@@ -1418,7 +1459,10 @@ class TestDuplicateJobRejection:
 
     @pytest.mark.asyncio
     async def test_reuses_when_terminal(
-        self, manager: JobManager, sample_config_file: Path, tmp_path: Path,
+        self,
+        manager: JobManager,
+        sample_config_file: Path,
+        tmp_path: Path,
     ):
         """Resubmitting after completion reuses the same job ID."""
         r1 = JobRequest(config_path=sample_config_file, workspace=tmp_path / "ws1")
@@ -1635,7 +1679,8 @@ class TestObserverRecorderIntegration:
                 await mgr.start()
                 # Find the manager.started log call
                 started_calls = [
-                    c for c in mock_logger.info.call_args_list
+                    c
+                    for c in mock_logger.info.call_args_list
                     if c[0] and c[0][0] == "manager.started"
                 ]
                 assert len(started_calls) == 1
@@ -1746,9 +1791,7 @@ class TestRunManagedTaskEdgeCases:
                 await asyncio.sleep(100)
 
             # Start the managed task in the background
-            task = asyncio.create_task(
-                mgr._run_managed_task("cancel-test", _cancellable())
-            )
+            task = asyncio.create_task(mgr._run_managed_task("cancel-test", _cancellable()))
             await asyncio.sleep(0.05)
             task.cancel()
             try:
@@ -1792,7 +1835,10 @@ class TestHookConfigExtraction:
 
     @pytest.mark.asyncio
     async def test_submit_stores_hook_config_in_meta(
-        self, manager: JobManager, config_with_hooks: Path, tmp_path: Path,
+        self,
+        manager: JobManager,
+        config_with_hooks: Path,
+        tmp_path: Path,
     ):
         """submit_job extracts hook config into JobMeta."""
         request = JobRequest(
@@ -1810,7 +1856,10 @@ class TestHookConfigExtraction:
 
     @pytest.mark.asyncio
     async def test_submit_stores_concert_config_in_meta(
-        self, manager: JobManager, config_with_hooks: Path, tmp_path: Path,
+        self,
+        manager: JobManager,
+        config_with_hooks: Path,
+        tmp_path: Path,
     ):
         """submit_job extracts concert config into JobMeta when enabled."""
         request = JobRequest(
@@ -1826,7 +1875,10 @@ class TestHookConfigExtraction:
 
     @pytest.mark.asyncio
     async def test_submit_stores_hook_config_in_registry(
-        self, manager: JobManager, config_with_hooks: Path, tmp_path: Path,
+        self,
+        manager: JobManager,
+        config_with_hooks: Path,
+        tmp_path: Path,
     ):
         """submit_job persists hook config to registry for restart resilience."""
         import json
@@ -1846,7 +1898,10 @@ class TestHookConfigExtraction:
 
     @pytest.mark.asyncio
     async def test_submit_without_hooks_stores_none(
-        self, manager: JobManager, sample_config_file: Path, tmp_path: Path,
+        self,
+        manager: JobManager,
+        sample_config_file: Path,
+        tmp_path: Path,
     ):
         """submit_job stores None hook config for configs without on_success."""
         request = JobRequest(
@@ -1885,25 +1940,27 @@ class TestDaemonHookExecution:
             # Create a config file the chained job will reference
             next_config = tmp_path / "next.yaml"
             next_config.write_text(
-                "name: next-job\n"
-                "sheet:\n  size: 1\n  total_items: 1\n"
-                "prompt:\n  template: test\n"
+                "name: next-job\nsheet:\n  size: 1\n  total_items: 1\nprompt:\n  template: test\n"
             )
 
             await mgr._registry.register_job(
-                "parent-job", Path("/tmp/parent.yaml"), tmp_path / "ws",
+                "parent-job",
+                Path("/tmp/parent.yaml"),
+                tmp_path / "ws",
             )
             meta = JobMeta(
                 job_id="parent-job",
                 config_path=Path("/tmp/parent.yaml"),
                 workspace=tmp_path / "ws",
                 status=DaemonJobStatus.COMPLETED,
-                hook_config=[{
-                    "type": "run_job",
-                    "job_path": str(next_config),
-                    "fresh": True,
-                    "description": "Chain to next",
-                }],
+                hook_config=[
+                    {
+                        "type": "run_job",
+                        "job_path": str(next_config),
+                        "fresh": True,
+                        "description": "Chain to next",
+                    }
+                ],
                 concert_config={
                     "enabled": True,
                     "max_chain_depth": 5,
@@ -1972,7 +2029,9 @@ class TestDaemonHookExecution:
 
         try:
             await mgr._registry.register_job(
-                "no-hooks", Path("/tmp/test.yaml"), tmp_path / "ws",
+                "no-hooks",
+                Path("/tmp/test.yaml"),
+                tmp_path / "ws",
             )
             meta = JobMeta(
                 job_id="no-hooks",
@@ -2002,13 +2061,13 @@ class TestDaemonHookExecution:
         try:
             next_config = tmp_path / "next.yaml"
             next_config.write_text(
-                "name: next-job\n"
-                "sheet:\n  size: 1\n  total_items: 1\n"
-                "prompt:\n  template: test\n"
+                "name: next-job\nsheet:\n  size: 1\n  total_items: 1\nprompt:\n  template: test\n"
             )
 
             await mgr._registry.register_job(
-                "depth-job", Path("/tmp/depth.yaml"), tmp_path / "ws",
+                "depth-job",
+                Path("/tmp/depth.yaml"),
+                tmp_path / "ws",
             )
             meta = JobMeta(
                 job_id="depth-job",
@@ -2016,10 +2075,12 @@ class TestDaemonHookExecution:
                 workspace=tmp_path / "ws",
                 status=DaemonJobStatus.COMPLETED,
                 chain_depth=3,  # At limit
-                hook_config=[{
-                    "type": "run_job",
-                    "job_path": str(next_config),
-                }],
+                hook_config=[
+                    {
+                        "type": "run_job",
+                        "job_path": str(next_config),
+                    }
+                ],
                 concert_config={
                     "enabled": True,
                     "max_chain_depth": 3,  # Limit = 3, depth = 3 → blocked
@@ -2036,6 +2097,7 @@ class TestDaemonHookExecution:
 
             # Verify the specific depth limit error is in the stored hook results
             import json
+
             cursor = await mgr._registry._db.execute(
                 "SELECT hook_results_json FROM jobs WHERE job_id = ?",
                 ("depth-job",),
@@ -2060,18 +2122,22 @@ class TestDaemonHookExecution:
 
         try:
             await mgr._registry.register_job(
-                "fail-hook", Path("/tmp/test.yaml"), tmp_path / "ws",
+                "fail-hook",
+                Path("/tmp/test.yaml"),
+                tmp_path / "ws",
             )
             meta = JobMeta(
                 job_id="fail-hook",
                 config_path=Path("/tmp/test.yaml"),
                 workspace=tmp_path / "ws",
                 status=DaemonJobStatus.COMPLETED,
-                hook_config=[{
-                    "type": "run_job",
-                    "job_path": "/nonexistent/job.yaml",
-                    "description": "Will fail",
-                }],
+                hook_config=[
+                    {
+                        "type": "run_job",
+                        "job_path": "/nonexistent/job.yaml",
+                        "description": "Will fail",
+                    }
+                ],
             )
             mgr._job_meta["fail-hook"] = meta
 
@@ -2095,7 +2161,9 @@ class TestDaemonHookExecution:
 
         try:
             await mgr._registry.register_job(
-                "hook-spawn", Path("/tmp/test.yaml"), tmp_path / "ws",
+                "hook-spawn",
+                Path("/tmp/test.yaml"),
+                tmp_path / "ws",
             )
             meta = JobMeta(
                 job_id="hook-spawn",
@@ -2103,10 +2171,12 @@ class TestDaemonHookExecution:
                 workspace=tmp_path / "ws",
                 status=DaemonJobStatus.COMPLETED,
                 completed_new_work=True,  # Zero-work guard: must be True for hooks to fire
-                hook_config=[{
-                    "type": "run_job",
-                    "job_path": "/nonexistent.yaml",
-                }],
+                hook_config=[
+                    {
+                        "type": "run_job",
+                        "job_path": "/nonexistent.yaml",
+                    }
+                ],
             )
             mgr._job_meta["hook-spawn"] = meta
 
@@ -2141,7 +2211,9 @@ class TestDaemonHookExecution:
 
         try:
             await mgr._registry.register_job(
-                "zero-work", Path("/tmp/test.yaml"), tmp_path / "ws",
+                "zero-work",
+                Path("/tmp/test.yaml"),
+                tmp_path / "ws",
             )
             meta = JobMeta(
                 job_id="zero-work",
@@ -2149,10 +2221,12 @@ class TestDaemonHookExecution:
                 workspace=tmp_path / "ws",
                 status=DaemonJobStatus.COMPLETED,
                 completed_new_work=False,  # No new sheets — hooks should be skipped
-                hook_config=[{
-                    "type": "run_job",
-                    "job_path": "/nonexistent.yaml",
-                }],
+                hook_config=[
+                    {
+                        "type": "run_job",
+                        "job_path": "/nonexistent.yaml",
+                    }
+                ],
             )
             mgr._job_meta["zero-work"] = meta
 
@@ -2183,24 +2257,26 @@ class TestDaemonHookExecution:
         try:
             next_config = tmp_path / "next.yaml"
             next_config.write_text(
-                "name: next-job\n"
-                "sheet:\n  size: 1\n  total_items: 1\n"
-                "prompt:\n  template: test\n"
+                "name: next-job\nsheet:\n  size: 1\n  total_items: 1\nprompt:\n  template: test\n"
             )
 
             await mgr._registry.register_job(
-                "cooldown-job", Path("/tmp/parent.yaml"), tmp_path / "ws",
+                "cooldown-job",
+                Path("/tmp/parent.yaml"),
+                tmp_path / "ws",
             )
             meta = JobMeta(
                 job_id="cooldown-job",
                 config_path=Path("/tmp/parent.yaml"),
                 workspace=tmp_path / "ws",
                 status=DaemonJobStatus.COMPLETED,
-                hook_config=[{
-                    "type": "run_job",
-                    "job_path": str(next_config),
-                    "fresh": True,
-                }],
+                hook_config=[
+                    {
+                        "type": "run_job",
+                        "job_path": str(next_config),
+                        "fresh": True,
+                    }
+                ],
                 concert_config={
                     "enabled": True,
                     "max_chain_depth": 5,
@@ -2212,6 +2288,7 @@ class TestDaemonHookExecution:
             (tmp_path / "ws").mkdir(exist_ok=True)
 
             import time
+
             start = time.monotonic()
             await mgr._execute_hooks_task("cooldown-job")
             elapsed = time.monotonic() - start
@@ -2279,9 +2356,7 @@ class TestResumeConductorConfigReload131:
             pass
 
     @pytest.mark.asyncio
-    async def test_131_c_config_path_updated_before_task_queued(
-        self, manager: JobManager
-    ) -> None:
+    async def test_131_c_config_path_updated_before_task_queued(self, manager: JobManager) -> None:
         """TEST-131-C: config_path is applied before asyncio.create_task is called."""
         manager._job_meta["job-failed"] = JobMeta(
             job_id="job-failed",
@@ -2326,9 +2401,7 @@ class TestResumeConductorConfigReload131:
 
         # modify_job sets meta.config_path THEN calls resume_job (no config_path arg)
         # The None default must not overwrite what modify_job already set
-        response = await manager.modify_job(
-            "job-paused", config_path=Path("/modified.yaml")
-        )
+        response = await manager.modify_job("job-paused", config_path=Path("/modified.yaml"))
         assert response.status == "accepted"
         assert manager._job_meta["job-paused"].config_path == Path("/modified.yaml")
 
@@ -2376,7 +2449,10 @@ class TestHookConfigRestoration:
 
     @pytest.mark.asyncio
     async def test_hook_config_restored_after_restart(
-        self, daemon_config: DaemonConfig, config_with_hooks: Path, tmp_path: Path,
+        self,
+        daemon_config: DaemonConfig,
+        config_with_hooks: Path,
+        tmp_path: Path,
     ):
         """hook_config is loaded from registry when manager restarts."""
         # Phase 1: Submit a job with hooks via a "first" manager
@@ -2417,7 +2493,9 @@ class TestHookConfigRestoration:
 
     @pytest.mark.asyncio
     async def test_hook_config_none_when_no_hooks_stored(
-        self, daemon_config: DaemonConfig, tmp_path: Path,
+        self,
+        daemon_config: DaemonConfig,
+        tmp_path: Path,
     ):
         """Jobs without hooks have hook_config=None after restart."""
         # Submit a job WITHOUT hooks

@@ -260,9 +260,7 @@ class TestConsoleOutput:
         output = ConsoleOutput(console=mock_console)
 
         output.log("error", "something broke")
-        mock_console.print.assert_called_once_with(
-            "[red]something broke[/red]"
-        )
+        mock_console.print.assert_called_once_with("[red]something broke[/red]")
 
     def test_log_warning_prints_with_yellow_style(self):
         """Test log() with warning level prints in yellow."""
@@ -270,9 +268,7 @@ class TestConsoleOutput:
         output = ConsoleOutput(console=mock_console)
 
         output.log("warning", "careful now")
-        mock_console.print.assert_called_once_with(
-            "[yellow]careful now[/yellow]"
-        )
+        mock_console.print.assert_called_once_with("[yellow]careful now[/yellow]")
 
     def test_log_debug_prints_with_dim_style(self):
         """Test log() with debug level prints dimmed."""
@@ -280,9 +276,7 @@ class TestConsoleOutput:
         output = ConsoleOutput(console=mock_console)
 
         output.log("debug", "trace info")
-        mock_console.print.assert_called_once_with(
-            "[dim]trace info[/dim]"
-        )
+        mock_console.print.assert_called_once_with("[dim]trace info[/dim]")
 
     def test_log_critical_prints_with_bold_red_style(self):
         """Test log() with critical level prints in bold red."""
@@ -290,9 +284,7 @@ class TestConsoleOutput:
         output = ConsoleOutput(console=mock_console)
 
         output.log("critical", "system down")
-        mock_console.print.assert_called_once_with(
-            "[bold red]system down[/bold red]"
-        )
+        mock_console.print.assert_called_once_with("[bold red]system down[/bold red]")
 
     def test_log_with_context(self):
         """Test log() appends context key=value pairs."""
@@ -316,9 +308,7 @@ class TestConsoleOutput:
         output = ConsoleOutput(console=mock_console)
 
         output.progress("job-1", 5, 10)
-        mock_console.print.assert_called_once_with(
-            "[cyan]job-1[/cyan] 5/10"
-        )
+        mock_console.print.assert_called_once_with("[cyan]job-1[/cyan] 5/10")
 
     def test_progress_with_eta(self):
         """Test progress() includes ETA when provided."""
@@ -326,9 +316,7 @@ class TestConsoleOutput:
         output = ConsoleOutput(console=mock_console)
 
         output.progress("job-1", 5, 10, eta_seconds=120.0)
-        mock_console.print.assert_called_once_with(
-            "[cyan]job-1[/cyan] 5/10 (ETA: 120s)"
-        )
+        mock_console.print.assert_called_once_with("[cyan]job-1[/cyan] 5/10 (ETA: 120s)")
 
     def test_sheet_event_prints_formatted(self):
         """Test sheet_event() prints formatted sheet event."""
@@ -356,9 +344,7 @@ class TestConsoleOutput:
         output = ConsoleOutput(console=mock_console)
 
         output.job_event("job-1", "starting")
-        mock_console.print.assert_called_once_with(
-            "[cyan]job-1[/cyan] [bold]starting[/bold]"
-        )
+        mock_console.print.assert_called_once_with("[cyan]job-1[/cyan] [bold]starting[/bold]")
 
     def test_job_event_with_data(self):
         """Test job_event() includes data key=value pairs."""

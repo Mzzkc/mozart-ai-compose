@@ -600,9 +600,15 @@ class TestConcurrencyStress:
 
         # Run 3 of each worker type concurrently
         workers = [
-            read_worker(), read_worker(), read_worker(),
-            write_worker(), write_worker(), write_worker(),
-            list_worker(), list_worker(), list_worker(),
+            read_worker(),
+            read_worker(),
+            read_worker(),
+            write_worker(),
+            write_worker(),
+            write_worker(),
+            list_worker(),
+            list_worker(),
+            list_worker(),
         ]
         await asyncio.gather(*workers)
 

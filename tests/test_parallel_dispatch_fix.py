@@ -10,16 +10,14 @@ TDD: tests written before implementation. Red first, then green.
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from marianne.daemon.baton.core import BatonCore
 from marianne.daemon.baton.dispatch import DispatchConfig, dispatch_ready
-from marianne.daemon.baton.events import SheetAttemptResult, PacingComplete
-from marianne.daemon.baton.state import BatonSheetStatus, SheetExecutionState
-
+from marianne.daemon.baton.events import SheetAttemptResult
+from marianne.daemon.baton.state import SheetExecutionState
 
 # =============================================================================
 # Issue 1: extract_dependencies must respect config.sheet.dependencies
@@ -37,8 +35,8 @@ class TestExtractDependenciesRespectsYAML:
         mock_config = MagicMock()
         mock_config.sheet.total_sheets = 4
         # Each sheet is its own stage (no fan-out)
-        mock_config.sheet.get_fan_out_metadata = (
-            lambda n: MagicMock(stage=n, instance=1, fan_count=1)
+        mock_config.sheet.get_fan_out_metadata = lambda n: MagicMock(
+            stage=n, instance=1, fan_count=1
         )
         # YAML dependencies: stages 1 and 3 are independent,
         # stage 2 depends on 1, stage 4 depends on 3
@@ -63,8 +61,8 @@ class TestExtractDependenciesRespectsYAML:
 
         mock_config = MagicMock()
         mock_config.sheet.total_sheets = 14
-        mock_config.sheet.get_fan_out_metadata = (
-            lambda n: MagicMock(stage=n, instance=1, fan_count=1)
+        mock_config.sheet.get_fan_out_metadata = lambda n: MagicMock(
+            stage=n, instance=1, fan_count=1
         )
         # A3-style DAG: 4 independent flagship chains
         mock_config.sheet.dependencies = {
@@ -97,8 +95,8 @@ class TestExtractDependenciesRespectsYAML:
 
         mock_config = MagicMock()
         mock_config.sheet.total_sheets = 3
-        mock_config.sheet.get_fan_out_metadata = (
-            lambda n: MagicMock(stage=n, instance=1, fan_count=1)
+        mock_config.sheet.get_fan_out_metadata = lambda n: MagicMock(
+            stage=n, instance=1, fan_count=1
         )
         # No dependencies specified — should use linear fallback
         mock_config.sheet.dependencies = {}
@@ -178,12 +176,18 @@ class TestPacingIndependentSheets:
         assert result.dispatched_count == 2
 
         # Complete sheet 1 — this triggers pacing
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=True,
-            validations_passed=1, validations_total=1,
-            validation_pass_rate=100.0,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=True,
+                validations_passed=1,
+                validations_total=1,
+                validation_pass_rate=100.0,
+            )
+        )
 
         # Sheet 2 (depends on 1) should be ready.
         # Pacing is active, but sheet 2's dependency just completed.
@@ -196,8 +200,7 @@ class TestPacingIndependentSheets:
         # Sheet 3 is still dispatched, sheet 4 depends on 3
         ready_nums = [s.sheet_num for s in ready]
         assert 2 in ready_nums, (
-            "Sheet 2 should be ready after its dependency (1) completed, "
-            "even with pacing active"
+            "Sheet 2 should be ready after its dependency (1) completed, even with pacing active"
         )
 
 
@@ -225,12 +228,18 @@ class TestPacingSkipsWhenOtherSheetsDispatched:
         await dispatch_ready(baton, config, callback)
 
         # Complete sheet 1 while sheet 2 is still dispatched
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=True,
-            validations_passed=1, validations_total=1,
-            validation_pass_rate=100.0,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=True,
+                validations_passed=1,
+                validations_total=1,
+                validation_pass_rate=100.0,
+            )
+        )
 
         job = baton._jobs["j1"]
         # Pacing should NOT be active because sheet 2 is still dispatched
@@ -250,7 +259,8 @@ class TestDispatchLogging:
 
     @pytest.mark.asyncio
     async def test_dispatch_logs_ready_count_and_skips(
-        self, capsys: pytest.CaptureFixture[str],
+        self,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """dispatch_ready should log how many sheets were ready, how many
         dispatched, and why any were skipped."""
@@ -259,10 +269,14 @@ class TestDispatchLogging:
 
         sheets = {
             1: SheetExecutionState(
-                sheet_num=1, instrument_name="claude-code", model="opus",
+                sheet_num=1,
+                instrument_name="claude-code",
+                model="opus",
             ),
             2: SheetExecutionState(
-                sheet_num=2, instrument_name="claude-code", model="opus",
+                sheet_num=2,
+                instrument_name="claude-code",
+                model="opus",
             ),
         }
         baton.register_job("j1", sheets, {1: [], 2: []})
@@ -283,7 +297,8 @@ class TestDispatchLogging:
 
     @pytest.mark.asyncio
     async def test_dispatch_logs_skip_reasons(
-        self, capsys: pytest.CaptureFixture[str],
+        self,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """When sheets are skipped due to concurrency limits, the log
         should include the specific reason and model key."""
@@ -293,11 +308,13 @@ class TestDispatchLogging:
 
         sheets = {
             1: SheetExecutionState(
-                sheet_num=1, instrument_name="claude-code",
+                sheet_num=1,
+                instrument_name="claude-code",
                 model="claude-opus-4-6",
             ),
             2: SheetExecutionState(
-                sheet_num=2, instrument_name="claude-code",
+                sheet_num=2,
+                instrument_name="claude-code",
                 model="claude-opus-4-6",
             ),
         }

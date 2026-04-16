@@ -11,6 +11,7 @@ clone feature that other musicians built. Focus areas:
 
 TDD: Red first, then green.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -18,7 +19,6 @@ from pathlib import Path
 import pytest
 
 from marianne.daemon.config import DaemonConfig
-
 
 # =============================================================================
 # Clone name sanitization — adversarial inputs
@@ -224,8 +224,7 @@ class TestStartConductorCloneConfig:
             assert len(captured_config) == 1
             config = captured_config[0]
             assert config.state_db_path == clone_paths.state_db, (
-                f"state_db_path should be {clone_paths.state_db}, "
-                f"got {config.state_db_path}"
+                f"state_db_path should be {clone_paths.state_db}, got {config.state_db_path}"
             )
             assert config.socket.path == clone_paths.socket
             assert config.pid_file == clone_paths.pid_file
@@ -360,9 +359,7 @@ class TestBuiltInProfileValidation:
         from marianne.instruments.loader import InstrumentProfileLoader
 
         loader = InstrumentProfileLoader()
-        profiles = loader.load_directory(
-            Path("src/marianne/instruments/builtins")
-        )
+        profiles = loader.load_directory(Path("src/marianne/instruments/builtins"))
         gemini = profiles.get("gemini-cli")
         assert gemini is not None, "gemini-cli profile not found"
         assert gemini.cli is not None
@@ -373,9 +370,7 @@ class TestBuiltInProfileValidation:
         from marianne.instruments.loader import InstrumentProfileLoader
 
         loader = InstrumentProfileLoader()
-        profiles = loader.load_directory(
-            Path("src/marianne/instruments/builtins")
-        )
+        profiles = loader.load_directory(Path("src/marianne/instruments/builtins"))
         claude = profiles.get("claude-code")
         assert claude is not None, "claude-code profile not found"
         assert claude.cli is not None
@@ -386,9 +381,7 @@ class TestBuiltInProfileValidation:
         from marianne.instruments.loader import InstrumentProfileLoader
 
         loader = InstrumentProfileLoader()
-        profiles = loader.load_directory(
-            Path("src/marianne/instruments/builtins")
-        )
+        profiles = loader.load_directory(Path("src/marianne/instruments/builtins"))
         gemini = profiles.get("gemini-cli")
         assert gemini is not None
         assert "*" in (gemini.cli.output.input_tokens_path or "")
@@ -399,9 +392,7 @@ class TestBuiltInProfileValidation:
         from marianne.instruments.loader import InstrumentProfileLoader
 
         loader = InstrumentProfileLoader()
-        profiles = loader.load_directory(
-            Path("src/marianne/instruments/builtins")
-        )
+        profiles = loader.load_directory(Path("src/marianne/instruments/builtins"))
         claude = profiles.get("claude-code")
         assert claude is not None
         assert "*" not in (claude.cli.output.input_tokens_path or "")
@@ -412,9 +403,7 @@ class TestBuiltInProfileValidation:
         from marianne.instruments.loader import InstrumentProfileLoader
 
         loader = InstrumentProfileLoader()
-        profiles = loader.load_directory(
-            Path("src/marianne/instruments/builtins")
-        )
+        profiles = loader.load_directory(Path("src/marianne/instruments/builtins"))
         assert len(profiles) >= 6, f"Expected 6+ built-in profiles, got {len(profiles)}"
         for name, profile in profiles.items():
             assert profile.name == name, f"Profile name mismatch: {profile.name} != {name}"
@@ -426,9 +415,7 @@ class TestBuiltInProfileValidation:
         from marianne.instruments.loader import InstrumentProfileLoader
 
         loader = InstrumentProfileLoader()
-        profiles = loader.load_directory(
-            Path("src/marianne/instruments/builtins")
-        )
+        profiles = loader.load_directory(Path("src/marianne/instruments/builtins"))
         gemini = profiles.get("gemini-cli")
         assert gemini is not None
         errors = gemini.cli.errors
@@ -442,9 +429,7 @@ class TestBuiltInProfileValidation:
         from marianne.instruments.loader import InstrumentProfileLoader
 
         loader = InstrumentProfileLoader()
-        profiles = loader.load_directory(
-            Path("src/marianne/instruments/builtins")
-        )
+        profiles = loader.load_directory(Path("src/marianne/instruments/builtins"))
         claude = profiles.get("claude-code")
         assert claude is not None
         errors = claude.cli.errors

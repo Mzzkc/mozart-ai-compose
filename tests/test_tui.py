@@ -131,9 +131,15 @@ def _make_event(
 def mock_snapshot() -> SystemSnapshot:
     """A representative snapshot with two jobs and processes."""
     procs = [
-        _make_process(pid=12350, job_id="my-review-job", sheet_num=3, cpu_percent=45.0, rss_mb=512.0),
-        _make_process(pid=12380, job_id="my-review-job", sheet_num=4, cpu_percent=12.0, rss_mb=256.0),
-        _make_process(pid=12400, job_id="code-cleanup-job", sheet_num=1, cpu_percent=8.0, rss_mb=128.0),
+        _make_process(
+            pid=12350, job_id="my-review-job", sheet_num=3, cpu_percent=45.0, rss_mb=512.0
+        ),
+        _make_process(
+            pid=12380, job_id="my-review-job", sheet_num=4, cpu_percent=12.0, rss_mb=256.0
+        ),
+        _make_process(
+            pid=12400, job_id="code-cleanup-job", sheet_num=1, cpu_percent=8.0, rss_mb=128.0
+        ),
     ]
     return _make_snapshot(
         processes=procs,
@@ -151,8 +157,11 @@ def mock_events() -> list[ProcessEvent]:
         _make_event(pid=12380, event_type=EventType.SPAWN, timestamp=now - 60),
         _make_event(pid=12340, event_type=EventType.EXIT, exit_code=0, timestamp=now - 120),
         _make_event(
-            pid=12330, event_type=EventType.SIGNAL, signal_num=15,
-            timestamp=now - 180, details="rate limit",
+            pid=12330,
+            event_type=EventType.SIGNAL,
+            signal_num=15,
+            timestamp=now - 180,
+            details="rate limit",
         ),
     ]
 
@@ -331,9 +340,7 @@ class TestMonitorReader:
 
         snap = _make_snapshot(timestamp=1234567.0)
         jsonl_path = tmp_path / "monitor.jsonl"
-        jsonl_path.write_text(
-            json.dumps(snap.model_dump(mode="json")) + "\n"
-        )
+        jsonl_path.write_text(json.dumps(snap.model_dump(mode="json")) + "\n")
 
         reader = MonitorReader(jsonl_path=jsonl_path)
         result = await reader.get_latest_snapshot()
@@ -388,7 +395,9 @@ class TestHeaderPanel:
         """HeaderPanel shows GPU utilization when GPUs are present."""
         from marianne.tui.panels.header import HeaderPanel
 
-        gpu = GpuMetric(index=0, utilization_pct=75.0, memory_used_mb=4096.0, memory_total_mb=8192.0)
+        gpu = GpuMetric(
+            index=0, utilization_pct=75.0, memory_used_mb=4096.0, memory_total_mb=8192.0
+        )
         snap = _make_snapshot(gpus=[gpu])
 
         panel = HeaderPanel()
@@ -418,18 +427,21 @@ class TestHeaderHelpers:
 
     def test_bar_zero(self) -> None:
         from marianne.tui.panels.header import _bar
+
         result = _bar(0.0, 4)
         assert "[bold] 0.0%[/]" in result
         assert "\\[    ]" in result
 
     def test_bar_full(self) -> None:
         from marianne.tui.panels.header import _bar
+
         result = _bar(100.0, 4)
         assert "[bold]100.0%[/]" in result
         assert "||||" in result
 
     def test_bar_half(self) -> None:
         from marianne.tui.panels.header import _bar
+
         result = _bar(50.0, 10)
         assert "|||||" in result
         assert "     " in result
@@ -437,28 +449,34 @@ class TestHeaderHelpers:
 
     def test_pressure_color_critical(self) -> None:
         from marianne.tui.panels.header import _pressure_color
+
         assert _pressure_color("critical") == "red"
         assert _pressure_color("high") == "red"
 
     def test_pressure_color_medium(self) -> None:
         from marianne.tui.panels.header import _pressure_color
+
         assert _pressure_color("medium") == "yellow"
 
     def test_pressure_color_low(self) -> None:
         from marianne.tui.panels.header import _pressure_color
+
         assert _pressure_color("low") == "green"
         assert _pressure_color("none") == "green"
 
     def test_format_uptime_seconds(self) -> None:
         from marianne.tui.panels.header import _format_uptime
+
         assert _format_uptime(30.0) == "30s"
 
     def test_format_uptime_minutes(self) -> None:
         from marianne.tui.panels.header import _format_uptime
+
         assert _format_uptime(300.0) == "5m"
 
     def test_format_uptime_hours(self) -> None:
         from marianne.tui.panels.header import _format_uptime
+
         assert _format_uptime(8100.0) == "2h15m"
 
 
@@ -484,6 +502,7 @@ class TestJobsPanel:
         # _render_jobs needs _tree, which is only set after compose.
         # Test the data structure directly.
         from collections import defaultdict
+
         by_job: dict[str, list[ProcessMetric]] = defaultdict(list)
         for proc in mock_snapshot.processes:
             if proc.job_id:
@@ -585,6 +604,7 @@ class TestJobsPanelFleetNesting:
         ]
         members = fleet_data[0]["members"]
         from collections import defaultdict
+
         by_group: dict[str, list[dict[str, str]]] = defaultdict(list)
         ungrouped = []
         for m in members:
@@ -620,26 +640,32 @@ class TestJobsPanelHelpers:
 
     def test_format_bytes_mb_small(self) -> None:
         from marianne.tui.panels.jobs import _format_bytes_mb
+
         assert _format_bytes_mb(512.0) == "512M"
 
     def test_format_bytes_mb_large(self) -> None:
         from marianne.tui.panels.jobs import _format_bytes_mb
+
         assert _format_bytes_mb(2048.0) == "2.0G"
 
     def test_format_age_seconds(self) -> None:
         from marianne.tui.panels.jobs import _format_age
+
         assert _format_age(30.0) == "30s"
 
     def test_format_age_minutes(self) -> None:
         from marianne.tui.panels.jobs import _format_age
+
         assert _format_age(270.0) == "4m30s"
 
     def test_format_age_hours(self) -> None:
         from marianne.tui.panels.jobs import _format_age
+
         assert _format_age(3900.0) == "1h05m"
 
     def test_format_progress_bar(self) -> None:
         from marianne.tui.panels.jobs import _format_progress_bar
+
         bar = _format_progress_bar(3, 6, width=15)
         assert "50%" in bar
         assert "\u2588" in bar
@@ -647,29 +673,35 @@ class TestJobsPanelHelpers:
 
     def test_format_progress_bar_zero_total(self) -> None:
         from marianne.tui.panels.jobs import _format_progress_bar
+
         bar = _format_progress_bar(0, 0, width=10)
         assert "0%" in bar
 
     def test_state_label_running(self) -> None:
         from marianne.tui.panels.jobs import _state_label
+
         assert _state_label("R") == "[RUNNING]"
         assert _state_label("S") == "[RUNNING]"
         assert _state_label("D") == "[RUNNING]"
 
     def test_state_label_zombie(self) -> None:
         from marianne.tui.panels.jobs import _state_label
+
         assert _state_label("Z") == "[ZOMBIE]"
 
     def test_state_label_stopped(self) -> None:
         from marianne.tui.panels.jobs import _state_label
+
         assert _state_label("T") == "[STOPPED]"
 
     def test_state_label_unknown(self) -> None:
         from marianne.tui.panels.jobs import _state_label
+
         assert _state_label("X") == "[X]"
 
     def test_top_syscalls(self) -> None:
         from marianne.tui.panels.jobs import _top_syscalls
+
         proc = _make_process()
         result = _top_syscalls(proc, top_n=3)
         assert "write" in result
@@ -678,6 +710,7 @@ class TestJobsPanelHelpers:
 
     def test_top_syscalls_empty(self) -> None:
         from marianne.tui.panels.jobs import _top_syscalls
+
         proc = _make_process(syscall_counts={}, syscall_time_pct={})
         assert _top_syscalls(proc) == ""
 
@@ -729,6 +762,7 @@ class TestTimelinePanel:
 
     def test_format_timestamp(self) -> None:
         from marianne.tui.panels.timeline import _format_timestamp
+
         # Just verify it returns a time-formatted string
         result = _format_timestamp(1740000000.0)
         assert ":" in result
@@ -736,6 +770,7 @@ class TestTimelinePanel:
 
     def test_event_colors_defined(self) -> None:
         from marianne.tui.panels.timeline import _EVENT_COLORS
+
         assert EventType.SPAWN.value in _EVENT_COLORS
         assert EventType.EXIT.value in _EVENT_COLORS
         assert EventType.SIGNAL.value in _EVENT_COLORS
@@ -826,6 +861,7 @@ class TestDetailPanel:
 
     def test_format_bytes_mb(self) -> None:
         from marianne.tui.panels.detail import _format_bytes_mb
+
         assert _format_bytes_mb(512.0) == "512M"
         assert _format_bytes_mb(2048.0) == "2.0G"
 
@@ -897,6 +933,7 @@ class TestMonitorApp:
     def test_section_label_no_underscore_prefix(self) -> None:
         """SectionLabel class name has no underscore prefix (BUG-07 fix)."""
         from marianne.tui.app import SectionLabel
+
         assert SectionLabel.__name__ == "SectionLabel"
 
     def test_jobs_panel_is_scrollable(self) -> None:
@@ -904,6 +941,7 @@ class TestMonitorApp:
         from textual.containers import VerticalScroll
 
         from marianne.tui.panels.jobs import JobsPanel
+
         assert issubclass(JobsPanel, VerticalScroll)
 
     def test_timeline_panel_is_richlog(self) -> None:
@@ -911,6 +949,7 @@ class TestMonitorApp:
         from textual.widgets import RichLog
 
         from marianne.tui.panels.timeline import TimelinePanel
+
         assert issubclass(TimelinePanel, RichLog)
 
     def test_detail_panel_is_scrollable(self) -> None:
@@ -918,6 +957,7 @@ class TestMonitorApp:
         from textual.containers import VerticalScroll
 
         from marianne.tui.panels.detail import DetailPanel
+
         assert issubclass(DetailPanel, VerticalScroll)
 
     def test_header_panel_is_static(self) -> None:
@@ -925,6 +965,7 @@ class TestMonitorApp:
         from textual.widgets import Static
 
         from marianne.tui.panels.header import HeaderPanel
+
         assert issubclass(HeaderPanel, Static)
 
 
@@ -938,44 +979,54 @@ class TestParseDuration:
 
     def test_seconds_only(self) -> None:
         from marianne.cli.commands.top import _parse_duration
+
         assert _parse_duration("30s") == 30.0
 
     def test_minutes_only(self) -> None:
         from marianne.cli.commands.top import _parse_duration
+
         assert _parse_duration("5m") == 300.0
 
     def test_hours_only(self) -> None:
         from marianne.cli.commands.top import _parse_duration
+
         assert _parse_duration("1h") == 3600.0
 
     def test_hours_and_minutes(self) -> None:
         from marianne.cli.commands.top import _parse_duration
+
         assert _parse_duration("2h30m") == 9000.0
 
     def test_full_hms(self) -> None:
         from marianne.cli.commands.top import _parse_duration
+
         assert _parse_duration("1h30m15s") == 5415.0
 
     def test_bare_number_as_minutes(self) -> None:
         from marianne.cli.commands.top import _parse_duration
+
         assert _parse_duration("5") == 300.0  # 5 minutes
 
     def test_bare_float_as_minutes(self) -> None:
         from marianne.cli.commands.top import _parse_duration
+
         assert _parse_duration("2.5") == 150.0  # 2.5 minutes
 
     def test_case_insensitive(self) -> None:
         from marianne.cli.commands.top import _parse_duration
+
         assert _parse_duration("1H30M") == 5400.0
 
     def test_whitespace_stripped(self) -> None:
         from marianne.cli.commands.top import _parse_duration
+
         assert _parse_duration("  5m  ") == 300.0
 
     def test_invalid_raises(self) -> None:
         import typer
 
         from marianne.cli.commands.top import _parse_duration
+
         with pytest.raises(typer.BadParameter):
             _parse_duration("abc")
 
@@ -983,6 +1034,7 @@ class TestParseDuration:
         import typer
 
         from marianne.cli.commands.top import _parse_duration
+
         with pytest.raises(typer.BadParameter):
             _parse_duration("")
 
@@ -1060,12 +1112,14 @@ class TestTUIImports:
     def test_tui_package_imports(self) -> None:
         """The TUI package exports MonitorApp and MonitorReader."""
         from marianne.tui import MonitorApp, MonitorReader
+
         assert MonitorApp is not None
         assert MonitorReader is not None
 
     def test_panels_package_imports(self) -> None:
         """The panels package exports all four panels."""
         from marianne.tui.panels import DetailPanel, HeaderPanel, JobsPanel, TimelinePanel
+
         assert HeaderPanel is not None
         assert JobsPanel is not None
         assert TimelinePanel is not None
@@ -1081,6 +1135,7 @@ class TestTUIImports:
             ProcessMetric,
             SystemSnapshot,
         )
+
         assert SystemSnapshot is not None
         assert ProcessMetric is not None
         assert ProcessEvent is not None

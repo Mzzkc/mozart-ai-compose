@@ -18,7 +18,6 @@ from pydantic import ValidationError
 from marianne.core.config.execution import ValidationRule
 from marianne.core.config.job import InjectionCategory, InjectionItem
 
-
 # --- Sheet Construction ---
 
 

@@ -20,7 +20,6 @@ from marianne.daemon.scheduler import (
     SheetInfo,
 )
 
-
 # ─── Fixtures ──────────────────────────────────────────────────────────
 
 
@@ -67,7 +66,8 @@ class TestRegisterAndDeregister:
 
     @pytest.mark.asyncio
     async def test_register_enqueues_independent_sheets(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Sheets with no dependencies are enqueued immediately."""
         sheets = [_sheet(sheet_num=i) for i in range(1, 4)]
@@ -78,7 +78,8 @@ class TestRegisterAndDeregister:
 
     @pytest.mark.asyncio
     async def test_register_respects_dag_deps(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Only DAG-ready sheets are enqueued on registration."""
         sheets = [_sheet(sheet_num=i) for i in range(1, 4)]
@@ -90,7 +91,8 @@ class TestRegisterAndDeregister:
 
     @pytest.mark.asyncio
     async def test_deregister_removes_all_pending(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Deregistering a job removes all its queued sheets."""
         sheets = [_sheet(sheet_num=i) for i in range(1, 6)]
@@ -102,7 +104,8 @@ class TestRegisterAndDeregister:
 
     @pytest.mark.asyncio
     async def test_deregister_doesnt_affect_other_jobs(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Deregistering job-a leaves job-b's sheets intact."""
         await scheduler.register_job("job-a", [_sheet("job-a", i) for i in range(1, 4)])
@@ -121,7 +124,8 @@ class TestPriorityOrdering:
 
     @pytest.mark.asyncio
     async def test_higher_priority_dispatched_first(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Sheets with lower job_priority number (= more urgent) dispatch first."""
         # Priority 1 (urgent) and priority 10 (low)
@@ -138,7 +142,8 @@ class TestPriorityOrdering:
 
     @pytest.mark.asyncio
     async def test_retried_sheets_get_priority_boost(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Sheets with more retries get a priority boost (sunk cost)."""
         sheets = [
@@ -154,7 +159,8 @@ class TestPriorityOrdering:
 
     @pytest.mark.asyncio
     async def test_shallow_dag_depth_preferred(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Shallower DAG depth sheets dispatch before deeper ones."""
         sheets = [
@@ -176,7 +182,8 @@ class TestConcurrencyLimits:
 
     @pytest.mark.asyncio
     async def test_respects_max_concurrent(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Cannot dispatch more sheets than max_concurrent_sheets."""
         sheets = [_sheet(sheet_num=i) for i in range(1, 10)]
@@ -194,7 +201,8 @@ class TestConcurrencyLimits:
 
     @pytest.mark.asyncio
     async def test_completing_sheet_frees_slot(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Marking a sheet complete allows the next one to dispatch."""
         sheets = [_sheet(sheet_num=i) for i in range(1, 5)]
@@ -228,7 +236,8 @@ class TestDAGDependencies:
 
     @pytest.mark.asyncio
     async def test_dependent_sheet_enqueued_after_dep_completes(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Completing sheet 1 makes sheet 2 (which depends on 1) available."""
         sheets = [_sheet(sheet_num=1), _sheet(sheet_num=2)]
@@ -289,7 +298,8 @@ class TestFairShare:
 
     @pytest.mark.asyncio
     async def test_hard_cap_prevents_single_job_hogging(
-        self, daemon_config: DaemonConfig,
+        self,
+        daemon_config: DaemonConfig,
     ):
         """A single job can't take all slots when another job is registered."""
         # max_concurrent_sheets=3, two jobs.
@@ -321,7 +331,8 @@ class TestFairShare:
 
     @pytest.mark.asyncio
     async def test_fair_share_interleaves_initial_dispatch(
-        self, daemon_config: DaemonConfig,
+        self,
+        daemon_config: DaemonConfig,
     ):
         """With two equal-priority jobs, initial dispatch interleaves.
 
@@ -356,7 +367,8 @@ class TestFairShare:
 
     @pytest.mark.asyncio
     async def test_starved_job_catches_up_after_completion(
-        self, daemon_config: DaemonConfig,
+        self,
+        daemon_config: DaemonConfig,
     ):
         """When a job with many running sheets completes some, the
         starved job gets the freed slots.
@@ -381,7 +393,7 @@ class TestFairShare:
             entries.append(e)
 
         # Find which entries belong to which job
-        job_a_entries = [e for e in entries if e.info.job_id == "job-a"]
+        [e for e in entries if e.info.job_id == "job-a"]
         job_b_entries = [e for e in entries if e.info.job_id == "job-b"]
 
         # Complete all of job-b's running sheets
@@ -408,13 +420,16 @@ class TestRateLimitIntegration:
 
     @pytest.mark.asyncio
     async def test_rate_limited_sheets_skipped(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Sheets using a rate-limited backend are skipped."""
 
         class MockRateLimiter:
             async def is_rate_limited(
-                self, backend_type: str, model: str | None = None,
+                self,
+                backend_type: str,
+                model: str | None = None,
             ) -> tuple[bool, float]:
                 return (backend_type == "claude_cli", 30.0)
 
@@ -436,7 +451,8 @@ class TestRateLimitIntegration:
 
     @pytest.mark.asyncio
     async def test_rate_limited_skip_preserves_scheduler_state(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """When all queued sheets are rate-limited, scheduler state is unchanged.
 
@@ -446,7 +462,9 @@ class TestRateLimitIntegration:
 
         class AllLimitedRateLimiter:
             async def is_rate_limited(
-                self, backend_type: str, model: str | None = None,
+                self,
+                backend_type: str,
+                model: str | None = None,
             ) -> tuple[bool, float]:
                 return (True, 60.0)
 
@@ -477,7 +495,8 @@ class TestRateLimitIntegration:
 
     @pytest.mark.asyncio
     async def test_no_rate_limiter_dispatches_normally(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Without a rate limiter, all sheets dispatch normally."""
         sheets = [_sheet(sheet_num=i) for i in range(1, 4)]
@@ -500,7 +519,8 @@ class TestBackpressureIntegration:
 
     @pytest.mark.asyncio
     async def test_backpressure_blocks_dispatch(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """When backpressure says no, next_sheet returns None."""
 
@@ -519,7 +539,8 @@ class TestBackpressureIntegration:
 
     @pytest.mark.asyncio
     async def test_backpressure_soft_delay(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Soft backpressure adds a delay but still allows dispatch."""
 
@@ -547,7 +568,8 @@ class TestStats:
     async def test_stats_reflect_state(self, scheduler: GlobalSheetScheduler):
         """Stats accurately report queued and active counts."""
         await scheduler.register_job(
-            "job-a", [_sheet("job-a", i) for i in range(1, 5)],
+            "job-a",
+            [_sheet("job-a", i) for i in range(1, 5)],
         )
 
         stats = await scheduler.get_stats()
@@ -570,10 +592,12 @@ class TestStats:
     async def test_stats_multiple_jobs(self, scheduler: GlobalSheetScheduler):
         """Stats track per-job counts correctly across multiple jobs."""
         await scheduler.register_job(
-            "job-a", [_sheet("job-a", i) for i in range(1, 3)],
+            "job-a",
+            [_sheet("job-a", i) for i in range(1, 3)],
         )
         await scheduler.register_job(
-            "job-b", [_sheet("job-b", i) for i in range(1, 4)],
+            "job-b",
+            [_sheet("job-b", i) for i in range(1, 4)],
         )
 
         stats = await scheduler.get_stats()
@@ -590,14 +614,16 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_next_sheet_on_empty_queue(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """next_sheet returns None on an empty queue."""
         assert await scheduler.next_sheet() is None
 
     @pytest.mark.asyncio
     async def test_mark_complete_unknown_job(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Marking complete for an unknown job doesn't raise."""
         # Should be a no-op, not crash
@@ -606,7 +632,8 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_deregister_unknown_job(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Deregistering an unknown job is a no-op."""
         await scheduler.deregister_job("nonexistent")
@@ -614,7 +641,8 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_register_empty_sheet_list(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Registering a job with no sheets is valid."""
         await scheduler.register_job("empty-job", [])
@@ -622,11 +650,13 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_properties_match_stats(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """active_count and queued_count properties match stats."""
         await scheduler.register_job(
-            "job-a", [_sheet(sheet_num=i) for i in range(1, 4)],
+            "job-a",
+            [_sheet(sheet_num=i) for i in range(1, 4)],
         )
         await scheduler.next_sheet()
 
@@ -636,7 +666,8 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_duplicate_sheet_num_raises(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Registering sheets with duplicate sheet_nums raises ValueError.
 
@@ -665,7 +696,8 @@ class TestMarkCompleteEdgeCases:
 
     @pytest.mark.asyncio
     async def test_double_complete_does_not_double_decrement(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Completing the same sheet twice doesn't decrement active_count twice."""
         sheets = [_sheet(sheet_num=1)]
@@ -684,7 +716,8 @@ class TestMarkCompleteEdgeCases:
 
     @pytest.mark.asyncio
     async def test_complete_undispatched_sheet_no_decrement(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Completing a sheet that was never dispatched doesn't change active_count."""
         sheets = [_sheet(sheet_num=1), _sheet(sheet_num=2)]
@@ -705,7 +738,8 @@ class TestMarkCompleteEdgeCases:
 
     @pytest.mark.asyncio
     async def test_unknown_job_doesnt_create_tracking_entries(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """mark_complete for unknown job_id doesn't leak memory by creating entries."""
         await scheduler.mark_complete("ghost-job", 1, success=True)
@@ -717,7 +751,8 @@ class TestMarkCompleteEdgeCases:
 
     @pytest.mark.asyncio
     async def test_active_count_stays_accurate_through_lifecycle(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """active_count accurately reflects running sheets through full lifecycle."""
         sheets = [_sheet(sheet_num=i) for i in range(1, 5)]
@@ -748,7 +783,8 @@ class TestDuplicateRegisterJob:
 
     @pytest.mark.asyncio
     async def test_duplicate_register_purges_old_entries(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Re-registering a job clears old heap entries."""
         sheets_v1 = [_sheet("job-a", i) for i in range(1, 4)]
@@ -769,7 +805,8 @@ class TestDuplicateRegisterJob:
 
     @pytest.mark.asyncio
     async def test_duplicate_register_resets_running_count(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Re-registering while sheets are running adjusts active_count."""
         sheets = [_sheet("job-a", i) for i in range(1, 4)]
@@ -789,7 +826,8 @@ class TestDuplicateRegisterJob:
 
     @pytest.mark.asyncio
     async def test_duplicate_register_doesnt_affect_other_jobs(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Re-registering job-a doesn't affect job-b."""
         await scheduler.register_job("job-a", [_sheet("job-a", 1)])
@@ -817,7 +855,8 @@ class TestFailedSheetDependents:
 
     @pytest.mark.asyncio
     async def test_failed_sheet_enqueues_dependents(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Completing sheet 1 with success=False still makes sheet 2 available."""
         sheets = [_sheet(sheet_num=1), _sheet(sheet_num=2)]
@@ -839,7 +878,8 @@ class TestFailedSheetDependents:
 
     @pytest.mark.asyncio
     async def test_failed_sheet_in_diamond_dag(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """In diamond 1→{2,3}→4, failing sheet 2 still unlocks sheet 4
         after sheet 3 also completes."""
@@ -963,7 +1003,8 @@ class TestDAGEdgeCases:
 
     @pytest.mark.asyncio
     async def test_circular_dependency_raises(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Circular dependency (1→2→3→1) raises ValueError."""
         sheets = [_sheet(sheet_num=i) for i in range(1, 4)]
@@ -974,7 +1015,8 @@ class TestDAGEdgeCases:
 
     @pytest.mark.asyncio
     async def test_self_dependency_raises(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Self-dependency (sheet depends on itself) raises ValueError."""
         sheets = [_sheet(sheet_num=1), _sheet(sheet_num=2)]
@@ -985,7 +1027,8 @@ class TestDAGEdgeCases:
 
     @pytest.mark.asyncio
     async def test_two_node_cycle_raises(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Two-node cycle (1↔2) raises ValueError."""
         sheets = [_sheet(sheet_num=1), _sheet(sheet_num=2)]
@@ -996,7 +1039,8 @@ class TestDAGEdgeCases:
 
     @pytest.mark.asyncio
     async def test_dep_on_nonexistent_sheet_still_works(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Dep on a sheet not in the sheets list — sheet stays blocked."""
         sheets = [_sheet(sheet_num=1), _sheet(sheet_num=2)]
@@ -1014,7 +1058,8 @@ class TestDAGEdgeCases:
 
     @pytest.mark.asyncio
     async def test_empty_deps_dict_treated_as_independent(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Empty deps dict means all sheets are independent."""
         sheets = [_sheet(sheet_num=i) for i in range(1, 4)]
@@ -1023,7 +1068,8 @@ class TestDAGEdgeCases:
 
     @pytest.mark.asyncio
     async def test_no_deps_is_none(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """Dependencies=None means all sheets are independent."""
         sheets = [_sheet(sheet_num=i) for i in range(1, 4)]
@@ -1101,7 +1147,7 @@ class TestDAGTopology:
         assert scheduler.queued_count == 5  # 1-5 are independent
 
         # Dispatch and complete 1-4
-        for i in range(1, 5):
+        for _i in range(1, 5):
             e = await scheduler.next_sheet()
             assert e is not None
             await scheduler.mark_complete("job-a", e.info.sheet_num, True)
@@ -1165,7 +1211,8 @@ class TestConcurrentSchedulerStress:
 
     @pytest.mark.asyncio
     async def test_concurrent_dispatch_and_complete_50_sheets(
-        self, daemon_config: DaemonConfig,
+        self,
+        daemon_config: DaemonConfig,
     ):
         """50 sheets dispatched and completed by concurrent workers.
 
@@ -1196,7 +1243,9 @@ class TestConcurrentSchedulerStress:
                 # Simulate brief work
                 await asyncio.sleep(0.001)
                 await scheduler.mark_complete(
-                    "job-a", entry.info.sheet_num, success=True,
+                    "job-a",
+                    entry.info.sheet_num,
+                    success=True,
                 )
                 async with lock:
                     completed.add(entry.info.sheet_num)
@@ -1218,7 +1267,8 @@ class TestConcurrentSchedulerStress:
 
     @pytest.mark.asyncio
     async def test_concurrent_dispatch_10_jobs(
-        self, daemon_config: DaemonConfig,
+        self,
+        daemon_config: DaemonConfig,
     ):
         """10 jobs with 5 sheets each, dispatched by concurrent workers.
 
@@ -1253,7 +1303,9 @@ class TestConcurrentSchedulerStress:
 
                 await asyncio.sleep(0.001)
                 await scheduler.mark_complete(
-                    entry.info.job_id, entry.info.sheet_num, success=True,
+                    entry.info.job_id,
+                    entry.info.sheet_num,
+                    success=True,
                 )
                 async with lock:
                     completed.setdefault(entry.info.job_id, set()).add(
@@ -1281,7 +1333,8 @@ class TestConcurrentSchedulerStress:
 
     @pytest.mark.asyncio
     async def test_concurrent_dispatch_with_dag(
-        self, daemon_config: DaemonConfig,
+        self,
+        daemon_config: DaemonConfig,
     ):
         """Concurrent workers with DAG dependencies — no sheet starts before deps."""
         config = daemon_config.model_copy(update={"max_concurrent_sheets": 5})
@@ -1311,7 +1364,9 @@ class TestConcurrentSchedulerStress:
 
                 await asyncio.sleep(0.001)
                 await scheduler.mark_complete(
-                    "job-a", entry.info.sheet_num, success=True,
+                    "job-a",
+                    entry.info.sheet_num,
+                    success=True,
                 )
 
         workers = [asyncio.create_task(worker()) for _ in range(3)]
@@ -1332,12 +1387,13 @@ class TestConcurrentSchedulerStress:
         # appear before successor in dispatch_order
         for i in range(2, 6):
             assert dispatch_order.index(i - 1) < dispatch_order.index(i), (
-                f"Sheet {i-1} must dispatch before sheet {i}"
+                f"Sheet {i - 1} must dispatch before sheet {i}"
             )
 
     @pytest.mark.asyncio
     async def test_rapid_register_deregister(
-        self, daemon_config: DaemonConfig,
+        self,
+        daemon_config: DaemonConfig,
     ):
         """Rapidly registering and deregistering jobs doesn't corrupt state."""
         config = daemon_config.model_copy(update={"max_concurrent_sheets": 5})
@@ -1433,7 +1489,8 @@ class TestEndToEndIntegration:
 
     @pytest.mark.asyncio
     async def test_rate_limit_flows_through_scheduler(
-        self, scheduler_with_rate_only: dict,
+        self,
+        scheduler_with_rate_only: dict,
     ):
         """Rate limit reported → coordinator stores → scheduler skips backend.
 
@@ -1445,13 +1502,19 @@ class TestEndToEndIntegration:
         coordinator = scheduler_with_rate_only["coordinator"]
 
         # Register two jobs using different backends
-        await scheduler.register_job("job-claude", [
-            _sheet("job-claude", 1, backend="claude_cli"),
-            _sheet("job-claude", 2, backend="claude_cli"),
-        ])
-        await scheduler.register_job("job-openai", [
-            _sheet("job-openai", 1, backend="openai"),
-        ])
+        await scheduler.register_job(
+            "job-claude",
+            [
+                _sheet("job-claude", 1, backend="claude_cli"),
+                _sheet("job-claude", 2, backend="claude_cli"),
+            ],
+        )
+        await scheduler.register_job(
+            "job-openai",
+            [
+                _sheet("job-openai", 1, backend="openai"),
+            ],
+        )
 
         # Report rate limit on claude_cli via coordinator
         await coordinator.report_rate_limit(
@@ -1481,7 +1544,8 @@ class TestEndToEndIntegration:
 
     @pytest.mark.asyncio
     async def test_backpressure_blocks_scheduler_dispatch(
-        self, wired_components: dict,
+        self,
+        wired_components: dict,
     ):
         """High memory → backpressure CRITICAL → scheduler rejects all sheets.
 
@@ -1497,15 +1561,20 @@ class TestEndToEndIntegration:
         controller = wired_components["controller"]
 
         # Register sheets
-        await scheduler.register_job("job-a", [
-            _sheet("job-a", i) for i in range(1, 4)
-        ])
+        await scheduler.register_job("job-a", [_sheet("job-a", i) for i in range(1, 4)])
 
         # Simulate CRITICAL memory (>95% of 1000MB)
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=960.0,
-        ), patch.object(
-            ResourceMonitor, "_get_child_process_count", return_value=2,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=960.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "_get_child_process_count",
+                return_value=2,
+            ),
         ):
             assert controller.current_level() == PressureLevel.CRITICAL
 
@@ -1518,7 +1587,8 @@ class TestEndToEndIntegration:
 
     @pytest.mark.asyncio
     async def test_rate_limit_triggers_high_backpressure(
-        self, wired_components: dict,
+        self,
+        wired_components: dict,
     ):
         """Active rate limit → backpressure escalates to HIGH → job rejected.
 
@@ -1536,10 +1606,17 @@ class TestEndToEndIntegration:
         controller = wired_components["controller"]
 
         # Low memory, no process pressure
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-        ), patch.object(
-            ResourceMonitor, "_get_child_process_count", return_value=2,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=100.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "_get_child_process_count",
+                return_value=2,
+            ),
         ):
             # Before rate limit: pressure is NONE
             assert controller.current_level() == PressureLevel.NONE
@@ -1562,7 +1639,8 @@ class TestEndToEndIntegration:
 
     @pytest.mark.asyncio
     async def test_full_lifecycle_dispatch_ratelimit_recover(
-        self, scheduler_with_rate_only: dict,
+        self,
+        scheduler_with_rate_only: dict,
     ):
         """Full lifecycle: register → dispatch → rate limit → recover → complete.
 
@@ -1577,15 +1655,21 @@ class TestEndToEndIntegration:
         coordinator = scheduler_with_rate_only["coordinator"]
 
         # Phase 1: Register two jobs
-        await scheduler.register_job("job-a", [
-            _sheet("job-a", 1, backend="claude_cli"),
-            _sheet("job-a", 2, backend="claude_cli"),
-            _sheet("job-a", 3, backend="openai"),
-        ])
-        await scheduler.register_job("job-b", [
-            _sheet("job-b", 1, backend="openai"),
-            _sheet("job-b", 2, backend="openai"),
-        ])
+        await scheduler.register_job(
+            "job-a",
+            [
+                _sheet("job-a", 1, backend="claude_cli"),
+                _sheet("job-a", 2, backend="claude_cli"),
+                _sheet("job-a", 3, backend="openai"),
+            ],
+        )
+        await scheduler.register_job(
+            "job-b",
+            [
+                _sheet("job-b", 1, backend="openai"),
+                _sheet("job-b", 2, backend="openai"),
+            ],
+        )
 
         assert scheduler.queued_count == 5
 
@@ -1618,7 +1702,9 @@ class TestEndToEndIntegration:
         # Phase 4: Complete running sheets and wait for rate limit expiry
         for entry in dispatched + openai_dispatched:
             await scheduler.mark_complete(
-                entry.info.job_id, entry.info.sheet_num, success=True,
+                entry.info.job_id,
+                entry.info.sheet_num,
+                success=True,
             )
 
         # Wait for rate limit to expire
@@ -1636,7 +1722,9 @@ class TestEndToEndIntegration:
                 break
             remaining.append(entry)
             await scheduler.mark_complete(
-                entry.info.job_id, entry.info.sheet_num, success=True,
+                entry.info.job_id,
+                entry.info.sheet_num,
+                success=True,
             )
 
         # All sheets should have been processed
@@ -1645,7 +1733,8 @@ class TestEndToEndIntegration:
 
     @pytest.mark.asyncio
     async def test_dag_with_rate_limit_blocking(
-        self, scheduler_with_rate_only: dict,
+        self,
+        scheduler_with_rate_only: dict,
     ):
         """DAG dependencies work correctly alongside rate limiting.
 
@@ -1706,16 +1795,20 @@ class TestEndToEndIntegration:
 
     @pytest.mark.asyncio
     async def test_stats_reflect_cross_component_state(
-        self, scheduler_with_rate_only: dict,
+        self,
+        scheduler_with_rate_only: dict,
     ):
         """Scheduler stats accurately reflect state after rate limit interactions."""
         scheduler = scheduler_with_rate_only["scheduler"]
         coordinator = scheduler_with_rate_only["coordinator"]
 
-        await scheduler.register_job("job-a", [
-            _sheet("job-a", 1, backend="claude_cli"),
-            _sheet("job-a", 2, backend="openai"),
-        ])
+        await scheduler.register_job(
+            "job-a",
+            [
+                _sheet("job-a", 1, backend="claude_cli"),
+                _sheet("job-a", 2, backend="openai"),
+            ],
+        )
 
         # Rate-limit claude_cli
         await coordinator.report_rate_limit(
@@ -1739,7 +1832,8 @@ class TestEndToEndIntegration:
 
     @pytest.mark.asyncio
     async def test_pressure_transitions_during_scheduling(
-        self, wired_components: dict,
+        self,
+        wired_components: dict,
     ):
         """Backpressure level transitions affect scheduler dispatch in real time.
 
@@ -1754,35 +1848,54 @@ class TestEndToEndIntegration:
         scheduler = wired_components["scheduler"]
         controller = wired_components["controller"]
 
-        await scheduler.register_job("job-a", [
-            _sheet("job-a", i) for i in range(1, 4)
-        ])
+        await scheduler.register_job("job-a", [_sheet("job-a", i) for i in range(1, 4)])
 
         # Phase 1: Low pressure — dispatch works
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-        ), patch.object(
-            ResourceMonitor, "_get_child_process_count", return_value=2,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=100.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "_get_child_process_count",
+                return_value=2,
+            ),
         ):
             assert controller.current_level() == PressureLevel.NONE
             e1 = await scheduler.next_sheet()
             assert e1 is not None
 
         # Phase 2: Critical pressure — dispatch blocked
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=960.0,
-        ), patch.object(
-            ResourceMonitor, "_get_child_process_count", return_value=2,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=960.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "_get_child_process_count",
+                return_value=2,
+            ),
         ):
             assert controller.current_level() == PressureLevel.CRITICAL
             e2 = await scheduler.next_sheet()
             assert e2 is None
 
         # Phase 3: Recover — dispatch resumes
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-        ), patch.object(
-            ResourceMonitor, "_get_child_process_count", return_value=2,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=100.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "_get_child_process_count",
+                return_value=2,
+            ),
         ):
             assert controller.current_level() == PressureLevel.NONE
             e3 = await scheduler.next_sheet()
@@ -1807,7 +1920,8 @@ class TestConcurrentDeregisterMarkComplete:
 
     @pytest.mark.asyncio
     async def test_deregister_during_completions(
-        self, daemon_config: DaemonConfig,
+        self,
+        daemon_config: DaemonConfig,
     ):
         """Deregistering a job while its sheets are completing doesn't crash."""
         config = daemon_config.model_copy(update={"max_concurrent_sheets": 20})
@@ -1847,7 +1961,8 @@ class TestConcurrentDeregisterMarkComplete:
 
     @pytest.mark.asyncio
     async def test_deregister_racing_with_multiple_jobs(
-        self, daemon_config: DaemonConfig,
+        self,
+        daemon_config: DaemonConfig,
     ):
         """Deregistering job-a while completing job-b sheets doesn't interfere."""
         config = daemon_config.model_copy(update={"max_concurrent_sheets": 10})
@@ -1881,7 +1996,8 @@ class TestConcurrentDeregisterMarkComplete:
 
     @pytest.mark.asyncio
     async def test_concurrent_deregister_same_job_idempotent(
-        self, daemon_config: DaemonConfig,
+        self,
+        daemon_config: DaemonConfig,
     ):
         """Multiple concurrent deregister_job() calls for same job are safe."""
         config = daemon_config.model_copy(update={"max_concurrent_sheets": 5})
@@ -1891,10 +2007,7 @@ class TestConcurrentDeregisterMarkComplete:
         await scheduler.register_job("job-a", sheets)
 
         # Race: 5 concurrent deregister calls
-        tasks = [
-            asyncio.create_task(scheduler.deregister_job("job-a"))
-            for _ in range(5)
-        ]
+        tasks = [asyncio.create_task(scheduler.deregister_job("job-a")) for _ in range(5)]
         await asyncio.gather(*tasks)
 
         assert scheduler.queued_count == 0
@@ -1914,7 +2027,8 @@ class TestSchedulerScale:
 
     @pytest.mark.asyncio
     async def test_500_sheets_100_dispatches_under_1s(
-        self, daemon_config: DaemonConfig,
+        self,
+        daemon_config: DaemonConfig,
     ):
         """500 sheets queued, 100 next_sheet() calls complete < 1 second."""
         config = daemon_config.model_copy(update={"max_concurrent_sheets": 200})
@@ -1939,7 +2053,8 @@ class TestSchedulerScale:
 
     @pytest.mark.asyncio
     async def test_1000_sheets_dispatch_and_complete_cycle(
-        self, daemon_config: DaemonConfig,
+        self,
+        daemon_config: DaemonConfig,
     ):
         """1000 sheets: dispatch all, complete all, verify clean state."""
         config = daemon_config.model_copy(update={"max_concurrent_sheets": 50})
@@ -1973,7 +2088,8 @@ class TestSchedulerScale:
 
     @pytest.mark.asyncio
     async def test_10_jobs_50_sheets_each_fair_dispatch(
-        self, daemon_config: DaemonConfig,
+        self,
+        daemon_config: DaemonConfig,
     ):
         """10 jobs × 50 sheets = 500 total. Fair-share distributes across jobs."""
         config = daemon_config.model_copy(update={"max_concurrent_sheets": 20})
@@ -2013,13 +2129,16 @@ class TestRateLimiterExceptionResilience:
 
     @pytest.mark.asyncio
     async def test_rate_limiter_exception_sheets_not_lost(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """If rate limiter raises, sheets are skipped, not dropped."""
 
         class BrokenRateLimiter:
             async def is_rate_limited(
-                self, backend_type: str, model: str | None = None,
+                self,
+                backend_type: str,
+                model: str | None = None,
             ) -> tuple[bool, float]:
                 raise RuntimeError("Connection refused")
 
@@ -2038,14 +2157,17 @@ class TestRateLimiterExceptionResilience:
 
     @pytest.mark.asyncio
     async def test_rate_limiter_exception_then_recovery(
-        self, scheduler: GlobalSheetScheduler,
+        self,
+        scheduler: GlobalSheetScheduler,
     ):
         """After rate limiter recovers, previously skipped sheets dispatch."""
         call_count = 0
 
         class FlakyRateLimiter:
             async def is_rate_limited(
-                self, backend_type: str, model: str | None = None,
+                self,
+                backend_type: str,
+                model: str | None = None,
             ) -> tuple[bool, float]:
                 nonlocal call_count
                 call_count += 1
@@ -2088,7 +2210,6 @@ class TestTripleComponentIntegration:
     @pytest.fixture
     def integration_setup(self, tmp_path: Path):
         """Wire all three components together."""
-        from unittest.mock import patch as mock_patch
 
         from marianne.daemon.backpressure import BackpressureController
         from marianne.daemon.config import ResourceLimitConfig
@@ -2118,7 +2239,8 @@ class TestTripleComponentIntegration:
 
     @pytest.mark.asyncio
     async def test_rapidly_changing_pressure_dispatch(
-        self, integration_setup: dict,
+        self,
+        integration_setup: dict,
     ):
         """Dispatch under rapidly changing backpressure levels.
 
@@ -2138,30 +2260,51 @@ class TestTripleComponentIntegration:
         await scheduler.register_job("job-a", sheets)
 
         # Phase 1: Low pressure — dispatch works
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-        ), patch.object(
-            ResourceMonitor, "_get_child_process_count", return_value=2,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=100.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "_get_child_process_count",
+                return_value=2,
+            ),
         ):
             assert controller.current_level() == PressureLevel.NONE
             e1 = await scheduler.next_sheet()
             assert e1 is not None
 
         # Phase 2: Critical — dispatch blocked
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=960.0,
-        ), patch.object(
-            ResourceMonitor, "_get_child_process_count", return_value=2,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=960.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "_get_child_process_count",
+                return_value=2,
+            ),
         ):
             assert controller.current_level() == PressureLevel.CRITICAL
             e2 = await scheduler.next_sheet()
             assert e2 is None
 
         # Phase 3: Recover — dispatch resumes
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-        ), patch.object(
-            ResourceMonitor, "_get_child_process_count", return_value=2,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=100.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "_get_child_process_count",
+                return_value=2,
+            ),
         ):
             e3 = await scheduler.next_sheet()
             assert e3 is not None
@@ -2172,7 +2315,9 @@ class TestTripleComponentIntegration:
 
     @pytest.mark.asyncio
     async def test_rate_limit_plus_backpressure_combined(
-        self, integration_setup: dict, tmp_path: Path,
+        self,
+        integration_setup: dict,
+        tmp_path: Path,
     ):
         """Rate limit on one backend + memory pressure → combined gating.
 
@@ -2180,7 +2325,6 @@ class TestTripleComponentIntegration:
         controls overall dispatch admission.  Uses a rate-only scheduler
         to avoid the 30s HIGH delay from active rate limits.
         """
-        from marianne.daemon.rate_coordinator import RateLimitCoordinator
 
         coordinator = integration_setup["coordinator"]
 
@@ -2203,11 +2347,14 @@ class TestTripleComponentIntegration:
         )
         scheduler_rate_only.set_rate_limiter(coordinator)
 
-        await scheduler_rate_only.register_job("job-a", [
-            _sheet("job-a", 1, backend="claude_cli"),
-            _sheet("job-a", 2, backend="openai"),
-            _sheet("job-a", 3, backend="claude_cli"),
-        ])
+        await scheduler_rate_only.register_job(
+            "job-a",
+            [
+                _sheet("job-a", 1, backend="claude_cli"),
+                _sheet("job-a", 2, backend="openai"),
+                _sheet("job-a", 3, backend="claude_cli"),
+            ],
+        )
 
         entry = await scheduler_rate_only.next_sheet()
         assert entry is not None
@@ -2218,7 +2365,8 @@ class TestTripleComponentIntegration:
 
     @pytest.mark.asyncio
     async def test_concurrent_dispatch_under_changing_pressure(
-        self, integration_setup: dict,
+        self,
+        integration_setup: dict,
     ):
         """Multiple workers dispatching while pressure fluctuates."""
         from unittest.mock import patch
@@ -2236,10 +2384,17 @@ class TestTripleComponentIntegration:
         async def worker():
             for _ in range(20):
                 # Simulate low pressure for dispatch
-                with patch.object(
-                    ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-                ), patch.object(
-                    ResourceMonitor, "_get_child_process_count", return_value=2,
+                with (
+                    patch.object(
+                        ResourceMonitor,
+                        "_get_memory_usage_mb",
+                        return_value=100.0,
+                    ),
+                    patch.object(
+                        ResourceMonitor,
+                        "_get_child_process_count",
+                        return_value=2,
+                    ),
                 ):
                     entry = await scheduler.next_sheet()
                 if entry is None:

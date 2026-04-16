@@ -33,7 +33,8 @@ class TestMayaInstrumentTerminology:
 
     @pytest.mark.adversarial
     def test_validate_shows_instrument_not_backend_with_instrument(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Score with explicit instrument shows 'Instrument:' in summary."""
         score = tmp_path / "with-instrument.yaml"
@@ -48,7 +49,7 @@ class TestMayaInstrumentTerminology:
             "workspace: ./ws\n"
             "validations:\n"
             "  - type: file_exists\n"
-            "    path: \"{workspace}/out.md\"\n"
+            '    path: "{workspace}/out.md"\n'
         )
         result = runner.invoke(app, ["validate", str(score)])
         assert result.exit_code == 0
@@ -57,7 +58,8 @@ class TestMayaInstrumentTerminology:
 
     @pytest.mark.adversarial
     def test_validate_shows_instrument_not_backend_without_instrument(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Score without explicit instrument still shows 'Instrument:', not 'Backend:'."""
         score = tmp_path / "no-instrument.yaml"
@@ -71,7 +73,7 @@ class TestMayaInstrumentTerminology:
             "workspace: ./ws\n"
             "validations:\n"
             "  - type: file_exists\n"
-            "    path: \"{workspace}/out.md\"\n"
+            '    path: "{workspace}/out.md"\n'
         )
         result = runner.invoke(app, ["validate", str(score)])
         assert result.exit_code == 0
@@ -170,12 +172,7 @@ class TestRajEdgeCases:
         """prompt: 42 should error with helpful hint, not crash."""
         score = tmp_path / "int-prompt.yaml"
         score.write_text(
-            "name: test\n"
-            "sheet:\n"
-            "  total_items: 1\n"
-            "  size: 1\n"
-            "prompt: 42\n"
-            "workspace: ./ws\n"
+            "name: test\nsheet:\n  total_items: 1\n  size: 1\nprompt: 42\nworkspace: ./ws\n"
         )
         result = runner.invoke(app, ["validate", str(score)])
         assert result.exit_code == 2
@@ -216,17 +213,13 @@ class TestInitValidatePipeline:
     @pytest.mark.adversarial
     def test_init_then_validate_succeeds(self, tmp_path: Path) -> None:
         """Generated score from init should always validate successfully."""
-        init_result = runner.invoke(
-            app, ["init", "--path", str(tmp_path)]
-        )
+        init_result = runner.invoke(app, ["init", "--path", str(tmp_path)])
         assert init_result.exit_code == 0
 
         score_file = tmp_path / "my-score.yaml"
         assert score_file.exists()
 
-        validate_result = runner.invoke(
-            app, ["validate", str(score_file)]
-        )
+        validate_result = runner.invoke(app, ["validate", str(score_file)])
         assert validate_result.exit_code == 0
         assert "✓" in validate_result.stdout
 
@@ -241,7 +234,5 @@ class TestInitValidatePipeline:
         score_file = tmp_path / "data-pipeline.yaml"
         assert score_file.exists()
 
-        validate_result = runner.invoke(
-            app, ["validate", str(score_file)]
-        )
+        validate_result = runner.invoke(app, ["validate", str(score_file)])
         assert validate_result.exit_code == 0

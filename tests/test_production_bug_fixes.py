@@ -19,7 +19,6 @@ import pytest
 
 from marianne.core.checkpoint import SheetState, SheetStatus
 
-
 # =========================================================================
 # F-077: Hook restoration after conductor restart
 # =========================================================================
@@ -53,11 +52,9 @@ class TestF077HookRestoration:
         yield mgr
         await mgr._registry.close()
 
-    async def test_hook_config_restored_from_registry(
-        self, manager: Any, tmp_path: Path
-    ) -> None:
+    async def test_hook_config_restored_from_registry(self, manager: Any, tmp_path: Path) -> None:
         """After restart, hook_config should be loaded from the registry DB."""
-        from marianne.daemon.manager import DaemonJobStatus, JobMeta
+        from marianne.daemon.manager import JobMeta
 
         # Simulate a job submitted with hooks — write directly to registry
         job_id = "test-hook-job"
@@ -98,7 +95,6 @@ class TestF077HookRestoration:
         # Re-run just the restoration logic by calling start()
         # We need to be careful here — start() does more than just restore.
         # Let's directly test the restoration loop pattern.
-        from marianne.daemon.registry import JobRecord
 
         all_records = await manager._registry.list_jobs(limit=10_000)
         assert len(all_records) == 1
@@ -123,9 +119,7 @@ class TestF077HookRestoration:
         assert len(meta.hook_config) == 1
         assert meta.hook_config[0]["type"] == "run_job"
 
-    async def test_hook_config_none_when_not_stored(
-        self, manager: Any, tmp_path: Path
-    ) -> None:
+    async def test_hook_config_none_when_not_stored(self, manager: Any, tmp_path: Path) -> None:
         """Jobs without hooks should have hook_config=None after restore."""
         job_id = "no-hooks-job"
         config_path = tmp_path / "test.yaml"

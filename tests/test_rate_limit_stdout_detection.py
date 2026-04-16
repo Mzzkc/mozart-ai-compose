@@ -11,8 +11,6 @@ Also tests F-097 stale detection error code differentiation (E006).
 
 from __future__ import annotations
 
-import pytest
-
 from marianne.core.errors.classifier import ErrorClassifier
 from marianne.core.errors.codes import ErrorCategory, ErrorCode
 
@@ -31,8 +29,7 @@ class TestRateLimitInStdout:
             exit_code=1,
         )
         assert result.primary.category == ErrorCategory.RATE_LIMIT, (
-            f"Expected RATE_LIMIT, got {result.primary.category} "
-            f"({result.primary.error_code})"
+            f"Expected RATE_LIMIT, got {result.primary.category} ({result.primary.error_code})"
         )
 
     def test_youve_hit_your_limit_in_stdout(self) -> None:
@@ -101,8 +98,7 @@ class TestRateLimitInStdout:
         skipped. Rate limit text in stderr must still be caught.
         """
         stdout = (
-            '{"result":"","errors":[{"type":"system","message":"something failed"}],'
-            '"cost_usd":0.0}'
+            '{"result":"","errors":[{"type":"system","message":"something failed"}],"cost_usd":0.0}'
         )
         result = self.classifier.classify_execution(
             stdout=stdout,
@@ -134,7 +130,7 @@ class TestRateLimitInStdout:
 
     def test_classify_method_rate_limit_exit_zero(self) -> None:
         """classify() with rate limit text and exit_code=0."""
-        result = self.classifier.classify(
+        self.classifier.classify(
             stdout="API Error: Rate limit reached",
             stderr="",
             exit_code=0,

@@ -16,7 +16,7 @@ import time
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock, patch
 
 import psutil
 import pytest
@@ -29,11 +29,9 @@ from marianne.daemon.pgroup import ProcessGroupManager
 from marianne.daemon.profiler.models import (
     EventType,
     JobProgress,
-    ProcessEvent,
     ProcessMetric,
     SystemSnapshot,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -51,6 +49,7 @@ def _fake_checkpoint(
 ) -> MagicMock:
     """Build a mock CheckpointState with the fields profiler reads."""
     from marianne.core.checkpoint import CheckpointState
+
     state = MagicMock(spec=CheckpointState)
     state.job_id = job_id
     state.total_sheets = total_sheets
@@ -189,18 +188,22 @@ class TestFix1TimelineEventsWithoutPID:
         collector = self._make_collector()
 
         for i in range(1, 11):
-            collector._on_sheet_started({
-                "job_id": "burst-job",
-                "sheet_num": i,
-                "event": "sheet.started",
-                "data": {},
-            })
-            collector._on_sheet_completed({
-                "job_id": "burst-job",
-                "sheet_num": i,
-                "event": "sheet.completed",
-                "data": {"exit_code": 0},
-            })
+            collector._on_sheet_started(
+                {
+                    "job_id": "burst-job",
+                    "sheet_num": i,
+                    "event": "sheet.started",
+                    "data": {},
+                }
+            )
+            collector._on_sheet_completed(
+                {
+                    "job_id": "burst-job",
+                    "sheet_num": i,
+                    "event": "sheet.completed",
+                    "data": {"exit_code": 0},
+                }
+            )
 
         # 10 starts + 10 completions = 20 events
         assert len(collector._recent_events) == 20
@@ -270,7 +273,9 @@ class TestFix2WorkspacePIDMapping:
             ),
         }
         live_states = {
-            "observer-integration": _fake_checkpoint(job_id="observer-integration", current_sheet=10),
+            "observer-integration": _fake_checkpoint(
+                job_id="observer-integration", current_sheet=10
+            ),
             "enhanced-validation": _fake_checkpoint(job_id="enhanced-validation", current_sheet=3),
             "monitor-concert": _fake_checkpoint(job_id="monitor-concert", current_sheet=7),
             "issue-solver": _fake_checkpoint(job_id="issue-solver", current_sheet=2),
@@ -303,7 +308,10 @@ class TestFix2WorkspacePIDMapping:
 
         daemon_proc = MagicMock(spec=psutil.Process)
         daemon_proc.children.return_value = [
-            child_observer, child_enhanced, child_monitor, child_solver,
+            child_observer,
+            child_enhanced,
+            child_monitor,
+            child_solver,
         ]
 
         with patch("marianne.daemon.profiler.collector._psutil") as mock_psutil:
@@ -407,7 +415,8 @@ class TestFix2WorkspacePIDMapping:
         bad_child.cmdline.side_effect = psutil.AccessDenied(pid=666)
 
         good_child = _fake_psutil_process(
-            pid=100, cmdline=["claude", "Workspace: /ws"],
+            pid=100,
+            cmdline=["claude", "Workspace: /ws"],
         )
 
         daemon_proc = MagicMock(spec=psutil.Process)
@@ -450,19 +459,27 @@ class TestFix3JobProgressInSnapshot:
         manager._job_meta = {}
         manager._live_states = {
             "job-a": _fake_checkpoint(
-                job_id="job-a", total_sheets=10,
-                last_completed_sheet=7, current_sheet=8, status="running",
+                job_id="job-a",
+                total_sheets=10,
+                last_completed_sheet=7,
+                current_sheet=8,
+                status="running",
             ),
             "job-b": _fake_checkpoint(
-                job_id="job-b", total_sheets=5,
-                last_completed_sheet=2, current_sheet=3, status="running",
+                job_id="job-b",
+                total_sheets=5,
+                last_completed_sheet=2,
+                current_sheet=3,
+                status="running",
             ),
         }
         manager.running_count = 2
         manager.active_job_count = 2
         manager.uptime_seconds = 3600.0
         manager.backpressure = MagicMock(spec=BackpressureController)
-        manager.backpressure.current_level.return_value = MagicMock(spec=PressureLevel, value="none")
+        manager.backpressure.current_level.return_value = MagicMock(
+            spec=PressureLevel, value="none"
+        )
 
         collector = ProfilerCollector(config, monitor, pgroup, event_bus, manager=manager)
         snapshot = await collector.collect_snapshot()
@@ -496,7 +513,9 @@ class TestFix3JobProgressInSnapshot:
         manager.active_job_count = 0
         manager.uptime_seconds = 7200.5
         manager.backpressure = MagicMock(spec=BackpressureController)
-        manager.backpressure.current_level.return_value = MagicMock(spec=PressureLevel, value="none")
+        manager.backpressure.current_level.return_value = MagicMock(
+            spec=PressureLevel, value="none"
+        )
 
         collector = ProfilerCollector(
             config,
@@ -546,7 +565,6 @@ class TestFix4ProgressBarCalculation:
         but job_progress says 5/10 completed. The display must show
         the job_progress data, not the process count.
         """
-        from marianne.tui.panels.jobs import JobsPanel
 
         # 32 processes all mapped to the same job (the old bug)
         procs = [
@@ -618,12 +636,20 @@ class TestFix4ProgressBarCalculation:
         snap = SystemSnapshot(
             processes=[
                 ProcessMetric(
-                    pid=100, state="S", cpu_percent=1.0, rss_mb=50.0,
-                    job_id="my-job", sheet_num=3,
+                    pid=100,
+                    state="S",
+                    cpu_percent=1.0,
+                    rss_mb=50.0,
+                    job_id="my-job",
+                    sheet_num=3,
                 ),
                 ProcessMetric(
-                    pid=101, state="S", cpu_percent=1.0, rss_mb=50.0,
-                    job_id="my-job", sheet_num=4,
+                    pid=101,
+                    state="S",
+                    cpu_percent=1.0,
+                    rss_mb=50.0,
+                    job_id="my-job",
+                    sheet_num=4,
                 ),
             ],
             job_progress=[],  # No progress data (old daemon)
@@ -641,8 +667,12 @@ class TestFix4ProgressBarCalculation:
                 ProcessMetric(pid=200, state="S", job_id="job-b", sheet_num=1),
             ],
             job_progress=[
-                JobProgress(job_id="job-a", total_sheets=10, last_completed_sheet=7, current_sheet=8),
-                JobProgress(job_id="job-b", total_sheets=3, last_completed_sheet=0, current_sheet=1),
+                JobProgress(
+                    job_id="job-a", total_sheets=10, last_completed_sheet=7, current_sheet=8
+                ),
+                JobProgress(
+                    job_id="job-b", total_sheets=3, last_completed_sheet=0, current_sheet=1
+                ),
             ],
         )
 
@@ -650,8 +680,12 @@ class TestFix4ProgressBarCalculation:
 
         from marianne.tui.panels.jobs import _format_progress_bar
 
-        bar_a = _format_progress_bar(progress_by_job["job-a"].last_completed_sheet, progress_by_job["job-a"].total_sheets)
-        bar_b = _format_progress_bar(progress_by_job["job-b"].last_completed_sheet, progress_by_job["job-b"].total_sheets)
+        bar_a = _format_progress_bar(
+            progress_by_job["job-a"].last_completed_sheet, progress_by_job["job-a"].total_sheets
+        )
+        bar_b = _format_progress_bar(
+            progress_by_job["job-b"].last_completed_sheet, progress_by_job["job-b"].total_sheets
+        )
 
         assert "70%" in bar_a
         assert "0%" in bar_b
@@ -708,21 +742,20 @@ class TestFix5ConductorUptime:
 
         app = MonitorApp()
         assert not hasattr(app, "_first_snapshot_time"), (
-            "MonitorApp still has _first_snapshot_time — "
-            "uptime will reset on every TUI launch"
+            "MonitorApp still has _first_snapshot_time — uptime will reset on every TUI launch"
         )
 
     def test_manager_uptime_seconds_property(self) -> None:
         """JobManager.uptime_seconds must return real daemon lifetime."""
-        from marianne.daemon.manager import JobManager
         from marianne.daemon.config import DaemonConfig
+        from marianne.daemon.manager import JobManager
 
         start = time.monotonic() - 120.0  # Started 2 minutes ago
         mgr = JobManager(DaemonConfig(), start_time=start)
 
         uptime = mgr.uptime_seconds
         assert uptime >= 119.0  # At least ~120s (allow small jitter)
-        assert uptime < 130.0   # But not wildly off
+        assert uptime < 130.0  # But not wildly off
 
 
 # ===========================================================================
@@ -750,8 +783,14 @@ class TestIntegrationFullBrokenScenario:
             "load_avg_5": 5.3,
             "load_avg_15": 4.5,
             "processes": [
-                {"pid": 100 + i, "job_id": "observer-integration", "sheet_num": 10,
-                 "state": "S", "cpu_percent": 0.0, "rss_mb": 200.0}
+                {
+                    "pid": 100 + i,
+                    "job_id": "observer-integration",
+                    "sheet_num": 10,
+                    "state": "S",
+                    "cpu_percent": 0.0,
+                    "rss_mb": 200.0,
+                }
                 for i in range(32)
             ],
             "gpus": [],
@@ -785,10 +824,18 @@ class TestIntegrationFullBrokenScenario:
                 ProcessMetric(pid=400, state="S", job_id="solver", sheet_num=2),
             ],
             job_progress=[
-                JobProgress(job_id="observer", total_sheets=10, last_completed_sheet=9, current_sheet=10),
-                JobProgress(job_id="enhanced", total_sheets=5, last_completed_sheet=2, current_sheet=3),
-                JobProgress(job_id="monitor", total_sheets=8, last_completed_sheet=6, current_sheet=7),
-                JobProgress(job_id="solver", total_sheets=3, last_completed_sheet=1, current_sheet=2),
+                JobProgress(
+                    job_id="observer", total_sheets=10, last_completed_sheet=9, current_sheet=10
+                ),
+                JobProgress(
+                    job_id="enhanced", total_sheets=5, last_completed_sheet=2, current_sheet=3
+                ),
+                JobProgress(
+                    job_id="monitor", total_sheets=8, last_completed_sheet=6, current_sheet=7
+                ),
+                JobProgress(
+                    job_id="solver", total_sheets=3, last_completed_sheet=1, current_sheet=2
+                ),
             ],
             conductor_uptime_seconds=3920.0,
             running_jobs=4,
@@ -804,6 +851,7 @@ class TestIntegrationFullBrokenScenario:
 
         # Each has sane progress (not 3100%)
         from marianne.tui.panels.jobs import _format_progress_bar
+
         for jp in snap.job_progress:
             bar = _format_progress_bar(jp.last_completed_sheet, jp.total_sheets)
             pct = jp.last_completed_sheet / jp.total_sheets * 100
@@ -829,15 +877,21 @@ class TestJobProgressModel:
 
     def test_completed_job_progress(self) -> None:
         jp = JobProgress(
-            job_id="done", total_sheets=5,
-            last_completed_sheet=5, current_sheet=None, status="completed",
+            job_id="done",
+            total_sheets=5,
+            last_completed_sheet=5,
+            current_sheet=None,
+            status="completed",
         )
         assert jp.last_completed_sheet == jp.total_sheets
 
     def test_serialization_roundtrip(self) -> None:
         jp = JobProgress(
-            job_id="test", total_sheets=10,
-            last_completed_sheet=7, current_sheet=8, status="running",
+            job_id="test",
+            total_sheets=10,
+            last_completed_sheet=7,
+            current_sheet=8,
+            status="running",
         )
         data = jp.model_dump(mode="json")
         restored = JobProgress(**data)
@@ -919,8 +973,7 @@ class TestTimelinePanelFileEvents:
 
         # Verify the event is stored and would be rendered
         file_events = [
-            e for e in panel._observer_events
-            if e.get("event", "").startswith("observer.file_")
+            e for e in panel._observer_events if e.get("event", "").startswith("observer.file_")
         ]
         assert len(file_events) == 1
         assert file_events[0]["event"] == "observer.file_modified"
@@ -941,8 +994,7 @@ class TestTimelinePanelFileEvents:
         panel.update_data(observer_events=obs_events)
 
         file_events = [
-            e for e in panel._observer_events
-            if e.get("event", "").startswith("observer.file_")
+            e for e in panel._observer_events if e.get("event", "").startswith("observer.file_")
         ]
         assert len(file_events) == 1
         assert file_events[0]["event"] == "observer.file_deleted"
@@ -987,7 +1039,9 @@ class TestTimelinePanelFileEvents:
 
         # All 3 events stored
         assert len(panel._observer_events) == 3
-        process_events = [e for e in panel._observer_events if e["event"].startswith("observer.process_")]
+        process_events = [
+            e for e in panel._observer_events if e["event"].startswith("observer.process_")
+        ]
         file_events = [e for e in panel._observer_events if e["event"].startswith("observer.file_")]
         assert len(process_events) == 1
         assert len(file_events) == 2

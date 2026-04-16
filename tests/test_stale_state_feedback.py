@@ -80,12 +80,8 @@ class TestStalePidDetection:
                 start_conductor(foreground=True)
 
         captured = capsys.readouterr()
-        assert "stale" in captured.out.lower(), (
-            f"Expected 'stale' in output, got: {captured.out!r}"
-        )
-        assert "88888" in captured.out, (
-            f"Expected PID '88888' in output, got: {captured.out!r}"
-        )
+        assert "stale" in captured.out.lower(), f"Expected 'stale' in output, got: {captured.out!r}"
+        assert "88888" in captured.out, f"Expected PID '88888' in output, got: {captured.out!r}"
 
     def test_alive_pid_still_blocks_start(
         self,
@@ -139,9 +135,9 @@ class TestStalePidDetection:
                 "marianne.core.logging.configure_logging",
                 side_effect=RuntimeError("test stop"),
             ),
+            pytest.raises(RuntimeError, match="test stop"),
         ):
-            with pytest.raises(RuntimeError, match="test stop"):
-                start_conductor(foreground=True)
+            start_conductor(foreground=True)
 
         assert not pid_file.exists(), "Stale PID file should have been deleted"
 
@@ -167,9 +163,9 @@ class TestStalePidDetection:
                 "marianne.core.logging.configure_logging",
                 side_effect=RuntimeError("test stop"),
             ),
+            pytest.raises(RuntimeError, match="test stop"),
         ):
-            with pytest.raises(RuntimeError, match="test stop"):
-                start_conductor(foreground=True)
+            start_conductor(foreground=True)
 
         captured = capsys.readouterr()
         assert "stale" not in captured.out.lower()
@@ -248,9 +244,7 @@ class TestFreshEarlyFailureSuppression:
                 new_callable=AsyncMock,
                 return_value={
                     "status": "failed",
-                    "error_message": (
-                        "Parallel batch failed: Sheet 68 - Task cancelled"
-                    ),
+                    "error_message": ("Parallel batch failed: Sheet 68 - Task cancelled"),
                 },
             ),
         ):
@@ -362,9 +356,7 @@ class TestContradictoryErrorRegression:
                     {
                         "job_id": "",
                         "status": "rejected",
-                        "message": (
-                            "System under high pressure — try again later"
-                        ),
+                        "message": ("System under high pressure — try again later"),
                     },
                 ),
             ),

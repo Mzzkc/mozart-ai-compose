@@ -73,7 +73,7 @@ def _assert_output_error_has_hints(source: str, search_string: str, context: str
         call_start = source.find("output_error(", idx)
     assert call_start != -1, f"output_error( not found near '{search_string}': {context}"
     # Read the full call (up to 500 chars should be enough)
-    snippet = source[call_start:call_start + 500]
+    snippet = source[call_start : call_start + 500]
     assert "hints=" in snippet, f"output_error lacks hints= near '{search_string}': {context}"
 
 
@@ -89,7 +89,9 @@ class TestLoggingConfigErrorHints:
         """output_error for logging config error should include hints."""
         source = _get_module_source("marianne.cli.helpers")
         _assert_output_error_has_hints(
-            source, "Logging configuration error", "helpers.py logging error",
+            source,
+            "Logging configuration error",
+            "helpers.py logging error",
         )
 
 
@@ -131,10 +133,14 @@ class TestPauseDaemonErrorHints:
         """When pause fails due to conductor communication, hints guide recovery."""
         captured, spy = _make_spy()
 
-        with patch("marianne.daemon.detect.try_daemon_route",
-                   new_callable=AsyncMock,
-                   side_effect=OSError("Connection refused")), \
-             patch("marianne.cli.commands.pause.output_error", side_effect=spy):
+        with (
+            patch(
+                "marianne.daemon.detect.try_daemon_route",
+                new_callable=AsyncMock,
+                side_effect=OSError("Connection refused"),
+            ),
+            patch("marianne.cli.commands.pause.output_error", side_effect=spy),
+        ):
             runner.invoke(
                 app,
                 ["pause", "test-job"],
@@ -147,10 +153,14 @@ class TestPauseDaemonErrorHints:
         """When conductor says pause failed, hints explain possible reasons."""
         captured, spy = _make_spy()
 
-        with patch("marianne.daemon.detect.try_daemon_route",
-                   new_callable=AsyncMock,
-                   return_value=(True, {"paused": False, "error": "Job not found"})), \
-             patch("marianne.cli.commands.pause.output_error", side_effect=spy):
+        with (
+            patch(
+                "marianne.daemon.detect.try_daemon_route",
+                new_callable=AsyncMock,
+                return_value=(True, {"paused": False, "error": "Job not found"}),
+            ),
+            patch("marianne.cli.commands.pause.output_error", side_effect=spy),
+        ):
             runner.invoke(
                 app,
                 ["pause", "test-job"],
@@ -166,18 +176,19 @@ class TestPauseDaemonErrorHints:
         # and has an output_error on failure — verify it has hints=
         func_idx = source.find("_check_pause_state")
         if func_idx != -1:
-            func_source = source[func_idx:func_idx + 2000]
+            func_source = source[func_idx : func_idx + 2000]
             err_idx = func_source.find("output_error(")
             if err_idx != -1:
-                snippet = func_source[err_idx:err_idx + 300]
-                assert "hints=" in snippet, \
-                    "pause.py _check_pause_state output_error lacks hints="
+                snippet = func_source[err_idx : err_idx + 300]
+                assert "hints=" in snippet, "pause.py _check_pause_state output_error lacks hints="
 
     def test_modify_daemon_error_has_hints(self) -> None:
         """When modify command's IPC call fails, hints guide recovery."""
         source = _get_module_source("marianne.cli.commands.pause")
         _assert_output_error_has_hints(
-            source, "job.modify", "pause.py modify daemon error (line 616)",
+            source,
+            "job.modify",
+            "pause.py modify daemon error (line 616)",
         )
 
     def test_modify_rejected_has_hints(self) -> None:
@@ -187,12 +198,13 @@ class TestPauseDaemonErrorHints:
         idx = source.find('"rejected"')
         assert idx != -1, "rejected handler not found in pause.py"
         # The next output_error after this should have hints=
-        snippet = source[idx:idx + 400]
+        snippet = source[idx : idx + 400]
         err_idx = snippet.find("output_error(")
         assert err_idx != -1, "output_error not found after rejected check"
-        err_snippet = snippet[err_idx:err_idx + 300]
-        assert "hints=" in err_snippet, \
+        err_snippet = snippet[err_idx : err_idx + 300]
+        assert "hints=" in err_snippet, (
             "pause.py modify rejected output_error lacks hints= (line 628)"
+        )
 
 
 # =============================================================================
@@ -207,7 +219,9 @@ class TestStatusWatchErrorHints:
         """Verify the watch mode conductor error output_error call includes hints=."""
         source = _get_module_source("marianne.cli.commands.status")
         _assert_output_error_has_hints(
-            source, "Conductor error:", "status.py watch error (line 310)",
+            source,
+            "Conductor error:",
+            "status.py watch error (line 310)",
         )
 
 
@@ -223,10 +237,14 @@ class TestClearCommandErrorHints:
         """When clear command fails, tell the user what to check."""
         captured, spy = _make_spy()
 
-        with patch("marianne.daemon.detect.try_daemon_route",
-                   new_callable=AsyncMock,
-                   side_effect=Exception("Connection refused")), \
-             patch("marianne.cli.commands.status.output_error", side_effect=spy):
+        with (
+            patch(
+                "marianne.daemon.detect.try_daemon_route",
+                new_callable=AsyncMock,
+                side_effect=Exception("Connection refused"),
+            ),
+            patch("marianne.cli.commands.status.output_error", side_effect=spy),
+        ):
             runner.invoke(
                 app,
                 ["clear", "--yes"],
@@ -250,6 +268,7 @@ class TestClearInvalidStatusUsesOutputError:
         idx = source.find("Invalid status(es):")
         assert idx != -1, "Cannot find invalid status validation"
         # Look backward for the containing call — should be output_error, not console.print
-        call_region = source[max(0, idx - 100):idx + 10]
-        assert "output_error(" in call_region, \
+        call_region = source[max(0, idx - 100) : idx + 10]
+        assert "output_error(" in call_region, (
             "Invalid status validation should use output_error(), not console.print()"
+        )

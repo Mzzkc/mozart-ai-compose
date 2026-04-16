@@ -32,7 +32,6 @@ from marianne.daemon.profiler.models import (
 from marianne.daemon.profiler.storage import MonitorStorage, generate_resource_report
 from marianne.daemon.types import ObserverEvent
 
-
 # ---------------------------------------------------------------------------
 # Helpers (reused from test_profiler.py for consistency)
 # ---------------------------------------------------------------------------
@@ -444,11 +443,13 @@ class TestDiagnoseResourcesOutput:
         now = time.time()
 
         # Write data simulating a multi-sheet job
-        for i, (sheet, rss, cpu) in enumerate([
-            (1, 256.0, 30.0),
-            (2, 512.0, 65.0),
-            (3, 1024.0, 90.0),
-        ]):
+        for i, (sheet, rss, cpu) in enumerate(
+            [
+                (1, 256.0, 30.0),
+                (2, 512.0, 65.0),
+                (3, 1024.0, 90.0),
+            ]
+        ):
             proc = _make_process(
                 pid=200 + i,
                 rss_mb=rss,

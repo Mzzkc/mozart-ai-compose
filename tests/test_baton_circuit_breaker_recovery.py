@@ -33,13 +33,10 @@ from marianne.daemon.baton.state import (
 from marianne.daemon.baton.timer import TimerWheel
 
 
-def _make_sheets(
-    count: int = 3, instrument: str = "claude-code"
-) -> dict[int, SheetExecutionState]:
+def _make_sheets(count: int = 3, instrument: str = "claude-code") -> dict[int, SheetExecutionState]:
     """Create a set of sheet execution states."""
     return {
-        i: SheetExecutionState(sheet_num=i, instrument_name=instrument)
-        for i in range(1, count + 1)
+        i: SheetExecutionState(sheet_num=i, instrument_name=instrument) for i in range(1, count + 1)
     }
 
 

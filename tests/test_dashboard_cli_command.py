@@ -56,13 +56,9 @@ class TestDashboardCreateAppInvocation:
 
         with (
             patch.dict(sys.modules, {"uvicorn": mock_uvicorn}),
-            patch(
-                "marianne.dashboard.create_app", mock_create_app
-            ),
+            patch("marianne.dashboard.create_app", mock_create_app),
         ):
-            runner.invoke(
-                _app, ["dashboard", "--workspace", str(tmp_path)]
-            )
+            runner.invoke(_app, ["dashboard", "--workspace", str(tmp_path)])
 
         mock_create_app.assert_called_once()
         call_kwargs = mock_create_app.call_args
@@ -82,13 +78,9 @@ class TestDashboardKeyboardInterrupt:
 
         with (
             patch.dict(sys.modules, {"uvicorn": mock_uvicorn}),
-            patch(
-                "marianne.dashboard.create_app", mock_create_app
-            ),
+            patch("marianne.dashboard.create_app", mock_create_app),
         ):
-            result = runner.invoke(
-                _app, ["dashboard", "--workspace", str(tmp_path)]
-            )
+            result = runner.invoke(_app, ["dashboard", "--workspace", str(tmp_path)])
 
         # Should exit cleanly (0) after catching KeyboardInterrupt
         assert result.exit_code == 0
@@ -119,17 +111,18 @@ class TestDashboardCustomOptions:
 
         with (
             patch.dict(sys.modules, {"uvicorn": mock_uvicorn}),
-            patch(
-                "marianne.dashboard.create_app", mock_create_app
-            ),
+            patch("marianne.dashboard.create_app", mock_create_app),
         ):
             runner.invoke(
                 _app,
                 [
                     "dashboard",
-                    "--port", "9999",
-                    "--host", "0.0.0.0",
-                    "--workspace", str(tmp_path),
+                    "--port",
+                    "9999",
+                    "--host",
+                    "0.0.0.0",
+                    "--workspace",
+                    str(tmp_path),
                 ],
             )
 

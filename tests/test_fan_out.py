@@ -16,8 +16,8 @@ from pathlib import Path
 import pytest
 
 from marianne.core.config import SheetConfig
-from marianne.execution.dag import CycleDetectedError, DependencyDAG, build_dag_from_config
 from marianne.core.fan_out import FanOutMetadata, expand_fan_out
+from marianne.execution.dag import CycleDetectedError, DependencyDAG, build_dag_from_config
 from marianne.prompts.templating import PromptBuilder, SheetContext
 
 # ─── Unit tests: expand_fan_out() ────────────────────────────────────────
@@ -138,12 +138,12 @@ class TestFullWorkflow7Stages:
             total_stages=7,
             fan_out={2: 3, 4: 3, 5: 3},
             stage_dependencies={
-                2: [1],     # investigate depends on survey
-                3: [2],     # adversarial waits for ALL investigations (fan-in)
-                4: [3],     # execute depends on adversarial
-                5: [4],     # review.i depends on execute.i (instance-matched)
-                6: [5],     # finalize waits for ALL reviews (fan-in)
-                7: [6],     # commit depends on finalize
+                2: [1],  # investigate depends on survey
+                3: [2],  # adversarial waits for ALL investigations (fan-in)
+                4: [3],  # execute depends on adversarial
+                5: [4],  # review.i depends on execute.i (instance-matched)
+                6: [5],  # finalize waits for ALL reviews (fan-in)
+                7: [6],  # commit depends on finalize
             },
         )
 
@@ -579,22 +579,40 @@ class TestTemplateIntegration:
 
         # Stage 1
         ctx1 = SheetContext(
-            sheet_num=1, total_sheets=5, start_item=1, end_item=1,
-            workspace=Path("/tmp"), stage=1, instance=1, fan_count=1,
+            sheet_num=1,
+            total_sheets=5,
+            start_item=1,
+            end_item=1,
+            workspace=Path("/tmp"),
+            stage=1,
+            instance=1,
+            fan_count=1,
         )
         assert builder.build_sheet_prompt(ctx1) == "Survey"
 
         # Stage 2, instance 2
         ctx2 = SheetContext(
-            sheet_num=3, total_sheets=5, start_item=3, end_item=3,
-            workspace=Path("/tmp"), stage=2, instance=2, fan_count=3,
+            sheet_num=3,
+            total_sheets=5,
+            start_item=3,
+            end_item=3,
+            workspace=Path("/tmp"),
+            stage=2,
+            instance=2,
+            fan_count=3,
         )
         assert builder.build_sheet_prompt(ctx2) == "Investigate 2"
 
         # Stage 3
         ctx3 = SheetContext(
-            sheet_num=5, total_sheets=5, start_item=5, end_item=5,
-            workspace=Path("/tmp"), stage=3, instance=1, fan_count=1,
+            sheet_num=5,
+            total_sheets=5,
+            start_item=5,
+            end_item=5,
+            workspace=Path("/tmp"),
+            stage=3,
+            instance=1,
+            fan_count=1,
         )
         assert builder.build_sheet_prompt(ctx3) == "Review"
 
@@ -629,15 +647,9 @@ class TestValidationConditions:
         assert self._check("fan_count == 3", fan_count=1) is False
 
     def test_condition_compound(self):
-        assert self._check(
-            "stage == 2 and instance == 1", stage=2, instance=1
-        ) is True
-        assert self._check(
-            "stage == 2 and instance == 1", stage=2, instance=2
-        ) is False
-        assert self._check(
-            "stage == 2 and instance == 1", stage=1, instance=1
-        ) is False
+        assert self._check("stage == 2 and instance == 1", stage=2, instance=1) is True
+        assert self._check("stage == 2 and instance == 1", stage=2, instance=2) is False
+        assert self._check("stage == 2 and instance == 1", stage=1, instance=1) is False
 
 
 # ─── DAG integration tests ──────────────────────────────────────────────
@@ -669,7 +681,12 @@ class TestDAGIntegration:
             total_items=7,
             fan_out={2: 3, 4: 3, 5: 3},
             dependencies={
-                2: [1], 3: [2], 4: [3], 5: [4], 6: [5], 7: [6],
+                2: [1],
+                3: [2],
+                4: [3],
+                5: [4],
+                6: [5],
+                7: [6],
             },
         )
         dag = build_dag_from_config(
@@ -678,13 +695,13 @@ class TestDAGIntegration:
         )
         groups = dag.get_parallel_groups()
         assert groups == [
-            [1],           # survey
-            [2, 3, 4],     # investigate x3
-            [5],           # adversarial
-            [6, 7, 8],     # execute x3
-            [9, 10, 11],   # review x3
-            [12],          # finalize
-            [13],          # commit
+            [1],  # survey
+            [2, 3, 4],  # investigate x3
+            [5],  # adversarial
+            [6, 7, 8],  # execute x3
+            [9, 10, 11],  # review x3
+            [12],  # finalize
+            [13],  # commit
         ]
 
     def test_cycle_in_stage_deps_caught_by_dag(self):
@@ -783,11 +800,11 @@ class TestFanOutParallelE2E:
         groups = dag.get_parallel_groups()
 
         # Verify parallelism groups
-        assert groups[0] == [1]          # Stage 1: single
-        assert groups[1] == [2, 3, 4]    # Stage 2: 3x parallel
-        assert groups[2] == [5]          # Stage 3: fan-in to single
-        assert groups[3] == [6, 7]       # Stage 4: 2x parallel
-        assert groups[4] == [8]          # Stage 5: fan-in to single
+        assert groups[0] == [1]  # Stage 1: single
+        assert groups[1] == [2, 3, 4]  # Stage 2: 3x parallel
+        assert groups[2] == [5]  # Stage 3: fan-in to single
+        assert groups[3] == [6, 7]  # Stage 4: 2x parallel
+        assert groups[4] == [8]  # Stage 5: fan-in to single
 
     def test_fan_out_preserves_instance_matching_deps(self):
         """N→N fan-out: instance i depends on instance i."""
@@ -862,7 +879,8 @@ class TestFanOutExecutionSimulation:
     def test_simulation_simple_fan_out_fan_in(self):
         """Simulate: 1 → 3x → 1. Verify all deps satisfied at each step."""
         config = SheetConfig(
-            size=1, total_items=3,
+            size=1,
+            total_items=3,
             fan_out={2: 3},
             dependencies={2: [1], 3: [2]},
         )
@@ -872,7 +890,8 @@ class TestFanOutExecutionSimulation:
     def test_simulation_multi_fan_pipeline(self):
         """Simulate: 1 → 3x → 1 → 2x → 1. Five-stage pipeline."""
         config = SheetConfig(
-            size=1, total_items=5,
+            size=1,
+            total_items=5,
             fan_out={2: 3, 4: 2},
             dependencies={2: [1], 3: [2], 4: [3], 5: [4]},
         )
@@ -880,14 +899,15 @@ class TestFanOutExecutionSimulation:
         assert len(groups) == 5
         assert groups[0] == [1]
         assert len(groups[1]) == 3  # 3x fan-out
-        assert groups[2] == [5]      # fan-in
+        assert groups[2] == [5]  # fan-in
         assert len(groups[3]) == 2  # 2x fan-out
-        assert groups[4] == [8]      # final fan-in
+        assert groups[4] == [8]  # final fan-in
 
     def test_simulation_metadata_propagation_through_pipeline(self):
         """Verify stage/instance/fan_count metadata is correct at each sheet."""
         config = SheetConfig(
-            size=1, total_items=3,
+            size=1,
+            total_items=3,
             fan_out={2: 3},
             dependencies={2: [1], 3: [2]},
         )
@@ -913,7 +933,8 @@ class TestFanOutExecutionSimulation:
     def test_simulation_cross_fan_respects_all_to_all_deps(self):
         """N→M (N≠M) cross-fan: all upstream must complete before any downstream."""
         config = SheetConfig(
-            size=1, total_items=3,
+            size=1,
+            total_items=3,
             fan_out={1: 2, 2: 3},
             dependencies={2: [1], 3: [2]},
         )
@@ -945,7 +966,8 @@ class TestFanOutStateTracking:
     def test_metadata_round_trip_through_model_dump(self):
         """Fan-out metadata survives SheetConfig serialization round-trip."""
         config = SheetConfig(
-            size=1, total_items=3,
+            size=1,
+            total_items=3,
             fan_out={2: 3},
             dependencies={2: [1], 3: [2]},
         )
@@ -968,7 +990,8 @@ class TestFanOutStateTracking:
     def test_metadata_round_trip_complex_pipeline(self):
         """Complex fan-out pipeline metadata survives serialization."""
         config = SheetConfig(
-            size=1, total_items=5,
+            size=1,
+            total_items=5,
             fan_out={2: 3, 4: 2},
             dependencies={2: [1], 3: [2], 4: [3], 5: [4]},
         )
@@ -989,7 +1012,8 @@ class TestFanOutStateTracking:
         of stage 2 can still complete. Only the fan-in (stage 3) is blocked.
         """
         config = SheetConfig(
-            size=1, total_items=3,
+            size=1,
+            total_items=3,
             fan_out={2: 3},
             dependencies={2: [1], 3: [2]},
         )
@@ -1023,16 +1047,15 @@ class TestFanOutStateTracking:
     def test_fan_out_per_instance_deps_are_independent(self):
         """Fan-out instances depend only on upstream, not on each other."""
         config = SheetConfig(
-            size=1, total_items=3,
+            size=1,
+            total_items=3,
             fan_out={2: 4},
             dependencies={2: [1], 3: [2]},
         )
         # Stage 2: sheets 2,3,4,5 — each depends only on sheet 1
         for sheet_num in [2, 3, 4, 5]:
             deps = config.dependencies.get(sheet_num, [])
-            assert deps == [1], (
-                f"Sheet {sheet_num} should only depend on sheet 1, got {deps}"
-            )
+            assert deps == [1], f"Sheet {sheet_num} should only depend on sheet 1, got {deps}"
             # No cross-instance dependencies
             for other in [2, 3, 4, 5]:
                 if other != sheet_num:
@@ -1042,16 +1065,17 @@ class TestFanOutStateTracking:
         """SheetConfig.total_sheets must match expansion result."""
         test_cases = [
             # (total_items, fan_out, expected_sheets)
-            (3, {2: 3}, 5),        # 1 + 3 + 1
-            (3, {2: 5}, 7),        # 1 + 5 + 1
+            (3, {2: 3}, 5),  # 1 + 3 + 1
+            (3, {2: 5}, 7),  # 1 + 5 + 1
             (4, {2: 2, 3: 3}, 7),  # 1 + 2 + 3 + 1
-            (2, {1: 4}, 5),        # 4 + 1
-            (1, {}, 1),            # No fan-out
+            (2, {1: 4}, 5),  # 4 + 1
+            (1, {}, 1),  # No fan-out
         ]
         for total_items, fan_out, expected in test_cases:
             deps = {i: [i - 1] for i in range(2, total_items + 1)}
             config = SheetConfig(
-                size=1, total_items=total_items,
+                size=1,
+                total_items=total_items,
                 fan_out=fan_out,
                 dependencies=deps,
             )

@@ -24,7 +24,6 @@ from marianne.daemon.process import (
     stop_conductor,
 )
 
-
 # ─── PID File Helpers ──────────────────────────────────────────────────
 
 
@@ -191,7 +190,10 @@ class TestStopConductor:
         with (
             patch("marianne.daemon.process._pid_alive", return_value=True),
             patch("marianne.daemon.process.os.kill") as mock_kill,
-            patch("marianne.daemon.process._check_running_jobs", return_value={"running_jobs": 0, "job_ids": []}),
+            patch(
+                "marianne.daemon.process._check_running_jobs",
+                return_value={"running_jobs": 0, "job_ids": []},
+            ),
         ):
             stop_conductor(pid_file=pid_file)
 
@@ -326,10 +328,9 @@ class TestDaemonProcess:
             patch("marianne.daemon.process._write_pid") as mock_write,
         ):
             # _write_pid is called, then setup() raises, then finally cleans up
-            mock_write.side_effect = (
-                lambda pf: pf.parent.mkdir(parents=True, exist_ok=True)
-                or pf.write_text("12345")
-            )
+            mock_write.side_effect = lambda pf: pf.parent.mkdir(
+                parents=True, exist_ok=True
+            ) or pf.write_text("12345")
 
             with pytest.raises(RuntimeError, match="crash!"):
                 await dp.run()
@@ -354,14 +355,30 @@ class TestDaemonProcess:
         # Check all expected methods were registered
         registered_methods = {call.args[0] for call in handler.register.call_args_list}
         expected = {
-            "job.submit", "job.status", "job.pause", "job.resume",
-            "job.modify", "job.cancel", "job.list", "job.clear",
-            "job.errors", "job.diagnose", "job.history", "job.recover",
-            "daemon.status", "daemon.shutdown", "daemon.config",
-            "daemon.health", "daemon.ready",
-            "daemon.top", "daemon.top.stream", "daemon.events",
-            "daemon.observer_events", "daemon.monitor.stream",
-            "daemon.rate_limits", "daemon.clear_rate_limits",
+            "job.submit",
+            "job.status",
+            "job.pause",
+            "job.resume",
+            "job.modify",
+            "job.cancel",
+            "job.list",
+            "job.clear",
+            "job.errors",
+            "job.diagnose",
+            "job.history",
+            "job.recover",
+            "daemon.status",
+            "daemon.shutdown",
+            "daemon.config",
+            "daemon.health",
+            "daemon.ready",
+            "daemon.top",
+            "daemon.top.stream",
+            "daemon.events",
+            "daemon.observer_events",
+            "daemon.monitor.stream",
+            "daemon.rate_limits",
+            "daemon.clear_rate_limits",
             "daemon.learning.patterns",
         }
         assert registered_methods == expected
@@ -369,10 +386,11 @@ class TestDaemonProcess:
     @pytest.mark.asyncio
     async def test_handle_sighup_reloads_config(self, tmp_path: Path):
         """_handle_sighup reloads config from disk and applies changes."""
-        from marianne.daemon.config import DaemonConfig
-
         # Create a config file with initial settings
         import yaml
+
+        from marianne.daemon.config import DaemonConfig
+
         cfg_path = tmp_path / "daemon.yaml"
         cfg_path.write_text(yaml.dump({"max_concurrent_jobs": 3}))
 
@@ -409,13 +427,18 @@ class TestDaemonProcess:
     @pytest.mark.asyncio
     async def test_handle_sighup_warns_non_reloadable(self, tmp_path: Path):
         """_handle_sighup logs warnings when non-reloadable fields change."""
+        import yaml
+
         from marianne.daemon.config import DaemonConfig, SocketConfig
 
-        import yaml
         cfg_path = tmp_path / "daemon.yaml"
-        cfg_path.write_text(yaml.dump({
-            "socket": {"path": "/tmp/new-marianne.sock"},
-        }))
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "socket": {"path": "/tmp/new-marianne.sock"},
+                }
+            )
+        )
 
         config = DaemonConfig(
             socket=SocketConfig(path=Path("/tmp/old-marianne.sock")),

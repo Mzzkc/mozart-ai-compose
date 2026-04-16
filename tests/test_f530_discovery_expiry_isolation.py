@@ -81,8 +81,9 @@ class TestF530DiscoveryExpiryIsolation:
 
             # Should exist immediately
             events = store.get_active_pattern_discoveries()
-            assert any(e.pattern_name == "Sufficient Margin" for e in events), \
+            assert any(e.pattern_name == "Sufficient Margin" for e in events), (
                 "Pattern should be active immediately after recording"
+            )
 
             # Wait for expiry with 10s margin (15.0s > 5.0s TTL)
             time.sleep(15.0)
@@ -90,8 +91,9 @@ class TestF530DiscoveryExpiryIsolation:
             # Even if sleep() woke up 2s early, pattern has expired
             # Actual elapsed: 15s - 2s = 13s >> 5s TTL
             events_after = store.get_active_pattern_discoveries()
-            assert not any(e.pattern_name == "Sufficient Margin" for e in events_after), \
+            assert not any(e.pattern_name == "Sufficient Margin" for e in events_after), (
                 "Pattern should have expired after 5s TTL + 15s sleep"
+            )
 
             # Cleanup should work
             cleaned = store.cleanup_expired_pattern_discoveries()

@@ -13,8 +13,7 @@ code and pass on the fixed code.
 from __future__ import annotations
 
 import os
-import signal
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 

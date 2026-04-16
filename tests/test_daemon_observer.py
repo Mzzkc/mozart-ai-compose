@@ -10,12 +10,12 @@ import asyncio
 import os
 import time
 from pathlib import Path
+
 import pytest
 
 from marianne.daemon.event_bus import EventBus
 from marianne.daemon.observer import JobObserver
 from marianne.daemon.types import ObserverEvent
-
 
 # ─── Helpers ──────────────────────────────────────────────────────────
 
@@ -139,7 +139,9 @@ class TestFilesystemEvents:
         await bus.shutdown()
 
         # Should have at least one file event
-        file_events = [e for e in received if "new_file.txt" in (e.get("data") or {}).get("path", "")]
+        file_events = [
+            e for e in received if "new_file.txt" in (e.get("data") or {}).get("path", "")
+        ]
         assert len(file_events) >= 1, f"Expected file events, got: {received}"
         assert file_events[0]["event"] in (
             "observer.file_created",
@@ -182,8 +184,7 @@ class TestFilesystemEvents:
 
         # Should have at least one file event for this file
         file_events = [
-            e for e in received
-            if "modify_test.txt" in (e.get("data") or {}).get("path", "")
+            e for e in received if "modify_test.txt" in (e.get("data") or {}).get("path", "")
         ]
         assert len(file_events) >= 1, f"Expected file events, got: {received}"
 
@@ -215,7 +216,9 @@ class TestFilesystemEvents:
         await observer.stop()
         await bus.shutdown()
 
-        delete_events = [e for e in received if "to_delete.txt" in (e.get("data") or {}).get("path", "")]
+        delete_events = [
+            e for e in received if "to_delete.txt" in (e.get("data") or {}).get("path", "")
+        ]
         assert len(delete_events) >= 1
 
 
@@ -288,7 +291,8 @@ class TestProcessMonitoring:
 
         # Spawn a child process
         proc = await asyncio.create_subprocess_exec(
-            "sleep", "2",
+            "sleep",
+            "2",
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )

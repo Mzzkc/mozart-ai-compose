@@ -12,10 +12,9 @@ from __future__ import annotations
 from unittest.mock import AsyncMock
 
 from marianne.daemon.baton.core import BatonCore
-from marianne.daemon.baton.state import BatonSheetStatus, SheetExecutionState
 from marianne.daemon.baton.dispatch import DispatchConfig, dispatch_ready
 from marianne.daemon.baton.events import SheetAttemptResult
-
+from marianne.daemon.baton.state import SheetExecutionState
 
 # =============================================================================
 # Basic dispatch
@@ -50,12 +49,18 @@ class TestBasicDispatch:
         baton.register_job("j1", sheets, {})
 
         # Complete the sheet
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=True,
-            validations_passed=1, validations_total=1,
-            validation_pass_rate=100.0,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=True,
+                validations_passed=1,
+                validations_total=1,
+                validation_pass_rate=100.0,
+            )
+        )
 
         callback = AsyncMock()
         config = DispatchConfig(max_concurrent_sheets=10)
@@ -172,12 +177,18 @@ class TestDependencyHandling:
         baton.register_job("j1", sheets, {2: [1]})
 
         # Complete sheet 1
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=True,
-            validations_passed=1, validations_total=1,
-            validation_pass_rate=100.0,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=True,
+                validations_passed=1,
+                validations_total=1,
+                validation_pass_rate=100.0,
+            )
+        )
 
         callback = AsyncMock()
         config = DispatchConfig(max_concurrent_sheets=10)
@@ -219,12 +230,20 @@ class TestMultiJobFairness:
 
     async def test_dispatches_from_multiple_jobs(self) -> None:
         baton = BatonCore()
-        baton.register_job("j1", {
-            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
-        }, {})
-        baton.register_job("j2", {
-            1: SheetExecutionState(sheet_num=1, instrument_name="gemini-cli"),
-        }, {})
+        baton.register_job(
+            "j1",
+            {
+                1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
+            },
+            {},
+        )
+        baton.register_job(
+            "j2",
+            {
+                1: SheetExecutionState(sheet_num=1, instrument_name="gemini-cli"),
+            },
+            {},
+        )
 
         callback = AsyncMock()
         config = DispatchConfig(max_concurrent_sheets=10)

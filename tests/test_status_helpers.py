@@ -37,13 +37,13 @@ runner = CliRunner()
 @pytest.fixture(autouse=True)
 def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
     """Prevent status helper tests from reaching a real conductor."""
-    async def _fake_route(
-        method: str, params: dict, *, socket_path=None
-    ) -> tuple[bool, None]:
+
+    async def _fake_route(method: str, params: dict, *, socket_path=None) -> tuple[bool, None]:
         return False, None
 
     monkeypatch.setattr(
-        "marianne.daemon.detect.try_daemon_route", _fake_route,
+        "marianne.daemon.detect.try_daemon_route",
+        _fake_route,
     )
 
 
@@ -177,19 +177,25 @@ class TestCollectRecentErrors:
     def test_sorted_by_timestamp_descending(self) -> None:
         now = datetime.now(UTC)
         old_err = ErrorRecord(
-            error_type="transient", error_code="E001",
-            error_message="Old", attempt_number=1,
+            error_type="transient",
+            error_code="E001",
+            error_message="Old",
+            attempt_number=1,
             timestamp=now - timedelta(hours=1),
         )
         new_err = ErrorRecord(
-            error_type="transient", error_code="E002",
-            error_message="New", attempt_number=2,
+            error_type="transient",
+            error_code="E002",
+            error_message="New",
+            attempt_number=2,
             timestamp=now,
         )
         sheets = {
             1: SheetState(
-                sheet_num=1, status=SheetStatus.FAILED,
-                attempt_count=2, error_history=[old_err, new_err],
+                sheet_num=1,
+                status=SheetStatus.FAILED,
+                attempt_count=2,
+                error_history=[old_err, new_err],
             ),
         }
         job = _make_job(sheets=sheets, total_sheets=1, status=JobStatus.FAILED)
@@ -217,7 +223,9 @@ class TestCollectRecentErrors:
 
         assert len(result) == 1
         assert result[0][1].error_message == "CLI not found"
-        assert result[0][1].error_code == "E201"  # "validation" → E201 via format_error_code_for_display
+        assert (
+            result[0][1].error_code == "E201"
+        )  # "validation" → E201 via format_error_code_for_display
 
 
 # ---------------------------------------------------------------------------
@@ -367,9 +375,7 @@ class TestStatusCommandEdgeCases:
         )
         _write_state(tmp_path, state)
 
-        result = runner.invoke(
-            app, ["status", "parallel-job", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["status", "parallel-job", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Parallel" in result.stdout
 
@@ -391,9 +397,7 @@ class TestStatusCommandEdgeCases:
         )
         _write_state(tmp_path, state)
 
-        result = runner.invoke(
-            app, ["status", "cb-job", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["status", "cb-job", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Circuit Breaker" in result.stdout
         assert "OPEN" in result.stdout
@@ -428,14 +432,18 @@ class TestStatusCommandEdgeCases:
         """Status should show recent errors section."""
         now = datetime.now(UTC)
         err = ErrorRecord(
-            error_type="permanent", error_code="E301",
-            error_message="Validation failed", attempt_number=3,
+            error_type="permanent",
+            error_code="E301",
+            error_message="Validation failed",
+            attempt_number=3,
             timestamp=now,
         )
         sheets = {
             1: SheetState(
-                sheet_num=1, status=SheetStatus.FAILED,
-                attempt_count=3, error_history=[err],
+                sheet_num=1,
+                status=SheetStatus.FAILED,
+                attempt_count=3,
+                error_history=[err],
             ),
         }
         state = CheckpointState(
@@ -450,9 +458,7 @@ class TestStatusCommandEdgeCases:
         )
         _write_state(tmp_path, state)
 
-        result = runner.invoke(
-            app, ["status", "err-job", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["status", "err-job", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Error" in result.stdout or "error" in result.stdout.lower()
 
@@ -513,9 +519,19 @@ class TestStatusJsonOutput:
 
         # Verify all required top-level keys
         required_keys = {
-            "job_id", "job_name", "status", "progress", "timing",
-            "execution", "cost", "circuit_breaker", "hook_results_count",
-            "hook_failures", "recent_errors", "error", "sheets",
+            "job_id",
+            "job_name",
+            "status",
+            "progress",
+            "timing",
+            "execution",
+            "cost",
+            "circuit_breaker",
+            "hook_results_count",
+            "hook_failures",
+            "recent_errors",
+            "error",
+            "sheets",
         }
         assert required_keys.issubset(data.keys())
 
@@ -559,16 +575,16 @@ class TestStatusJsonOutput:
             total_output_tokens=3000,
             sheets={
                 1: SheetState(
-                    sheet_num=1, status=SheetStatus.COMPLETED,
-                    attempt_count=1, estimated_cost=1.23,
+                    sheet_num=1,
+                    status=SheetStatus.COMPLETED,
+                    attempt_count=1,
+                    estimated_cost=1.23,
                 ),
             },
         )
         _write_state(tmp_path, state)
 
-        result = runner.invoke(
-            app, ["status", "cost-test", "--json", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["status", "cost-test", "--json", "--workspace", str(tmp_path)])
         data = json.loads(result.stdout)
         assert data["cost"]["total_estimated_cost"] == 1.23
         assert data["cost"]["total_input_tokens"] == 5000
@@ -578,8 +594,10 @@ class TestStatusJsonOutput:
         """JSON recent_errors should contain structured error records."""
         now = datetime.now(UTC)
         err = ErrorRecord(
-            error_type="transient", error_code="E001",
-            error_message="Timeout", attempt_number=2,
+            error_type="transient",
+            error_code="E001",
+            error_message="Timeout",
+            attempt_number=2,
             timestamp=now,
         )
         state = CheckpointState(
@@ -592,8 +610,10 @@ class TestStatusJsonOutput:
             updated_at=now,
             sheets={
                 1: SheetState(
-                    sheet_num=1, status=SheetStatus.FAILED,
-                    attempt_count=2, error_history=[err],
+                    sheet_num=1,
+                    status=SheetStatus.FAILED,
+                    attempt_count=2,
+                    error_history=[err],
                 ),
             },
         )
@@ -622,8 +642,10 @@ class TestStatusJsonOutput:
             updated_at=datetime.now(UTC),
             sheets={
                 1: SheetState(
-                    sheet_num=1, status=SheetStatus.COMPLETED,
-                    attempt_count=1, execution_duration_seconds=42.5,
+                    sheet_num=1,
+                    status=SheetStatus.COMPLETED,
+                    attempt_count=1,
+                    execution_duration_seconds=42.5,
                 ),
             },
         )
@@ -708,9 +730,7 @@ class TestStatusRichRendering:
         )
         _write_state(tmp_path, state)
 
-        result = runner.invoke(
-            app, ["status", "cost-rich-test", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["status", "cost-rich-test", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Cost" in result.stdout
         assert "$2.50" in result.stdout
@@ -727,8 +747,12 @@ class TestStatusRichRendering:
             updated_at=datetime.now(UTC),
             hook_results=[
                 {"hook_name": "pre_run", "event": "pre_run", "success": True},
-                {"hook_name": "post_run", "event": "post_run", "success": False,
-                 "error": "Hook script failed"},
+                {
+                    "hook_name": "post_run",
+                    "event": "post_run",
+                    "success": False,
+                    "error": "Hook script failed",
+                },
             ],
             sheets={
                 1: SheetState(sheet_num=1, status=SheetStatus.COMPLETED, attempt_count=1),
@@ -736,9 +760,7 @@ class TestStatusRichRendering:
         )
         _write_state(tmp_path, state)
 
-        result = runner.invoke(
-            app, ["status", "hooks-test", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["status", "hooks-test", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Hook" in result.stdout
 
@@ -761,9 +783,7 @@ class TestStatusRichRendering:
         )
         _write_state(tmp_path, state)
 
-        result = runner.invoke(
-            app, ["status", "timing-test", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["status", "timing-test", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         # Beautified status shows timing in header ("elapsed") and Stats section
         assert "elapsed" in result.stdout or "Stats" in result.stdout
@@ -800,9 +820,7 @@ class TestCostSummaryAlwaysVisible:
     def test_cost_limits_enabled_no_tip(self, capsys: pytest.CaptureFixture[str]) -> None:
         """When cost limits are enabled, no tip is shown."""
         job = _make_job(total_sheets=1)
-        job.config_snapshot = {
-            "cost_limits": {"enabled": True, "max_cost_per_job": 10.0}
-        }
+        job.config_snapshot = {"cost_limits": {"enabled": True, "max_cost_per_job": 10.0}}
         _render_cost_summary(job)
         captured = capsys.readouterr()
         assert "Cost Summary" in captured.out
@@ -812,9 +830,7 @@ class TestCostSummaryAlwaysVisible:
     def test_cost_limit_set_but_not_enabled(self, capsys: pytest.CaptureFixture[str]) -> None:
         """A cost limit exists but enabled=false shows 'not enforced'."""
         job = _make_job(total_sheets=1)
-        job.config_snapshot = {
-            "cost_limits": {"enabled": False, "max_cost_per_job": 5.0}
-        }
+        job.config_snapshot = {"cost_limits": {"enabled": False, "max_cost_per_job": 5.0}}
         _render_cost_summary(job)
         captured = capsys.readouterr()
         assert "not enforced" in captured.out
@@ -825,25 +841,19 @@ class TestCostSummaryAlwaysVisible:
         job.total_estimated_cost = 2.47
         job.total_input_tokens = 15000
         job.total_output_tokens = 8000
-        job.config_snapshot = {
-            "cost_limits": {"enabled": True, "max_cost_per_job": 10.0}
-        }
+        job.config_snapshot = {"cost_limits": {"enabled": True, "max_cost_per_job": 10.0}}
         _render_cost_summary(job)
         captured = capsys.readouterr()
         assert "$2.47" in captured.out
         assert "15,000" in captured.out
         assert "8,000" in captured.out
 
-    def test_cost_limit_reached_shows_warning(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    def test_cost_limit_reached_shows_warning(self, capsys: pytest.CaptureFixture[str]) -> None:
         """When cost limit is reached, a red warning appears."""
         job = _make_job(total_sheets=1)
         job.total_estimated_cost = 10.01
         job.cost_limit_reached = True
-        job.config_snapshot = {
-            "cost_limits": {"enabled": True, "max_cost_per_job": 10.0}
-        }
+        job.config_snapshot = {"cost_limits": {"enabled": True, "max_cost_per_job": 10.0}}
         _render_cost_summary(job)
         captured = capsys.readouterr()
         assert "limit reached" in captured.out.lower() or "paused" in captured.out.lower()
@@ -919,9 +929,7 @@ class TestListJobsJsonOutput:
             {"job_id": "done-1", "status": "completed", "workspace": "/tmp"},
         ]
         with self._mock_daemon_route(jobs):
-            result = runner.invoke(
-                app, ["list", "--status", "completed", "--json"]
-            )
+            result = runner.invoke(app, ["list", "--status", "completed", "--json"])
         assert result.exit_code == 0
         parsed = json.loads(result.stdout)
         assert len(parsed) == 1

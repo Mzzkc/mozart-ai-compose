@@ -159,7 +159,8 @@ class TestMarcusMultiInstrument:
     def test_both_instrument_and_nondefault_backend_rejected(self, tmp_path: Path) -> None:
         """Using instrument: with a non-default backend.type is rejected."""
         score = tmp_path / "dual.yaml"
-        score.write_text(textwrap.dedent("""\
+        score.write_text(
+            textwrap.dedent("""\
             name: dual-config
             workspace: ../workspaces/dual
             instrument: claude-code
@@ -170,7 +171,8 @@ class TestMarcusMultiInstrument:
               total_items: 1
             prompt:
               template: "Hello"
-        """))
+        """)
+        )
 
         result = runner.invoke(app, ["validate", str(score)])
         assert result.exit_code != 0
@@ -184,7 +186,8 @@ class TestMarcusMultiInstrument:
         (tmp_path / "workspaces").mkdir(exist_ok=True)
         score = tmp_path / "scores" / "ok.yaml"
         score.parent.mkdir(exist_ok=True)
-        score.write_text(textwrap.dedent(f"""\
+        score.write_text(
+            textwrap.dedent(f"""\
             name: instrument-ok
             workspace: {tmp_path}/workspaces/ok
             instrument: claude-code
@@ -195,7 +198,8 @@ class TestMarcusMultiInstrument:
               total_items: 1
             prompt:
               template: "Hello"
-        """))
+        """)
+        )
 
         result = runner.invoke(app, ["validate", str(score)])
         # Should pass Pydantic validation — instrument: with default backend: is fine
@@ -205,7 +209,8 @@ class TestMarcusMultiInstrument:
     def test_per_sheet_instrument_validates(self, tmp_path: Path) -> None:
         """Per-sheet instrument override produces valid config."""
         score = tmp_path / "multi.yaml"
-        score.write_text(textwrap.dedent("""\
+        score.write_text(
+            textwrap.dedent("""\
             name: multi-instrument
             workspace: ../workspaces/multi
             instrument: claude-code
@@ -219,7 +224,8 @@ class TestMarcusMultiInstrument:
                 3: [2]
             prompt:
               template: "Process sheet {{ sheet_num }} of {{ total_sheets }}"
-        """))
+        """)
+        )
 
         result = runner.invoke(app, ["validate", str(score)])
         # Should accept the config — per-sheet instruments are valid
@@ -229,7 +235,8 @@ class TestMarcusMultiInstrument:
     def test_instrument_map_duplicate_sheet_rejected(self, tmp_path: Path) -> None:
         """A sheet assigned to two different instruments via instrument_map is rejected."""
         score = tmp_path / "conflict.yaml"
-        score.write_text(textwrap.dedent("""\
+        score.write_text(
+            textwrap.dedent("""\
             name: conflict
             workspace: ../workspaces/conflict
             instrument: claude-code
@@ -245,7 +252,8 @@ class TestMarcusMultiInstrument:
                 3: [2]
             prompt:
               template: "Do work"
-        """))
+        """)
+        )
 
         result = runner.invoke(app, ["validate", str(score)])
         # Sheet 2 is assigned via both per_sheet_instruments AND instrument_map
@@ -258,7 +266,8 @@ class TestMarcusMultiInstrument:
     def test_movements_key_validates(self, tmp_path: Path) -> None:
         """The movements: key works in score YAML."""
         score = tmp_path / "movements.yaml"
-        score.write_text(textwrap.dedent("""\
+        score.write_text(
+            textwrap.dedent("""\
             name: with-movements
             workspace: ../workspaces/movements
             instrument: claude-code
@@ -277,7 +286,8 @@ class TestMarcusMultiInstrument:
                 name: "Review"
             prompt:
               template: "Work on movement {{ movement }}"
-        """))
+        """)
+        )
 
         result = runner.invoke(app, ["validate", str(score)])
         # Movements should be accepted
@@ -401,7 +411,8 @@ class TestYamlEdgeCases:
     def test_yaml_anchor_and_alias(self, tmp_path: Path) -> None:
         """YAML anchors (&) and aliases (*) work in scores."""
         score = tmp_path / "anchors.yaml"
-        score.write_text(textwrap.dedent("""\
+        score.write_text(
+            textwrap.dedent("""\
             name: anchor-test
             workspace: ../workspaces/anchor-test
             instrument: claude-code
@@ -415,7 +426,8 @@ class TestYamlEdgeCases:
             validations:
               - type: file_exists
                 path: "{workspace}/output.md"
-        """))
+        """)
+        )
 
         result = runner.invoke(app, ["validate", str(score)])
         # YAML anchors should be resolved before Pydantic validation
@@ -439,7 +451,8 @@ class TestValidateRunGap:
     def test_validate_passes_but_workspace_parent_missing(self, tmp_path: Path) -> None:
         """A score that validates might have a workspace path issue."""
         score = tmp_path / "orphan.yaml"
-        score.write_text(textwrap.dedent("""\
+        score.write_text(
+            textwrap.dedent("""\
             name: orphan-workspace
             workspace: /nonexistent/path/that/doesnt/exist/workspace
             instrument: claude-code
@@ -448,7 +461,8 @@ class TestValidateRunGap:
               total_items: 1
             prompt:
               template: "Hello"
-        """))
+        """)
+        )
 
         result = runner.invoke(app, ["validate", str(score)])
         # Extended validation should catch this via V002
@@ -527,7 +541,8 @@ class TestKitchenSinkScore:
     def test_complex_score_validates(self, tmp_path: Path) -> None:
         """A score with many features validates without errors."""
         score = tmp_path / "kitchen-sink.yaml"
-        score.write_text(textwrap.dedent("""\
+        score.write_text(
+            textwrap.dedent("""\
             name: kitchen-sink
             workspace: ../workspaces/kitchen-sink
             instrument: claude-code
@@ -579,7 +594,8 @@ class TestKitchenSinkScore:
             stale_detection:
               enabled: true
               idle_timeout_seconds: 1800
-        """))
+        """)
+        )
 
         result = runner.invoke(app, ["validate", str(score)])
         # This complex config should pass validation
@@ -595,7 +611,8 @@ class TestKitchenSinkScore:
         ws_parent = tmp_path / "workspaces"
         ws_parent.mkdir()
         score = tmp_path / "minimal.yaml"
-        score.write_text(textwrap.dedent(f"""\
+        score.write_text(
+            textwrap.dedent(f"""\
             name: minimal
             workspace: {ws_parent}/minimal
             sheet:
@@ -603,7 +620,8 @@ class TestKitchenSinkScore:
               total_items: 1
             prompt:
               template: "Hello world"
-        """))
+        """)
+        )
 
         result = runner.invoke(app, ["validate", str(score)])
         # May warn about no validations (V203) but should pass
@@ -618,7 +636,8 @@ class TestKitchenSinkScore:
         (prelude_dir / "guide.md").write_text("# Style Guide\nWrite clearly.")
 
         score = tmp_path / "prelude.yaml"
-        score.write_text(textwrap.dedent(f"""\
+        score.write_text(
+            textwrap.dedent(f"""\
             name: with-prelude
             workspace: ../workspaces/prelude
             instrument: claude-code
@@ -632,7 +651,8 @@ class TestKitchenSinkScore:
                 - path: "{prelude_dir}/guide.md"
                   label: "Style Guide"
               template: "Write something following the style guide."
-        """))
+        """)
+        )
 
         result = runner.invoke(app, ["validate", str(score)])
         # Prelude paths should be resolved and checked

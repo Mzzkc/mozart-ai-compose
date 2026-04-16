@@ -17,7 +17,8 @@ def _make_config(
 ) -> dict[str, object]:
     return {
         "project": {"name": "test-project"},
-        "agents": agents or [
+        "agents": agents
+        or [
             {"name": "canyon", "voice": "v1", "focus": "f1", "group": "architects"},
             {"name": "forge", "voice": "v2", "focus": "f2", "group": "builders"},
             {"name": "sentinel", "voice": "v3", "focus": "f3", "group": "auditors"},

@@ -105,22 +105,16 @@ class TestExpandEnvHeaders:
 
     def test_expand_env_var(self):
         with patch.dict(os.environ, {"TOKEN": "secret123"}):
-            result = WebhookNotifier._expand_env_headers(
-                {"Authorization": "Bearer ${TOKEN}"}
-            )
+            result = WebhookNotifier._expand_env_headers({"Authorization": "Bearer ${TOKEN}"})
             assert result["Authorization"] == "Bearer secret123"
 
     def test_missing_env_var_empty_string(self):
-        result = WebhookNotifier._expand_env_headers(
-            {"Auth": "Bearer ${NONEXISTENT_12345}"}
-        )
+        result = WebhookNotifier._expand_env_headers({"Auth": "Bearer ${NONEXISTENT_12345}"})
         assert result["Auth"] == "Bearer "
 
     def test_multiple_vars_in_one_header(self):
         with patch.dict(os.environ, {"USER": "admin", "HOST": "example.com"}):
-            result = WebhookNotifier._expand_env_headers(
-                {"X-Info": "${USER}@${HOST}"}
-            )
+            result = WebhookNotifier._expand_env_headers({"X-Info": "${USER}@${HOST}"})
             assert result["X-Info"] == "admin@example.com"
 
 
@@ -213,7 +207,8 @@ class TestSend:
         )
         ctx = NotificationContext(
             event=NotificationEvent.JOB_COMPLETE,
-            job_id="test", job_name="test",
+            job_id="test",
+            job_name="test",
         )
         assert await n.send(ctx)
 
@@ -329,10 +324,12 @@ class TestMockWebhookNotifier:
 
     @pytest.mark.asyncio
     async def test_get_notifications_for_event(self, context: NotificationContext):
-        mock = MockWebhookNotifier(events={
-            NotificationEvent.JOB_COMPLETE,
-            NotificationEvent.JOB_FAILED,
-        })
+        mock = MockWebhookNotifier(
+            events={
+                NotificationEvent.JOB_COMPLETE,
+                NotificationEvent.JOB_FAILED,
+            }
+        )
         await mock.send(context)
         complete = mock.get_notifications_for_event(NotificationEvent.JOB_COMPLETE)
         assert len(complete) == 1

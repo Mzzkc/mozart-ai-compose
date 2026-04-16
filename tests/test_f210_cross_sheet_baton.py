@@ -21,11 +21,7 @@ Found by: Weaver, Movement 3. Fixed by: Canyon, Movement 4.
 from __future__ import annotations
 
 import tempfile
-import time
 from pathlib import Path
-from unittest.mock import MagicMock
-
-import pytest
 
 from marianne.core.config.job import PromptConfig
 from marianne.core.config.workspace import CrossSheetConfig
@@ -35,11 +31,9 @@ from marianne.daemon.baton.prompt import PromptRenderer
 from marianne.daemon.baton.state import (
     AttemptContext,
     AttemptMode,
-    BatonJobState,
     BatonSheetStatus,
     SheetExecutionState,
 )
-
 
 # =========================================================================
 # Fixtures
@@ -193,14 +187,16 @@ class TestAdapterCrossSheetStorage:
 
     def test_recover_job_stores_cross_sheet_config(self) -> None:
         """recover_job also accepts and stores cross_sheet."""
-        from marianne.daemon.baton.adapter import BatonAdapter
         from marianne.core.checkpoint import CheckpointState
+        from marianne.daemon.baton.adapter import BatonAdapter
 
         adapter = BatonAdapter()
         sheets = [_make_sheet(num=1)]
         cross_sheet = CrossSheetConfig(auto_capture_stdout=True)
         checkpoint = CheckpointState(
-            job_id="test-job", job_name="test", total_sheets=1,
+            job_id="test-job",
+            job_name="test",
+            total_sheets=1,
         )
 
         adapter.recover_job(
@@ -275,28 +271,20 @@ class TestCollectCrossSheetContext:
 
     def test_auto_capture_collects_completed_sheets(self) -> None:
         """auto_capture_stdout=True → collects stdout from completed sheets."""
-        config = CrossSheetConfig(
-            auto_capture_stdout=True, lookback_sheets=0
-        )
+        config = CrossSheetConfig(auto_capture_stdout=True, lookback_sheets=0)
         states = {
             1: _make_execution_state(1, stdout_tail="Output from sheet 1"),
             2: _make_execution_state(2, stdout_tail="Output from sheet 2"),
-            3: _make_execution_state(
-                3, status=BatonSheetStatus.PENDING, stdout_tail=""
-            ),
+            3: _make_execution_state(3, status=BatonSheetStatus.PENDING, stdout_tail=""),
         }
-        adapter = self._setup_adapter_with_job(
-            cross_sheet=config, sheet_states=states
-        )
+        adapter = self._setup_adapter_with_job(cross_sheet=config, sheet_states=states)
 
         outputs, _ = adapter._collect_cross_sheet_context("job-1", 3)
         assert outputs == {1: "Output from sheet 1", 2: "Output from sheet 2"}
 
     def test_lookback_limits_sheets(self) -> None:
         """lookback_sheets=2 → only include sheets within the lookback window."""
-        config = CrossSheetConfig(
-            auto_capture_stdout=True, lookback_sheets=2
-        )
+        config = CrossSheetConfig(auto_capture_stdout=True, lookback_sheets=2)
         states = {
             1: _make_execution_state(1, stdout_tail="Output 1"),
             2: _make_execution_state(2, stdout_tail="Output 2"),
@@ -316,13 +304,8 @@ class TestCollectCrossSheetContext:
 
     def test_lookback_zero_means_all(self) -> None:
         """lookback_sheets=0 → all completed sheets before current."""
-        config = CrossSheetConfig(
-            auto_capture_stdout=True, lookback_sheets=0
-        )
-        states = {
-            i: _make_execution_state(i, stdout_tail=f"Output {i}")
-            for i in range(1, 10)
-        }
+        config = CrossSheetConfig(auto_capture_stdout=True, lookback_sheets=0)
+        states = {i: _make_execution_state(i, stdout_tail=f"Output {i}") for i in range(1, 10)}
         adapter = self._setup_adapter_with_job(
             cross_sheet=config, sheet_states=states, total_sheets=10
         )
@@ -332,15 +315,11 @@ class TestCollectCrossSheetContext:
 
     def test_max_output_chars_truncates(self) -> None:
         """max_output_chars truncates long outputs."""
-        config = CrossSheetConfig(
-            auto_capture_stdout=True, lookback_sheets=0, max_output_chars=20
-        )
+        config = CrossSheetConfig(auto_capture_stdout=True, lookback_sheets=0, max_output_chars=20)
         states = {
             1: _make_execution_state(1, stdout_tail="A" * 100),
         }
-        adapter = self._setup_adapter_with_job(
-            cross_sheet=config, sheet_states=states
-        )
+        adapter = self._setup_adapter_with_job(cross_sheet=config, sheet_states=states)
 
         outputs, _ = adapter._collect_cross_sheet_context("job-1", 2)
         assert len(outputs[1]) < 100
@@ -349,18 +328,12 @@ class TestCollectCrossSheetContext:
 
     def test_skipped_sheets_get_placeholder(self) -> None:
         """Skipped sheets inject [SKIPPED] placeholder (#120 parity, F-251)."""
-        config = CrossSheetConfig(
-            auto_capture_stdout=True, lookback_sheets=0
-        )
+        config = CrossSheetConfig(auto_capture_stdout=True, lookback_sheets=0)
         states = {
             1: _make_execution_state(1, stdout_tail="Output 1"),
-            2: _make_execution_state(
-                2, status=BatonSheetStatus.SKIPPED, stdout_tail=""
-            ),
+            2: _make_execution_state(2, status=BatonSheetStatus.SKIPPED, stdout_tail=""),
         }
-        adapter = self._setup_adapter_with_job(
-            cross_sheet=config, sheet_states=states
-        )
+        adapter = self._setup_adapter_with_job(cross_sheet=config, sheet_states=states)
 
         outputs, _ = adapter._collect_cross_sheet_context("job-1", 3)
         assert 1 in outputs
@@ -368,18 +341,12 @@ class TestCollectCrossSheetContext:
 
     def test_failed_sheets_excluded(self) -> None:
         """Failed sheets without successful stdout are excluded."""
-        config = CrossSheetConfig(
-            auto_capture_stdout=True, lookback_sheets=0
-        )
+        config = CrossSheetConfig(auto_capture_stdout=True, lookback_sheets=0)
         states = {
             1: _make_execution_state(1, stdout_tail="Output 1"),
-            2: _make_execution_state(
-                2, status=BatonSheetStatus.FAILED, stdout_tail=""
-            ),
+            2: _make_execution_state(2, status=BatonSheetStatus.FAILED, stdout_tail=""),
         }
-        adapter = self._setup_adapter_with_job(
-            cross_sheet=config, sheet_states=states
-        )
+        adapter = self._setup_adapter_with_job(cross_sheet=config, sheet_states=states)
 
         outputs, _ = adapter._collect_cross_sheet_context("job-1", 3)
         assert 1 in outputs
@@ -396,9 +363,7 @@ class TestCollectCrossSheetContext:
             config = CrossSheetConfig(
                 capture_files=["{{ workspace }}/sheet-*-output.md"],
             )
-            sheets = [
-                _make_sheet(num=i, workspace=ws) for i in range(1, 4)
-            ]
+            sheets = [_make_sheet(num=i, workspace=ws) for i in range(1, 4)]
 
             from marianne.daemon.baton.adapter import BatonAdapter
 

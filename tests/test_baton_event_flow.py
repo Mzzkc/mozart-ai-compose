@@ -26,11 +26,16 @@ class TestCascadeTransitivePropagation:
         baton.register_job("j1", sheets, deps)
 
         # Fail sheet 1
-        baton._handle_attempt_result(SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="test",
-            attempt=1, execution_success=False,
-            error_message="failed",
-        ))
+        baton._handle_attempt_result(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="test",
+                attempt=1,
+                execution_success=False,
+                error_message="failed",
+            )
+        )
 
         assert sheets[1].status == BatonSheetStatus.FAILED
         assert sheets[2].status == BatonSheetStatus.SKIPPED
@@ -41,18 +46,20 @@ class TestCascadeTransitivePropagation:
     def test_deep_chain_four_levels(self) -> None:
         """Chain 1->2->3->4: failing 1 cascades all the way to 4."""
         baton = BatonCore()
-        sheets = {
-            i: SheetExecutionState(sheet_num=i, max_retries=0)
-            for i in range(1, 5)
-        }
+        sheets = {i: SheetExecutionState(sheet_num=i, max_retries=0) for i in range(1, 5)}
         deps = {2: [1], 3: [2], 4: [3]}
         baton.register_job("j1", sheets, deps)
 
-        baton._handle_attempt_result(SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="test",
-            attempt=1, execution_success=False,
-            error_message="failed",
-        ))
+        baton._handle_attempt_result(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="test",
+                attempt=1,
+                execution_success=False,
+                error_message="failed",
+            )
+        )
 
         for i in range(2, 5):
             assert sheets[i].status == BatonSheetStatus.SKIPPED, (
@@ -72,20 +79,30 @@ class TestCascadeTransitivePropagation:
         baton.register_job("j1", sheets, deps)
 
         # Voice 1 completes
-        baton._handle_attempt_result(SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="test",
-            attempt=1, execution_success=True,
-            validation_pass_rate=100.0,
-        ))
+        baton._handle_attempt_result(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="test",
+                attempt=1,
+                execution_success=True,
+                validation_pass_rate=100.0,
+            )
+        )
         # Synthesis should NOT be skipped yet (voice 2 still pending)
         assert sheets[3].status == BatonSheetStatus.PENDING
 
         # Voice 2 fails
-        baton._handle_attempt_result(SheetAttemptResult(
-            job_id="j1", sheet_num=2, instrument_name="test",
-            attempt=1, execution_success=False,
-            error_message="failed",
-        ))
+        baton._handle_attempt_result(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=2,
+                instrument_name="test",
+                attempt=1,
+                execution_success=False,
+                error_message="failed",
+            )
+        )
         # NOW synthesis should be SKIPPED (all deps terminal, one failed)
         assert sheets[3].status == BatonSheetStatus.SKIPPED
 
@@ -101,11 +118,16 @@ class TestCascadeTransitivePropagation:
         baton.register_job("j1", sheets, deps)
 
         # Fail sheet 1 -> cascades to 2 and 3
-        baton._handle_attempt_result(SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="test",
-            attempt=1, execution_success=False,
-            error_message="failed",
-        ))
+        baton._handle_attempt_result(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="test",
+                attempt=1,
+                execution_success=False,
+                error_message="failed",
+            )
+        )
 
         # No sheets should be ready (all terminal)
         ready = baton.get_ready_sheets("j1")
@@ -124,9 +146,13 @@ class TestCascadeTransitivePropagation:
         baton.register_job("j1", sheets, deps)
 
         # User-skip sheet 1 (no error_code)
-        baton._handle_sheet_skipped(SheetSkipped(
-            job_id="j1", sheet_num=1, reason="skip_when_command",
-        ))
+        baton._handle_sheet_skipped(
+            SheetSkipped(
+                job_id="j1",
+                sheet_num=1,
+                reason="skip_when_command",
+            )
+        )
 
         assert sheets[1].status == BatonSheetStatus.SKIPPED
         assert sheets[1].error_code is None  # User skip has no error code
@@ -145,9 +171,13 @@ class TestSheetDispatchedEvent:
         sheets = {1: SheetExecutionState(sheet_num=1, max_retries=0)}
         baton.register_job("j1", sheets, {})
 
-        baton._handle_sheet_dispatched(SheetDispatched(
-            job_id="j1", sheet_num=1, instrument="test",
-        ))
+        baton._handle_sheet_dispatched(
+            SheetDispatched(
+                job_id="j1",
+                sheet_num=1,
+                instrument="test",
+            )
+        )
 
         assert sheets[1].status == BatonSheetStatus.DISPATCHED
         assert sheets[1].dispatched_at is not None
@@ -159,9 +189,13 @@ class TestSheetDispatchedEvent:
         baton.register_job("j1", sheets, {})
         sheets[1].status = BatonSheetStatus.COMPLETED
 
-        baton._handle_sheet_dispatched(SheetDispatched(
-            job_id="j1", sheet_num=1, instrument="test",
-        ))
+        baton._handle_sheet_dispatched(
+            SheetDispatched(
+                job_id="j1",
+                sheet_num=1,
+                instrument="test",
+            )
+        )
 
         assert sheets[1].status == BatonSheetStatus.COMPLETED
 
@@ -261,10 +295,22 @@ class TestSharedObjectIdentity:
         from marianne.core.sheet import Sheet
 
         sheets = [
-            Sheet(num=1, instrument_name="test", instrument_config={},
-                  movement=1, voice_count=1, workspace=Path("/tmp/test")),
-            Sheet(num=2, instrument_name="test", instrument_config={},
-                  movement=1, voice_count=1, workspace=Path("/tmp/test")),
+            Sheet(
+                num=1,
+                instrument_name="test",
+                instrument_config={},
+                movement=1,
+                voice_count=1,
+                workspace=Path("/tmp/test"),
+            ),
+            Sheet(
+                num=2,
+                instrument_name="test",
+                instrument_config={},
+                movement=1,
+                voice_count=1,
+                workspace=Path("/tmp/test"),
+            ),
         ]
 
         adapter.register_job(
@@ -304,12 +350,20 @@ class TestSharedObjectIdentity:
         )
 
         sheets = [
-            Sheet(num=1, instrument_name="test", instrument_config={},
-                  movement=1, voice_count=1, workspace=Path("/tmp/test")),
+            Sheet(
+                num=1,
+                instrument_name="test",
+                instrument_config={},
+                movement=1,
+                voice_count=1,
+                workspace=Path("/tmp/test"),
+            ),
         ]
 
         adapter.register_job(
-            "test-vis", sheets, {},
+            "test-vis",
+            sheets,
+            {},
             live_sheets=initial_state.sheets,
         )
 

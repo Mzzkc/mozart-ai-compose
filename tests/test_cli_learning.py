@@ -576,16 +576,22 @@ class TestPatternsBudgetCommand:
         mock_store = _make_mock_store()
         records = [
             MagicMock(
-                id="r1", job_hash="j1",
+                id="r1",
+                job_hash="j1",
                 recorded_at=datetime(2026, 1, 15, 10, 0, tzinfo=UTC),
-                budget_value=0.05, entropy_at_time=0.2,
-                adjustment_type="floor_enforced", adjustment_reason="Floor hit",
+                budget_value=0.05,
+                entropy_at_time=0.2,
+                adjustment_type="floor_enforced",
+                adjustment_reason="Floor hit",
             ),
             MagicMock(
-                id="r2", job_hash="j1",
+                id="r2",
+                job_hash="j1",
                 recorded_at=datetime(2026, 1, 15, 11, 0, tzinfo=UTC),
-                budget_value=0.40, entropy_at_time=None,
-                adjustment_type="boost", adjustment_reason="Boost applied",
+                budget_value=0.40,
+                entropy_at_time=None,
+                adjustment_type="boost",
+                adjustment_reason="Boost applied",
             ),
         ]
         mock_store.get_exploration_budget_history.return_value = records
@@ -790,17 +796,23 @@ class TestPatternsEntropyCommand:
         records = [
             MagicMock(
                 calculated_at=datetime(2026, 1, 15, 10, 0, tzinfo=UTC),
-                shannon_entropy=1.0, max_possible_entropy=3.0,
-                diversity_index=0.3, unique_pattern_count=3,
-                effective_pattern_count=2, total_applications=20,
+                shannon_entropy=1.0,
+                max_possible_entropy=3.0,
+                diversity_index=0.3,
+                unique_pattern_count=3,
+                effective_pattern_count=2,
+                total_applications=20,
                 dominant_pattern_share=0.60,
                 threshold_exceeded=True,
             ),
             MagicMock(
                 calculated_at=datetime(2026, 1, 15, 11, 0, tzinfo=UTC),
-                shannon_entropy=2.5, max_possible_entropy=3.0,
-                diversity_index=0.83, unique_pattern_count=7,
-                effective_pattern_count=5, total_applications=42,
+                shannon_entropy=2.5,
+                max_possible_entropy=3.0,
+                diversity_index=0.83,
+                unique_pattern_count=7,
+                effective_pattern_count=5,
+                total_applications=42,
                 dominant_pattern_share=0.20,
                 threshold_exceeded=False,
             ),
@@ -923,7 +935,9 @@ class TestEntropyStatusCommand:
         """entropy-status --check shows response needed."""
         mock_store = _make_mock_store()
         mock_store.check_entropy_response_needed.return_value = (
-            True, 0.20, "Entropy below threshold"
+            True,
+            0.20,
+            "Entropy below threshold",
         )
         mock_get_store.return_value = mock_store
 
@@ -937,7 +951,9 @@ class TestEntropyStatusCommand:
         """entropy-status --check shows no response needed."""
         mock_store = _make_mock_store()
         mock_store.check_entropy_response_needed.return_value = (
-            False, 0.65, "Entropy within healthy range"
+            False,
+            0.65,
+            "Entropy within healthy range",
         )
         mock_get_store.return_value = mock_store
 
@@ -950,9 +966,7 @@ class TestEntropyStatusCommand:
     def test_entropy_status_check_json(self, mock_get_store):
         """entropy-status --check --json returns structured check result."""
         mock_store = _make_mock_store()
-        mock_store.check_entropy_response_needed.return_value = (
-            True, 0.20, "Below threshold"
-        )
+        mock_store.check_entropy_response_needed.return_value = (True, 0.20, "Below threshold")
         mock_get_store.return_value = mock_store
 
         result = runner.invoke(app, ["entropy-status", "--check", "--json"])
@@ -1182,7 +1196,9 @@ class TestLearningDriftCommand:
 
         assert result.exit_code == 0
         mock_store.get_drifting_patterns.assert_called_once_with(
-            drift_threshold=0.15, window_size=5, limit=10,
+            drift_threshold=0.15,
+            window_size=5,
+            limit=10,
         )
 
 
@@ -1206,16 +1222,24 @@ class TestEpistemicDriftCommand:
         mock_store = _make_mock_store()
         patterns = [
             MagicMock(
-                pattern_id="pat-001", pattern_name="retry_pattern",
-                confidence_before=0.90, confidence_after=0.60,
-                belief_change=-0.30, belief_entropy=0.35,
-                drift_direction="weakening", applications_analyzed=10,
+                pattern_id="pat-001",
+                pattern_name="retry_pattern",
+                confidence_before=0.90,
+                confidence_after=0.60,
+                belief_change=-0.30,
+                belief_entropy=0.35,
+                drift_direction="weakening",
+                applications_analyzed=10,
             ),
             MagicMock(
-                pattern_id="pat-002", pattern_name="escalation_pattern",
-                confidence_before=0.50, confidence_after=0.85,
-                belief_change=0.35, belief_entropy=0.10,
-                drift_direction="strengthening", applications_analyzed=8,
+                pattern_id="pat-002",
+                pattern_name="escalation_pattern",
+                confidence_before=0.50,
+                confidence_after=0.85,
+                belief_change=0.35,
+                belief_entropy=0.10,
+                drift_direction="strengthening",
+                applications_analyzed=8,
             ),
         ]
         mock_store.get_epistemic_drifting_patterns.return_value = patterns
@@ -1232,10 +1256,14 @@ class TestEpistemicDriftCommand:
         """Shows warning when patterns have high belief entropy."""
         mock_store = _make_mock_store()
         p = MagicMock(
-            pattern_id="pat-001", pattern_name="unstable_pattern",
-            confidence_before=0.70, confidence_after=0.65,
-            belief_change=-0.05, belief_entropy=0.45,
-            drift_direction="weakening", applications_analyzed=10,
+            pattern_id="pat-001",
+            pattern_name="unstable_pattern",
+            confidence_before=0.70,
+            confidence_after=0.65,
+            belief_change=-0.05,
+            belief_entropy=0.45,
+            drift_direction="weakening",
+            applications_analyzed=10,
         )
         mock_store.get_epistemic_drifting_patterns.return_value = [p]
         mock_get_store.return_value = mock_store
@@ -1250,10 +1278,14 @@ class TestEpistemicDriftCommand:
         """learning-epistemic-drift --json returns valid JSON."""
         mock_store = _make_mock_store()
         p = MagicMock(
-            pattern_id="pat-001", pattern_name="retry_pattern",
-            confidence_before=0.90, confidence_after=0.60,
-            belief_change=-0.30, belief_entropy=0.35,
-            drift_direction="weakening", applications_analyzed=10,
+            pattern_id="pat-001",
+            pattern_name="retry_pattern",
+            confidence_before=0.90,
+            confidence_after=0.60,
+            belief_change=-0.30,
+            belief_entropy=0.35,
+            drift_direction="weakening",
+            applications_analyzed=10,
         )
         mock_store.get_epistemic_drifting_patterns.return_value = [p]
         mock_get_store.return_value = mock_store

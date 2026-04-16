@@ -29,7 +29,6 @@ from marianne.daemon.baton.events import (
 )
 from marianne.daemon.baton.timer import TimerHandle, TimerWheel
 
-
 # =============================================================================
 # Construction & basic interface
 # =============================================================================
@@ -240,10 +239,7 @@ class TestFiring:
         inbox: asyncio.Queue[object] = asyncio.Queue()
         wheel = TimerWheel(inbox)
 
-        events = [
-            RetryDue(job_id="j1", sheet_num=i)
-            for i in range(5)
-        ]
+        events = [RetryDue(job_id="j1", sheet_num=i) for i in range(5)]
         for e in events:
             wheel.schedule(0.01, e)
 

@@ -18,9 +18,6 @@ from textwrap import dedent
 
 import pytest
 
-from marianne.core.config.instruments import InstrumentProfile
-
-
 # --- Helpers ---
 
 
@@ -161,9 +158,7 @@ class TestInstrumentLoaderHappyPath:
         """Nonexistent directory returns empty dict, not error."""
         from marianne.instruments.loader import InstrumentProfileLoader
 
-        profiles = InstrumentProfileLoader.load_directory(
-            tmp_path / "does-not-exist"
-        )
+        profiles = InstrumentProfileLoader.load_directory(tmp_path / "does-not-exist")
         assert profiles == {}
 
 
@@ -184,9 +179,7 @@ class TestInstrumentLoaderMultiDirectory:
         _write_yaml(org_dir / "tool.yaml", _minimal_cli_yaml("tool", "org-binary"))
         _write_yaml(venue_dir / "tool.yaml", _minimal_cli_yaml("tool", "venue-binary"))
 
-        profiles = InstrumentProfileLoader.load_directories(
-            [org_dir, venue_dir]
-        )
+        profiles = InstrumentProfileLoader.load_directories([org_dir, venue_dir])
         assert len(profiles) == 1
         assert profiles["tool"].cli is not None
         assert profiles["tool"].cli.command.executable == "venue-binary"
@@ -200,9 +193,7 @@ class TestInstrumentLoaderMultiDirectory:
         _write_yaml(org_dir / "alpha.yaml", _minimal_cli_yaml("alpha"))
         _write_yaml(venue_dir / "beta.yaml", _minimal_cli_yaml("beta"))
 
-        profiles = InstrumentProfileLoader.load_directories(
-            [org_dir, venue_dir]
-        )
+        profiles = InstrumentProfileLoader.load_directories([org_dir, venue_dir])
         assert len(profiles) == 2
         assert "alpha" in profiles
         assert "beta" in profiles
@@ -218,9 +209,7 @@ class TestInstrumentLoaderMultiDirectory:
         _write_yaml(dir_b / "x.yaml", _minimal_cli_yaml("x", "exec-b"))
         _write_yaml(dir_c / "x.yaml", _minimal_cli_yaml("x", "exec-c"))
 
-        profiles = InstrumentProfileLoader.load_directories(
-            [dir_a, dir_b, dir_c]
-        )
+        profiles = InstrumentProfileLoader.load_directories([dir_a, dir_b, dir_c])
         assert profiles["x"].cli is not None
         assert profiles["x"].cli.command.executable == "exec-c"
 
@@ -265,11 +254,14 @@ class TestInstrumentLoaderErrors:
         instruments_dir = tmp_path / "instruments"
         _write_yaml(instruments_dir / "good.yaml", _minimal_cli_yaml("good"))
         # kind=cli but no cli profile → fails model_validator
-        _write_yaml(instruments_dir / "bad.yaml", """\
+        _write_yaml(
+            instruments_dir / "bad.yaml",
+            """\
             name: bad-instrument
             display_name: "Bad"
             kind: cli
-        """)
+        """,
+        )
 
         profiles = InstrumentProfileLoader.load_directory(instruments_dir)
         assert len(profiles) == 1

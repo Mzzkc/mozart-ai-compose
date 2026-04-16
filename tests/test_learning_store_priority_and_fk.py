@@ -23,7 +23,6 @@ import pytest
 from marianne.learning.store import GlobalLearningStore
 from marianne.learning.store.patterns_crud import PatternCrudMixin
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -112,7 +111,8 @@ class TestPriorityFormula:
     """Tests for the priority formula fix (issue #101)."""
 
     def test_ls_001_new_pattern_visible_at_default_threshold(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """TEST-LS-001: Pattern with eff=0.5, occ=1, var=0.0 appears
         in get_patterns() with default min_priority=0.3."""
@@ -125,9 +125,7 @@ class TestPriorityFormula:
         )
         results = store.get_patterns()
         ids = [p.id for p in results]
-        assert "ls001" in ids, (
-            "Single-occurrence pattern must be visible at default threshold"
-        )
+        assert "ls001" in ids, "Single-occurrence pattern must be visible at default threshold"
         match = next(p for p in results if p.id == "ls001")
         assert match.priority_score >= 0.3
 
@@ -136,7 +134,9 @@ class TestPriorityFormula:
         and resulting priority for eff=0.5, var=0.0 is >= 0.25."""
         mixin = PatternCrudMixin()
         priority = mixin._calculate_priority_score(
-            effectiveness=0.5, occurrence_count=1, variance=0.0,
+            effectiveness=0.5,
+            occurrence_count=1,
+            variance=0.0,
         )
 
         # The raw frequency factor is log10(2)/2 ≈ 0.15, but the floor
@@ -149,7 +149,8 @@ class TestPriorityFormula:
         )
 
     def test_ls_003_semantic_insights_remain_queryable(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """TEST-LS-003: 100 SEMANTIC_INSIGHT patterns with occ=1 are mostly
         returned by get_patterns(pattern_type=..., min_priority=0.3)."""
@@ -178,7 +179,9 @@ class TestPriorityFormula:
                 )
 
         results = store.get_patterns(
-            pattern_type="SEMANTIC_INSIGHT", min_priority=0.3, limit=200,
+            pattern_type="SEMANTIC_INSIGHT",
+            min_priority=0.3,
+            limit=200,
         )
         assert len(results) >= 80, (
             f"At least 80 of 100 semantic insights must be returned, got {len(results)}"
@@ -188,7 +191,8 @@ class TestPriorityFormula:
         assert priorities == sorted(priorities, reverse=True)
 
     def test_ls_004_recalculation_preserves_visibility(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """TEST-LS-004: After recalculate_all_pattern_priorities(), a
         zero-application pattern stays visible."""
@@ -214,7 +218,8 @@ class TestPriorityFormula:
         assert match.priority_score >= 0.3
 
     def test_ls_005_high_variance_still_penalized(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """TEST-LS-005: High-variance pattern (eff=0.8, occ=50, var=0.9)
         has priority < 0.15 and does NOT appear at min_priority=0.3."""
@@ -228,11 +233,11 @@ class TestPriorityFormula:
         # Check raw priority
         mixin = PatternCrudMixin()
         priority = mixin._calculate_priority_score(
-            effectiveness=0.8, occurrence_count=50, variance=0.9,
+            effectiveness=0.8,
+            occurrence_count=50,
+            variance=0.9,
         )
-        assert priority < 0.15, (
-            f"High-variance priority must be < 0.15, got {priority}"
-        )
+        assert priority < 0.15, f"High-variance priority must be < 0.15, got {priority}"
 
         # Must not appear at default threshold
         results = store.get_patterns(min_priority=0.3, limit=100)
@@ -240,7 +245,8 @@ class TestPriorityFormula:
         assert "hv001" not in ids
 
     def test_ls_006_healthy_priority_distribution(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """TEST-LS-006: A realistic pattern population has a healthy
         priority spread — at least 500 of 1000 patterns have priority >= 0.3,
@@ -323,7 +329,8 @@ class TestFKConstraints:
     """Tests for FK constraint handling and soft delete (issue #129)."""
 
     def test_fk_001_feedback_succeeds_when_pattern_exists(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """TEST-FK-001: Recording pattern application succeeds for
         existing patterns."""
@@ -353,7 +360,9 @@ class TestFKConstraints:
             assert cursor.fetchone()["cnt"] == 1
 
     def test_fk_002_feedback_for_deleted_pattern_does_not_raise(
-        self, store: GlobalLearningStore, capsys: pytest.CaptureFixture[str],
+        self,
+        store: GlobalLearningStore,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """TEST-FK-002: Feedback for a non-existent pattern does not raise,
         and logs a structured warning."""
@@ -371,7 +380,8 @@ class TestFKConstraints:
         assert "pattern_not_found" in captured.out
 
     def test_fk_003_concurrent_deletion_and_feedback(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """TEST-FK-003: Concurrent pattern soft-delete and feedback recording
         does not raise IntegrityError."""
@@ -409,15 +419,12 @@ class TestFKConstraints:
         t2.join(timeout=10)
 
         # No IntegrityError should propagate
-        integrity_errors = [
-            e for e in errors if isinstance(e, sqlite3.IntegrityError)
-        ]
-        assert len(integrity_errors) == 0, (
-            f"IntegrityError must not propagate: {integrity_errors}"
-        )
+        integrity_errors = [e for e in errors if isinstance(e, sqlite3.IntegrityError)]
+        assert len(integrity_errors) == 0, f"IntegrityError must not propagate: {integrity_errors}"
 
     def test_fk_004_soft_delete_preserves_fk_integrity(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """TEST-FK-004: Soft-deleted pattern's applications remain queryable,
         new applications succeed, and get_patterns excludes by default."""
@@ -444,7 +451,9 @@ class TestFKConstraints:
 
         # With include_inactive=True, it must appear
         results_all = store.get_patterns(
-            min_priority=0.0, limit=100, include_inactive=True,
+            min_priority=0.0,
+            limit=100,
+            include_inactive=True,
         )
         ids_all = [p.id for p in results_all]
         assert pid in ids_all, "Soft-deleted pattern must appear with include_inactive=True"
@@ -468,7 +477,8 @@ class TestFKConstraints:
         assert count >= 5, f"Existing applications must remain, got {count}"
 
     def test_fk_005_update_success_factors_handles_missing_pattern(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """TEST-FK-005: update_success_factors for a missing pattern returns
@@ -487,7 +497,8 @@ class TestFKConstraints:
 
     @pytest.mark.timeout(120)
     def test_fk_006_bulk_feedback_after_pruning(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """TEST-FK-006: After soft-deleting 25 of 50 patterns, feedback
         for the remaining 25 succeeds without errors."""
@@ -528,14 +539,10 @@ class TestFKConstraints:
 
         # Historical applications for pruned patterns must not cause errors
         with store._get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT COUNT(*) as cnt FROM pattern_applications"
-            )
+            cursor = conn.execute("SELECT COUNT(*) as cnt FROM pattern_applications")
             total = cursor.fetchone()["cnt"]
         # 50 patterns × 10 apps + 25 kept × 1 new app = 525
-        assert total >= 525, (
-            f"Total applications must be consistent, got {total}"
-        )
+        assert total >= 525, f"Total applications must be consistent, got {total}"
 
 
 # ---------------------------------------------------------------------------
@@ -551,7 +558,8 @@ class TestMinPriorityDefault:
     """
 
     def test_mp_001_low_priority_pattern_returned_by_default(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """TEST-MP-001: Pattern with priority 0.05 IS returned by default query."""
         _insert_pattern_raw(
@@ -566,24 +574,22 @@ class TestMinPriorityDefault:
         assert pat is not None
         # The priority may be above or below 0.05 depending on formula,
         # but it must be above the new default of 0.01
-        assert pat.priority_score >= 0.01, (
-            f"Pattern priority {pat.priority_score} must be >= 0.01"
-        )
+        assert pat.priority_score >= 0.01, f"Pattern priority {pat.priority_score} must be >= 0.01"
 
         # Default query (no explicit min_priority) must return it
         results = store.get_patterns(limit=100)
         ids = [p.id for p in results]
-        assert "mp001" in ids, (
-            "Pattern with priority >= 0.01 must be returned by default query"
-        )
+        assert "mp001" in ids, "Pattern with priority >= 0.01 must be returned by default query"
 
     def test_mp_002_near_zero_pattern_filtered_by_default(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """TEST-MP-002: Pattern with priority < 0.01 is NOT returned by default."""
         # Insert with raw SQL to set an artificially low priority
         with store._get_connection() as conn:
             from datetime import datetime
+
             now = datetime.now().isoformat()
             conn.execute(
                 """
@@ -607,7 +613,8 @@ class TestMinPriorityDefault:
         )
 
     def test_mp_003_explicit_min_priority_overrides_default(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """TEST-MP-003: Explicit min_priority=0.3 still filters correctly."""
         _insert_pattern_raw(
@@ -641,11 +648,13 @@ class TestMinPriorityDefault:
         )
 
     def test_mp_004_min_priority_zero_returns_everything(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """TEST-MP-004: min_priority=0.0 returns all patterns regardless of priority."""
         with store._get_connection() as conn:
             from datetime import datetime
+
             now = datetime.now().isoformat()
             for i in range(5):
                 conn.execute(
@@ -664,9 +673,7 @@ class TestMinPriorityDefault:
         results = store.get_patterns(min_priority=0.0, limit=100)
         ids = [p.id for p in results]
         for i in range(5):
-            assert f"mp004_{i}" in ids, (
-                f"mp004_{i} must be returned with min_priority=0.0"
-            )
+            assert f"mp004_{i}" in ids, f"mp004_{i} must be returned with min_priority=0.0"
 
 
 # ---------------------------------------------------------------------------
@@ -678,11 +685,13 @@ class TestSoftDeleteExtended:
     """Extended soft-delete tests beyond the FK constraint tests."""
 
     def test_sd_001_double_soft_delete_is_idempotent(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """TEST-SD-001: Soft-deleting an already-deleted pattern returns False."""
         pid = store.record_pattern(
-            pattern_type="SD_TEST", pattern_name="double delete",
+            pattern_type="SD_TEST",
+            pattern_name="double delete",
         )
 
         first = store.soft_delete_pattern(pid)
@@ -692,14 +701,16 @@ class TestSoftDeleteExtended:
         assert second is False, "Second soft delete must return False (already inactive)"
 
     def test_sd_002_soft_delete_nonexistent_returns_false(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """TEST-SD-002: Soft-deleting a non-existent pattern returns False."""
         result = store.soft_delete_pattern("does_not_exist_9999")
         assert result is False
 
     def test_sd_003_re_recording_reactivates_soft_deleted(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """TEST-SD-003: Re-recording a soft-deleted pattern reactivates it.
 
@@ -750,28 +761,36 @@ class TestInstrumentIsolation:
     """Tests for instrument_name filtering in get_patterns."""
 
     def test_in_001_instrument_filter_returns_only_matching(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """TEST-IN-001: Instrument filter returns patterns from that instrument
         PLUS universal patterns (instrument_name=NULL)."""
         store.record_pattern(
-            pattern_type="INS_TEST", pattern_name="claude pattern",
+            pattern_type="INS_TEST",
+            pattern_name="claude pattern",
             instrument_name="claude-code",
         )
         store.record_pattern(
-            pattern_type="INS_TEST", pattern_name="gemini pattern",
+            pattern_type="INS_TEST",
+            pattern_name="gemini pattern",
             instrument_name="gemini-cli",
         )
         store.record_pattern(
-            pattern_type="INS_TEST", pattern_name="no instrument pattern",
+            pattern_type="INS_TEST",
+            pattern_name="no instrument pattern",
             instrument_name=None,
         )
 
         claude_patterns = store.get_patterns(
-            min_priority=0.0, limit=100, instrument_name="claude-code",
+            min_priority=0.0,
+            limit=100,
+            instrument_name="claude-code",
         )
         gemini_patterns = store.get_patterns(
-            min_priority=0.0, limit=100, instrument_name="gemini-cli",
+            min_priority=0.0,
+            limit=100,
+            instrument_name="gemini-cli",
         )
 
         claude_names = [p.pattern_name for p in claude_patterns]
@@ -788,21 +807,26 @@ class TestInstrumentIsolation:
         assert "claude pattern" not in gemini_names
 
     def test_in_001b_strict_instrument_filter_excludes_universal(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """TEST-IN-001b: With include_universal=False, only exact instrument matches."""
         store.record_pattern(
-            pattern_type="INS_STRICT", pattern_name="claude pattern",
+            pattern_type="INS_STRICT",
+            pattern_name="claude pattern",
             instrument_name="claude-code",
         )
         store.record_pattern(
-            pattern_type="INS_STRICT", pattern_name="no instrument pattern",
+            pattern_type="INS_STRICT",
+            pattern_name="no instrument pattern",
             instrument_name=None,
         )
 
         strict_patterns = store.get_patterns(
-            min_priority=0.0, limit=100,
-            instrument_name="claude-code", include_universal=False,
+            min_priority=0.0,
+            limit=100,
+            instrument_name="claude-code",
+            include_universal=False,
         )
         strict_names = [p.pattern_name for p in strict_patterns]
 
@@ -812,19 +836,23 @@ class TestInstrumentIsolation:
         )
 
     def test_in_002_no_instrument_filter_returns_all(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """TEST-IN-002: No instrument filter (None) returns patterns from all instruments."""
         store.record_pattern(
-            pattern_type="INS_ALL", pattern_name="instrument a",
+            pattern_type="INS_ALL",
+            pattern_name="instrument a",
             instrument_name="instrument-a",
         )
         store.record_pattern(
-            pattern_type="INS_ALL", pattern_name="instrument b",
+            pattern_type="INS_ALL",
+            pattern_name="instrument b",
             instrument_name="instrument-b",
         )
         store.record_pattern(
-            pattern_type="INS_ALL", pattern_name="no instrument",
+            pattern_type="INS_ALL",
+            pattern_name="no instrument",
             instrument_name=None,
         )
 
@@ -836,11 +864,13 @@ class TestInstrumentIsolation:
         assert "no instrument" in names
 
     def test_in_003_instrument_preserved_through_upsert(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """TEST-IN-003: Instrument name is set on insert and preserved on upsert."""
         pid = store.record_pattern(
-            pattern_type="INS_UPSERT", pattern_name="upsert test",
+            pattern_type="INS_UPSERT",
+            pattern_name="upsert test",
             instrument_name="ollama",
         )
 
@@ -850,7 +880,8 @@ class TestInstrumentIsolation:
 
         # Re-record same pattern (different description) — instrument should persist
         store.record_pattern(
-            pattern_type="INS_UPSERT", pattern_name="upsert test",
+            pattern_type="INS_UPSERT",
+            pattern_name="upsert test",
             description="updated description",
         )
 
@@ -870,7 +901,8 @@ class TestContentHashDedup:
     """Tests for content_hash-based pattern deduplication."""
 
     def test_ch_001_same_content_different_name_merges(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """TEST-CH-001: Two patterns with different names but same content hash merge.
 
@@ -898,12 +930,15 @@ class TestContentHashDedup:
         # Insert a pattern with exact same type and content but via raw SQL
         # to simulate the hash-merge path
         hash_val = PatternCrudMixin._compute_content_hash(
-            "DEDUP", "original name", "same description",
+            "DEDUP",
+            "original name",
+            "same description",
         )
 
         # Record with different type+name but inject same content_hash
         with store._get_connection() as conn:
             from datetime import datetime
+
             now = datetime.now().isoformat()
             conn.execute(
                 """
@@ -935,7 +970,8 @@ class TestContentHashDedup:
         assert pat1_after.occurrence_count == 2
 
     def test_ch_002_different_content_creates_new_pattern(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """TEST-CH-002: Different content produces different hash → new pattern."""
         pid1 = store.record_pattern(
@@ -962,10 +998,14 @@ class TestContentHashDedup:
         from marianne.learning.store.patterns_crud import PatternCrudMixin
 
         hash1 = PatternCrudMixin._compute_content_hash(
-            "TYPE", "name", "description",
+            "TYPE",
+            "name",
+            "description",
         )
         hash2 = PatternCrudMixin._compute_content_hash(
-            "TYPE", "name", "description",
+            "TYPE",
+            "name",
+            "description",
         )
         assert hash1 == hash2, "Same inputs must produce same hash"
 
@@ -976,7 +1016,9 @@ class TestContentHashDedup:
 
         # Different description produces different hash
         hash5 = PatternCrudMixin._compute_content_hash(
-            "TYPE", "name", "other",
+            "TYPE",
+            "name",
+            "other",
         )
         assert hash1 != hash5
 
@@ -990,7 +1032,8 @@ class TestSchemaMigration:
     """Tests for schema migration, particularly v15 FK constraint removal."""
 
     def test_sm_001_migration_creates_tables_on_fresh_db(
-        self, temp_db: Path,
+        self,
+        temp_db: Path,
     ) -> None:
         """TEST-SM-001: Fresh database gets all tables created correctly."""
         store = GlobalLearningStore(db_path=temp_db)
@@ -1005,33 +1048,40 @@ class TestSchemaMigration:
             }
 
         expected = {
-            "schema_version", "executions", "patterns",
-            "pattern_applications", "error_recoveries",
-            "workspace_clusters", "rate_limit_events",
-            "escalation_decisions", "pattern_discovery_events",
-            "evolution_trajectory", "exploration_budget",
-            "entropy_responses", "pattern_entropy_history",
+            "schema_version",
+            "executions",
+            "patterns",
+            "pattern_applications",
+            "error_recoveries",
+            "workspace_clusters",
+            "rate_limit_events",
+            "escalation_decisions",
+            "pattern_discovery_events",
+            "evolution_trajectory",
+            "exploration_budget",
+            "entropy_responses",
+            "pattern_entropy_history",
         }
         missing = expected - tables
         assert not missing, f"Missing tables: {missing}"
 
     def test_sm_002_pattern_applications_has_no_fk_constraints(
-        self, temp_db: Path,
+        self,
+        temp_db: Path,
     ) -> None:
         """TEST-SM-002: pattern_applications table has no FK constraints."""
         store = GlobalLearningStore(db_path=temp_db)
 
         with store._get_connection() as conn:
-            fk_list = conn.execute(
-                "PRAGMA foreign_key_list(pattern_applications)"
-            ).fetchall()
+            fk_list = conn.execute("PRAGMA foreign_key_list(pattern_applications)").fetchall()
 
         assert len(fk_list) == 0, (
             f"pattern_applications must have no FK constraints, got {len(fk_list)}"
         )
 
     def test_sm_003_v15_migration_drops_fk_from_legacy_db(
-        self, temp_db: Path,
+        self,
+        temp_db: Path,
     ) -> None:
         """TEST-SM-003: Migration from pre-v15 database drops FK constraints.
 
@@ -1093,6 +1143,7 @@ class TestSchemaMigration:
 
         # Insert some data
         from datetime import datetime
+
         now = datetime.now().isoformat()
         conn.execute(
             "INSERT INTO patterns (id, pattern_type, pattern_name, first_seen, "
@@ -1107,9 +1158,7 @@ class TestSchemaMigration:
         conn.commit()
 
         # Verify FK constraints exist in legacy DB
-        fk_list = conn.execute(
-            "PRAGMA foreign_key_list(pattern_applications)"
-        ).fetchall()
+        fk_list = conn.execute("PRAGMA foreign_key_list(pattern_applications)").fetchall()
         assert len(fk_list) > 0, "Legacy DB must have FK constraints"
         conn.close()
 
@@ -1118,33 +1167,30 @@ class TestSchemaMigration:
 
         # Verify FK constraints removed
         with store._get_connection() as conn:
-            fk_list = conn.execute(
-                "PRAGMA foreign_key_list(pattern_applications)"
-            ).fetchall()
+            fk_list = conn.execute("PRAGMA foreign_key_list(pattern_applications)").fetchall()
             assert len(fk_list) == 0, (
                 "Migration must remove FK constraints from pattern_applications"
             )
 
             # Verify data preserved
-            app_count = conn.execute(
-                "SELECT COUNT(*) as cnt FROM pattern_applications"
-            ).fetchone()["cnt"]
+            app_count = conn.execute("SELECT COUNT(*) as cnt FROM pattern_applications").fetchone()[
+                "cnt"
+            ]
             assert app_count == 1, "Migration must preserve existing data"
 
-            pat_count = conn.execute(
-                "SELECT COUNT(*) as cnt FROM patterns"
-            ).fetchone()["cnt"]
+            pat_count = conn.execute("SELECT COUNT(*) as cnt FROM patterns").fetchone()["cnt"]
             assert pat_count == 1, "Migration must preserve pattern data"
 
     def test_sm_004_schema_version_is_15(
-        self, temp_db: Path,
+        self,
+        temp_db: Path,
     ) -> None:
         """TEST-SM-004: Fresh store has schema version 15."""
         store = GlobalLearningStore(db_path=temp_db)
 
         with store._get_connection() as conn:
-            version = conn.execute(
-                "SELECT version FROM schema_version LIMIT 1"
-            ).fetchone()["version"]
+            version = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()[
+                "version"
+            ]
 
         assert version == 15, f"Schema version must be 15, got {version}"

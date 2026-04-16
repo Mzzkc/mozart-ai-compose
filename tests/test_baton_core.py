@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 
 from marianne.daemon.baton.core import BatonCore
-from marianne.daemon.baton.state import BatonSheetStatus, SheetExecutionState
 from marianne.daemon.baton.events import (
     CancelJob,
     PauseJob,
@@ -24,7 +23,7 @@ from marianne.daemon.baton.events import (
     SheetSkipped,
     ShutdownRequested,
 )
-
+from marianne.daemon.baton.state import BatonSheetStatus, SheetExecutionState
 
 # =============================================================================
 # Construction
@@ -299,9 +298,13 @@ class TestReadySheets:
 
         # Complete sheet 1
         result = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=True,
-            validations_passed=1, validations_total=1,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=True,
+            validations_passed=1,
+            validations_total=1,
             validation_pass_rate=100.0,
         )
         await baton.handle_event(result)
@@ -318,9 +321,13 @@ class TestReadySheets:
         baton.register_job("j1", sheets, {})
 
         result = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=True,
-            validations_passed=1, validations_total=1,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=True,
+            validations_passed=1,
+            validations_total=1,
             validation_pass_rate=100.0,
         )
         await baton.handle_event(result)
@@ -372,12 +379,18 @@ class TestJobCompletion:
 
         # Complete both sheets
         for sn in [1, 2]:
-            await baton.handle_event(SheetAttemptResult(
-                job_id="j1", sheet_num=sn, instrument_name="claude-code",
-                attempt=1, execution_success=True,
-                validations_passed=1, validations_total=1,
-                validation_pass_rate=100.0,
-            ))
+            await baton.handle_event(
+                SheetAttemptResult(
+                    job_id="j1",
+                    sheet_num=sn,
+                    instrument_name="claude-code",
+                    attempt=1,
+                    execution_success=True,
+                    validations_passed=1,
+                    validations_total=1,
+                    validation_pass_rate=100.0,
+                )
+            )
 
         assert baton.is_job_complete("j1") is True
 
@@ -389,12 +402,18 @@ class TestJobCompletion:
         }
         baton.register_job("j1", sheets, {2: [1]})
 
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=True,
-            validations_passed=1, validations_total=1,
-            validation_pass_rate=100.0,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=True,
+                validations_passed=1,
+                validations_total=1,
+                validation_pass_rate=100.0,
+            )
+        )
 
         assert baton.is_job_complete("j1") is False
 
@@ -445,7 +464,7 @@ class TestRunLoop:
             await baton.inbox.put(ShutdownRequested(graceful=False))
             try:
                 await asyncio.wait_for(task, timeout=2.0)
-            except (asyncio.CancelledError, asyncio.TimeoutError):
+            except (TimeoutError, asyncio.CancelledError):
                 task.cancel()
                 try:
                     await task

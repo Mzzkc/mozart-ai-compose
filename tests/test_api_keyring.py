@@ -18,7 +18,6 @@ import pytest
 from marianne.daemon.keyring import ApiKeyKeyring
 from marianne.daemon.keyring_config import InstrumentKeyring, KeyEntry, KeyringConfig
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -89,7 +88,8 @@ class TestConstruction:
         assert keyring is not None
 
     def test_has_keys_for_configured_instruments(
-        self, keyring_config: KeyringConfig,
+        self,
+        keyring_config: KeyringConfig,
     ) -> None:
         keyring = ApiKeyKeyring(keyring_config)
         assert keyring.has_keys("openrouter")
@@ -105,14 +105,16 @@ class TestLeastRecentlyRateLimited:
     """Default rotation: pick the key that hasn't been rate limited recently."""
 
     async def test_selects_first_key_initially(
-        self, keyring_config: KeyringConfig,
+        self,
+        keyring_config: KeyringConfig,
     ) -> None:
         keyring = ApiKeyKeyring(keyring_config)
         key = await keyring.select_key("openrouter")
         assert key == "sk-primary-secret-value"
 
     async def test_selects_next_key_after_rate_limit(
-        self, keyring_config: KeyringConfig,
+        self,
+        keyring_config: KeyringConfig,
     ) -> None:
         keyring = ApiKeyKeyring(keyring_config)
 
@@ -123,7 +125,8 @@ class TestLeastRecentlyRateLimited:
         assert key == "sk-secondary-secret-value"
 
     async def test_skips_all_rate_limited_returns_least_recently_limited(
-        self, keyring_config: KeyringConfig,
+        self,
+        keyring_config: KeyringConfig,
     ) -> None:
         keyring = ApiKeyKeyring(keyring_config)
 
@@ -138,7 +141,8 @@ class TestLeastRecentlyRateLimited:
         assert key == "sk-primary-secret-value"
 
     async def test_expired_cooldown_key_is_available(
-        self, keyring_config: KeyringConfig,
+        self,
+        keyring_config: KeyringConfig,
     ) -> None:
         keyring = ApiKeyKeyring(keyring_config)
 
@@ -159,7 +163,8 @@ class TestRoundRobin:
     """Round-robin rotation cycles through keys in order."""
 
     async def test_cycles_through_keys(
-        self, round_robin_config: KeyringConfig,
+        self,
+        round_robin_config: KeyringConfig,
     ) -> None:
         keyring = ApiKeyKeyring(round_robin_config)
 
@@ -174,7 +179,8 @@ class TestRoundRobin:
         assert k4 == "sk-primary-secret-value"  # wraps around
 
     async def test_skips_rate_limited_in_round_robin(
-        self, round_robin_config: KeyringConfig,
+        self,
+        round_robin_config: KeyringConfig,
     ) -> None:
         keyring = ApiKeyKeyring(round_robin_config)
 
@@ -199,14 +205,16 @@ class TestKeyLoading:
     """Keys are loaded from disk files."""
 
     async def test_reads_key_from_file(
-        self, keyring_config: KeyringConfig,
+        self,
+        keyring_config: KeyringConfig,
     ) -> None:
         keyring = ApiKeyKeyring(keyring_config)
         key = await keyring.select_key("openrouter")
         assert key == "sk-primary-secret-value"
 
     async def test_strips_whitespace_from_key_file(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         key_file = tmp_path / "key-with-whitespace.key"
         key_file.write_text("  sk-padded-key  \n")
@@ -250,7 +258,8 @@ class TestKeyLoading:
             await keyring.select_key("openrouter")
 
     async def test_expands_env_vars_in_path(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         key_file = tmp_path / "expanded.key"
         key_file.write_text("sk-expanded")
@@ -282,7 +291,8 @@ class TestErrors:
     """Error cases for unknown instruments and empty keyrings."""
 
     async def test_select_key_unknown_instrument(
-        self, keyring_config: KeyringConfig,
+        self,
+        keyring_config: KeyringConfig,
     ) -> None:
         keyring = ApiKeyKeyring(keyring_config)
         with pytest.raises(KeyError, match="anthropic"):
@@ -303,16 +313,16 @@ class TestConcurrency:
     """Concurrent access to the keyring is safe."""
 
     async def test_concurrent_selects_are_safe(
-        self, keyring_config: KeyringConfig,
+        self,
+        keyring_config: KeyringConfig,
     ) -> None:
         keyring = ApiKeyKeyring(keyring_config)
-        results = await asyncio.gather(
-            *[keyring.select_key("openrouter") for _ in range(20)]
-        )
+        results = await asyncio.gather(*[keyring.select_key("openrouter") for _ in range(20)])
         assert all(r.startswith("sk-") for r in results)
 
     async def test_concurrent_rate_limit_reports_are_safe(
-        self, keyring_config: KeyringConfig,
+        self,
+        keyring_config: KeyringConfig,
     ) -> None:
         keyring = ApiKeyKeyring(keyring_config)
 
@@ -321,9 +331,7 @@ class TestConcurrency:
             keyring.report_rate_limit("openrouter", idx % 3, cooldown_seconds=0.1)
             return await keyring.select_key("openrouter")
 
-        results = await asyncio.gather(
-            *[report_and_select(i) for i in range(20)]
-        )
+        results = await asyncio.gather(*[report_and_select(i) for i in range(20)])
         assert all(r.startswith("sk-") for r in results)
 
 
@@ -336,28 +344,32 @@ class TestCooldownTracking:
     """Cooldown timestamps are tracked per-key."""
 
     def test_report_rate_limit_by_index(
-        self, keyring_config: KeyringConfig,
+        self,
+        keyring_config: KeyringConfig,
     ) -> None:
         keyring = ApiKeyKeyring(keyring_config)
         # Should not raise
         keyring.report_rate_limit("openrouter", 0, cooldown_seconds=30.0)
 
     def test_report_rate_limit_invalid_index(
-        self, keyring_config: KeyringConfig,
+        self,
+        keyring_config: KeyringConfig,
     ) -> None:
         keyring = ApiKeyKeyring(keyring_config)
         with pytest.raises(IndexError):
             keyring.report_rate_limit("openrouter", 99, cooldown_seconds=30.0)
 
     def test_report_rate_limit_unknown_instrument(
-        self, keyring_config: KeyringConfig,
+        self,
+        keyring_config: KeyringConfig,
     ) -> None:
         keyring = ApiKeyKeyring(keyring_config)
         with pytest.raises(KeyError):
             keyring.report_rate_limit("anthropic", 0, cooldown_seconds=30.0)
 
     async def test_cooldown_expiry_makes_key_available(
-        self, keyring_config: KeyringConfig,
+        self,
+        keyring_config: KeyringConfig,
     ) -> None:
         keyring = ApiKeyKeyring(keyring_config)
 
@@ -369,7 +381,8 @@ class TestCooldownTracking:
         assert key == "sk-primary-secret-value"
 
     def test_get_key_index_returns_label(
-        self, keyring_config: KeyringConfig,
+        self,
+        keyring_config: KeyringConfig,
     ) -> None:
         keyring = ApiKeyKeyring(keyring_config)
         assert keyring.get_key_label("openrouter", 0) == "primary"

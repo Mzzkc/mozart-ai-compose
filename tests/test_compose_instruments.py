@@ -34,7 +34,11 @@ def _make_defaults() -> dict[str, object]:
                 "fallbacks": [{"instrument": "gemini-cli"}],
             },
             "work": {
-                "primary": {"instrument": "opencode", "model": "minimax/minimax-2.5", "provider": "openrouter"},
+                "primary": {
+                    "instrument": "opencode",
+                    "model": "minimax/minimax-2.5",
+                    "provider": "openrouter",
+                },
                 "fallbacks": [
                     {"instrument": "claude-code", "model": "claude-opus-4-6"},
                     {"instrument": "openrouter", "model": "minimax/minimax-2.5"},
@@ -89,17 +93,17 @@ class TestInstrumentResolver:
 
         # Verify each phase gets the correct default instrument
         expected: dict[int, str] = {
-            1: "openrouter",   # recon tier
-            2: "openrouter",   # plan tier
-            3: "opencode",     # work tier
-            4: "opencode",     # temperature_check uses work tier
-            5: "opencode",     # integration uses work tier
+            1: "openrouter",  # recon tier
+            2: "openrouter",  # plan tier
+            3: "opencode",  # work tier
+            4: "opencode",  # temperature_check uses work tier
+            5: "opencode",  # integration uses work tier
             6: "claude-code",  # play tier
-            7: "gemini-cli",   # inspect tier
-            8: "openrouter",   # aar tier
-            9: "openrouter",   # consolidate tier
+            7: "gemini-cli",  # inspect tier
+            8: "openrouter",  # aar tier
+            9: "openrouter",  # consolidate tier
             10: "openrouter",  # reflect tier
-            11: "opencode",    # maturity_check uses work tier
+            11: "opencode",  # maturity_check uses work tier
             12: "openrouter",  # resurrect tier
         }
 

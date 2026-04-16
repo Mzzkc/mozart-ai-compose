@@ -112,9 +112,7 @@ class TestAnthropicApiBackendExecute:
         assert result.duration_seconds > 0
 
     @pytest.mark.asyncio
-    async def test_execute_rate_limit_error(
-        self, backend_with_key: AnthropicApiBackend
-    ) -> None:
+    async def test_execute_rate_limit_error(self, backend_with_key: AnthropicApiBackend) -> None:
         """Test rate limit error handling."""
         mock_client = AsyncMock()
         mock_response = MagicMock()
@@ -161,9 +159,7 @@ class TestAnthropicApiBackendExecute:
         assert "authentication" in result.error_message.lower()
 
     @pytest.mark.asyncio
-    async def test_execute_bad_request_error(
-        self, backend_with_key: AnthropicApiBackend
-    ) -> None:
+    async def test_execute_bad_request_error(self, backend_with_key: AnthropicApiBackend) -> None:
         """Test bad request error handling."""
         mock_client = AsyncMock()
         mock_response = MagicMock()
@@ -184,9 +180,7 @@ class TestAnthropicApiBackendExecute:
         assert result.error_type == "bad_request"
 
     @pytest.mark.asyncio
-    async def test_execute_timeout_error(
-        self, backend_with_key: AnthropicApiBackend
-    ) -> None:
+    async def test_execute_timeout_error(self, backend_with_key: AnthropicApiBackend) -> None:
         """Test timeout error handling."""
         mock_client = AsyncMock()
         mock_client.messages.create = AsyncMock(
@@ -201,9 +195,7 @@ class TestAnthropicApiBackendExecute:
         assert result.error_type == "timeout"
 
     @pytest.mark.asyncio
-    async def test_execute_connection_error(
-        self, backend_with_key: AnthropicApiBackend
-    ) -> None:
+    async def test_execute_connection_error(self, backend_with_key: AnthropicApiBackend) -> None:
         """Test connection error handling."""
         mock_client = AsyncMock()
         mock_client.messages.create = AsyncMock(
@@ -268,7 +260,8 @@ class TestAnthropicApiBackendRateLimitDetection:
             )
 
     def test_exit_code_zero_stdout_not_scanned(
-        self, backend: AnthropicApiBackend,
+        self,
+        backend: AnthropicApiBackend,
     ) -> None:
         """On exit_code=0, stdout is NOT scanned for rate limits (F-497).
 
@@ -281,7 +274,8 @@ class TestAnthropicApiBackendRateLimitDetection:
         assert backend._detect_rate_limit("429 error", "", exit_code=0) is False
 
     def test_exit_code_zero_stderr_still_scanned(
-        self, backend: AnthropicApiBackend,
+        self,
+        backend: AnthropicApiBackend,
     ) -> None:
         """On exit_code=0, stderr IS still scanned for rate limits.
 
@@ -299,7 +293,8 @@ class TestAnthropicApiBackendRateLimitDetection:
         assert backend._detect_rate_limit("rate limit exceeded", "", exit_code=None) is False
 
     def test_exit_code_none_all_patterns_not_rate_limited(
-        self, backend: AnthropicApiBackend,
+        self,
+        backend: AnthropicApiBackend,
     ) -> None:
         """All rate limit patterns must return False when exit_code is None (signal/timeout)."""
         patterns = [
@@ -333,9 +328,7 @@ class TestAnthropicApiBackendHealthCheck:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_health_check_success(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_health_check_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test successful health check."""
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
         backend = AnthropicApiBackend()
@@ -355,9 +348,7 @@ class TestAnthropicApiBackendHealthCheck:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_health_check_failure(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_health_check_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test health check failure on API error."""
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
         backend = AnthropicApiBackend()
@@ -365,7 +356,9 @@ class TestAnthropicApiBackendHealthCheck:
         mock_client = AsyncMock()
         mock_client.messages.create = AsyncMock(
             side_effect=anthropic.APIError(
-                "API error", request=httpx.Request("POST", "https://api.anthropic.com"), body=None,
+                "API error",
+                request=httpx.Request("POST", "https://api.anthropic.com"),
+                body=None,
             )
         )
 
@@ -446,7 +439,10 @@ class TestClaudeCliBackendTimeoutOverride:
         mock_result.stderr = ""
 
         with patch.object(
-            backend, "_execute_impl", new_callable=AsyncMock, return_value=mock_result,
+            backend,
+            "_execute_impl",
+            new_callable=AsyncMock,
+            return_value=mock_result,
         ) as mock_impl:
             await backend.execute("test prompt", timeout_seconds=60.0)
             mock_impl.assert_called_once_with("test prompt", timeout_seconds=60.0)
@@ -458,7 +454,10 @@ class TestClaudeCliBackendTimeoutOverride:
         mock_result.success = True
 
         with patch.object(
-            backend, "_execute_impl", new_callable=AsyncMock, return_value=mock_result,
+            backend,
+            "_execute_impl",
+            new_callable=AsyncMock,
+            return_value=mock_result,
         ) as mock_impl:
             await backend.execute("test prompt")
             mock_impl.assert_called_once_with("test prompt", timeout_seconds=None)
@@ -517,10 +516,14 @@ class TestClaudeCliBackendTimeoutOutputPreservation:
             patch.object(backend, "_handle_execution_timeout") as mock_timeout,
         ):
             mock_timeout.return_value = ExecutionResult(
-                success=False, exit_code=None, exit_signal=None,
-                exit_reason="timeout", stdout="partial output here",
+                success=False,
+                exit_code=None,
+                exit_signal=None,
+                exit_reason="timeout",
+                stdout="partial output here",
                 stderr="some error\nCommand timed out after 5.0s",
-                duration_seconds=5.0, error_type="timeout",
+                duration_seconds=5.0,
+                error_type="timeout",
                 error_message="Timed out after 5.0s",
             )
             result = await backend._execute_impl("test")
@@ -551,7 +554,6 @@ class TestClaudeCliBackendTimeoutOutputPreservation:
         ):
             await backend._execute_impl("test")
             assert stream_called, "Streaming path must be used even without progress_callback"
-
 
     @pytest.mark.asyncio
     async def test_timeout_with_empty_output(self, backend: ClaudeCliBackend) -> None:
@@ -637,9 +639,9 @@ class TestClaudeCliBackendRateLimitDetection:
             "try again later",
         ]
         for pattern in patterns:
-            assert (
-                backend._detect_rate_limit(pattern, "", exit_code=1) is True
-            ), f"Failed for: {pattern}"
+            assert backend._detect_rate_limit(pattern, "", exit_code=1) is True, (
+                f"Failed for: {pattern}"
+            )
 
     def test_no_rate_limit_detected(self, backend: ClaudeCliBackend) -> None:
         """Test that normal messages don't trigger rate limit detection."""
@@ -649,12 +651,11 @@ class TestClaudeCliBackendRateLimitDetection:
             "Error: invalid input",
         ]
         for message in normal_messages:
-            assert (
-                backend._detect_rate_limit(message, "") is False
-            ), f"Failed for: {message}"
+            assert backend._detect_rate_limit(message, "") is False, f"Failed for: {message}"
 
     def test_exit_code_zero_stdout_not_scanned(
-        self, backend: ClaudeCliBackend,
+        self,
+        backend: ClaudeCliBackend,
     ) -> None:
         """On exit_code=0, stdout is NOT scanned for rate limits (F-497).
 
@@ -667,7 +668,8 @@ class TestClaudeCliBackendRateLimitDetection:
         assert backend._detect_rate_limit("429 error", "", exit_code=0) is False
 
     def test_exit_code_zero_stderr_still_scanned(
-        self, backend: ClaudeCliBackend,
+        self,
+        backend: ClaudeCliBackend,
     ) -> None:
         """On exit_code=0, stderr IS still scanned for rate limits."""
         assert backend._detect_rate_limit("", "rate limit exceeded", exit_code=0) is True
@@ -785,7 +787,9 @@ class TestClaudeCliBackendPromptExtensions:
         backend.set_preamble("<marianne-preamble>Context</marianne-preamble>")
         backend.set_prompt_extensions(["Custom directive"])
         result = backend._inject_preamble_and_extensions("My prompt")
-        assert result.index("Context") < result.index("My prompt") < result.index("Custom directive")
+        assert (
+            result.index("Context") < result.index("My prompt") < result.index("Custom directive")
+        )
 
     def test_extensions_not_in_build_command(self, backend: ClaudeCliBackend) -> None:
         """After #108 fix, extensions go via stdin, not embedded in the command."""
@@ -813,9 +817,7 @@ class TestClaudeCliBackendHealthCheck:
         """health_check returns True when CLI responds with 'ready'."""
         backend = ClaudeCliBackend()
         backend._claude_path = "/usr/bin/claude"
-        mock_result = ExecutionResult(
-            success=True, stdout="ready", stderr="", duration_seconds=0.5
-        )
+        mock_result = ExecutionResult(success=True, stdout="ready", stderr="", duration_seconds=0.5)
         backend._execute_impl = AsyncMock(return_value=mock_result)
         assert await backend.health_check() is True
 
@@ -860,9 +862,7 @@ class TestBackendLogging:
         return []
 
     @pytest.fixture
-    def configure_test_logging(
-        self, captured_logs: list[dict[str, Any]]
-    ) -> None:
+    def configure_test_logging(self, captured_logs: list[dict[str, Any]]) -> None:
         """Configure structlog to capture logs for testing."""
         import structlog
         from structlog.types import EventDict, WrappedLogger
@@ -979,9 +979,7 @@ class TestBackendLogging:
             await backend.execute("test prompt")
 
         # Find the rate_limit_error log entry
-        rate_limit_logs = [
-            log for log in captured_logs if log.get("event") == "rate_limit_error"
-        ]
+        rate_limit_logs = [log for log in captured_logs if log.get("event") == "rate_limit_error"]
         assert len(rate_limit_logs) == 1
         assert rate_limit_logs[0]["level"] == "warning"
 
@@ -1011,9 +1009,7 @@ class TestBackendLogging:
             await backend.execute("test prompt")
 
         # Find the authentication_error log entry
-        auth_logs = [
-            log for log in captured_logs if log.get("event") == "authentication_error"
-        ]
+        auth_logs = [log for log in captured_logs if log.get("event") == "authentication_error"]
         assert len(auth_logs) == 1
         assert auth_logs[0]["level"] == "error"
         # Ensure only env var name is logged, not the actual key
@@ -1033,9 +1029,7 @@ class TestBackendLogging:
         backend = AnthropicApiBackend()
 
         # Trigger a configuration error by mocking client creation to fail
-        with patch.object(
-            backend, "_get_client", side_effect=RuntimeError("API key error")
-        ):
+        with patch.object(backend, "_get_client", side_effect=RuntimeError("API key error")):
             await backend.execute("test prompt")
 
         # Check ALL log entries to ensure the API key never appears
@@ -1052,9 +1046,7 @@ class TestRecursiveLightBackendLogging:
         return []
 
     @pytest.fixture
-    def configure_test_logging(
-        self, captured_logs: list[dict[str, Any]]
-    ) -> None:
+    def configure_test_logging(self, captured_logs: list[dict[str, Any]]) -> None:
         """Configure structlog to capture logs for testing."""
         import structlog
         from structlog.types import EventDict, WrappedLogger
@@ -1144,9 +1136,7 @@ class TestRecursiveLightBackendLogging:
         backend = RecursiveLightBackend(rl_endpoint="http://test:8080")
 
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(
-            side_effect=httpx.ConnectError("Connection refused")
-        )
+        mock_client.post = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
 
         with patch.object(backend, "_get_client", return_value=mock_client):
             await backend.execute("test prompt")
@@ -1230,6 +1220,7 @@ class TestBuildCommand:
     def test_system_prompt_file(self) -> None:
         """Verify --system-prompt flag."""
         from pathlib import Path
+
         backend = self._make_backend(system_prompt_file=Path("/tmp/prompt.md"))
         cmd = backend._build_command("test")
         idx = cmd.index("--system-prompt")
@@ -1416,6 +1407,7 @@ class TestExecuteImpl:
         # F-490 guard: getpgid(0) must return the real own-pgroup so the
         # guard does not conclude that 12345 is the caller's own pgroup.
         import os as _os
+
         real_own_pgid = _os.getpgid(0)
         assert real_own_pgid != 12345, "test assumption: own pgid != fake pgid"
         with (
@@ -1439,9 +1431,7 @@ class TestExecuteImpl:
     async def test_rate_limit_detection_in_output(self) -> None:
         """Test that rate_limited flag is set when output contains rate limit patterns."""
         backend = self._make_backend()
-        proc = _make_mock_process(
-            returncode=1, stdout=b"Error: rate limit exceeded", stderr=b""
-        )
+        proc = _make_mock_process(returncode=1, stdout=b"Error: rate limit exceeded", stderr=b"")
 
         with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)):
             result = await backend._execute_impl("test prompt")

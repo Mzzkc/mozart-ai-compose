@@ -57,9 +57,9 @@ class TestComposeCli:
 
     def test_dry_run(self, tmp_path: Path) -> None:
         """--dry-run shows summary without generating files."""
-        from marianne.cli.commands.compose import compose
-
         import typer
+
+        from marianne.cli.commands.compose import compose
 
         app = typer.Typer()
         app.command()(compose)
@@ -72,9 +72,9 @@ class TestComposeCli:
 
     def test_compile_generates_scores(self, tmp_path: Path) -> None:
         """Compose generates score files in the output directory."""
-        from marianne.cli.commands.compose import compose
-
         import typer
+
+        from marianne.cli.commands.compose import compose
 
         app = typer.Typer()
         app.command()(compose)
@@ -84,20 +84,25 @@ class TestComposeCli:
         # Use a dedicated agents dir for isolation
         agents_dir = tmp_path / "agents"
 
-        result = runner.invoke(app, [
-            str(config_path),
-            "--output", str(output_dir),
-            "--agents-dir", str(agents_dir),
-        ])
+        result = runner.invoke(
+            app,
+            [
+                str(config_path),
+                "--output",
+                str(output_dir),
+                "--agents-dir",
+                str(agents_dir),
+            ],
+        )
 
         assert result.exit_code == 0
         assert (output_dir / "test-agent.yaml").exists()
 
     def test_seed_only(self, tmp_path: Path) -> None:
         """--seed-only creates identities without scores."""
-        from marianne.cli.commands.compose import compose
-
         import typer
+
+        from marianne.cli.commands.compose import compose
 
         app = typer.Typer()
         app.command()(compose)
@@ -105,11 +110,15 @@ class TestComposeCli:
         config_path = _create_config(tmp_path)
         agents_dir = tmp_path / "agents"
 
-        result = runner.invoke(app, [
-            str(config_path),
-            "--seed-only",
-            "--agents-dir", str(agents_dir),
-        ])
+        result = runner.invoke(
+            app,
+            [
+                str(config_path),
+                "--seed-only",
+                "--agents-dir",
+                str(agents_dir),
+            ],
+        )
 
         assert result.exit_code == 0
         assert (agents_dir / "test-agent" / "identity.md").exists()
@@ -117,9 +126,9 @@ class TestComposeCli:
 
     def test_multi_agent_generates_fleet(self, tmp_path: Path) -> None:
         """Multiple agents generate a fleet config."""
-        from marianne.cli.commands.compose import compose
-
         import typer
+
+        from marianne.cli.commands.compose import compose
 
         app = typer.Typer()
         app.command()(compose)
@@ -128,11 +137,16 @@ class TestComposeCli:
         output_dir = tmp_path / "scores"
         agents_dir = tmp_path / "agents"
 
-        result = runner.invoke(app, [
-            str(config_path),
-            "--output", str(output_dir),
-            "--agents-dir", str(agents_dir),
-        ])
+        result = runner.invoke(
+            app,
+            [
+                str(config_path),
+                "--output",
+                str(output_dir),
+                "--agents-dir",
+                str(agents_dir),
+            ],
+        )
 
         assert result.exit_code == 0
         assert (output_dir / "agent-a.yaml").exists()
@@ -141,9 +155,9 @@ class TestComposeCli:
 
     def test_generated_score_is_valid_yaml(self, tmp_path: Path) -> None:
         """Generated score files are valid YAML."""
-        from marianne.cli.commands.compose import compose
-
         import typer
+
+        from marianne.cli.commands.compose import compose
 
         app = typer.Typer()
         app.command()(compose)
@@ -152,11 +166,16 @@ class TestComposeCli:
         output_dir = tmp_path / "scores"
         agents_dir = tmp_path / "agents"
 
-        runner.invoke(app, [
-            str(config_path),
-            "--output", str(output_dir),
-            "--agents-dir", str(agents_dir),
-        ])
+        runner.invoke(
+            app,
+            [
+                str(config_path),
+                "--output",
+                str(output_dir),
+                "--agents-dir",
+                str(agents_dir),
+            ],
+        )
 
         score_path = output_dir / "test-agent.yaml"
         assert score_path.exists()
@@ -169,9 +188,9 @@ class TestComposeCli:
 
     def test_fleet_flag_produces_fleet_config(self, tmp_path: Path) -> None:
         """--fleet flag forces fleet config generation even for single agent."""
-        from marianne.cli.commands.compose import compose
-
         import typer
+
+        from marianne.cli.commands.compose import compose
 
         app = typer.Typer()
         app.command()(compose)
@@ -180,12 +199,17 @@ class TestComposeCli:
         output_dir = tmp_path / "scores"
         agents_dir = tmp_path / "agents"
 
-        result = runner.invoke(app, [
-            str(config_path),
-            "--output", str(output_dir),
-            "--agents-dir", str(agents_dir),
-            "--fleet",
-        ])
+        result = runner.invoke(
+            app,
+            [
+                str(config_path),
+                "--output",
+                str(output_dir),
+                "--agents-dir",
+                str(agents_dir),
+                "--fleet",
+            ],
+        )
 
         assert result.exit_code == 0
         assert (output_dir / "fleet.yaml").exists()
@@ -198,9 +222,9 @@ class TestComposeCli:
 
     def test_empty_config_fails(self, tmp_path: Path) -> None:
         """Config with no agents exits with error."""
-        from marianne.cli.commands.compose import compose
-
         import typer
+
+        from marianne.cli.commands.compose import compose
 
         app = typer.Typer()
         app.command()(compose)
@@ -213,9 +237,9 @@ class TestComposeCli:
 
     def test_invalid_yaml_produces_clear_error(self, tmp_path: Path) -> None:
         """Malformed YAML produces a clear error message."""
-        from marianne.cli.commands.compose import compose
-
         import typer
+
+        from marianne.cli.commands.compose import compose
 
         app = typer.Typer()
         app.command()(compose)

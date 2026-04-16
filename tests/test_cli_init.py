@@ -185,9 +185,7 @@ class TestInitCustomName:
 
     def test_custom_name_creates_correct_file(self, tmp_path: Path) -> None:
         """--name creates a score with the given name."""
-        result = runner.invoke(
-            app, ["init", "--path", str(tmp_path), "--name", "my-project"]
-        )
+        result = runner.invoke(app, ["init", "--path", str(tmp_path), "--name", "my-project"])
         assert result.exit_code == 0
         assert (tmp_path / "my-project.yaml").exists()
 
@@ -195,9 +193,7 @@ class TestInitCustomName:
         """The custom name appears in the score's name field."""
         import yaml
 
-        runner.invoke(
-            app, ["init", "--path", str(tmp_path), "--name", "data-pipeline"]
-        )
+        runner.invoke(app, ["init", "--path", str(tmp_path), "--name", "data-pipeline"])
         score_file = tmp_path / "data-pipeline.yaml"
         with open(score_file) as f:
             config = yaml.safe_load(f)
@@ -228,7 +224,7 @@ class TestInitSchemaValidation:
         content = (tmp_path / "my-score.yaml").read_text()
         assert "validations:" in content
         # Ensure there's no bare 'validation:' (excluding the word inside comments)
-        lines = [l for l in content.split("\n") if not l.strip().startswith("#")]
+        lines = [line for line in content.split("\n") if not line.strip().startswith("#")]
         non_comment = "\n".join(lines)
         assert "validations:" in non_comment
 
@@ -323,54 +319,40 @@ class TestInitNameValidation:
 
     def test_rejects_name_with_path_separator(self, tmp_path: Path) -> None:
         """Names containing path separators are rejected."""
-        result = runner.invoke(
-            app, ["init", "--path", str(tmp_path), "--name", "../escape"]
-        )
+        result = runner.invoke(app, ["init", "--path", str(tmp_path), "--name", "../escape"])
         assert result.exit_code != 0
         assert "invalid" in result.output.lower() or "name" in result.output.lower()
 
     def test_rejects_name_with_spaces(self, tmp_path: Path) -> None:
         """Names with spaces are rejected — they create awkward file paths."""
-        result = runner.invoke(
-            app, ["init", "--path", str(tmp_path), "--name", "my score"]
-        )
+        result = runner.invoke(app, ["init", "--path", str(tmp_path), "--name", "my score"])
         assert result.exit_code != 0
 
     def test_rejects_empty_name(self, tmp_path: Path) -> None:
         """Empty name is rejected."""
-        result = runner.invoke(
-            app, ["init", "--path", str(tmp_path), "--name", ""]
-        )
+        result = runner.invoke(app, ["init", "--path", str(tmp_path), "--name", ""])
         assert result.exit_code != 0
 
     def test_rejects_name_with_null_bytes(self, tmp_path: Path) -> None:
         """Names with null bytes are rejected."""
-        result = runner.invoke(
-            app, ["init", "--path", str(tmp_path), "--name", "bad\x00name"]
-        )
+        result = runner.invoke(app, ["init", "--path", str(tmp_path), "--name", "bad\x00name"])
         assert result.exit_code != 0
 
     def test_accepts_hyphenated_names(self, tmp_path: Path) -> None:
         """Hyphenated names like 'data-pipeline' are valid."""
-        result = runner.invoke(
-            app, ["init", "--path", str(tmp_path), "--name", "data-pipeline"]
-        )
+        result = runner.invoke(app, ["init", "--path", str(tmp_path), "--name", "data-pipeline"])
         assert result.exit_code == 0
         assert (tmp_path / "data-pipeline.yaml").exists()
 
     def test_accepts_underscored_names(self, tmp_path: Path) -> None:
         """Underscored names like 'my_score' are valid."""
-        result = runner.invoke(
-            app, ["init", "--path", str(tmp_path), "--name", "my_score"]
-        )
+        result = runner.invoke(app, ["init", "--path", str(tmp_path), "--name", "my_score"])
         assert result.exit_code == 0
         assert (tmp_path / "my_score.yaml").exists()
 
     def test_rejects_name_starting_with_dot(self, tmp_path: Path) -> None:
         """Names starting with dot are rejected — hidden files are confusing."""
-        result = runner.invoke(
-            app, ["init", "--path", str(tmp_path), "--name", ".hidden"]
-        )
+        result = runner.invoke(app, ["init", "--path", str(tmp_path), "--name", ".hidden"])
         assert result.exit_code != 0
 
 
@@ -398,18 +380,14 @@ class TestInitJsonOutput:
 
     def test_json_flag_exists(self, tmp_path: Path) -> None:
         """--json is accepted as a flag."""
-        result = runner.invoke(
-            app, ["init", "--path", str(tmp_path), "--json"]
-        )
+        result = runner.invoke(app, ["init", "--path", str(tmp_path), "--json"])
         assert result.exit_code == 0
 
     def test_json_output_is_valid(self, tmp_path: Path) -> None:
         """--json produces parseable JSON."""
         import json
 
-        result = runner.invoke(
-            app, ["init", "--path", str(tmp_path), "--json"]
-        )
+        result = runner.invoke(app, ["init", "--path", str(tmp_path), "--json"])
         assert result.exit_code == 0
         data = json.loads(result.stdout)
         assert isinstance(data, dict)
@@ -418,9 +396,7 @@ class TestInitJsonOutput:
         """JSON output includes success, score_file, and next_steps."""
         import json
 
-        result = runner.invoke(
-            app, ["init", "--path", str(tmp_path), "--json"]
-        )
+        result = runner.invoke(app, ["init", "--path", str(tmp_path), "--json"])
         data = json.loads(result.stdout)
         assert data["success"] is True
         assert "score_file" in data
@@ -431,9 +407,7 @@ class TestInitJsonOutput:
         import json
 
         (tmp_path / "my-score.yaml").write_text("existing")
-        result = runner.invoke(
-            app, ["init", "--path", str(tmp_path), "--json"]
-        )
+        result = runner.invoke(app, ["init", "--path", str(tmp_path), "--json"])
         assert result.exit_code != 0
         data = json.loads(result.stdout)
         assert data["success"] is False
@@ -442,9 +416,7 @@ class TestInitJsonOutput:
         """JSON mode shows structured error for invalid names."""
         import json
 
-        result = runner.invoke(
-            app, ["init", "--path", str(tmp_path), "--name", "../bad", "--json"]
-        )
+        result = runner.invoke(app, ["init", "--path", str(tmp_path), "--name", "../bad", "--json"])
         assert result.exit_code != 0
         data = json.loads(result.stdout)
         assert data["success"] is False
@@ -486,9 +458,7 @@ class TestInitPositionalArgument:
 
     def test_positional_sets_name(self, tmp_path: Path) -> None:
         """Positional argument creates a score with the given name."""
-        result = runner.invoke(
-            app, ["init", "data-pipeline", "--path", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["init", "data-pipeline", "--path", str(tmp_path)])
         assert result.exit_code == 0
         assert (tmp_path / "data-pipeline.yaml").exists()
 
@@ -496,41 +466,32 @@ class TestInitPositionalArgument:
         """Positional name appears in the generated score config."""
         import yaml
 
-        runner.invoke(
-            app, ["init", "my-project", "--path", str(tmp_path)]
-        )
+        runner.invoke(app, ["init", "my-project", "--path", str(tmp_path)])
         with open(tmp_path / "my-project.yaml") as f:
             config = yaml.safe_load(f)
         assert config["name"] == "my-project"
 
     def test_positional_only_no_flags(self, tmp_path: Path) -> None:
         """Works with just the positional and --path."""
-        result = runner.invoke(
-            app, ["init", "simple", "--path", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["init", "simple", "--path", str(tmp_path)])
         assert result.exit_code == 0
         assert (tmp_path / "simple.yaml").exists()
 
     def test_default_name_without_positional(self, tmp_path: Path) -> None:
         """Without positional arg, default name 'my-score' is used."""
-        result = runner.invoke(
-            app, ["init", "--path", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["init", "--path", str(tmp_path)])
         assert result.exit_code == 0
         assert (tmp_path / "my-score.yaml").exists()
 
     def test_positional_validates_name(self, tmp_path: Path) -> None:
         """Positional argument goes through the same name validation."""
-        result = runner.invoke(
-            app, ["init", "../escape", "--path", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["init", "../escape", "--path", str(tmp_path)])
         assert result.exit_code != 0
 
     def test_flag_name_overrides_positional(self, tmp_path: Path) -> None:
         """When both positional and --name are given, --name wins."""
         result = runner.invoke(
-            app, ["init", "positional-name", "--name", "flag-name",
-                  "--path", str(tmp_path)]
+            app, ["init", "positional-name", "--name", "flag-name", "--path", str(tmp_path)]
         )
         assert result.exit_code == 0
         # --name flag should take precedence

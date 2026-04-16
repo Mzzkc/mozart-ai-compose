@@ -7,13 +7,10 @@ from __future__ import annotations
 
 import time
 
-import pytest
-
 from marianne.core.errors import ErrorClassifier
 from marianne.daemon.baton.core import BatonCore
 from marianne.daemon.baton.events import RateLimitHit
 from marianne.daemon.baton.state import BatonSheetStatus, SheetExecutionState
-
 
 # =============================================================================
 # Task 1: Duration Parsing
@@ -59,9 +56,7 @@ class TestRateLimitDurationParsing:
     def test_no_duration_returns_none(self) -> None:
         """When no parseable duration, return None (caller uses default)."""
         classifier = ErrorClassifier()
-        duration = classifier.extract_rate_limit_wait(
-            "Rate limit exceeded."
-        )
+        duration = classifier.extract_rate_limit_wait("Rate limit exceeded.")
         assert duration is None
 
     def test_retry_after_header_value(self) -> None:
@@ -78,25 +73,19 @@ class TestRateLimitDurationParsing:
     def test_wait_600_seconds(self) -> None:
         """Parse 'wait N seconds' variant above clamp."""
         classifier = ErrorClassifier()
-        duration = classifier.extract_rate_limit_wait(
-            "Please wait 600 seconds before retrying."
-        )
+        duration = classifier.extract_rate_limit_wait("Please wait 600 seconds before retrying.")
         assert duration == 600.0
 
     def test_please_try_again_in_10_minutes(self) -> None:
         """Parse 'try again in N minutes' above clamp."""
         classifier = ErrorClassifier()
-        duration = classifier.extract_rate_limit_wait(
-            "try again in 10 minutes"
-        )
+        duration = classifier.extract_rate_limit_wait("try again in 10 minutes")
         assert duration == 600.0
 
     def test_resets_in_1_hour(self) -> None:
         """Parse 'resets in 1 hour' (singular)."""
         classifier = ErrorClassifier()
-        duration = classifier.extract_rate_limit_wait(
-            "Usage limit reached. Resets in 1 hour."
-        )
+        duration = classifier.extract_rate_limit_wait("Usage limit reached. Resets in 1 hour.")
         assert duration == 3600.0
 
 
@@ -114,12 +103,16 @@ class TestPerModelRateLimitHold:
         baton = BatonCore()
         sheets = {
             1: SheetExecutionState(
-                sheet_num=1, instrument_name="claude-code",
-                model="claude-sonnet-4-5", max_retries=1,
+                sheet_num=1,
+                instrument_name="claude-code",
+                model="claude-sonnet-4-5",
+                max_retries=1,
             ),
             2: SheetExecutionState(
-                sheet_num=2, instrument_name="claude-code",
-                model="claude-opus-4-6", max_retries=1,
+                sheet_num=2,
+                instrument_name="claude-code",
+                model="claude-opus-4-6",
+                max_retries=1,
             ),
         }
         baton.register_job("j1", sheets, {})
@@ -129,13 +122,15 @@ class TestPerModelRateLimitHold:
         sheets[2].status = BatonSheetStatus.DISPATCHED
 
         # Rate limit hits claude-sonnet only
-        baton._handle_rate_limit_hit(RateLimitHit(
-            instrument="claude-code",
-            model="claude-sonnet-4-5",
-            wait_seconds=120.0,
-            job_id="j1",
-            sheet_num=1,
-        ))
+        baton._handle_rate_limit_hit(
+            RateLimitHit(
+                instrument="claude-code",
+                model="claude-sonnet-4-5",
+                wait_seconds=120.0,
+                job_id="j1",
+                sheet_num=1,
+            )
+        )
 
         # Sheet 1 (sonnet) should be WAITING
         assert sheets[1].status == BatonSheetStatus.WAITING
@@ -148,12 +143,16 @@ class TestPerModelRateLimitHold:
         baton = BatonCore()
         sheets = {
             1: SheetExecutionState(
-                sheet_num=1, instrument_name="claude-code",
-                model="claude-sonnet-4-5", max_retries=1,
+                sheet_num=1,
+                instrument_name="claude-code",
+                model="claude-sonnet-4-5",
+                max_retries=1,
             ),
             2: SheetExecutionState(
-                sheet_num=2, instrument_name="claude-code",
-                model="claude-opus-4-6", max_retries=1,
+                sheet_num=2,
+                instrument_name="claude-code",
+                model="claude-opus-4-6",
+                max_retries=1,
             ),
         }
         baton.register_job("j1", sheets, {})
@@ -161,12 +160,14 @@ class TestPerModelRateLimitHold:
         sheets[2].status = BatonSheetStatus.DISPATCHED
 
         # No model specified — old behavior: all sheets on instrument wait
-        baton._handle_rate_limit_hit(RateLimitHit(
-            instrument="claude-code",
-            wait_seconds=60.0,
-            job_id="j1",
-            sheet_num=1,
-        ))
+        baton._handle_rate_limit_hit(
+            RateLimitHit(
+                instrument="claude-code",
+                wait_seconds=60.0,
+                job_id="j1",
+                sheet_num=1,
+            )
+        )
 
         assert sheets[1].status == BatonSheetStatus.WAITING
         assert sheets[2].status == BatonSheetStatus.WAITING
@@ -186,21 +187,25 @@ class TestFallbackOnRateLimit:
         baton = BatonCore()
         sheets = {
             1: SheetExecutionState(
-                sheet_num=1, instrument_name="claude-code",
-                model="claude-sonnet-4-5", max_retries=1,
+                sheet_num=1,
+                instrument_name="claude-code",
+                model="claude-sonnet-4-5",
+                max_retries=1,
                 fallback_chain=["gemini-cli"],
             ),
         }
         baton.register_job("j1", sheets, {})
         sheets[1].status = BatonSheetStatus.DISPATCHED
 
-        baton._handle_rate_limit_hit(RateLimitHit(
-            instrument="claude-code",
-            model="claude-sonnet-4-5",
-            wait_seconds=3600.0,
-            job_id="j1",
-            sheet_num=1,
-        ))
+        baton._handle_rate_limit_hit(
+            RateLimitHit(
+                instrument="claude-code",
+                model="claude-sonnet-4-5",
+                wait_seconds=3600.0,
+                job_id="j1",
+                sheet_num=1,
+            )
+        )
 
         # Sheet should advance to fallback, not wait
         assert sheets[1].instrument_name == "gemini-cli"
@@ -212,20 +217,24 @@ class TestFallbackOnRateLimit:
         baton = BatonCore()
         sheets = {
             1: SheetExecutionState(
-                sheet_num=1, instrument_name="claude-code",
-                model="claude-sonnet-4-5", max_retries=1,
+                sheet_num=1,
+                instrument_name="claude-code",
+                model="claude-sonnet-4-5",
+                max_retries=1,
             ),
         }
         baton.register_job("j1", sheets, {})
         sheets[1].status = BatonSheetStatus.DISPATCHED
 
-        baton._handle_rate_limit_hit(RateLimitHit(
-            instrument="claude-code",
-            model="claude-sonnet-4-5",
-            wait_seconds=120.0,
-            job_id="j1",
-            sheet_num=1,
-        ))
+        baton._handle_rate_limit_hit(
+            RateLimitHit(
+                instrument="claude-code",
+                model="claude-sonnet-4-5",
+                wait_seconds=120.0,
+                job_id="j1",
+                sheet_num=1,
+            )
+        )
 
         # No fallback — sheet waits
         assert sheets[1].status == BatonSheetStatus.WAITING
@@ -248,12 +257,14 @@ class TestParsedDurationEndToEnd:
         sheets[1].status = BatonSheetStatus.DISPATCHED
 
         # Rate limit with parsed 300s wait (not default 60s)
-        baton._handle_rate_limit_hit(RateLimitHit(
-            instrument="claude-code",
-            wait_seconds=300.0,
-            job_id="j1",
-            sheet_num=1,
-        ))
+        baton._handle_rate_limit_hit(
+            RateLimitHit(
+                instrument="claude-code",
+                wait_seconds=300.0,
+                job_id="j1",
+                sheet_num=1,
+            )
+        )
 
         # Verify the instrument's rate_limit_expires_at uses the parsed duration
         inst = baton._instruments.get("claude-code")

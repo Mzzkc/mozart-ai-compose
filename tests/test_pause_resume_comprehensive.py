@@ -7,9 +7,9 @@ Tests cover:
 """
 
 import asyncio
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 from marianne.daemon.exceptions import DaemonNotRunningError
 from marianne.dashboard.services.job_control import JobActionResult, JobControlService

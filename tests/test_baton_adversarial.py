@@ -109,8 +109,7 @@ class TestF018ValidationPassRateContract:
         # rate, regardless of the default validation_pass_rate value.
         # This prevents unnecessary retries when no validations exist.
         assert state.status == "completed", (
-            "Sheet with no validations and execution_success=True should "
-            "complete (F-018 guard)"
+            "Sheet with no validations and execution_success=True should complete (F-018 guard)"
         )
         assert state.normal_attempts == 0
 
@@ -511,9 +510,7 @@ class TestDispatchAdversarial:
 
         dispatched: list[tuple[str, int]] = []
 
-        async def callback(
-            job_id: str, sheet_num: int, _state: SheetExecutionState
-        ) -> None:
+        async def callback(job_id: str, sheet_num: int, _state: SheetExecutionState) -> None:
             dispatched.append((job_id, sheet_num))
 
         config = DispatchConfig(max_concurrent_sheets=0)
@@ -560,9 +557,7 @@ class TestDispatchAdversarial:
 
         dispatched: list[tuple[str, int]] = []
 
-        async def callback(
-            job_id: str, sheet_num: int, _state: SheetExecutionState
-        ) -> None:
+        async def callback(job_id: str, sheet_num: int, _state: SheetExecutionState) -> None:
             dispatched.append((job_id, sheet_num))
 
         config = DispatchConfig(
@@ -588,9 +583,7 @@ class TestDispatchAdversarial:
 
         dispatched: list[tuple[str, int]] = []
 
-        async def callback(
-            job_id: str, sheet_num: int, _state: SheetExecutionState
-        ) -> None:
+        async def callback(job_id: str, sheet_num: int, _state: SheetExecutionState) -> None:
             dispatched.append((job_id, sheet_num))
 
         config = DispatchConfig(
@@ -614,9 +607,7 @@ class TestDispatchAdversarial:
 
         dispatched: list[tuple[str, int]] = []
 
-        async def callback(
-            job_id: str, sheet_num: int, _state: SheetExecutionState
-        ) -> None:
+        async def callback(job_id: str, sheet_num: int, _state: SheetExecutionState) -> None:
             dispatched.append((job_id, sheet_num))
 
         config = DispatchConfig(
@@ -640,9 +631,7 @@ class TestDispatchAdversarial:
 
         dispatched: list[tuple[str, int]] = []
 
-        async def callback(
-            job_id: str, sheet_num: int, _state: SheetExecutionState
-        ) -> None:
+        async def callback(job_id: str, sheet_num: int, _state: SheetExecutionState) -> None:
             dispatched.append((job_id, sheet_num))
 
         config = DispatchConfig(max_concurrent_sheets=10)
@@ -719,6 +708,7 @@ class TestEventHandlerSafety:
         # Late RetryDue arrives — should not change status
         await baton.handle_event(RetryDue(job_id="j1", sheet_num=1))
         assert baton.get_sheet_state("j1", 1).status == "completed"
+
     @pytest.mark.adversarial
     async def test_process_exited_for_non_dispatched_sheet_is_noop(self) -> None:
         """ProcessExited for a sheet not in 'dispatched' status is ignored."""
@@ -728,12 +718,11 @@ class TestEventHandlerSafety:
         }
         baton.register_job("j1", sheets, {})
         assert baton.get_sheet_state("j1", 1).status == "pending"
-        await baton.handle_event(
-            ProcessExited(job_id="j1", sheet_num=1, pid=12345, exit_code=1)
-        )
+        await baton.handle_event(ProcessExited(job_id="j1", sheet_num=1, pid=12345, exit_code=1))
 
         # Status should be unchanged — not dispatched, so process exit is irrelevant
         assert baton.get_sheet_state("j1", 1).status == "pending"
+
     @pytest.mark.adversarial
     async def test_cancel_nonexistent_job_is_safe(self) -> None:
         """CancelJob for a non-existent job doesn't crash."""
@@ -766,6 +755,7 @@ class TestEventHandlerSafety:
         await baton.handle_event(RateLimitExpired(instrument="claude-code"))
         # Pending sheet should still be pending (not affected)
         assert baton.get_sheet_state("j1", 1).status == "pending"
+
     @pytest.mark.adversarial
     async def test_escalation_resolved_for_non_fermata_sheet_is_noop(self) -> None:
         """EscalationResolved for a sheet not in fermata does nothing."""
@@ -775,11 +765,7 @@ class TestEventHandlerSafety:
         }
         baton.register_job("j1", sheets, {})
 
-        await baton.handle_event(
-            EscalationResolved(
-                job_id="j1", sheet_num=1, decision="retry"
-            )
-        )
+        await baton.handle_event(EscalationResolved(job_id="j1", sheet_num=1, decision="retry"))
         # Sheet is pending, not fermata — decision should be ignored
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
@@ -795,17 +781,14 @@ class TestEventHandlerSafety:
         baton.register_job("j1", sheets, {})
 
         # Put sheet in fermata
-        await baton.handle_event(
-            EscalationNeeded(job_id="j1", sheet_num=1, reason="test")
-        )
+        await baton.handle_event(EscalationNeeded(job_id="j1", sheet_num=1, reason="test"))
         assert baton.get_sheet_state("j1", 1).status == "fermata"
         # Resolve with unknown decision
         await baton.handle_event(
-            EscalationResolved(
-                job_id="j1", sheet_num=1, decision="unknown_decision"
-            )
+            EscalationResolved(job_id="j1", sheet_num=1, decision="unknown_decision")
         )
         assert baton.get_sheet_state("j1", 1).status == "failed"
+
     @pytest.mark.adversarial
     async def test_double_register_job_is_noop(self) -> None:
         """Registering the same job_id twice is silently ignored."""
@@ -910,6 +893,7 @@ class TestMultiEventInterleaving:
         assert baton.get_sheet_state("j1", 1).status == "cancelled"
         assert baton.get_sheet_state("j1", 2).status == "cancelled"
         assert baton.get_sheet_state("j1", 3).status == "completed"
+
     @pytest.mark.adversarial
     async def test_rate_limit_then_expired_restores_sheets(self) -> None:
         """Rate limit → waiting → expired → pending. Full cycle.
@@ -946,6 +930,7 @@ class TestMultiEventInterleaving:
         # Claude sheets restored to pending; gemini unaffected
         assert baton.get_sheet_state("j1", 1).status == "pending"
         assert baton.get_sheet_state("j1", 3).status == "pending"
+
     @pytest.mark.adversarial
     async def test_rate_limit_expired_only_affects_matching_instrument(self) -> None:
         """RateLimitExpired for inst-A doesn't restore inst-B waiting sheets."""
@@ -971,6 +956,7 @@ class TestMultiEventInterleaving:
 
         assert baton.get_sheet_state("j1", 1).status == "pending"
         assert baton.get_sheet_state("j1", 2).status == "waiting"
+
     @pytest.mark.adversarial
     async def test_process_exit_exhausts_retries(self) -> None:
         """ProcessExited counts toward retry budget and can exhaust it."""
@@ -987,9 +973,7 @@ class TestMultiEventInterleaving:
         baton.register_job("j1", sheets, {})
 
         # First crash — retry scheduled
-        await baton.handle_event(
-            ProcessExited(job_id="j1", sheet_num=1, pid=111, exit_code=-9)
-        )
+        await baton.handle_event(ProcessExited(job_id="j1", sheet_num=1, pid=111, exit_code=-9))
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
         assert state.normal_attempts == 1
@@ -999,9 +983,7 @@ class TestMultiEventInterleaving:
         state.status = BatonSheetStatus.DISPATCHED
 
         # Second crash — retries exhausted
-        await baton.handle_event(
-            ProcessExited(job_id="j1", sheet_num=1, pid=222, exit_code=-9)
-        )
+        await baton.handle_event(ProcessExited(job_id="j1", sheet_num=1, pid=222, exit_code=-9))
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
         assert state.status == "failed"
@@ -1041,9 +1023,7 @@ class TestMultiEventInterleaving:
         assert baton.is_job_paused("j1")
 
         # Resolve with retry
-        await baton.handle_event(
-            EscalationResolved(job_id="j1", sheet_num=1, decision="retry")
-        )
+        await baton.handle_event(EscalationResolved(job_id="j1", sheet_num=1, decision="retry"))
         assert baton.get_sheet_state("j1", 1).status == "pending"
         assert not baton.is_job_paused("j1")
 
@@ -1056,14 +1036,10 @@ class TestMultiEventInterleaving:
         }
         baton.register_job("j1", sheets, {})
 
-        await baton.handle_event(
-            EscalationNeeded(job_id="j1", sheet_num=1, reason="test")
-        )
+        await baton.handle_event(EscalationNeeded(job_id="j1", sheet_num=1, reason="test"))
         assert baton.is_job_paused("j1")
 
-        await baton.handle_event(
-            EscalationTimeout(job_id="j1", sheet_num=1)
-        )
+        await baton.handle_event(EscalationTimeout(job_id="j1", sheet_num=1))
         assert baton.get_sheet_state("j1", 1).status == "failed"
         assert not baton.is_job_paused("j1")
 
@@ -1331,9 +1307,7 @@ class TestDependencyStress:
         baton.register_job("j1", sheets, deps)
 
         # Skip sheet 1
-        await baton.handle_event(
-            SheetSkipped(job_id="j1", sheet_num=1, reason="skip_when matched")
-        )
+        await baton.handle_event(SheetSkipped(job_id="j1", sheet_num=1, reason="skip_when matched"))
 
         # Sheet 2 should be ready
         ready = baton.get_ready_sheets("j1")
@@ -1352,9 +1326,7 @@ class TestRichSheetExecutionStateAdversarial:
     @pytest.mark.adversarial
     def test_record_attempt_accumulates_cost(self) -> None:
         """Cost accumulates correctly across multiple attempts."""
-        state = RichSheetExecutionState(
-            sheet_num=1, instrument_name="claude-code"
-        )
+        state = RichSheetExecutionState(sheet_num=1, instrument_name="claude-code")
         for i in range(5):
             result = SheetAttemptResult(
                 job_id="j1",
@@ -1375,9 +1347,7 @@ class TestRichSheetExecutionStateAdversarial:
     @pytest.mark.adversarial
     def test_record_rate_limited_attempt_no_count_increment(self) -> None:
         """Rate-limited attempts are recorded but don't increment normal_attempts."""
-        state = RichSheetExecutionState(
-            sheet_num=1, instrument_name="claude-code"
-        )
+        state = RichSheetExecutionState(sheet_num=1, instrument_name="claude-code")
         for i in range(10):
             result = SheetAttemptResult(
                 job_id="j1",
@@ -1414,9 +1384,7 @@ class TestRichSheetExecutionStateAdversarial:
     @pytest.mark.adversarial
     def test_total_attempts_across_all_modes(self) -> None:
         """total_attempts sums normal + completion + healing."""
-        state = RichSheetExecutionState(
-            sheet_num=1, instrument_name="claude-code"
-        )
+        state = RichSheetExecutionState(sheet_num=1, instrument_name="claude-code")
         state.normal_attempts = 3
         state.completion_attempts = 2
         state.healing_attempts = 1

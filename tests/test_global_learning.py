@@ -136,9 +136,7 @@ class TestGlobalLearningStore:
         assert pattern_id is not None
         assert len(pattern_id) == 16  # Truncated hash
 
-    def test_pattern_merge_increments_count(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_pattern_merge_increments_count(self, global_store: GlobalLearningStore) -> None:
         """Test that recording same pattern increments occurrence count."""
         # Record same pattern twice
         global_store.record_pattern(
@@ -305,7 +303,9 @@ class TestPatternWeighter:
     def test_frequency_factor(self, weighter: PatternWeighter) -> None:
         """Test frequency factor calculation with floor."""
         assert weighter.calculate_frequency_factor(0) == weighter.frequency_floor
-        assert weighter.calculate_frequency_factor(1) == weighter.frequency_floor  # floored from ~0.15
+        assert (
+            weighter.calculate_frequency_factor(1) == weighter.frequency_floor
+        )  # floored from ~0.15
         assert weighter.calculate_frequency_factor(100) == 1.0
 
     def test_priority_calculation(self, weighter: PatternWeighter) -> None:
@@ -387,15 +387,11 @@ class TestPatternAggregator:
     """Tests for PatternAggregator class."""
 
     @pytest.fixture
-    def aggregator(
-        self, global_store: GlobalLearningStore
-    ) -> PatternAggregator:
+    def aggregator(self, global_store: GlobalLearningStore) -> PatternAggregator:
         """Create a pattern aggregator with test store."""
         return PatternAggregator(global_store)
 
-    def test_aggregate_empty_outcomes(
-        self, aggregator: PatternAggregator
-    ) -> None:
+    def test_aggregate_empty_outcomes(self, aggregator: PatternAggregator) -> None:
         """Test aggregating empty outcomes list."""
         result = aggregator.aggregate_outcomes(
             outcomes=[],
@@ -457,9 +453,7 @@ class TestPatternAggregator:
         assert result.patterns_merged >= 1
         assert result.priorities_updated is True
 
-    def test_merge_with_conflict_resolution(
-        self, aggregator: PatternAggregator
-    ) -> None:
+    def test_merge_with_conflict_resolution(self, aggregator: PatternAggregator) -> None:
         """Test pattern merging with conflict resolution."""
         existing = PatternRecord(
             id="test-id",
@@ -610,9 +604,7 @@ class TestPatternAggregator:
 
         # Check pattern was deprecated (priority set to 0)
         patterns = global_store.get_patterns(min_priority=0.0)
-        deprecated = next(
-            (p for p in patterns if p.id == "deprecated-pattern"), None
-        )
+        deprecated = next((p for p in patterns if p.id == "deprecated-pattern"), None)
         assert deprecated is not None
         assert deprecated.priority_score == 0.0
 
@@ -664,9 +656,7 @@ class TestLearningActivationIntegration:
     - Workspace clustering
     """
 
-    def test_get_similar_executions_empty(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_similar_executions_empty(self, global_store: GlobalLearningStore) -> None:
         """Test get_similar_executions with no data."""
         executions = global_store.get_similar_executions()
         assert executions == []
@@ -688,9 +678,7 @@ class TestLearningActivationIntegration:
         assert len(executions) == 1
         assert executions[0].job_hash == job_hash
 
-    def test_get_optimal_execution_window_no_data(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_optimal_execution_window_no_data(self, global_store: GlobalLearningStore) -> None:
         """Test optimal execution window with no recovery data."""
         window = global_store.get_optimal_execution_window()
 
@@ -754,9 +742,7 @@ class TestLearningActivationIntegration:
         assert window["confidence"] > 0
         assert window["sample_count"] == 10
 
-    def test_workspace_clustering(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_workspace_clustering(self, global_store: GlobalLearningStore) -> None:
         """Test workspace cluster assignment and retrieval."""
         workspace_hash = "abc123"
         cluster_id = "high-success-cluster"
@@ -774,9 +760,7 @@ class TestLearningActivationIntegration:
         similar = global_store.get_similar_workspaces(cluster_id)
         assert workspace_hash in similar
 
-    def test_integration_pattern_query_and_record(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_integration_pattern_query_and_record(self, global_store: GlobalLearningStore) -> None:
         """Test full integration: record pattern, query, and verify."""
         # Record a pattern
         pattern_id = global_store.record_pattern(
@@ -791,9 +775,7 @@ class TestLearningActivationIntegration:
         patterns = global_store.get_patterns(min_priority=0.0)
 
         # Verify pattern exists
-        test_pattern = next(
-            (p for p in patterns if p.id == pattern_id), None
-        )
+        test_pattern = next((p for p in patterns if p.id == pattern_id), None)
         assert test_pattern is not None
         assert test_pattern.description == "Test pattern for integration"
 
@@ -825,9 +807,7 @@ class TestLearningActivationIntegration:
 
         # Verify pattern effectiveness was updated
         patterns = global_store.get_patterns(min_priority=0.0)
-        updated_pattern = next(
-            (p for p in patterns if p.id == pattern_id), None
-        )
+        updated_pattern = next((p for p in patterns if p.id == pattern_id), None)
         assert updated_pattern is not None
         assert updated_pattern.led_to_success_count == 1
 
@@ -843,9 +823,7 @@ class TestSelectivePatternRetrieval:
     Evolution v7: Tests the context_tags filtering capability in get_patterns().
     """
 
-    def test_get_patterns_filters_by_context_tags(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_patterns_filters_by_context_tags(self, global_store: GlobalLearningStore) -> None:
         """Test that get_patterns filters by context_tags correctly."""
         # Create patterns with different context tags
         global_store.record_pattern(
@@ -877,9 +855,7 @@ class TestSelectivePatternRetrieval:
         assert len(patterns) == 1
         assert patterns[0].pattern_name == "sheet_specific"
 
-    def test_get_patterns_any_tag_matches(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_patterns_any_tag_matches(self, global_store: GlobalLearningStore) -> None:
         """Test that ANY tag match returns the pattern (OR semantics)."""
         global_store.record_pattern(
             pattern_type="test_pattern",
@@ -897,9 +873,7 @@ class TestSelectivePatternRetrieval:
         assert len(patterns) == 1
         assert patterns[0].pattern_name == "multi_tag_pattern"
 
-    def test_get_patterns_no_match_returns_empty(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_patterns_no_match_returns_empty(self, global_store: GlobalLearningStore) -> None:
         """Test that non-matching context_tags returns empty list."""
         global_store.record_pattern(
             pattern_type="test_pattern",
@@ -940,9 +914,7 @@ class TestSelectivePatternRetrieval:
         assert "pattern_with_tags" in pattern_names
         assert "pattern_without_tags" in pattern_names
 
-    def test_get_patterns_empty_list_same_as_none(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_patterns_empty_list_same_as_none(self, global_store: GlobalLearningStore) -> None:
         """Test that context_tags=[] behaves same as context_tags=None."""
         global_store.record_pattern(
             pattern_type="test_pattern",
@@ -1002,17 +974,13 @@ class TestOutputPatternExtractor:
         """Create an OutputPatternExtractor instance."""
         return OutputPatternExtractor()
 
-    def test_empty_output_returns_empty_list(
-        self, extractor: OutputPatternExtractor
-    ) -> None:
+    def test_empty_output_returns_empty_list(self, extractor: OutputPatternExtractor) -> None:
         """Test that empty output returns no patterns."""
         assert extractor.extract_from_output("") == []
         assert extractor.extract_from_output("   ") == []
         assert extractor.extract_from_output(None) == []  # type: ignore[arg-type]
 
-    def test_extract_rate_limit_pattern(
-        self, extractor: OutputPatternExtractor
-    ) -> None:
+    def test_extract_rate_limit_pattern(self, extractor: OutputPatternExtractor) -> None:
         """Test extraction of rate limit patterns."""
         output = "Error: rate limit exceeded for API calls"
         patterns = extractor.extract_from_output(output)
@@ -1022,9 +990,7 @@ class TestOutputPatternExtractor:
         assert "rate limit" in patterns[0].matched_text.lower()
         assert patterns[0].confidence == 0.95
 
-    def test_extract_import_error_pattern(
-        self, extractor: OutputPatternExtractor
-    ) -> None:
+    def test_extract_import_error_pattern(self, extractor: OutputPatternExtractor) -> None:
         """Test extraction of import error patterns."""
         output = """Traceback (most recent call last):
   File "test.py", line 1, in <module>
@@ -1037,9 +1003,7 @@ ModuleNotFoundError: No module named 'nonexistent_module'"""
         assert "traceback" in pattern_names
         assert "import_error" in pattern_names
 
-    def test_extract_permission_denied(
-        self, extractor: OutputPatternExtractor
-    ) -> None:
+    def test_extract_permission_denied(self, extractor: OutputPatternExtractor) -> None:
         """Test extraction of permission denied patterns."""
         output = "Error: Permission denied: /etc/passwd"
         patterns = extractor.extract_from_output(output)
@@ -1048,23 +1012,17 @@ ModuleNotFoundError: No module named 'nonexistent_module'"""
         assert patterns[0].pattern_name == "permission_denied"
         assert patterns[0].confidence == 0.95
 
-    def test_extract_file_not_found(
-        self, extractor: OutputPatternExtractor
-    ) -> None:
+    def test_extract_file_not_found(self, extractor: OutputPatternExtractor) -> None:
         """Test extraction of file not found patterns."""
         output = "FileNotFoundError: [Errno 2] No such file or directory: 'missing.txt'"
         patterns = extractor.extract_from_output(output)
 
         assert len(patterns) >= 1
-        file_not_found = next(
-            (p for p in patterns if p.pattern_name == "file_not_found"), None
-        )
+        file_not_found = next((p for p in patterns if p.pattern_name == "file_not_found"), None)
         assert file_not_found is not None
         assert file_not_found.confidence == 0.95
 
-    def test_extract_timeout_pattern(
-        self, extractor: OutputPatternExtractor
-    ) -> None:
+    def test_extract_timeout_pattern(self, extractor: OutputPatternExtractor) -> None:
         """Test extraction of timeout patterns."""
         output = "Connection timed out after 30s"
         patterns = extractor.extract_from_output(output)
@@ -1072,9 +1030,7 @@ ModuleNotFoundError: No module named 'nonexistent_module'"""
         assert len(patterns) == 1
         assert patterns[0].pattern_name == "timeout"
 
-    def test_extract_multiple_patterns(
-        self, extractor: OutputPatternExtractor
-    ) -> None:
+    def test_extract_multiple_patterns(self, extractor: OutputPatternExtractor) -> None:
         """Test extraction of multiple different patterns."""
         output = """ImportError: No module named 'requests'
 Connection refused: localhost:8080
@@ -1087,9 +1043,7 @@ TypeError: 'NoneType' object is not callable"""
         assert "type_error" in pattern_names
         assert len(patterns) >= 3
 
-    def test_line_context_extraction(
-        self, extractor: OutputPatternExtractor
-    ) -> None:
+    def test_line_context_extraction(self, extractor: OutputPatternExtractor) -> None:
         """Test that context lines are extracted correctly."""
         output = """Line 1: Starting process
 Line 2: Loading config
@@ -1098,9 +1052,7 @@ Line 4: Process failed
 Line 5: Cleanup complete"""
         patterns = extractor.extract_from_output(output)
 
-        import_pattern = next(
-            (p for p in patterns if p.pattern_name == "import_error"), None
-        )
+        import_pattern = next((p for p in patterns if p.pattern_name == "import_error"), None)
         assert import_pattern is not None
         assert import_pattern.line_number == 3
         assert len(import_pattern.context_before) == 2
@@ -1108,9 +1060,7 @@ Line 5: Cleanup complete"""
         assert len(import_pattern.context_after) == 2
         assert "Process failed" in import_pattern.context_after[0]
 
-    def test_source_parameter(
-        self, extractor: OutputPatternExtractor
-    ) -> None:
+    def test_source_parameter(self, extractor: OutputPatternExtractor) -> None:
         """Test that source parameter is correctly set."""
         output = "Permission denied"
         stdout_patterns = extractor.extract_from_output(output, source="stdout")
@@ -1119,23 +1069,17 @@ Line 5: Cleanup complete"""
         assert stdout_patterns[0].source == "stdout"
         assert stderr_patterns[0].source == "stderr"
 
-    def test_deduplication_same_line(
-        self, extractor: OutputPatternExtractor
-    ) -> None:
+    def test_deduplication_same_line(self, extractor: OutputPatternExtractor) -> None:
         """Test that duplicate patterns at same line are deduplicated."""
         # Rate limit appears multiple times on same line
         output = "rate limit rate limit rate limit"
         patterns = extractor.extract_from_output(output)
 
         # Should only have one rate_limit pattern
-        rate_limit_count = sum(
-            1 for p in patterns if p.pattern_name == "rate_limit"
-        )
+        rate_limit_count = sum(1 for p in patterns if p.pattern_name == "rate_limit")
         assert rate_limit_count == 1
 
-    def test_get_pattern_summary(
-        self, extractor: OutputPatternExtractor
-    ) -> None:
+    def test_get_pattern_summary(self, extractor: OutputPatternExtractor) -> None:
         """Test pattern summary generation."""
         output = """TypeError: bad arg
 TypeError: another bad arg
@@ -1149,9 +1093,7 @@ ImportError: missing module"""
         assert "import_error" in summary
         assert summary["import_error"] == 1
 
-    def test_confidence_scoring(
-        self, extractor: OutputPatternExtractor
-    ) -> None:
+    def test_confidence_scoring(self, extractor: OutputPatternExtractor) -> None:
         """Test that confidence scores are correctly assigned."""
 
         # High confidence patterns
@@ -1167,9 +1109,7 @@ ImportError: missing module"""
             patterns = extractor.extract_from_output(text)
             assert patterns[0].confidence < 0.90
 
-    def test_case_insensitive_matching(
-        self, extractor: OutputPatternExtractor
-    ) -> None:
+    def test_case_insensitive_matching(self, extractor: OutputPatternExtractor) -> None:
         """Test that matching is case insensitive where appropriate."""
         variants = ["RATE LIMIT", "Rate Limit", "rate limit", "RaTe LiMiT"]
 
@@ -1275,9 +1215,7 @@ class TestErrorCodePatterns:
             SheetOutcome(
                 sheet_id="test-1",
                 job_id="test-job",
-                validation_results=[
-                    {"rule_type": "file_exists", "passed": True}
-                ],
+                validation_results=[{"rule_type": "file_exists", "passed": True}],
                 execution_duration=30.0,
                 retry_count=0,
                 completion_mode_used=False,
@@ -1354,9 +1292,7 @@ class TestErrorCodePatterns:
 
         # Should have at least one pattern for E009
         assert len(patterns) >= 1
-        error_pattern = next(
-            (p for p in patterns if "E009" in p.description), None
-        )
+        error_pattern = next((p for p in patterns if "E009" in p.description), None)
         assert error_pattern is not None
         assert error_pattern.frequency >= 2
         assert "error_code:E009" in error_pattern.context_tags
@@ -1387,9 +1323,7 @@ class TestErrorCodePatterns:
         detector = PatternDetector(outcomes)
         patterns = detector._detect_error_code_patterns()
 
-        error_pattern = next(
-            (p for p in patterns if "E103" in p.description), None
-        )
+        error_pattern = next((p for p in patterns if "E103" in p.description), None)
         assert error_pattern is not None
         # Higher frequency should have higher confidence
         assert error_pattern.confidence >= 0.85
@@ -1431,9 +1365,7 @@ class TestErrorCodePatterns:
         all_patterns = detector.detect_all()
 
         # Should include error code pattern
-        error_pattern = next(
-            (p for p in all_patterns if "E201" in p.description), None
-        )
+        error_pattern = next((p for p in all_patterns if "E201" in p.description), None)
         assert error_pattern is not None
 
 
@@ -1446,15 +1378,11 @@ class TestEnhancedPatternAggregator:
     """Tests for EnhancedPatternAggregator class (Sheet 6 implementation)."""
 
     @pytest.fixture
-    def enhanced_aggregator(
-        self, global_store: GlobalLearningStore
-    ) -> EnhancedPatternAggregator:
+    def enhanced_aggregator(self, global_store: GlobalLearningStore) -> EnhancedPatternAggregator:
         """Create an enhanced pattern aggregator with test store."""
         return EnhancedPatternAggregator(global_store)
 
-    def test_aggregate_empty_outcomes(
-        self, enhanced_aggregator: EnhancedPatternAggregator
-    ) -> None:
+    def test_aggregate_empty_outcomes(self, enhanced_aggregator: EnhancedPatternAggregator) -> None:
         """Test enhanced aggregation with empty outcomes list."""
         result = enhanced_aggregator.aggregate_with_all_sources(
             outcomes=[],
@@ -1475,9 +1403,7 @@ class TestEnhancedPatternAggregator:
         outcome = SheetOutcome(
             sheet_id="test-1",
             job_id="test-job",
-            validation_results=[
-                {"rule_type": "file_exists", "passed": False}
-            ],
+            validation_results=[{"rule_type": "file_exists", "passed": False}],
             execution_duration=30.0,
             retry_count=0,
             completion_mode_used=False,
@@ -1498,9 +1424,11 @@ ImportError: No module named 'requests'"""
 
         assert result.outcomes_recorded == 1
         assert len(result.output_patterns) >= 1
-        assert "rate_limit" in result.output_pattern_summary or \
-               "import_error" in result.output_pattern_summary or \
-               "traceback" in result.output_pattern_summary
+        assert (
+            "rate_limit" in result.output_pattern_summary
+            or "import_error" in result.output_pattern_summary
+            or "traceback" in result.output_pattern_summary
+        )
 
     def test_enhanced_aggregation_result_repr(self) -> None:
         """Test EnhancedAggregationResult string representation."""
@@ -1530,9 +1458,7 @@ class TestFullDataCollectionPipeline:
     pattern extraction, aggregation, and global store storage.
     """
 
-    def test_full_data_collection_pipeline(
-        self, temp_db_path: Path
-    ) -> None:
+    def test_full_data_collection_pipeline(self, temp_db_path: Path) -> None:
         """Test complete learning data collection flow."""
         # 1. Create outcomes with realistic stdout/stderr and error codes
         outcomes = [
@@ -1598,17 +1524,12 @@ class TestFullDataCollectionPipeline:
             "Traceback (most recent call last):\n"
             "  File 'main.py', line 10\n"
         )
-        outcomes[1].stdout_tail = (
-            "FileNotFoundError: config.yaml not found\n"
-            "Process failed\n"
-        )
+        outcomes[1].stdout_tail = "FileNotFoundError: config.yaml not found\nProcess failed\n"
 
         # 2. Run enhanced aggregator
         store = GlobalLearningStore(temp_db_path)
         aggregator = EnhancedPatternAggregator(store)
-        result = aggregator.aggregate_with_all_sources(
-            outcomes, Path("/tmp/test-workspace")
-        )
+        result = aggregator.aggregate_with_all_sources(outcomes, Path("/tmp/test-workspace"))
 
         # 3. Verify outcomes recorded
         assert result.outcomes_recorded == 3
@@ -1637,9 +1558,7 @@ class TestFullDataCollectionPipeline:
         if temp_db_path.exists():
             temp_db_path.unlink()
 
-    def test_pipeline_with_semantic_patterns(
-        self, temp_db_path: Path
-    ) -> None:
+    def test_pipeline_with_semantic_patterns(self, temp_db_path: Path) -> None:
         """Test pipeline detects semantic patterns from failure categories."""
         outcomes = [
             SheetOutcome(
@@ -1665,9 +1584,7 @@ class TestFullDataCollectionPipeline:
 
         store = GlobalLearningStore(temp_db_path)
         aggregator = EnhancedPatternAggregator(store)
-        result = aggregator.aggregate_with_all_sources(
-            outcomes, Path("/tmp/test-workspace")
-        )
+        result = aggregator.aggregate_with_all_sources(outcomes, Path("/tmp/test-workspace"))
 
         # Verify semantic patterns detected
         assert result.patterns_detected >= 1
@@ -1675,10 +1592,7 @@ class TestFullDataCollectionPipeline:
         # Check patterns in store include semantic failure
         patterns = store.get_patterns(min_priority=0.0)
         stale_pattern = next(
-            (
-                p for p in patterns
-                if p.description and "stale" in p.description.lower()
-            ),
+            (p for p in patterns if p.description and "stale" in p.description.lower()),
             None,
         )
         assert stale_pattern is not None
@@ -1783,9 +1697,7 @@ class TestGroundingPatternIntegration:
         assert outcome.grounding_guidance is not None
         assert "checksum mismatch" in outcome.grounding_guidance
 
-    def test_outcome_aggregate_includes_grounding(
-        self, temp_db_path: Path
-    ) -> None:
+    def test_outcome_aggregate_includes_grounding(self, temp_db_path: Path) -> None:
         """Test that grounding fields are persisted in global store aggregation."""
         # Create outcomes with grounding data
         outcomes = [
@@ -1822,9 +1734,7 @@ class TestGroundingPatternIntegration:
         # Run aggregation
         store = GlobalLearningStore(temp_db_path)
         aggregator = EnhancedPatternAggregator(store)
-        result = aggregator.aggregate_with_all_sources(
-            outcomes, Path("/tmp/test-workspace")
-        )
+        result = aggregator.aggregate_with_all_sources(outcomes, Path("/tmp/test-workspace"))
 
         # Verify outcomes were recorded
         assert result.outcomes_recorded == 2
@@ -1956,9 +1866,7 @@ class TestExplorationModePatternSelection:
         # Very low priority (0.02) should be excluded even in exploration (threshold 0.05)
         assert "very_low_priority_pattern" not in pattern_names
 
-    def test_exploration_threshold_boundary(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_exploration_threshold_boundary(self, global_store: GlobalLearningStore) -> None:
         """Test boundary conditions for exploration threshold."""
         # Pattern exactly at threshold
         at_threshold_id = global_store.record_pattern(
@@ -2066,9 +1974,7 @@ class TestPatternEffectivenessUpdate:
         assert updated_pattern.led_to_success_count == 0
         assert updated_pattern.led_to_failure_count == 5
 
-    def test_pattern_effectiveness_mixed_outcomes(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_pattern_effectiveness_mixed_outcomes(self, global_store: GlobalLearningStore) -> None:
         """Test effectiveness with mixed success/failure outcomes."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -2097,9 +2003,7 @@ class TestPatternEffectivenessUpdate:
         assert updated_pattern.led_to_success_count == 3
         assert updated_pattern.led_to_failure_count == 2
 
-    def test_effectiveness_cold_start_handling(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_effectiveness_cold_start_handling(self, global_store: GlobalLearningStore) -> None:
         """Test that patterns with < 3 applications get cold-start prior."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -2172,9 +2076,7 @@ class TestPriorityRecalculation:
         # So priority should be around 0.5
         assert updated_pattern.priority_score > 0.4
 
-    def test_priority_decreases_with_failures(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_priority_decreases_with_failures(self, global_store: GlobalLearningStore) -> None:
         """Test that priority decreases when pattern leads to failures."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -2208,9 +2110,7 @@ class TestPriorityRecalculation:
         # Priority should have decreased after failures
         assert priority_after_failure < priority_after_success
 
-    def test_recalculate_all_pattern_priorities(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_recalculate_all_pattern_priorities(self, global_store: GlobalLearningStore) -> None:
         """Test batch recalculation of all pattern priorities."""
         # Create multiple patterns with applications
         pattern_ids = []
@@ -2242,9 +2142,7 @@ class TestPriorityRecalculation:
                 assert 0.0 <= pattern.priority_score <= 1.0
                 assert 0.0 <= pattern.effectiveness_score <= 1.0
 
-    def test_manual_update_pattern_effectiveness(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_manual_update_pattern_effectiveness(self, global_store: GlobalLearningStore) -> None:
         """Test manual effectiveness update method."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -2297,8 +2195,21 @@ class TestUnappliedPatternPriorityRepair:
                     effectiveness_score, variance, context_tags, priority_score
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                ("crushed-pattern", "test", "test:crushed", 1,
-                 now, now, now, 0, 0, 0.5, 0.0, "[]", 0.075),
+                (
+                    "crushed-pattern",
+                    "test",
+                    "test:crushed",
+                    1,
+                    now,
+                    now,
+                    now,
+                    0,
+                    0,
+                    0.5,
+                    0.0,
+                    "[]",
+                    0.075,
+                ),
             )
 
         # Run the repair
@@ -2325,8 +2236,21 @@ class TestUnappliedPatternPriorityRepair:
                     effectiveness_score, variance, context_tags, priority_score
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                ("applied-low-pattern", "test", "test:applied_low", 10,
-                 now, now, now, 3, 7, 0.3, 0.0, "[]", 0.15),
+                (
+                    "applied-low-pattern",
+                    "test",
+                    "test:applied_low",
+                    10,
+                    now,
+                    now,
+                    now,
+                    3,
+                    7,
+                    0.3,
+                    0.0,
+                    "[]",
+                    0.15,
+                ),
             )
 
         with global_store._get_connection() as conn:
@@ -2352,8 +2276,21 @@ class TestUnappliedPatternPriorityRepair:
                     effectiveness_score, variance, context_tags, priority_score
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                ("healthy-pattern", "test", "test:healthy", 1,
-                 now, now, now, 0, 0, 0.5, 0.0, "[]", 0.5),
+                (
+                    "healthy-pattern",
+                    "test",
+                    "test:healthy",
+                    1,
+                    now,
+                    now,
+                    now,
+                    0,
+                    0,
+                    0.5,
+                    0.0,
+                    "[]",
+                    0.5,
+                ),
             )
 
         with global_store._get_connection() as conn:
@@ -2534,9 +2471,7 @@ class TestFeedbackLoopIntegration:
             p = next(pat for pat in patterns if pat.id == pid)
             assert p.led_to_success_count >= 1
 
-    def test_end_to_end_pattern_lifecycle(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_end_to_end_pattern_lifecycle(self, global_store: GlobalLearningStore) -> None:
         """Test complete pattern lifecycle: creation → application → learning → deprecation."""
         # 1. Create pattern
         pattern_id = global_store.record_pattern(
@@ -2622,9 +2557,7 @@ class TestGroundingWeightedEffectiveness:
             assert row is not None
             assert row["grounding_confidence"] == 0.95
 
-    def test_null_grounding_uses_baseline_formula(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_null_grounding_uses_baseline_formula(self, global_store: GlobalLearningStore) -> None:
         """Test that null grounding_confidence uses baseline (1.0) in formula."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -2699,9 +2632,7 @@ class TestGroundingWeightedEffectiveness:
         assert pattern.effectiveness_score < 0.8
         assert pattern.effectiveness_score > 0.5  # But not too low
 
-    def test_mixed_grounding_averages_correctly(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_mixed_grounding_averages_correctly(self, global_store: GlobalLearningStore) -> None:
         """Test that mixed grounding values are averaged in effectiveness."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -2774,9 +2705,7 @@ class TestGoalDriftDetection:
     formula, threshold alerting, and edge cases.
     """
 
-    def test_drift_calculation_formula(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_drift_calculation_formula(self, global_store: GlobalLearningStore) -> None:
         """Test the drift calculation formula."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -2809,9 +2738,7 @@ class TestGoalDriftDetection:
         assert metrics.effectiveness_after < metrics.effectiveness_before
         assert metrics.drift_magnitude > 0.2  # Significant drift
 
-    def test_drift_threshold_alerting(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_drift_threshold_alerting(self, global_store: GlobalLearningStore) -> None:
         """Test that drift threshold correctly flags patterns."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -2836,9 +2763,7 @@ class TestGoalDriftDetection:
             )
 
         # With threshold 0.2, this should be flagged
-        metrics = global_store.calculate_effectiveness_drift(
-            pattern_id, drift_threshold=0.2
-        )
+        metrics = global_store.calculate_effectiveness_drift(pattern_id, drift_threshold=0.2)
         assert metrics is not None
         assert metrics.threshold_exceeded is True
 
@@ -2851,9 +2776,7 @@ class TestGoalDriftDetection:
         assert metrics_high_threshold is not None
         assert metrics_high_threshold.threshold_exceeded is False
 
-    def test_drift_with_low_grounding_confidence(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_drift_with_low_grounding_confidence(self, global_store: GlobalLearningStore) -> None:
         """Test that low grounding amplifies drift signal."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -2885,9 +2808,7 @@ class TestGoalDriftDetection:
         assert metrics.grounding_confidence_avg < 0.5
         assert metrics.threshold_exceeded is True
 
-    def test_drift_direction_classification(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_drift_direction_classification(self, global_store: GlobalLearningStore) -> None:
         """Test correct classification of drift direction."""
         # Test positive drift (improving)
         pattern_improving = global_store.record_pattern(
@@ -2930,9 +2851,7 @@ class TestGoalDriftDetection:
         assert metrics is not None
         assert metrics.drift_direction == "stable"
 
-    def test_no_drift_with_stable_patterns(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_no_drift_with_stable_patterns(self, global_store: GlobalLearningStore) -> None:
         """Test that stable patterns don't trigger drift alerts."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -2954,9 +2873,7 @@ class TestGoalDriftDetection:
         assert metrics.threshold_exceeded is False
         assert metrics.drift_magnitude < 0.1
 
-    def test_edge_case_insufficient_history(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_edge_case_insufficient_history(self, global_store: GlobalLearningStore) -> None:
         """Test that patterns with insufficient history return None."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -2974,9 +2891,7 @@ class TestGoalDriftDetection:
         metrics = global_store.calculate_effectiveness_drift(pattern_id)
         assert metrics is None  # Not enough history
 
-    def test_get_drifting_patterns(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_drifting_patterns(self, global_store: GlobalLearningStore) -> None:
         """Test retrieval of all drifting patterns."""
         # Create a drifting pattern
         drifting_id = global_store.record_pattern(
@@ -3019,9 +2934,7 @@ class TestGoalDriftDetection:
         assert drifting_id in drifting_ids
         assert stable_id not in drifting_ids
 
-    def test_get_pattern_drift_summary(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_pattern_drift_summary(self, global_store: GlobalLearningStore) -> None:
         """Test drift summary statistics."""
         # Create several patterns with different drift profiles
         for i in range(3):
@@ -3046,9 +2959,7 @@ class TestGoalDriftDetection:
         assert "avg_drift_magnitude" in summary
         assert summary["avg_drift_magnitude"] >= 0
 
-    def test_drift_with_different_window_sizes(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_drift_with_different_window_sizes(self, global_store: GlobalLearningStore) -> None:
         """Test drift calculation with different window sizes."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -3071,17 +2982,13 @@ class TestGoalDriftDetection:
             )
 
         # Test with window_size=5
-        metrics_5 = global_store.calculate_effectiveness_drift(
-            pattern_id, window_size=5
-        )
+        metrics_5 = global_store.calculate_effectiveness_drift(pattern_id, window_size=5)
         assert metrics_5 is not None
         assert metrics_5.window_size == 5
         assert metrics_5.applications_analyzed == 10
 
         # Test with window_size=10
-        metrics_10 = global_store.calculate_effectiveness_drift(
-            pattern_id, window_size=10
-        )
+        metrics_10 = global_store.calculate_effectiveness_drift(pattern_id, window_size=10)
         assert metrics_10 is not None
         assert metrics_10.window_size == 10
         assert metrics_10.applications_analyzed == 20
@@ -3152,9 +3059,7 @@ class TestGoalDriftDetection:
         metrics = global_store.calculate_epistemic_drift(pattern_id)
         assert metrics is None
 
-    def test_epistemic_drift_stable_confidence(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_epistemic_drift_stable_confidence(self, global_store: GlobalLearningStore) -> None:
         """Test that stable confidence values produce 'stable' drift direction."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -3175,9 +3080,7 @@ class TestGoalDriftDetection:
         assert metrics.drift_direction == "stable"
         assert abs(metrics.belief_change) < 0.05
 
-    def test_epistemic_drift_weakening_belief(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_epistemic_drift_weakening_belief(self, global_store: GlobalLearningStore) -> None:
         """Test detection of weakening confidence (epistemic drift)."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -3208,9 +3111,7 @@ class TestGoalDriftDetection:
         assert metrics.belief_change < -0.05
         assert metrics.threshold_exceeded is True
 
-    def test_epistemic_drift_strengthening_belief(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_epistemic_drift_strengthening_belief(self, global_store: GlobalLearningStore) -> None:
         """Test detection of strengthening confidence (positive epistemic drift)."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -3294,9 +3195,7 @@ class TestPatternAutoRetirement:
         assert retired_pattern is not None
         assert retired_pattern.priority_score == 0.0
 
-    def test_retirement_requires_negative_drift(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_retirement_requires_negative_drift(self, global_store: GlobalLearningStore) -> None:
         """Test that patterns with positive drift are NOT retired."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -3366,9 +3265,7 @@ class TestPatternAutoRetirement:
             )
 
         # Verify no significant drift
-        metrics = global_store.calculate_effectiveness_drift(
-            pattern_id, drift_threshold=0.2
-        )
+        metrics = global_store.calculate_effectiveness_drift(pattern_id, drift_threshold=0.2)
         assert metrics is not None
         # Stable pattern should have low drift magnitude
         assert metrics.threshold_exceeded is False or metrics.drift_direction == "stable"
@@ -3382,9 +3279,7 @@ class TestPatternAutoRetirement:
         assert pattern is not None
         assert pattern.priority_score > 0.0
 
-    def test_retirement_preserves_pattern_data(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_retirement_preserves_pattern_data(self, global_store: GlobalLearningStore) -> None:
         """Test that retirement preserves pattern history (not deleted)."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -3415,9 +3310,7 @@ class TestPatternAutoRetirement:
         # Only priority_score should be 0
         assert pattern.priority_score == 0.0
 
-    def test_no_retirement_for_positive_drift(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_no_retirement_for_positive_drift(self, global_store: GlobalLearningStore) -> None:
         """Test that positive drift patterns remain active."""
         # Create two patterns: one improving, one degrading
         improving_id = global_store.record_pattern(
@@ -3479,9 +3372,7 @@ class TestPatternAutoRetirement:
         assert degrading is not None
         assert degrading.priority_score == 0.0
 
-    def test_get_retired_patterns(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_retired_patterns(self, global_store: GlobalLearningStore) -> None:
         """Test retrieval of retired patterns."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -3570,9 +3461,7 @@ class TestPatternBroadcasting:
         )
 
         # Job B checks for discoveries (excluding itself)
-        discoveries = global_store.check_recent_pattern_discoveries(
-            exclude_job_id="job-B"
-        )
+        discoveries = global_store.check_recent_pattern_discoveries(exclude_job_id="job-B")
 
         # Should find Job A's discovery
         assert len(discoveries) >= 1
@@ -3592,17 +3481,13 @@ class TestPatternBroadcasting:
         )
 
         # Job A checks discoveries (excluding itself)
-        discoveries = global_store.check_recent_pattern_discoveries(
-            exclude_job_id="job-A"
-        )
+        discoveries = global_store.check_recent_pattern_discoveries(exclude_job_id="job-A")
 
         # Should NOT find its own discovery
         found = any(d.pattern_name == "Self Discovery" for d in discoveries)
         assert not found, "Job A should not see its own discovery"
 
-    def test_discovery_events_expire_correctly(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_discovery_events_expire_correctly(self, global_store: GlobalLearningStore) -> None:
         """Test that expired events are cleaned up."""
         import time
 
@@ -3685,9 +3570,7 @@ class TestPatternBroadcasting:
         assert "Pattern from Job B" in names_a
         assert "Pattern from Job A" not in names_a
 
-    def test_filter_by_pattern_type(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_filter_by_pattern_type(self, global_store: GlobalLearningStore) -> None:
         """Test filtering discoveries by pattern type."""
         # Create different types
         global_store.record_pattern_discovery(
@@ -3712,16 +3595,12 @@ class TestPatternBroadcasting:
                 assert d.pattern_type == "validation_failure"
 
         # Filter by retry_pattern
-        retry_only = global_store.check_recent_pattern_discoveries(
-            pattern_type="retry_pattern"
-        )
+        retry_only = global_store.check_recent_pattern_discoveries(pattern_type="retry_pattern")
         for d in retry_only:
             if d.pattern_name in ["Validation Failure", "Retry Pattern"]:
                 assert d.pattern_type == "retry_pattern"
 
-    def test_filter_by_min_effectiveness(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_filter_by_min_effectiveness(self, global_store: GlobalLearningStore) -> None:
         """Test filtering discoveries by minimum effectiveness."""
         global_store.record_pattern_discovery(
             pattern_id="eff-001",
@@ -3739,18 +3618,14 @@ class TestPatternBroadcasting:
         )
 
         # Filter by min 0.5
-        high_only = global_store.check_recent_pattern_discoveries(
-            min_effectiveness=0.5
-        )
+        high_only = global_store.check_recent_pattern_discoveries(min_effectiveness=0.5)
 
         # Find our patterns
         high_names = [d.pattern_name for d in high_only]
         assert "High Effectiveness" in high_names
         assert "Low Effectiveness" not in high_names
 
-    def test_get_active_pattern_discoveries(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_active_pattern_discoveries(self, global_store: GlobalLearningStore) -> None:
         """Test retrieval of all active discoveries."""
         # Add some discoveries
         global_store.record_pattern_discovery(
@@ -3774,9 +3649,7 @@ class TestPatternBroadcasting:
         assert "Active Discovery 1" in names
         assert "Active Discovery 2" in names
 
-    def test_cleanup_expired_pattern_discoveries(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_cleanup_expired_pattern_discoveries(self, global_store: GlobalLearningStore) -> None:
         """Test cleanup of expired events."""
         import time
 
@@ -3800,9 +3673,7 @@ class TestPatternBroadcasting:
         active = global_store.get_active_pattern_discoveries()
         assert not any(d.pattern_name == "Will Expire" for d in active)
 
-    def test_context_tags_preserved(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_context_tags_preserved(self, global_store: GlobalLearningStore) -> None:
         """Test that context tags are preserved through storage."""
         tags = ["pytest", "validation", "timeout", "model:opus"]
 
@@ -3828,9 +3699,7 @@ class TestEvolutionTrajectoryTracking:
     recursive self-improvement analysis.
     """
 
-    def test_record_evolution_entry_creates_record(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_record_evolution_entry_creates_record(self, global_store: GlobalLearningStore) -> None:
         """Test that recording an evolution entry creates a record."""
         entry_id = global_store.record_evolution_entry(
             cycle=16,
@@ -3881,9 +3750,7 @@ class TestEvolutionTrajectoryTracking:
         assert trajectory[1].cycle == 15
         assert trajectory[2].cycle == 14
 
-    def test_get_trajectory_with_cycle_range(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_trajectory_with_cycle_range(self, global_store: GlobalLearningStore) -> None:
         """Test filtering trajectory by cycle range."""
         # Record entries for cycles 10-15
         for cycle in range(10, 16):
@@ -3952,9 +3819,7 @@ class TestEvolutionTrajectoryTracking:
         assert "schema_migration" not in recurring
         assert "cli_enhancement" not in recurring
 
-    def test_get_recurring_issues_respects_window(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_recurring_issues_respects_window(self, global_store: GlobalLearningStore) -> None:
         """Test that window_cycles parameter limits analysis range."""
         # Record entries with issue appearing in old and recent cycles
         for cycle in range(10, 20):
@@ -3977,9 +3842,7 @@ class TestEvolutionTrajectoryTracking:
         # So it shouldn't be recurring
         assert "common_issue" not in recurring
 
-    def test_schema_migration_creates_table(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_schema_migration_creates_table(self, global_store: GlobalLearningStore) -> None:
         """Test that evolution_trajectory table is created by migration."""
         import sqlite3
 
@@ -4022,9 +3885,7 @@ class TestEvolutionTrajectoryTracking:
                 loc_accuracy=0.85,
             )
 
-    def test_trajectory_entry_all_fields_preserved(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_trajectory_entry_all_fields_preserved(self, global_store: GlobalLearningStore) -> None:
         """Test that all fields are correctly stored and retrieved."""
         global_store.record_evolution_entry(
             cycle=16,
@@ -4056,16 +3917,12 @@ class TestEvolutionTrajectoryTracking:
         assert entry.notes == "v16 cycle notes with special chars: <>&"
         assert entry.recorded_at is not None
 
-    def test_get_recurring_issues_empty_database(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_recurring_issues_empty_database(self, global_store: GlobalLearningStore) -> None:
         """Test get_recurring_issues with no data returns empty dict."""
         recurring = global_store.get_recurring_issues()
         assert recurring == {}
 
-    def test_get_trajectory_with_limit(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_trajectory_with_limit(self, global_store: GlobalLearningStore) -> None:
         """Test that trajectory limit parameter works correctly."""
         # Record 10 entries
         for cycle in range(1, 11):
@@ -4121,9 +3978,7 @@ class TestEvolutionTrajectoryTracking:
 class TestPatternQuarantine:
     """Tests for Pattern Quarantine & Provenance feature (v19 Evolution)."""
 
-    def test_new_pattern_starts_pending(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_new_pattern_starts_pending(self, global_store: GlobalLearningStore) -> None:
         """Test that newly created patterns start with PENDING status."""
         pattern_id = global_store.record_pattern(
             pattern_type="validation_failure",
@@ -4135,9 +3990,7 @@ class TestPatternQuarantine:
         assert pattern is not None
         assert pattern.quarantine_status == QuarantineStatus.PENDING
 
-    def test_quarantine_pattern(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_quarantine_pattern(self, global_store: GlobalLearningStore) -> None:
         """Test quarantining a pattern changes status correctly."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -4153,16 +4006,12 @@ class TestPatternQuarantine:
         assert pattern.quarantine_reason == "Causes issues"
         assert pattern.quarantined_at is not None
 
-    def test_quarantine_nonexistent_pattern(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_quarantine_nonexistent_pattern(self, global_store: GlobalLearningStore) -> None:
         """Test quarantining a nonexistent pattern returns False."""
         result = global_store.quarantine_pattern("nonexistent-id")
         assert result is False
 
-    def test_validate_pattern(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_validate_pattern(self, global_store: GlobalLearningStore) -> None:
         """Test validating a pattern changes status correctly."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -4178,16 +4027,12 @@ class TestPatternQuarantine:
         assert pattern.validated_at is not None
         assert pattern.quarantine_reason is None  # Should be cleared
 
-    def test_validate_nonexistent_pattern(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_validate_nonexistent_pattern(self, global_store: GlobalLearningStore) -> None:
         """Test validating a nonexistent pattern returns False."""
         result = global_store.validate_pattern("nonexistent-id")
         assert result is False
 
-    def test_retire_pattern(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_retire_pattern(self, global_store: GlobalLearningStore) -> None:
         """Test retiring a pattern changes status correctly."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -4201,16 +4046,12 @@ class TestPatternQuarantine:
         assert pattern is not None
         assert pattern.quarantine_status == QuarantineStatus.RETIRED
 
-    def test_retire_nonexistent_pattern(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_retire_nonexistent_pattern(self, global_store: GlobalLearningStore) -> None:
         """Test retiring a nonexistent pattern returns False."""
         result = global_store.retire_pattern("nonexistent-id")
         assert result is False
 
-    def test_get_quarantined_patterns(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_quarantined_patterns(self, global_store: GlobalLearningStore) -> None:
         """Test retrieving only quarantined patterns."""
         # Create patterns with different statuses
         id1 = global_store.record_pattern("test", "test:pattern1")
@@ -4229,9 +4070,7 @@ class TestPatternQuarantine:
         assert id2 in quarantined_ids
         assert id3 not in quarantined_ids
 
-    def test_status_transitions(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_status_transitions(self, global_store: GlobalLearningStore) -> None:
         """Test pattern can transition through all status states."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -4261,9 +4100,7 @@ class TestPatternQuarantine:
         assert pattern is not None
         assert pattern.quarantine_status == QuarantineStatus.RETIRED
 
-    def test_provenance_recorded_on_creation(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_provenance_recorded_on_creation(self, global_store: GlobalLearningStore) -> None:
         """Test provenance information is recorded when creating pattern."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -4277,9 +4114,7 @@ class TestPatternQuarantine:
         assert pattern.provenance_job_hash == "abc123def456"
         assert pattern.provenance_sheet_num == 3
 
-    def test_get_pattern_provenance(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_pattern_provenance(self, global_store: GlobalLearningStore) -> None:
         """Test get_pattern_provenance returns complete provenance info."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -4300,16 +4135,12 @@ class TestPatternQuarantine:
         assert provenance["quarantine_reason"] == "Testing provenance"
         assert provenance["quarantined_at"] is not None
 
-    def test_get_pattern_provenance_nonexistent(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_pattern_provenance_nonexistent(self, global_store: GlobalLearningStore) -> None:
         """Test get_pattern_provenance returns None for nonexistent pattern."""
         provenance = global_store.get_pattern_provenance("nonexistent-id")
         assert provenance is None
 
-    def test_get_patterns_with_quarantine_filter(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_patterns_with_quarantine_filter(self, global_store: GlobalLearningStore) -> None:
         """Test get_patterns filters by quarantine status."""
         id1 = global_store.record_pattern("test", "test:filter1")
         id2 = global_store.record_pattern("test", "test:filter2")
@@ -4332,9 +4163,7 @@ class TestPatternQuarantine:
         assert len(quarantined) == 1
         assert quarantined[0].id == id2
 
-    def test_get_patterns_exclude_quarantined(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_patterns_exclude_quarantined(self, global_store: GlobalLearningStore) -> None:
         """Test get_patterns can exclude quarantined patterns."""
         id1 = global_store.record_pattern("test", "test:exclude1")
         id2 = global_store.record_pattern("test", "test:exclude2")
@@ -4361,9 +4190,7 @@ class TestPatternQuarantine:
 class TestPatternTrustScoring:
     """Tests for Pattern Trust Scoring feature (v19 Evolution)."""
 
-    def test_new_pattern_starts_with_neutral_trust(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_new_pattern_starts_with_neutral_trust(self, global_store: GlobalLearningStore) -> None:
         """Test that newly created patterns start with 0.5 trust score."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -4374,9 +4201,7 @@ class TestPatternTrustScoring:
         assert pattern is not None
         assert pattern.trust_score == 0.5
 
-    def test_calculate_trust_score_basic(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_calculate_trust_score_basic(self, global_store: GlobalLearningStore) -> None:
         """Test trust score calculation with basic success/failure data."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -4403,9 +4228,7 @@ class TestPatternTrustScoring:
         assert trust > 0.5
         assert trust <= 1.0
 
-    def test_calculate_trust_score_nonexistent(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_calculate_trust_score_nonexistent(self, global_store: GlobalLearningStore) -> None:
         """Test trust score calculation returns None for nonexistent pattern."""
         trust = global_store.calculate_trust_score("nonexistent-id")
         assert trust is None
@@ -4452,9 +4275,7 @@ class TestPatternTrustScoring:
         # Validation bonus is +0.1
         assert trust_after > trust_before
 
-    def test_update_trust_score_increases(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_update_trust_score_increases(self, global_store: GlobalLearningStore) -> None:
         """Test that update_trust_score can increase trust."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -4470,9 +4291,7 @@ class TestPatternTrustScoring:
         assert new_trust is not None
         assert new_trust == trust_before + 0.2
 
-    def test_update_trust_score_decreases(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_update_trust_score_decreases(self, global_store: GlobalLearningStore) -> None:
         """Test that update_trust_score can decrease trust."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -4505,16 +4324,12 @@ class TestPatternTrustScoring:
         trust_low = global_store.update_trust_score(pattern_id, delta=-10.0)
         assert trust_low == 0.0
 
-    def test_update_trust_score_nonexistent(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_update_trust_score_nonexistent(self, global_store: GlobalLearningStore) -> None:
         """Test update_trust_score returns None for nonexistent pattern."""
         result = global_store.update_trust_score("nonexistent-id", delta=0.1)
         assert result is None
 
-    def test_get_high_trust_patterns(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_high_trust_patterns(self, global_store: GlobalLearningStore) -> None:
         """Test filtering patterns by high trust score."""
         id1 = global_store.record_pattern("test", "test:high_trust1")
         id2 = global_store.record_pattern("test", "test:high_trust2")
@@ -4532,9 +4347,7 @@ class TestPatternTrustScoring:
         assert id2 in high_trust_ids
         assert id3 not in high_trust_ids
 
-    def test_get_low_trust_patterns(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_low_trust_patterns(self, global_store: GlobalLearningStore) -> None:
         """Test filtering patterns by low trust score."""
         id1 = global_store.record_pattern("test", "test:low1")
         id2 = global_store.record_pattern("test", "test:low2")
@@ -4552,9 +4365,7 @@ class TestPatternTrustScoring:
         assert id2 in low_trust_ids
         assert id3 not in low_trust_ids
 
-    def test_recalculate_all_trust_scores(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_recalculate_all_trust_scores(self, global_store: GlobalLearningStore) -> None:
         """Test batch recalculation of trust scores."""
         # Create several patterns
         for i in range(5):
@@ -4564,9 +4375,7 @@ class TestPatternTrustScoring:
 
         assert updated == 5
 
-    def test_trust_score_decay_over_time(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_trust_score_decay_over_time(self, global_store: GlobalLearningStore) -> None:
         """Test that trust score accounts for time decay."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -4590,9 +4399,7 @@ class TestPatternTrustScoring:
         # So overall trust should be around 0.5 + 0.15 = 0.65, not higher
         assert trust < 0.8
 
-    def test_get_patterns_with_trust_filter(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_patterns_with_trust_filter(self, global_store: GlobalLearningStore) -> None:
         """Test get_patterns filters by trust score range."""
         id1 = global_store.record_pattern("test", "test:trust_filter1")
         id2 = global_store.record_pattern("test", "test:trust_filter2")
@@ -4613,9 +4420,7 @@ class TestPatternTrustScoring:
         assert low[0].id == id3
 
         # Filter by range
-        mid = global_store.get_patterns(
-            min_priority=0.0, min_trust=0.4, max_trust=0.6
-        )
+        mid = global_store.get_patterns(min_priority=0.0, min_trust=0.4, max_trust=0.6)
         assert len(mid) == 1
         assert mid[0].id == id2
 
@@ -4907,9 +4712,7 @@ class TestPatternSuccessFactorsIntegration:
         assert pattern.success_factors.validation_types == ["file"]
         assert pattern.success_factors_updated_at == now
 
-    def test_update_success_factors_creates_new(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_update_success_factors_creates_new(self, global_store: GlobalLearningStore) -> None:
         """Test update_success_factors creates factors for pattern without any."""
         # Create a pattern
         pattern_id = global_store.record_pattern(
@@ -4936,9 +4739,7 @@ class TestPatternSuccessFactorsIntegration:
         assert factors.occurrence_count == 1
         assert factors.grounding_confidence == 0.9
 
-    def test_update_success_factors_aggregates(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_update_success_factors_aggregates(self, global_store: GlobalLearningStore) -> None:
         """Test update_success_factors aggregates multiple observations."""
         # Create a pattern
         pattern_id = global_store.record_pattern(
@@ -4983,9 +4784,7 @@ class TestPatternSuccessFactorsIntegration:
         )
         assert result is None
 
-    def test_get_success_factors(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_success_factors(self, global_store: GlobalLearningStore) -> None:
         """Test get_success_factors retrieves stored factors."""
         # Create a pattern with factors
         pattern_id = global_store.record_pattern(
@@ -5006,16 +4805,12 @@ class TestPatternSuccessFactorsIntegration:
         assert factors.validation_types == ["file"]
         assert factors.retry_iteration == 1
 
-    def test_get_success_factors_nonexistent(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_success_factors_nonexistent(self, global_store: GlobalLearningStore) -> None:
         """Test get_success_factors returns None for nonexistent pattern."""
         result = global_store.get_success_factors("nonexistent")
         assert result is None
 
-    def test_analyze_pattern_why_with_factors(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_analyze_pattern_why_with_factors(self, global_store: GlobalLearningStore) -> None:
         """Test analyze_pattern_why returns meaningful analysis."""
         # Create a pattern with success factors
         pattern_id = global_store.record_pattern(
@@ -5050,9 +4845,7 @@ class TestPatternSuccessFactorsIntegration:
         assert len(analysis["key_conditions"]) > 0
         assert len(analysis["recommendations"]) > 0
 
-    def test_analyze_pattern_why_without_factors(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_analyze_pattern_why_without_factors(self, global_store: GlobalLearningStore) -> None:
         """Test analyze_pattern_why for pattern without captured factors."""
         pattern_id = global_store.record_pattern(
             pattern_type="test",
@@ -5068,16 +4861,12 @@ class TestPatternSuccessFactorsIntegration:
         assert analysis["confidence"] == 0.0
         assert "Apply this pattern" in analysis["recommendations"][0]
 
-    def test_analyze_pattern_why_nonexistent(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_analyze_pattern_why_nonexistent(self, global_store: GlobalLearningStore) -> None:
         """Test analyze_pattern_why for nonexistent pattern."""
         analysis = global_store.analyze_pattern_why("nonexistent")
         assert "error" in analysis
 
-    def test_get_patterns_with_why(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_patterns_with_why(self, global_store: GlobalLearningStore) -> None:
         """Test get_patterns_with_why returns patterns with analysis."""
         # Create patterns with varying observations
         for i in range(3):
@@ -5106,9 +4895,7 @@ class TestPatternSuccessFactorsIntegration:
             assert analysis["has_factors"] is True
             assert analysis["observation_count"] >= 2
 
-    def test_success_factors_persistence(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_success_factors_persistence(self, global_store: GlobalLearningStore) -> None:
         """Test success factors are persisted and retrieved from database."""
         from marianne.learning.global_store import GlobalLearningStore
 
@@ -5199,9 +4986,7 @@ class TestAutoApplyConfig:
         """Test LearningConfig can include auto_apply."""
         from marianne.core.config import AutoApplyConfig, LearningConfig
 
-        learning = LearningConfig(
-            auto_apply=AutoApplyConfig(enabled=True, trust_threshold=0.8)
-        )
+        learning = LearningConfig(auto_apply=AutoApplyConfig(enabled=True, trust_threshold=0.8))
 
         assert learning.auto_apply is not None
         assert learning.auto_apply.enabled is True
@@ -5248,9 +5033,7 @@ class TestGetPatternsForAutoApply:
 
         return pattern_id
 
-    def test_get_patterns_for_auto_apply_basic(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_patterns_for_auto_apply_basic(self, global_store: GlobalLearningStore) -> None:
         """Test basic auto-apply pattern retrieval."""
         # Create a high-trust validated pattern
         pattern_id = self._create_validated_high_trust_pattern(
@@ -5272,15 +5055,9 @@ class TestGetPatternsForAutoApply:
     ) -> None:
         """Test auto-apply filters out low-trust patterns."""
         # Create patterns with varying trust
-        self._create_validated_high_trust_pattern(
-            global_store, "High Trust", trust=0.9
-        )
-        self._create_validated_high_trust_pattern(
-            global_store, "Medium Trust", trust=0.7
-        )
-        self._create_validated_high_trust_pattern(
-            global_store, "Low Trust", trust=0.5
-        )
+        self._create_validated_high_trust_pattern(global_store, "High Trust", trust=0.9)
+        self._create_validated_high_trust_pattern(global_store, "Medium Trust", trust=0.7)
+        self._create_validated_high_trust_pattern(global_store, "Low Trust", trust=0.5)
 
         patterns = global_store.get_patterns_for_auto_apply(
             trust_threshold=0.85,
@@ -5413,15 +5190,9 @@ class TestGetPatternsForAutoApply:
     ) -> None:
         """Test auto-apply patterns are ordered by trust score."""
         # Create patterns with different trust scores
-        self._create_validated_high_trust_pattern(
-            global_store, "Medium High", trust=0.88
-        )
-        self._create_validated_high_trust_pattern(
-            global_store, "Highest", trust=0.95
-        )
-        self._create_validated_high_trust_pattern(
-            global_store, "Just Above", trust=0.86
-        )
+        self._create_validated_high_trust_pattern(global_store, "Medium High", trust=0.88)
+        self._create_validated_high_trust_pattern(global_store, "Highest", trust=0.95)
+        self._create_validated_high_trust_pattern(global_store, "Just Above", trust=0.86)
 
         patterns = global_store.get_patterns_for_auto_apply(
             trust_threshold=0.85,
@@ -5446,9 +5217,7 @@ class TestExplorationBudget:
     exploration budget that prevents convergence to zero.
     """
 
-    def test_update_exploration_budget_basic(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_update_exploration_budget_basic(self, global_store: GlobalLearningStore) -> None:
         """Test basic budget update recording."""
 
         record = global_store.update_exploration_budget(
@@ -5465,9 +5234,7 @@ class TestExplorationBudget:
         assert record.entropy_at_time == 0.5
         assert record.job_hash == "test-job"
 
-    def test_budget_floor_enforcement(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_budget_floor_enforcement(self, global_store: GlobalLearningStore) -> None:
         """Test that budget floor is enforced."""
         record = global_store.update_exploration_budget(
             job_hash="test-job",
@@ -5480,9 +5247,7 @@ class TestExplorationBudget:
         assert record.budget_value == 0.05
         assert record.adjustment_type == "floor_enforced"
 
-    def test_budget_ceiling_enforcement(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_budget_ceiling_enforcement(self, global_store: GlobalLearningStore) -> None:
         """Test that budget ceiling is enforced."""
         record = global_store.update_exploration_budget(
             job_hash="test-job",
@@ -5495,9 +5260,7 @@ class TestExplorationBudget:
         assert record.budget_value == 0.50
         assert record.adjustment_type == "ceiling_enforced"
 
-    def test_get_exploration_budget_returns_latest(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_exploration_budget_returns_latest(self, global_store: GlobalLearningStore) -> None:
         """Test that get_exploration_budget returns the most recent record."""
         # Create multiple records
         global_store.update_exploration_budget(
@@ -5517,9 +5280,7 @@ class TestExplorationBudget:
         assert current.budget_value == 0.20
         assert current.adjustment_type == "boost"
 
-    def test_get_exploration_budget_filters_by_job(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_exploration_budget_filters_by_job(self, global_store: GlobalLearningStore) -> None:
         """Test that get_exploration_budget filters by job hash."""
         global_store.update_exploration_budget(
             job_hash="job-a",
@@ -5540,9 +5301,7 @@ class TestExplorationBudget:
         assert budget_b is not None
         assert budget_b.budget_value == 0.25
 
-    def test_get_exploration_budget_history(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_exploration_budget_history(self, global_store: GlobalLearningStore) -> None:
         """Test that budget history is returned correctly."""
         # Create multiple records
         for i in range(5):
@@ -5552,18 +5311,14 @@ class TestExplorationBudget:
                 adjustment_type=f"record-{i}",
             )
 
-        history = global_store.get_exploration_budget_history(
-            job_hash="test-job", limit=3
-        )
+        history = global_store.get_exploration_budget_history(job_hash="test-job", limit=3)
 
         assert len(history) == 3
         # Should be most recent first
         assert history[0].budget_value == pytest.approx(0.30, abs=0.001)  # Last created
         assert history[2].budget_value == pytest.approx(0.20, abs=0.001)
 
-    def test_calculate_budget_adjustment_initial(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_calculate_budget_adjustment_initial(self, global_store: GlobalLearningStore) -> None:
         """Test initial budget adjustment when no history exists."""
         record = global_store.calculate_budget_adjustment(
             job_hash="new-job",
@@ -5618,9 +5373,7 @@ class TestExplorationBudget:
         assert record.adjustment_type == "decay"
         assert record.budget_value == 0.20 * 0.95  # Decayed
 
-    def test_budget_persistence_roundtrip(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_budget_persistence_roundtrip(self, global_store: GlobalLearningStore) -> None:
         """Test that budget records persist correctly to database."""
         from datetime import datetime
 
@@ -5645,9 +5398,7 @@ class TestExplorationBudget:
         assert retrieved.adjustment_reason == original.adjustment_reason
         assert isinstance(retrieved.recorded_at, datetime)
 
-    def test_get_exploration_budget_statistics(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_exploration_budget_statistics(self, global_store: GlobalLearningStore) -> None:
         """Test budget statistics calculation."""
         # Create mix of records
         global_store.update_exploration_budget(
@@ -5742,9 +5493,7 @@ class TestEntropyResponse:
         assert needs_response is False
         assert "Cooldown active" in reason
 
-    def test_trigger_entropy_response_basic(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_trigger_entropy_response_basic(self, global_store: GlobalLearningStore) -> None:
         """Test basic entropy response triggering."""
 
         record = global_store.trigger_entropy_response(
@@ -5807,9 +5556,7 @@ class TestEntropyResponse:
 
         # Verify it's quarantined
         patterns = global_store.get_patterns(limit=10)
-        quarantined_pattern = next(
-            (p for p in patterns if p.id == pattern_id), None
-        )
+        quarantined_pattern = next((p for p in patterns if p.id == pattern_id), None)
         assert quarantined_pattern is not None
         assert quarantined_pattern.quarantine_status == QuarantineStatus.QUARANTINED
 
@@ -5829,9 +5576,7 @@ class TestEntropyResponse:
 
         # Verify pattern status changed to PENDING
         patterns = global_store.get_patterns(limit=10)
-        updated_pattern = next(
-            (p for p in patterns if p.id == pattern_id), None
-        )
+        updated_pattern = next((p for p in patterns if p.id == pattern_id), None)
         assert updated_pattern is not None
         assert updated_pattern.quarantine_status == QuarantineStatus.PENDING
 
@@ -5865,9 +5610,7 @@ class TestEntropyResponse:
         assert record.quarantine_revisits == 2
         assert len(record.patterns_revisited) == 2
 
-    def test_get_last_entropy_response(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_last_entropy_response(self, global_store: GlobalLearningStore) -> None:
         """Test retrieving the last entropy response."""
         # Create multiple responses
         global_store.trigger_entropy_response(
@@ -5890,9 +5633,7 @@ class TestEntropyResponse:
         assert last is not None
         assert last.entropy_at_trigger == 0.15  # Most recent
 
-    def test_get_entropy_response_history(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_entropy_response_history(self, global_store: GlobalLearningStore) -> None:
         """Test retrieving entropy response history."""
         # Create multiple responses
         for i in range(5):
@@ -5904,17 +5645,13 @@ class TestEntropyResponse:
                 revisit_quarantine=False,
             )
 
-        history = global_store.get_entropy_response_history(
-            job_hash="test-job", limit=3
-        )
+        history = global_store.get_entropy_response_history(job_hash="test-job", limit=3)
 
         assert len(history) == 3
         # Should be most recent first
         assert history[0].entropy_at_trigger == pytest.approx(0.24, abs=0.001)
 
-    def test_get_entropy_response_statistics(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_get_entropy_response_statistics(self, global_store: GlobalLearningStore) -> None:
         """Test entropy response statistics calculation."""
         # Create responses with different characteristics
         global_store.trigger_entropy_response(
@@ -5976,9 +5713,7 @@ class TestEntropyResponse:
         assert entropy is None
         assert "No pattern applications" in reason
 
-    def test_entropy_response_job_isolation(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_entropy_response_job_isolation(self, global_store: GlobalLearningStore) -> None:
         """Test that responses are isolated by job hash."""
         # Create responses for different jobs
         global_store.trigger_entropy_response(

@@ -44,11 +44,13 @@ class TestRecoveryRerunsFailurePropagation:
 
         # Simulate recovery: sheet 1 FAILED, sheet 2 (depends on 1) PENDING
         # This is what happens when failure propagation wasn't synced
-        states = _make_states({
-            1: BatonSheetStatus.FAILED,
-            2: BatonSheetStatus.PENDING,  # Should have been SKIPPED
-            3: BatonSheetStatus.COMPLETED,
-        })
+        states = _make_states(
+            {
+                1: BatonSheetStatus.FAILED,
+                2: BatonSheetStatus.PENDING,  # Should have been SKIPPED
+                3: BatonSheetStatus.COMPLETED,
+            }
+        )
         deps = {2: [1], 3: []}  # Sheet 2 depends on sheet 1
 
         baton.register_job("test-job", states, deps)
@@ -58,19 +60,20 @@ class TestRecoveryRerunsFailurePropagation:
         sheet2 = baton.get_sheet_state("test-job", 2)
         assert sheet2 is not None
         assert sheet2.status == BatonSheetStatus.SKIPPED, (
-            "Sheet 2 should be SKIPPED (blocked by failed dependency). "
-            f"Got: {sheet2.status}"
+            f"Sheet 2 should be SKIPPED (blocked by failed dependency). Got: {sheet2.status}"
         )
 
     def test_transitive_failure_propagation_on_recovery(self) -> None:
         """Chain: 1→2→3. Sheet 1 FAILED, 2 and 3 PENDING → both SKIPPED."""
         baton = BatonCore()
 
-        states = _make_states({
-            1: BatonSheetStatus.FAILED,
-            2: BatonSheetStatus.PENDING,
-            3: BatonSheetStatus.PENDING,
-        })
+        states = _make_states(
+            {
+                1: BatonSheetStatus.FAILED,
+                2: BatonSheetStatus.PENDING,
+                3: BatonSheetStatus.PENDING,
+            }
+        )
         deps = {2: [1], 3: [2]}  # 3 depends on 2, 2 depends on 1
 
         baton.register_job("chain-job", states, deps)
@@ -84,10 +87,12 @@ class TestRecoveryRerunsFailurePropagation:
         """Sheet 1 FAILED, sheet 2 COMPLETED → sheet 2 stays COMPLETED."""
         baton = BatonCore()
 
-        states = _make_states({
-            1: BatonSheetStatus.FAILED,
-            2: BatonSheetStatus.COMPLETED,
-        })
+        states = _make_states(
+            {
+                1: BatonSheetStatus.FAILED,
+                2: BatonSheetStatus.COMPLETED,
+            }
+        )
         deps = {2: [1]}
 
         baton.register_job("safe-job", states, deps)
@@ -99,10 +104,12 @@ class TestRecoveryRerunsFailurePropagation:
         """All sheets PENDING with no failures → no propagation occurs."""
         baton = BatonCore()
 
-        states = _make_states({
-            1: BatonSheetStatus.PENDING,
-            2: BatonSheetStatus.PENDING,
-        })
+        states = _make_states(
+            {
+                1: BatonSheetStatus.PENDING,
+                2: BatonSheetStatus.PENDING,
+            }
+        )
         deps = {2: [1]}
 
         baton.register_job("fresh-job", states, deps)
@@ -117,13 +124,15 @@ class TestRecoveryRerunsFailurePropagation:
         baton = BatonCore()
 
         # Two independent failure chains
-        states = _make_states({
-            1: BatonSheetStatus.FAILED,
-            2: BatonSheetStatus.PENDING,  # Depends on 1
-            3: BatonSheetStatus.FAILED,
-            4: BatonSheetStatus.PENDING,  # Depends on 3
-            5: BatonSheetStatus.PENDING,  # No dependencies
-        })
+        states = _make_states(
+            {
+                1: BatonSheetStatus.FAILED,
+                2: BatonSheetStatus.PENDING,  # Depends on 1
+                3: BatonSheetStatus.FAILED,
+                4: BatonSheetStatus.PENDING,  # Depends on 3
+                5: BatonSheetStatus.PENDING,  # No dependencies
+            }
+        )
         deps = {2: [1], 4: [3], 5: []}
 
         baton.register_job("multi-fail", states, deps)
@@ -139,12 +148,14 @@ class TestRecoveryRerunsFailurePropagation:
         """Diamond: 1→{2,3}→4. Sheet 1 FAILED → 2, 3, 4 all SKIPPED."""
         baton = BatonCore()
 
-        states = _make_states({
-            1: BatonSheetStatus.FAILED,
-            2: BatonSheetStatus.PENDING,
-            3: BatonSheetStatus.PENDING,
-            4: BatonSheetStatus.PENDING,
-        })
+        states = _make_states(
+            {
+                1: BatonSheetStatus.FAILED,
+                2: BatonSheetStatus.PENDING,
+                3: BatonSheetStatus.PENDING,
+                4: BatonSheetStatus.PENDING,
+            }
+        )
         # 2 depends on 1, 3 depends on 1, 4 depends on both 2 and 3
         deps = {2: [1], 3: [1], 4: [2, 3]}
 
@@ -153,19 +164,20 @@ class TestRecoveryRerunsFailurePropagation:
         for num in [2, 3, 4]:
             sheet = baton.get_sheet_state("diamond-job", num)
             assert sheet is not None and sheet.status == BatonSheetStatus.SKIPPED, (
-                f"Sheet {num} should be SKIPPED (blocked by failed dependency). "
-                f"Got: {sheet.status}"
+                f"Sheet {num} should be SKIPPED (blocked by failed dependency). Got: {sheet.status}"
             )
 
     def test_job_completes_after_recovery_propagation(self) -> None:
         """After propagation, is_job_complete returns True (no zombies)."""
         baton = BatonCore()
 
-        states = _make_states({
-            1: BatonSheetStatus.FAILED,
-            2: BatonSheetStatus.PENDING,
-            3: BatonSheetStatus.COMPLETED,
-        })
+        states = _make_states(
+            {
+                1: BatonSheetStatus.FAILED,
+                2: BatonSheetStatus.PENDING,
+                3: BatonSheetStatus.COMPLETED,
+            }
+        )
         deps = {2: [1], 3: []}
 
         baton.register_job("zombie-check", states, deps)

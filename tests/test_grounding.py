@@ -191,9 +191,7 @@ class TestFileChecksumGroundingHook:
                 hasher.update(f.read())
             expected_hash = hasher.hexdigest()
 
-            hook = FileChecksumGroundingHook(
-                expected_checksums={temp_path: expected_hash}
-            )
+            hook = FileChecksumGroundingHook(expected_checksums={temp_path: expected_hash})
             context = GroundingContext(
                 job_id="test_job",
                 sheet_num=1,
@@ -216,9 +214,7 @@ class TestFileChecksumGroundingHook:
             temp_path = f.name
 
         try:
-            hook = FileChecksumGroundingHook(
-                expected_checksums={temp_path: "wrong_hash_value"}
-            )
+            hook = FileChecksumGroundingHook(expected_checksums={temp_path: "wrong_hash_value"})
             context = GroundingContext(
                 job_id="test_job",
                 sheet_num=1,
@@ -236,9 +232,7 @@ class TestFileChecksumGroundingHook:
     @pytest.mark.asyncio
     async def test_validate_file_not_found(self):
         """Test validation fails when file doesn't exist."""
-        hook = FileChecksumGroundingHook(
-            expected_checksums={"/nonexistent/file.txt": "abc123"}
-        )
+        hook = FileChecksumGroundingHook(expected_checksums={"/nonexistent/file.txt": "abc123"})
         context = GroundingContext(
             job_id="test_job",
             sheet_num=1,
@@ -280,9 +274,7 @@ class TestGroundingEngine:
     async def test_run_hooks_empty(self):
         """Test run_hooks with no hooks returns empty list."""
         engine = GroundingEngine()
-        context = GroundingContext(
-            job_id="test", sheet_num=1, prompt="", output=""
-        )
+        context = GroundingContext(job_id="test", sheet_num=1, prompt="", output="")
 
         results = await engine.run_hooks(context, GroundingPhase.POST_VALIDATION)
 
@@ -296,9 +288,7 @@ class TestGroundingEngine:
 
         engine.add_hook(hook)
 
-        context = GroundingContext(
-            job_id="test", sheet_num=1, prompt="", output=""
-        )
+        context = GroundingContext(job_id="test", sheet_num=1, prompt="", output="")
 
         # PRE_VALIDATION should not run POST_VALIDATION hook
         pre_results = await engine.run_hooks(context, GroundingPhase.PRE_VALIDATION)
@@ -459,9 +449,7 @@ class TestGroundingDecisionContext:
 
         results = [
             GroundingResult(passed=True, hook_name="hook1"),
-            GroundingResult(
-                passed=False, hook_name="hook2", should_escalate=True
-            ),
+            GroundingResult(passed=False, hook_name="hook2", should_escalate=True),
         ]
         ctx = GroundingDecisionContext.from_results(results)
 

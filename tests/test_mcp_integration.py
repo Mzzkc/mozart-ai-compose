@@ -48,33 +48,27 @@ class TestMCPServerIntegration:
             total_sheets=2,
             sheets={
                 1: SheetState(
-                    sheet_num=1,
-                    status=SheetStatus.COMPLETED,
-                    stdout_tail="",
-                    stderr_tail=""
+                    sheet_num=1, status=SheetStatus.COMPLETED, stdout_tail="", stderr_tail=""
                 ),
                 2: SheetState(
-                    sheet_num=2,
-                    status=SheetStatus.IN_PROGRESS,
-                    stdout_tail="",
-                    stderr_tail=""
-                )
-            }
+                    sheet_num=2, status=SheetStatus.IN_PROGRESS, stdout_tail="", stderr_tail=""
+                ),
+            },
         )
 
         # Create state file
         state_file = temp_workspace / "test-job.json"
-        with open(state_file, 'w') as f:
+        with open(state_file, "w") as f:
             # Simplified state representation for testing
-            json.dump({
-                "job_name": "test-job",
-                "status": "running",
-                "started_at": "2024-01-01T00:00:00Z",
-                "sheets": {
-                    "1": {"status": "completed"},
-                    "2": {"status": "running"}
-                }
-            }, f)
+            json.dump(
+                {
+                    "job_name": "test-job",
+                    "status": "running",
+                    "started_at": "2024-01-01T00:00:00Z",
+                    "sheets": {"1": {"status": "completed"}, "2": {"status": "running"}},
+                },
+                f,
+            )
 
         return state
 
@@ -133,27 +127,29 @@ class TestMCPServerIntegration:
 
         # Test get_job
         with (
-            patch.object(mcp_server.state_backend, 'load', return_value=sample_job_state),
-            patch.object(mcp_server.job_tools.job_control, 'verify_process_health') as mock_health,
+            patch.object(mcp_server.state_backend, "load", return_value=sample_job_state),
+            patch.object(mcp_server.job_tools.job_control, "verify_process_health") as mock_health,
         ):
-                mock_health.return_value = Mock(
-                    pid=12345,
-                    is_alive=True,
-                    is_zombie_state=False,
-                    uptime_seconds=300.0,
-                    cpu_percent=5.2,
-                    memory_mb=128.0
-                )
+            mock_health.return_value = Mock(
+                pid=12345,
+                is_alive=True,
+                is_zombie_state=False,
+                uptime_seconds=300.0,
+                cpu_percent=5.2,
+                memory_mb=128.0,
+            )
 
-                result = await mcp_server.call_tool("get_job", {"job_id": "test-job"})
-                assert "content" in result
-                assert "test-job" in result["content"][0]["text"]
+            result = await mcp_server.call_tool("get_job", {"job_id": "test-job"})
+            assert "content" in result
+            assert "test-job" in result["content"][0]["text"]
 
     async def test_control_tools_integration(self, mcp_server):
         """Test job control tools integration."""
-        with patch.object(mcp_server.control_tools.job_control, 'pause_job') as mock_pause:
+        with patch.object(mcp_server.control_tools.job_control, "pause_job") as mock_pause:
             mock_pause.return_value = Mock(
-                success=True, status="paused", message="Job paused successfully",
+                success=True,
+                status="paused",
+                message="Job paused successfully",
             )
 
             result = await mcp_server.call_tool("pause_job", {"job_id": "test-job"})
@@ -170,17 +166,16 @@ class TestMCPServerIntegration:
         test_file.write_text("Test content")
 
         # Test artifact list
-        result = await mcp_server.call_tool("marianne_artifact_list", {
-            "workspace": str(test_workspace)
-        })
+        result = await mcp_server.call_tool(
+            "marianne_artifact_list", {"workspace": str(test_workspace)}
+        )
         assert "content" in result
         assert "test.txt" in result["content"][0]["text"]
 
         # Test artifact read
-        result = await mcp_server.call_tool("marianne_artifact_read", {
-            "workspace": str(test_workspace),
-            "file_path": "test.txt"
-        })
+        result = await mcp_server.call_tool(
+            "marianne_artifact_read", {"workspace": str(test_workspace), "file_path": "test.txt"}
+        )
         assert "content" in result
         assert "Test content" in result["content"][0]["text"]
 
@@ -191,20 +186,18 @@ class TestMCPServerIntegration:
         test_workspace.mkdir()
 
         # Test validate_score (stub implementation)
-        result = await mcp_server.call_tool("validate_score", {
-            "workspace": str(test_workspace),
-            "min_score": 60,
-            "target_score": 80
-        })
+        result = await mcp_server.call_tool(
+            "validate_score",
+            {"workspace": str(test_workspace), "min_score": 60, "target_score": 80},
+        )
         assert "content" in result
         assert "Quality Score Validation" in result["content"][0]["text"]
         assert "STUB IMPLEMENTATION" in result["content"][0]["text"]
 
         # Test generate_score (stub implementation)
-        result = await mcp_server.call_tool("generate_score", {
-            "workspace": str(test_workspace),
-            "detailed": True
-        })
+        result = await mcp_server.call_tool(
+            "generate_score", {"workspace": str(test_workspace), "detailed": True}
+        )
         assert "content" in result
         assert "Quality Score Generation" in result["content"][0]["text"]
         assert "STUB IMPLEMENTATION" in result["content"][0]["text"]
@@ -234,9 +227,9 @@ class TestMCPServerIntegration:
         # Test that artifact tools reject paths outside workspace
         outside_path = Path("/tmp/outside")
 
-        result = await mcp_server.call_tool("marianne_artifact_list", {
-            "workspace": str(outside_path)
-        })
+        result = await mcp_server.call_tool(
+            "marianne_artifact_list", {"workspace": str(outside_path)}
+        )
         assert "isError" in result
         assert result["isError"] is True
 
@@ -252,11 +245,11 @@ class TestMCPServerIntegration:
         # Execute multiple tools concurrently
         tasks = [
             mcp_server.call_tool("marianne_artifact_list", {"workspace": str(test_workspace)}),
-            mcp_server.call_tool("marianne_artifact_read", {
-                "workspace": str(test_workspace),
-                "file_path": "test0.txt"
-            }),
-            mcp_server.call_tool("validate_score", {"workspace": str(test_workspace)})
+            mcp_server.call_tool(
+                "marianne_artifact_read",
+                {"workspace": str(test_workspace), "file_path": "test0.txt"},
+            ),
+            mcp_server.call_tool("validate_score", {"workspace": str(test_workspace)}),
         ]
 
         results = await asyncio.gather(*tasks)

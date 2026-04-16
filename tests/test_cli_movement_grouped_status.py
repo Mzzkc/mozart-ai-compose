@@ -15,7 +15,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from io import StringIO
 
-import pytest
 from rich.console import Console
 
 from marianne.core.checkpoint import (
@@ -61,7 +60,8 @@ def _make_job(
 ) -> CheckpointState:
     """Helper to build a CheckpointState with sheets."""
     completed = sum(
-        1 for s in sheets.values()
+        1
+        for s in sheets.values()
         if s.status == SheetStatus.COMPLETED and s.validation_passed is not False
     )
     return CheckpointState(
@@ -175,11 +175,15 @@ class TestMovementGrouping:
 
         sheets = {
             1: _make_sheet(
-                1, SheetStatus.COMPLETED, movement=1,
+                1,
+                SheetStatus.COMPLETED,
+                movement=1,
                 instrument_name="claude-code",
             ),
             2: _make_sheet(
-                2, SheetStatus.PENDING, movement=2,
+                2,
+                SheetStatus.PENDING,
+                movement=2,
                 instrument_name="gemini-cli",
             ),
         }
@@ -198,11 +202,15 @@ class TestMovementGrouping:
 
         sheets = {
             1: _make_sheet(
-                1, SheetStatus.COMPLETED, movement=1,
+                1,
+                SheetStatus.COMPLETED,
+                movement=1,
                 instrument_name="claude-code",
             ),
             2: _make_sheet(
-                2, SheetStatus.PENDING, movement=2,
+                2,
+                SheetStatus.PENDING,
+                movement=2,
                 instrument_name="claude-code",
             ),
         }
@@ -225,7 +233,9 @@ class TestMovementGrouping:
         sheets = {
             1: _make_sheet(1, SheetStatus.COMPLETED, movement=1),
             2: _make_sheet(
-                2, SheetStatus.COMPLETED, movement=2,
+                2,
+                SheetStatus.COMPLETED,
+                movement=2,
                 validation_passed=False,
                 error_message="Tests did not pass",
             ),

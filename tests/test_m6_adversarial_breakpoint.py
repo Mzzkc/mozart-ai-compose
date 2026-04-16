@@ -10,9 +10,9 @@ These tests target edge cases, boundary conditions, and interaction bugs
 that standard tests might miss.
 """
 
-import pytest
-from datetime import datetime, timedelta, timezone
-from marianne.core.checkpoint import CheckpointState, SheetState, JobStatus
+from datetime import UTC, datetime, timedelta
+
+from marianne.core.checkpoint import CheckpointState, JobStatus
 
 
 class TestF518CompletedAtEdgeCases:
@@ -28,7 +28,7 @@ class TestF518CompletedAtEdgeCases:
         Edge case: what if the job completed very recently? The fix should still
         clear completed_at because resume means "running again, not completed".
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         checkpoint = CheckpointState(
             job_id="test-job",
             job_name="test",
@@ -43,10 +43,10 @@ class TestF518CompletedAtEdgeCases:
         checkpoint.started_at = now
         checkpoint.completed_at = None  # F-518 fix
 
-        assert checkpoint.completed_at is None, \
+        assert checkpoint.completed_at is None, (
             "completed_at must be None even for recently completed jobs"
-        assert checkpoint.started_at == now, \
-            "started_at must be current time"
+        )
+        assert checkpoint.started_at == now, "started_at must be current time"
 
     def test_completed_at_none_even_if_started_at_is_none(self):
         """Edge case: what if started_at is also None?
@@ -61,7 +61,7 @@ class TestF518CompletedAtEdgeCases:
             status=JobStatus.PENDING,
             sheets={},
             started_at=None,
-            completed_at=datetime.now(timezone.utc),  # Stale
+            completed_at=datetime.now(UTC),  # Stale
         )
 
         # Clearing completed_at should work even if started_at is None
@@ -76,7 +76,7 @@ class TestF518CompletedAtEdgeCases:
         Edge case: what if a job is resumed multiple times? completed_at
         should stay None across all resumes until actual completion.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         old_completed = now - timedelta(days=7)
 
         checkpoint = CheckpointState(
@@ -97,8 +97,7 @@ class TestF518CompletedAtEdgeCases:
         # Second resume (1 hour later)
         checkpoint.started_at = now + timedelta(hours=1)
         checkpoint.completed_at = None
-        assert checkpoint.completed_at is None, \
-            "Multiple resumes must keep completed_at=None"
+        assert checkpoint.completed_at is None, "Multiple resumes must keep completed_at=None"
 
     def test_failed_to_running_transition_clears_completed_at(self):
         """FAILED jobs can also be resumed - they should clear completed_at too.
@@ -106,7 +105,7 @@ class TestF518CompletedAtEdgeCases:
         Edge case: F-518 fix is in the resume path, but what about
         FAILED → RUNNING transitions? Those also need completed_at cleared.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         checkpoint = CheckpointState(
             job_id="test-job",
             job_name="test",
@@ -142,7 +141,7 @@ class TestF493F518Interaction:
         - started_at = current time (F-493)
         - completed_at = None (F-518)
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         old_time = now - timedelta(days=3)
 
         checkpoint = CheckpointState(
@@ -167,7 +166,7 @@ class TestF493F518Interaction:
 
         This is the end-to-end verification that the combined fix works.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         checkpoint = CheckpointState(
             job_id="test-job",
@@ -200,7 +199,7 @@ class TestTimestampBoundaryConditions:
         This is theoretically possible with very fast jobs or low-resolution clocks.
         Elapsed time should be 0.0, not negative.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         checkpoint = CheckpointState(
             job_id="instant-job",
@@ -224,7 +223,7 @@ class TestTimestampBoundaryConditions:
         Python datetime has microsecond precision. The smallest possible
         elapsed time is 1 microsecond.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         later = now + timedelta(microseconds=1)
 
         checkpoint = CheckpointState(
@@ -250,7 +249,7 @@ class TestTimestampBoundaryConditions:
         This is the worst-case scenario that F-518 prevents: a job that
         completed months ago but has started_at from today.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         very_old = now - timedelta(days=365)  # 1 year ago
 
         checkpoint = CheckpointState(
@@ -288,7 +287,7 @@ class TestResumeStateTransitions:
 
     def test_paused_to_running_clears_completed_at(self):
         """Standard resume path: PAUSED → RUNNING."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         checkpoint = CheckpointState(
             job_id="paused-job",
             job_name="test",
@@ -309,7 +308,7 @@ class TestResumeStateTransitions:
 
     def test_failed_to_running_clears_completed_at(self):
         """Resume after failure: FAILED → RUNNING."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         checkpoint = CheckpointState(
             job_id="failed-job",
             job_name="test",
@@ -334,7 +333,7 @@ class TestResumeStateTransitions:
         This might not be a supported path, but if it happens, completed_at
         must still be cleared.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         checkpoint = CheckpointState(
             job_id="rerun-job",
             job_name="test",
@@ -365,11 +364,10 @@ def test_m6_adversarial_test_count():
 
     test_count = 0
     for name, obj in globals().items():
-        if inspect.isclass(obj) and name.startswith('Test'):
+        if inspect.isclass(obj) and name.startswith("Test"):
             for method_name in dir(obj):
-                if method_name.startswith('test_'):
+                if method_name.startswith("test_"):
                     test_count += 1
 
     # Expected: 4 test classes × 3 tests each = 12 tests
-    assert test_count >= 12, \
-        f"Expected at least 12 M6 adversarial tests, found {test_count}"
+    assert test_count >= 12, f"Expected at least 12 M6 adversarial tests, found {test_count}"

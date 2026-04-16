@@ -76,9 +76,7 @@ class TestValidationGenerator:
         gen = ValidationGenerator()
         result = gen.generate(_make_agent_def(), {})
 
-        inspect_vals = [
-            v for v in result if "inspection" in v.get("description", "").lower()
-        ]
+        inspect_vals = [v for v in result if "inspection" in v.get("description", "").lower()]
         assert len(inspect_vals) >= 1
 
     def test_agent_name_in_paths(self) -> None:
@@ -95,19 +93,16 @@ class TestValidationGenerator:
         """Maturity and token budget checks generated when dirs provided."""
         gen = ValidationGenerator()
         result = gen.generate(
-            _make_agent_def(), {},
+            _make_agent_def(),
+            {},
             agents_dir="/test/agents",
             instruments_dir="/test/instruments",
         )
 
-        maturity_vals = [
-            v for v in result if "maturity" in v.get("description", "").lower()
-        ]
+        maturity_vals = [v for v in result if "maturity" in v.get("description", "").lower()]
         assert len(maturity_vals) >= 1
 
-        budget_vals = [
-            v for v in result if "budget" in v.get("description", "").lower()
-        ]
+        budget_vals = [v for v in result if "budget" in v.get("description", "").lower()]
         assert len(budget_vals) >= 1
 
     def test_generate_structural_recon(self) -> None:
@@ -165,7 +160,8 @@ class TestValidationGenerator:
         """Commands use {workspace} format syntax, not Jinja2 {{workspace}}."""
         gen = ValidationGenerator()
         result = gen.generate(
-            _make_agent_def(), {},
+            _make_agent_def(),
+            {},
             agents_dir="/test/agents",
             instruments_dir="/test/instruments",
         )
@@ -173,9 +169,7 @@ class TestValidationGenerator:
         for v in result:
             cmd = v.get("command", "")
             if "{workspace}" in cmd or "{{workspace}}" in cmd:
-                assert "{{workspace}}" not in cmd, (
-                    f"Command uses Jinja2 double braces: {cmd}"
-                )
+                assert "{{workspace}}" not in cmd, f"Command uses Jinja2 double braces: {cmd}"
 
     def test_workspace_format_in_structural(self) -> None:
         """generate_structural uses {workspace} format syntax."""
@@ -192,38 +186,35 @@ class TestValidationGenerator:
         """CLI instrument sheets (temperature, maturity, budget) use command_succeeds."""
         gen = ValidationGenerator()
         result = gen.generate(
-            _make_agent_def(), {},
+            _make_agent_def(),
+            {},
             agents_dir="/test/agents",
             instruments_dir="/test/instruments",
         )
 
         # Temperature check (stage 4), maturity (stage 11), budget (stage 12)
         cli_stages = {"stage == 4", "stage == 11", "stage == 12"}
-        cli_vals = [
-            v for v in result if v.get("condition", "") in cli_stages
-        ]
+        cli_vals = [v for v in result if v.get("condition", "") in cli_stages]
 
         assert len(cli_vals) >= 3, (
             f"Expected at least 3 CLI instrument validations, got {len(cli_vals)}"
         )
         for v in cli_vals:
             assert v["type"] == "command_succeeds", (
-                f"CLI validation at {v['condition']} should be command_succeeds, "
-                f"got {v['type']}"
+                f"CLI validation at {v['condition']} should be command_succeeds, got {v['type']}"
             )
 
     def test_temperature_check_validation(self) -> None:
         """Temperature check validation generated when dirs provided."""
         gen = ValidationGenerator()
         result = gen.generate(
-            _make_agent_def(), {},
+            _make_agent_def(),
+            {},
             agents_dir="/test/agents",
             instruments_dir="/test/instruments",
         )
 
-        temp_vals = [
-            v for v in result if "temperature" in v.get("description", "").lower()
-        ]
+        temp_vals = [v for v in result if "temperature" in v.get("description", "").lower()]
         assert len(temp_vals) >= 1
         assert temp_vals[0]["type"] == "command_succeeds"
         assert "stage == 4" in temp_vals[0]["condition"]
@@ -234,9 +225,7 @@ class TestValidationGenerator:
         gen = ValidationGenerator()
         result = gen.generate(_make_agent_def(), {})
 
-        temp_vals = [
-            v for v in result if "temperature" in v.get("description", "").lower()
-        ]
+        temp_vals = [v for v in result if "temperature" in v.get("description", "").lower()]
         assert len(temp_vals) == 0
 
     def test_coverage_validations_on_inspect(self) -> None:
@@ -253,9 +242,7 @@ class TestValidationGenerator:
         }
         result = gen.generate(_make_agent_def(), defaults)
 
-        cov_vals = [
-            v for v in result if "Coverage check" in v.get("description", "")
-        ]
+        cov_vals = [v for v in result if "Coverage check" in v.get("description", "")]
         assert len(cov_vals) == 1
         assert cov_vals[0]["type"] == "command_succeeds"
         assert "stage == 7" in cov_vals[0]["condition"]
@@ -269,8 +256,10 @@ class TestValidationGenerator:
             "coverage_validations": [{"command": "make cov", "description": "Cov"}],
         }
         result = gen.generate(
-            _make_agent_def(), defaults,
-            agents_dir="/a", instruments_dir="/i",
+            _make_agent_def(),
+            defaults,
+            agents_dir="/a",
+            instruments_dir="/i",
         )
 
         # Group validations by condition stage
@@ -286,22 +275,14 @@ class TestValidationGenerator:
         # Work (stage 3): command_succeeds (TDD)
         assert any(v["type"] == "command_succeeds" for v in by_stage.get("stage == 3", []))
         # Temperature check (stage 4): command_succeeds
-        assert any(
-            v["type"] == "command_succeeds" for v in by_stage.get("stage == 4", [])
-        )
+        assert any(v["type"] == "command_succeeds" for v in by_stage.get("stage == 4", []))
         # Inspect (stage 7): file_exists + command_succeeds (coverage)
         stage_7 = by_stage.get("stage == 7", [])
         assert any(v["type"] == "file_exists" for v in stage_7)
         assert any(v["type"] == "command_succeeds" for v in stage_7)
         # AAR (stage 8): content_contains
-        assert any(
-            v["type"] == "content_contains" for v in by_stage.get("stage == 8", [])
-        )
+        assert any(v["type"] == "content_contains" for v in by_stage.get("stage == 8", []))
         # Maturity (stage 11): command_succeeds
-        assert any(
-            v["type"] == "command_succeeds" for v in by_stage.get("stage == 11", [])
-        )
+        assert any(v["type"] == "command_succeeds" for v in by_stage.get("stage == 11", []))
         # Budget (stage 12): command_succeeds
-        assert any(
-            v["type"] == "command_succeeds" for v in by_stage.get("stage == 12", [])
-        )
+        assert any(v["type"] == "command_succeeds" for v in by_stage.get("stage == 12", []))

@@ -50,7 +50,10 @@ class TestTemplateRendering:
         )
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=3, total_sheets=10, start_item=3, end_item=3,
+            sheet_num=3,
+            total_sheets=10,
+            start_item=3,
+            end_item=3,
             workspace=Path("/workspace"),
         )
         prompt = builder.build_sheet_prompt(ctx)
@@ -68,15 +71,24 @@ class TestTemplateRendering:
         )
         builder = PromptBuilder(config)
         ctx1 = SheetContext(
-            sheet_num=1, total_sheets=5, start_item=1, end_item=1,
+            sheet_num=1,
+            total_sheets=5,
+            start_item=1,
+            end_item=1,
             workspace=Path("/ws"),
         )
         ctx2 = SheetContext(
-            sheet_num=2, total_sheets=5, start_item=2, end_item=2,
+            sheet_num=2,
+            total_sheets=5,
+            start_item=2,
+            end_item=2,
             workspace=Path("/ws"),
         )
         ctx3 = SheetContext(
-            sheet_num=3, total_sheets=5, start_item=3, end_item=3,
+            sheet_num=3,
+            total_sheets=5,
+            start_item=3,
+            end_item=3,
             workspace=Path("/ws"),
         )
         assert "First sheet" in builder.build_sheet_prompt(ctx1)
@@ -93,9 +105,15 @@ class TestTemplateRendering:
         )
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=4, total_sheets=12, start_item=4, end_item=4,
+            sheet_num=4,
+            total_sheets=12,
+            start_item=4,
+            end_item=4,
             workspace=Path("/ws"),
-            stage=2, instance=2, fan_count=3, total_stages=4,
+            stage=2,
+            instance=2,
+            fan_count=3,
+            total_stages=4,
         )
         prompt = builder.build_sheet_prompt(ctx)
         assert "Stage 2" in prompt
@@ -107,7 +125,10 @@ class TestTemplateRendering:
         config = PromptConfig(template="Stage is {{ stage }}")
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=5, total_sheets=10, start_item=5, end_item=5,
+            sheet_num=5,
+            total_sheets=10,
+            start_item=5,
+            end_item=5,
             workspace=Path("/ws"),
             stage=0,  # Unset — should fall back to sheet_num
         )
@@ -119,7 +140,10 @@ class TestTemplateRendering:
         config = PromptConfig(stakes="HIGH STAKES")
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=2, total_sheets=5, start_item=2, end_item=2,
+            sheet_num=2,
+            total_sheets=5,
+            start_item=2,
+            end_item=2,
             workspace=Path("/ws"),
         )
         prompt = builder.build_sheet_prompt(ctx)
@@ -155,7 +179,10 @@ class TestPromptAssemblyOrder:
         builder = PromptBuilder(config)
 
         ctx = SheetContext(
-            sheet_num=1, total_sheets=3, start_item=1, end_item=1,
+            sheet_num=1,
+            total_sheets=3,
+            start_item=1,
+            end_item=1,
             workspace=Path("/ws"),
             injected_skills=["SKILL: Use the Read tool"],
             injected_tools=["TOOL: Bash command"],
@@ -163,12 +190,14 @@ class TestPromptAssemblyOrder:
         )
 
         # Provide all optional sections
-        spec_fragments = [SpecFragment(
-            name="conventions",
-            tags=["code"],
-            kind="text",
-            content="SPEC: Follow PEP 8",
-        )]
+        spec_fragments = [
+            SpecFragment(
+                name="conventions",
+                tags=["code"],
+                kind="text",
+                content="SPEC: Follow PEP 8",
+            )
+        ]
 
         @dataclass
         class FakeFailure:
@@ -228,7 +257,10 @@ class TestPromptAssemblyOrder:
         config = PromptConfig(template="Just the task")
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            sheet_num=1,
+            total_sheets=1,
+            start_item=1,
+            end_item=1,
             workspace=Path("/ws"),
         )
         prompt = builder.build_sheet_prompt(ctx)
@@ -292,7 +324,10 @@ class TestVariableNormalization:
         )
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=1, total_sheets=3, start_item=1, end_item=1,
+            sheet_num=1,
+            total_sheets=3,
+            start_item=1,
+            end_item=1,
             workspace=Path("/ws"),
             instance=1,
         )
@@ -311,7 +346,8 @@ class TestPreambleConstruction:
     def test_first_run_preamble_structure(self) -> None:
         """First-run preamble includes sheet position and workspace."""
         preamble = build_preamble(
-            sheet_num=3, total_sheets=10,
+            sheet_num=3,
+            total_sheets=10,
             workspace=Path("/workspaces/my-job"),
         )
         assert "<marianne-preamble>" in preamble
@@ -323,7 +359,8 @@ class TestPreambleConstruction:
     def test_retry_preamble_includes_retry_count(self) -> None:
         """Retry preamble clearly indicates this is a retry."""
         preamble = build_preamble(
-            sheet_num=3, total_sheets=10,
+            sheet_num=3,
+            total_sheets=10,
             workspace=Path("/ws"),
             retry_count=2,
         )
@@ -333,7 +370,8 @@ class TestPreambleConstruction:
     def test_parallel_preamble_warns_about_concurrency(self) -> None:
         """Parallel execution preamble warns about concurrent access."""
         preamble = build_preamble(
-            sheet_num=1, total_sheets=5,
+            sheet_num=1,
+            total_sheets=5,
             workspace=Path("/ws"),
             is_parallel=True,
         )
@@ -342,7 +380,8 @@ class TestPreambleConstruction:
     def test_sequential_preamble_no_concurrency_warning(self) -> None:
         """Sequential execution preamble doesn't mention concurrency."""
         preamble = build_preamble(
-            sheet_num=1, total_sheets=5,
+            sheet_num=1,
+            total_sheets=5,
             workspace=Path("/ws"),
             is_parallel=False,
         )
@@ -362,7 +401,10 @@ class TestValidationFormatting:
         config = PromptConfig(template="Task")
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=3, total_sheets=5, start_item=3, end_item=3,
+            sheet_num=3,
+            total_sheets=5,
+            start_item=3,
+            end_item=3,
             workspace=Path("/ws"),
         )
 
@@ -390,7 +432,10 @@ class TestValidationFormatting:
         config = PromptConfig(template="Task")
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            sheet_num=1,
+            total_sheets=1,
+            start_item=1,
+            end_item=1,
             workspace=Path("/my/ws"),
         )
         rules = [
@@ -408,7 +453,10 @@ class TestValidationFormatting:
         config = PromptConfig(template="Task")
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            sheet_num=1,
+            total_sheets=1,
+            start_item=1,
+            end_item=1,
             workspace=Path("/ws"),
         )
         rules = [
@@ -435,7 +483,10 @@ class TestSpecFragmentInjection:
         config = PromptConfig(template="Do work")
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            sheet_num=1,
+            total_sheets=1,
+            start_item=1,
+            end_item=1,
             workspace=Path("/ws"),
         )
         fragments = [
@@ -454,7 +505,10 @@ class TestSpecFragmentInjection:
         config = PromptConfig(template="Do work")
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            sheet_num=1,
+            total_sheets=1,
+            start_item=1,
+            end_item=1,
             workspace=Path("/ws"),
         )
         prompt = builder.build_sheet_prompt(ctx, spec_fragments=[])
@@ -465,7 +519,10 @@ class TestSpecFragmentInjection:
         config = PromptConfig(template="Do work")
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            sheet_num=1,
+            total_sheets=1,
+            start_item=1,
+            end_item=1,
             workspace=Path("/ws"),
         )
         fragments = [
@@ -492,7 +549,10 @@ class TestCrossSheetContext:
         )
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=2, total_sheets=3, start_item=2, end_item=2,
+            sheet_num=2,
+            total_sheets=3,
+            start_item=2,
+            end_item=2,
             workspace=Path("/ws"),
             previous_outputs={1: "Sheet 1 generated auth module"},
         )
@@ -506,7 +566,10 @@ class TestCrossSheetContext:
         )
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=2, total_sheets=3, start_item=2, end_item=2,
+            sheet_num=2,
+            total_sheets=3,
+            start_item=2,
+            end_item=2,
             workspace=Path("/ws"),
             previous_files={"arch.md": "# Microservices architecture"},
         )
@@ -520,7 +583,10 @@ class TestCrossSheetContext:
         )
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=3, total_sheets=5, start_item=3, end_item=3,
+            sheet_num=3,
+            total_sheets=5,
+            start_item=3,
+            end_item=3,
             workspace=Path("/ws"),
             previous_outputs={1: "plan", 2: "code"},
         )
@@ -535,7 +601,10 @@ class TestCrossSheetContext:
         )
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            sheet_num=1,
+            total_sheets=1,
+            start_item=1,
+            end_item=1,
             workspace=Path("/ws"),
         )
         prompt = builder.build_sheet_prompt(ctx)
@@ -553,13 +622,14 @@ class TestTemplateFileRendering:
     def test_template_file_rendered_with_variables(self, tmp_path: Path) -> None:
         """Template file is loaded, parsed, and rendered with context."""
         tpl = tmp_path / "prompt.j2"
-        tpl.write_text(
-            "Sheet {{ sheet_num }}: process items {{ start_item }}-{{ end_item }}"
-        )
+        tpl.write_text("Sheet {{ sheet_num }}: process items {{ start_item }}-{{ end_item }}")
         config = PromptConfig(template_file=tpl)
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=3, total_sheets=10, start_item=21, end_item=30,
+            sheet_num=3,
+            total_sheets=10,
+            start_item=21,
+            end_item=30,
             workspace=Path("/ws"),
         )
         prompt = builder.build_sheet_prompt(ctx)
@@ -568,19 +638,25 @@ class TestTemplateFileRendering:
     def test_template_file_with_jinja_conditionals(self, tmp_path: Path) -> None:
         """Jinja2 conditionals work in template files."""
         tpl = tmp_path / "conditional.j2"
-        tpl.write_text(
-            "{% if stage == 1 %}Planning{% else %}Building{% endif %}"
-        )
+        tpl.write_text("{% if stage == 1 %}Planning{% else %}Building{% endif %}")
         config = PromptConfig(template_file=tpl)
         builder = PromptBuilder(config)
 
         ctx1 = SheetContext(
-            sheet_num=1, total_sheets=5, start_item=1, end_item=1,
-            workspace=Path("/ws"), stage=1,
+            sheet_num=1,
+            total_sheets=5,
+            start_item=1,
+            end_item=1,
+            workspace=Path("/ws"),
+            stage=1,
         )
         ctx2 = SheetContext(
-            sheet_num=2, total_sheets=5, start_item=2, end_item=2,
-            workspace=Path("/ws"), stage=2,
+            sheet_num=2,
+            total_sheets=5,
+            start_item=2,
+            end_item=2,
+            workspace=Path("/ws"),
+            stage=2,
         )
         assert "Planning" in builder.build_sheet_prompt(ctx1)
         assert "Building" in builder.build_sheet_prompt(ctx2)
@@ -599,13 +675,17 @@ class TestPromptAdversarial:
         config = PromptConfig(template="")
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            sheet_num=1,
+            total_sheets=1,
+            start_item=1,
+            end_item=1,
             workspace=Path("/ws"),
         )
         # Empty template renders to empty string — but injections can add content
         rules = [
             ValidationRule(
-                type="file_exists", path="/out.txt",
+                type="file_exists",
+                path="/out.txt",
                 description="Output exists",
             ),
         ]
@@ -619,7 +699,10 @@ class TestPromptAdversarial:
         )
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            sheet_num=1,
+            total_sheets=1,
+            start_item=1,
+            end_item=1,
             workspace=Path("/tmp/user's workspace (v2)"),
         )
         prompt = builder.build_sheet_prompt(ctx)
@@ -633,7 +716,10 @@ class TestPromptAdversarial:
         builder = PromptBuilder(config)
         large_output = "x" * 100_000
         ctx = SheetContext(
-            sheet_num=2, total_sheets=2, start_item=1, end_item=1,
+            sheet_num=2,
+            total_sheets=2,
+            start_item=1,
+            end_item=1,
             workspace=Path("/ws"),
             previous_outputs={1: large_output},
         )
@@ -648,7 +734,10 @@ class TestPromptAdversarial:
         )
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            sheet_num=1,
+            total_sheets=1,
+            start_item=1,
+            end_item=1,
             workspace=Path("/ws"),
         )
         prompt = builder.build_sheet_prompt(ctx)
@@ -659,7 +748,10 @@ class TestPromptAdversarial:
         config = PromptConfig(template="Task")
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            sheet_num=1,
+            total_sheets=1,
+            start_item=1,
+            end_item=1,
             workspace=Path("/ws"),
         )
         # Pattern text that happens to look like Jinja2
@@ -682,7 +774,10 @@ class TestHistoricalFailureInjection:
         config = PromptConfig(template="Task")
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=3, total_sheets=5, start_item=3, end_item=3,
+            sheet_num=3,
+            total_sheets=5,
+            start_item=3,
+            end_item=3,
             workspace=Path("/ws"),
         )
 
@@ -695,7 +790,8 @@ class TestHistoricalFailureInjection:
             suggested_fix: str = "Fix the import"
 
         prompt = builder.build_sheet_prompt(
-            ctx, failure_history=[FakeFailure()],  # type: ignore[list-item]
+            ctx,
+            failure_history=[FakeFailure()],  # type: ignore[list-item]
         )
         assert "Previous Sheets" in prompt or "failure" in prompt.lower()
 
@@ -704,7 +800,10 @@ class TestHistoricalFailureInjection:
         config = PromptConfig(template="Task")
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            sheet_num=1,
+            total_sheets=1,
+            start_item=1,
+            end_item=1,
             workspace=Path("/ws"),
         )
         prompt = builder.build_sheet_prompt(ctx)
@@ -737,21 +836,27 @@ class TestCompletionPrompt:
 
         from marianne.prompts.templating import CompletionContext
 
-        passed = [FakeValidationResult(
-            rule=ValidationRule(
-                type="file_exists", path="/ws/done.md",
-                description="Done file",
-            ),
-            expected_value="/ws/done.md",
-        )]
-        failed = [FakeValidationResult(
-            rule=ValidationRule(
-                type="file_exists", path="/ws/missing.md",
-                description="Missing file",
-            ),
-            passed=False,
-            expected_value="/ws/missing.md",
-        )]
+        passed = [
+            FakeValidationResult(
+                rule=ValidationRule(
+                    type="file_exists",
+                    path="/ws/done.md",
+                    description="Done file",
+                ),
+                expected_value="/ws/done.md",
+            )
+        ]
+        failed = [
+            FakeValidationResult(
+                rule=ValidationRule(
+                    type="file_exists",
+                    path="/ws/missing.md",
+                    description="Missing file",
+                ),
+                passed=False,
+                expected_value="/ws/missing.md",
+            )
+        ]
 
         ctx = CompletionContext(
             sheet_num=3,

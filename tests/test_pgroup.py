@@ -179,13 +179,14 @@ class TestCleanupOrphans:
         mock_psutil.Process.return_value = mock_current
         mock_psutil.STATUS_ZOMBIE = "zombie"
 
-        mgr = ProcessGroupManager()
+        ProcessGroupManager()
         with (
             patch.dict("sys.modules", {"psutil": mock_psutil}),
             patch("marianne.daemon.pgroup.os.waitpid"),
         ):
             # Force reimport behavior by patching at module level
             import marianne.daemon.pgroup as pgroup_mod
+
             result = pgroup_mod.ProcessGroupManager().cleanup_orphans()
             # The mock setup may not propagate through reimport, so just
             # verify the method runs without error
@@ -211,7 +212,8 @@ class TestCountGroupMembers:
         with patch.dict("sys.modules", {"psutil": None}):
             # This may or may not find processes, but should not error
             count = ProcessGroupManager._count_group_members(
-                pgid=os.getpgrp(), exclude_pid=-1,
+                pgid=os.getpgrp(),
+                exclude_pid=-1,
             )
             assert isinstance(count, int)
             assert count >= 0
@@ -244,7 +246,9 @@ class TestAtexitCleanup:
         mgr._is_leader = True
 
         with patch.object(
-            mgr, "_count_group_members", side_effect=RuntimeError("boom"),
+            mgr,
+            "_count_group_members",
+            side_effect=RuntimeError("boom"),
         ):
             # Must not raise — atexit handlers should be silent
             mgr._atexit_cleanup()
@@ -366,11 +370,15 @@ class TestReapOrphanedBackends:
     def test_proc_fallback_when_psutil_missing(self) -> None:
         """Falls back to /proc scan when psutil is not installed."""
         mgr = ProcessGroupManager()
-        with patch.dict("sys.modules", {"psutil": None}):
-            with patch.object(
-                mgr, "_reap_orphans_proc", return_value=[111, 222],
-            ) as mock_fallback:
-                killed = mgr.reap_orphaned_backends()
+        with (
+            patch.dict("sys.modules", {"psutil": None}),
+            patch.object(
+                mgr,
+                "_reap_orphans_proc",
+                return_value=[111, 222],
+            ) as mock_fallback,
+        ):
+            killed = mgr.reap_orphaned_backends()
 
         mock_fallback.assert_called_once()
         assert killed == [111, 222]

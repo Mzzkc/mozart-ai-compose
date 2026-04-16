@@ -58,9 +58,7 @@ from hypothesis import HealthCheck, assume, given, settings
 # =============================================================================
 
 # Positive floats for wait times — covers edge cases at boundaries
-_WAIT_SECONDS = st.floats(
-    min_value=0.0, max_value=1e12, allow_nan=False, allow_infinity=False
-)
+_WAIT_SECONDS = st.floats(min_value=0.0, max_value=1e12, allow_nan=False, allow_infinity=False)
 
 # Negative floats to test floor clamping
 _NEGATIVE_FLOATS = st.floats(
@@ -71,10 +69,21 @@ _NEGATIVE_FLOATS = st.floats(
 _ALL_FINITE_FLOATS = st.floats(allow_nan=False, allow_infinity=False)
 
 # Baton sheet statuses
-_ALL_BATON_STATUSES = st.sampled_from([
-    "pending", "ready", "dispatched", "in_progress", "completed",
-    "failed", "skipped", "cancelled", "waiting", "retry_scheduled", "fermata",
-])
+_ALL_BATON_STATUSES = st.sampled_from(
+    [
+        "pending",
+        "ready",
+        "dispatched",
+        "in_progress",
+        "completed",
+        "failed",
+        "skipped",
+        "cancelled",
+        "waiting",
+        "retry_scheduled",
+        "fermata",
+    ]
+)
 
 # Non-negative integers for attempt counts
 _ATTEMPT_COUNTS = st.integers(min_value=0, max_value=20)
@@ -130,9 +139,7 @@ class TestWaitCapClamping:
 
         result = ErrorClassifier._clamp_wait(seconds)
         if RESET_TIME_MINIMUM_WAIT_SECONDS <= seconds <= RESET_TIME_MAXIMUM_WAIT_SECONDS:
-            assert result == seconds, (
-                f"_clamp_wait({seconds}) = {result} but should be identity"
-            )
+            assert result == seconds, f"_clamp_wait({seconds}) = {result} but should be identity"
 
     @given(seconds=_NEGATIVE_FLOATS)
     @settings(max_examples=100)
@@ -165,16 +172,14 @@ class TestWaitCapClamping:
 class TestClearRateLimitSpecificity:
     """clear_instrument_rate_limit targets correctly and moves WAITING→PENDING."""
 
-    def _make_baton_with_instruments(
-        self, names: list[str], rate_limited: list[bool]
-    ) -> Any:
+    def _make_baton_with_instruments(self, names: list[str], rate_limited: list[bool]) -> Any:
         """Create a BatonCore with registered instruments and a job."""
         from marianne.daemon.baton.core import BatonCore
         from marianne.daemon.baton.state import BatonSheetStatus, SheetExecutionState
 
         baton = BatonCore()
         # Register instruments
-        for name, limited in zip(names, rate_limited):
+        for name, limited in zip(names, rate_limited, strict=False):
             inst = baton.register_instrument(name)
             inst.rate_limited = limited
             if limited:
@@ -186,7 +191,9 @@ class TestClearRateLimitSpecificity:
             sheets[i] = SheetExecutionState(
                 sheet_num=i,
                 instrument_name=name,
-                status=BatonSheetStatus.WAITING if rate_limited[i - 1] else BatonSheetStatus.PENDING,
+                status=BatonSheetStatus.WAITING
+                if rate_limited[i - 1]
+                else BatonSheetStatus.PENDING,
             )
         if sheets:
             baton.register_job("test-job", sheets, {})
@@ -208,7 +215,7 @@ class TestClearRateLimitSpecificity:
         baton = self._make_baton_with_instruments(names, limited)
 
         # Pick one rate-limited instrument to clear
-        limited_names = [n for n, l in zip(names, limited) if l]
+        limited_names = [n for n, l in zip(names, limited, strict=False) if l]
         target = data.draw(st.sampled_from(limited_names))
 
         baton.clear_instrument_rate_limit(target)
@@ -219,7 +226,7 @@ class TestClearRateLimitSpecificity:
         assert not target_inst.rate_limited
 
         # Others should be unchanged
-        for name, was_limited in zip(names, limited):
+        for name, was_limited in zip(names, limited, strict=False):
             if name == target:
                 continue
             inst = baton.get_instrument_state(name)
@@ -300,9 +307,7 @@ class TestRateLimitHitTransition:
         wait_seconds=st.floats(min_value=1.0, max_value=3600.0, allow_nan=False),
     )
     @settings(max_examples=200, suppress_health_check=[HealthCheck.too_slow])
-    def test_rate_limit_hit_respects_status(
-        self, status: str, wait_seconds: float
-    ) -> None:
+    def test_rate_limit_hit_respects_status(self, status: str, wait_seconds: float) -> None:
         """_handle_rate_limit_hit only transitions DISPATCHED/RUNNING to WAITING."""
         from marianne.daemon.baton.core import BatonCore
         from marianne.daemon.baton.events import RateLimitHit
@@ -346,12 +351,14 @@ class TestRateLimitHitTransition:
 class TestObserverEventClassification:
     """attempt_result_to_observer_event maps to exactly one of 4 events."""
 
-    _VALID_EVENT_NAMES = frozenset({
-        "rate_limit.active",
-        "sheet.completed",
-        "sheet.partial",
-        "sheet.failed",
-    })
+    _VALID_EVENT_NAMES = frozenset(
+        {
+            "rate_limit.active",
+            "sheet.completed",
+            "sheet.partial",
+            "sheet.failed",
+        }
+    )
 
     @given(
         rate_limited=st.booleans(),
@@ -387,9 +394,7 @@ class TestObserverEventClassification:
 
         event = attempt_result_to_observer_event(result)
         event_name = event["event"]
-        assert event_name in self._VALID_EVENT_NAMES, (
-            f"Unexpected event name: {event_name}"
-        )
+        assert event_name in self._VALID_EVENT_NAMES, f"Unexpected event name: {event_name}"
 
         # Verify determinism — same input → same output
         event2 = attempt_result_to_observer_event(result)
@@ -408,7 +413,10 @@ class TestObserverEventClassification:
         from marianne.daemon.baton.events import SheetAttemptResult
 
         result = SheetAttemptResult(
-            job_id="test", sheet_num=1, instrument_name="inst", attempt=1,
+            job_id="test",
+            sheet_num=1,
+            instrument_name="inst",
+            attempt=1,
             rate_limited=True,
             execution_success=execution_success,
             validation_pass_rate=validation_pass_rate,
@@ -449,7 +457,9 @@ class TestExhaustionDecisionTree:
             healing_attempts=healing_attempts,
         )
         baton.register_job(
-            "j1", {1: sheet}, {},
+            "j1",
+            {1: sheet},
+            {},
             self_healing_enabled=self_healing,
             escalation_enabled=escalation,
         )
@@ -459,11 +469,17 @@ class TestExhaustionDecisionTree:
         # Determine which path was taken
         # Path 1: Fallback (not tested here — no fallback configured)
         # Path 2: Healing — retry_scheduled with healing_attempts incremented
-        healing_triggered = sheet.status == BatonSheetStatus.RETRY_SCHEDULED and sheet.healing_attempts > healing_attempts
+        healing_triggered = (
+            sheet.status == BatonSheetStatus.RETRY_SCHEDULED
+            and sheet.healing_attempts > healing_attempts
+        )
         # Path 3: Escalation — enters fermata
         escalation_triggered = sheet.status == BatonSheetStatus.FERMATA
         # Path 4: Normal retry (last resort) — retry_scheduled WITHOUT healing increment
-        normal_retry_triggered = sheet.status == BatonSheetStatus.RETRY_SCHEDULED and sheet.healing_attempts == healing_attempts
+        normal_retry_triggered = (
+            sheet.status == BatonSheetStatus.RETRY_SCHEDULED
+            and sheet.healing_attempts == healing_attempts
+        )
         # Path 5: Failed — no recovery available
         failed = sheet.status == BatonSheetStatus.FAILED
 
@@ -489,7 +505,9 @@ class TestExhaustionDecisionTree:
             healing_attempts=0,  # Budget available
         )
         baton.register_job(
-            "j1", {1: sheet}, {},
+            "j1",
+            {1: sheet},
+            {},
             self_healing_enabled=True,
             escalation_enabled=True,
         )
@@ -531,8 +549,7 @@ class TestRetryDelayMonotonicity:
         d1 = baton.calculate_retry_delay(attempt)
         d2 = baton.calculate_retry_delay(attempt + 1)
         assert d2 >= d1, (
-            f"Delay not non-decreasing: attempt {attempt}={d1}, "
-            f"attempt {attempt + 1}={d2}"
+            f"Delay not non-decreasing: attempt {attempt}={d1}, attempt {attempt + 1}={d2}"
         )
 
 
@@ -551,17 +568,30 @@ class TestStateMappingRoundTrip:
     """
 
     _ALL_CHECKPOINT_STATUSES = [
-        "pending", "ready", "dispatched", "in_progress",
-        "waiting", "retry_scheduled", "fermata",
-        "completed", "failed", "skipped", "cancelled",
+        "pending",
+        "ready",
+        "dispatched",
+        "in_progress",
+        "waiting",
+        "retry_scheduled",
+        "fermata",
+        "completed",
+        "failed",
+        "skipped",
+        "cancelled",
     ]
 
     # Statuses that survive checkpoint→baton→checkpoint without collapse.
     # Excluded: in_progress (→DISPATCHED→dispatched), waiting (→PENDING→pending),
     # retry_scheduled (→PENDING→pending), fermata (→PENDING→pending).
     _ROUND_TRIP_STABLE = [
-        "pending", "ready", "dispatched",
-        "completed", "failed", "skipped", "cancelled",
+        "pending",
+        "ready",
+        "dispatched",
+        "completed",
+        "failed",
+        "skipped",
+        "cancelled",
     ]
 
     @given(status=st.sampled_from(_ROUND_TRIP_STABLE))
@@ -586,9 +616,7 @@ class TestStateMappingRoundTrip:
 
         for status in BatonSheetStatus:
             result = baton_to_checkpoint_status(status)
-            assert isinstance(result, str), (
-                f"{status.value} has no checkpoint mapping"
-            )
+            assert isinstance(result, str), f"{status.value} has no checkpoint mapping"
             assert result in self._ALL_CHECKPOINT_STATUSES, (
                 f"{status.value} → {result} is not a valid checkpoint status"
             )
@@ -639,14 +667,17 @@ class TestRateLimitAutoResumeTimer:
         baton.register_instrument("inst")
 
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="inst",
+            sheet_num=1,
+            instrument_name="inst",
             status=BatonSheetStatus.DISPATCHED,
         )
         baton.register_job("j1", {1: sheet}, {})
 
         event = RateLimitHit(
-            instrument="inst", wait_seconds=wait_seconds,
-            job_id="j1", sheet_num=1,
+            instrument="inst",
+            wait_seconds=wait_seconds,
+            job_id="j1",
+            sheet_num=1,
         )
         baton._handle_rate_limit_hit(event)
 
@@ -667,14 +698,17 @@ class TestRateLimitAutoResumeTimer:
         baton.register_instrument("inst")
 
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="inst",
+            sheet_num=1,
+            instrument_name="inst",
             status=BatonSheetStatus.DISPATCHED,
         )
         baton.register_job("j1", {1: sheet}, {})
 
         event = RateLimitHit(
-            instrument="inst", wait_seconds=60.0,
-            job_id="j1", sheet_num=1,
+            instrument="inst",
+            wait_seconds=60.0,
+            job_id="j1",
+            sheet_num=1,
         )
         # Should not raise
         baton._handle_rate_limit_hit(event)
@@ -697,20 +731,27 @@ class TestRecordAttemptBudget:
     )
     @settings(max_examples=200, suppress_health_check=[HealthCheck.too_slow])
     def test_budget_charge_rules(
-        self, rate_limited: bool, execution_success: bool,
-        cost: float, duration: float,
+        self,
+        rate_limited: bool,
+        execution_success: bool,
+        cost: float,
+        duration: float,
     ) -> None:
         """Only failed, non-rate-limited attempts increment normal_attempts."""
         from marianne.daemon.baton.events import SheetAttemptResult
         from marianne.daemon.baton.state import SheetExecutionState
 
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="inst",
+            sheet_num=1,
+            instrument_name="inst",
         )
         initial_attempts = sheet.normal_attempts
 
         result = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="inst", attempt=1,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="inst",
+            attempt=1,
             rate_limited=rate_limited,
             execution_success=execution_success,
             cost_usd=cost,
@@ -743,7 +784,9 @@ class TestF018NoValidationGuard:
 
     @given(
         pass_rate=st.floats(
-            min_value=0.0, max_value=100.0, allow_nan=False,
+            min_value=0.0,
+            max_value=100.0,
+            allow_nan=False,
         ),
     )
     @settings(max_examples=100)
@@ -755,14 +798,18 @@ class TestF018NoValidationGuard:
 
         baton = BatonCore()
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="inst",
+            sheet_num=1,
+            instrument_name="inst",
             status=BatonSheetStatus.DISPATCHED,
         )
         baton.register_job("j1", {1: sheet}, {})
         baton.register_instrument("inst")
 
         event = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="inst", attempt=1,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="inst",
+            attempt=1,
             execution_success=True,
             validations_total=0,
             validations_passed=0,
@@ -797,13 +844,19 @@ class TestTerminalStateResistance:
         baton = BatonCore()
         baton_status = BatonSheetStatus(terminal_status)
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="inst", status=baton_status,
+            sheet_num=1,
+            instrument_name="inst",
+            status=baton_status,
         )
         baton.register_job("j1", {1: sheet}, {})
 
         event = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="inst", attempt=1,
-            execution_success=True, validation_pass_rate=100.0,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="inst",
+            attempt=1,
+            execution_success=True,
+            validation_pass_rate=100.0,
         )
         baton._handle_attempt_result(event)
 
@@ -821,12 +874,16 @@ class TestTerminalStateResistance:
         baton = BatonCore()
         baton_status = BatonSheetStatus(terminal_status)
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="inst", status=baton_status,
+            sheet_num=1,
+            instrument_name="inst",
+            status=baton_status,
         )
         baton.register_job("j1", {1: sheet}, {})
 
         event = SheetSkipped(
-            job_id="j1", sheet_num=1, reason="test",
+            job_id="j1",
+            sheet_num=1,
+            reason="test",
         )
         baton._handle_sheet_skipped(event)
 
@@ -843,14 +900,18 @@ class TestTerminalStateResistance:
         baton = BatonCore()
         baton_status = BatonSheetStatus(terminal_status)
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="inst", status=baton_status,
+            sheet_num=1,
+            instrument_name="inst",
+            status=baton_status,
         )
         baton.register_job("j1", {1: sheet}, {})
         baton.register_instrument("inst")
 
         event = RateLimitHit(
-            instrument="inst", wait_seconds=60.0,
-            job_id="j1", sheet_num=1,
+            instrument="inst",
+            wait_seconds=60.0,
+            job_id="j1",
+            sheet_num=1,
         )
         baton._handle_rate_limit_hit(event)
 
@@ -870,9 +931,7 @@ class TestDispatchFailureGuarantee:
         attempt_count=_ATTEMPT_COUNTS,
     )
     @settings(max_examples=50)
-    def test_dispatch_failure_posts_event(
-        self, sheet_num: int, attempt_count: int
-    ) -> None:
+    def test_dispatch_failure_posts_event(self, sheet_num: int, attempt_count: int) -> None:
         """_send_dispatch_failure always produces a SheetAttemptResult with success=False."""
         from marianne.daemon.baton.adapter import BatonAdapter
         from marianne.daemon.baton.events import SheetAttemptResult
@@ -892,7 +951,9 @@ class TestDispatchFailureGuarantee:
         )
 
         adapter._send_dispatch_failure(
-            "j1", sheet_num, "test-inst",
+            "j1",
+            sheet_num,
+            "test-inst",
             "test failure reason",
             state=state,
         )
@@ -929,7 +990,8 @@ class TestClearRateLimitIdempotency:
         inst.rate_limit_expires_at = 99999.0
 
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="inst",
+            sheet_num=1,
+            instrument_name="inst",
         )
         baton.register_job("j1", {1: sheet}, {})
 

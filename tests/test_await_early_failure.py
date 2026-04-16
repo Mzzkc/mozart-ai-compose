@@ -11,10 +11,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_client_mock(
     responses: list[dict[str, Any]],
@@ -30,6 +30,7 @@ def _make_client_mock(
 # Unit tests for await_early_failure()
 # ---------------------------------------------------------------------------
 
+
 class TestAwaitEarlyFailure:
     """Unit tests for await_early_failure() polling logic."""
 
@@ -44,6 +45,7 @@ class TestAwaitEarlyFailure:
             patch("marianne.daemon.ipc.client.DaemonClient", return_value=client),
         ):
             from marianne.cli.helpers import await_early_failure
+
             result = await await_early_failure("test-job", timeout=1.0, poll_interval=0.05)
 
         assert result is not None
@@ -62,6 +64,7 @@ class TestAwaitEarlyFailure:
             patch("marianne.daemon.ipc.client.DaemonClient", return_value=client),
         ):
             from marianne.cli.helpers import await_early_failure
+
             result = await await_early_failure("test-job", timeout=0.2, poll_interval=0.05)
 
         assert result is None
@@ -77,6 +80,7 @@ class TestAwaitEarlyFailure:
             patch("marianne.daemon.ipc.client.DaemonClient", return_value=client),
         ):
             from marianne.cli.helpers import await_early_failure
+
             result = await await_early_failure("test-job", timeout=0.2, poll_interval=0.05)
 
         assert result is None
@@ -92,6 +96,7 @@ class TestAwaitEarlyFailure:
             patch("marianne.daemon.ipc.client.DaemonClient", return_value=client),
         ):
             from marianne.cli.helpers import await_early_failure
+
             result = await await_early_failure("test-job", timeout=0.5, poll_interval=0.05)
 
         assert result is None
@@ -104,6 +109,7 @@ class TestAwaitEarlyFailure:
             side_effect=ImportError("no module"),
         ):
             from marianne.cli.helpers import await_early_failure
+
             result = await await_early_failure("test-job", timeout=0.2, poll_interval=0.05)
 
         assert result is None
@@ -122,6 +128,7 @@ class TestAwaitEarlyFailure:
             patch("marianne.daemon.ipc.client.DaemonClient", return_value=client),
         ):
             from marianne.cli.helpers import await_early_failure
+
             result = await await_early_failure("test-job", timeout=2.0, poll_interval=0.05)
 
         assert result is not None
@@ -138,6 +145,7 @@ class TestAwaitEarlyFailure:
             patch("marianne.daemon.ipc.client.DaemonClient", return_value=client),
         ):
             from marianne.cli.helpers import await_early_failure
+
             result = await await_early_failure("test-job", timeout=1.0, poll_interval=0.05)
 
         assert result is not None
@@ -154,6 +162,7 @@ class TestAwaitEarlyFailure:
             patch("marianne.daemon.ipc.client.DaemonClient", return_value=client),
         ):
             from marianne.cli.helpers import await_early_failure
+
             result = await await_early_failure("test-job", timeout=1.0, poll_interval=0.05)
 
         assert result is not None
@@ -163,6 +172,7 @@ class TestAwaitEarlyFailure:
 # ---------------------------------------------------------------------------
 # Integration-style tests for CLI run command
 # ---------------------------------------------------------------------------
+
 
 class TestRunCommandEarlyFailure:
     """Test that the run command surfaces early failures to the user."""

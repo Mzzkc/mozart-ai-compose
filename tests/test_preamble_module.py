@@ -21,7 +21,9 @@ class TestBuildPreamble:
     def test_first_run_basic(self, workspace: Path) -> None:
         """First-run preamble includes identity, workspace, and validation pointer."""
         result = build_preamble(
-            sheet_num=2, total_sheets=5, workspace=workspace,
+            sheet_num=2,
+            total_sheets=5,
+            workspace=workspace,
         )
         assert "sheet 2 of 5" in result
         assert str(workspace) in result
@@ -31,7 +33,9 @@ class TestBuildPreamble:
     def test_first_run_with_parallel(self, workspace: Path) -> None:
         """Parallel note appears when is_parallel=True."""
         result = build_preamble(
-            sheet_num=1, total_sheets=3, workspace=workspace,
+            sheet_num=1,
+            total_sheets=3,
+            workspace=workspace,
             is_parallel=True,
         )
         assert "concurrently" in result
@@ -39,7 +43,9 @@ class TestBuildPreamble:
     def test_first_run_without_parallel(self, workspace: Path) -> None:
         """No parallel note when is_parallel=False (default)."""
         result = build_preamble(
-            sheet_num=1, total_sheets=3, workspace=workspace,
+            sheet_num=1,
+            total_sheets=3,
+            workspace=workspace,
             is_parallel=False,
         )
         assert "concurrently" not in result
@@ -47,7 +53,9 @@ class TestBuildPreamble:
     def test_retry_warning(self, workspace: Path) -> None:
         """Retry preamble includes RETRY header and failure study instruction."""
         result = build_preamble(
-            sheet_num=1, total_sheets=3, workspace=workspace,
+            sheet_num=1,
+            total_sheets=3,
+            workspace=workspace,
             retry_count=2,
         )
         assert "RETRY #2" in result
@@ -57,15 +65,20 @@ class TestBuildPreamble:
     def test_retry_suppresses_parallel_note(self, workspace: Path) -> None:
         """Retry preamble does not include parallel note (even if parallel)."""
         result = build_preamble(
-            sheet_num=1, total_sheets=3, workspace=workspace,
-            retry_count=1, is_parallel=True,
+            sheet_num=1,
+            total_sheets=3,
+            workspace=workspace,
+            retry_count=1,
+            is_parallel=True,
         )
         assert "concurrently" not in result
 
     def test_proper_xml_tags(self, workspace: Path) -> None:
         """Preamble is wrapped in <marianne-preamble> tags."""
         result = build_preamble(
-            sheet_num=1, total_sheets=1, workspace=workspace,
+            sheet_num=1,
+            total_sheets=1,
+            workspace=workspace,
         )
         assert result.startswith("<marianne-preamble>")
         assert result.endswith("</marianne-preamble>")
@@ -73,7 +86,9 @@ class TestBuildPreamble:
     def test_retry_has_xml_tags(self, workspace: Path) -> None:
         """Retry preamble is also wrapped in <marianne-preamble> tags."""
         result = build_preamble(
-            sheet_num=1, total_sheets=1, workspace=workspace,
+            sheet_num=1,
+            total_sheets=1,
+            workspace=workspace,
             retry_count=3,
         )
         assert result.startswith("<marianne-preamble>")
@@ -82,14 +97,18 @@ class TestBuildPreamble:
     def test_workspace_path_included(self, workspace: Path) -> None:
         """Workspace path is included as-is in the preamble."""
         result = build_preamble(
-            sheet_num=1, total_sheets=1, workspace=workspace,
+            sheet_num=1,
+            total_sheets=1,
+            workspace=workspace,
         )
         assert f"Workspace: {workspace}" in result
 
     def test_retry_count_zero_is_first_run(self, workspace: Path) -> None:
         """retry_count=0 produces first-run preamble, not retry."""
         result = build_preamble(
-            sheet_num=1, total_sheets=1, workspace=workspace,
+            sheet_num=1,
+            total_sheets=1,
+            workspace=workspace,
             retry_count=0,
         )
         assert "RETRY" not in result

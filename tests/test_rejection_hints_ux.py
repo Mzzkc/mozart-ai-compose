@@ -75,9 +75,7 @@ class TestRejectionHintsShutdown:
 class TestRejectionHintsPressure:
     """Backpressure rejections should suggest checking system load."""
 
-    def test_pressure_hints_mention_load_check(
-        self, tmp_path: Path
-    ) -> None:
+    def test_pressure_hints_mention_load_check(self, tmp_path: Path) -> None:
         """High pressure rejection should suggest checking load."""
         config_path = _make_config(tmp_path)
 
@@ -90,9 +88,7 @@ class TestRejectionHintsPressure:
             patch(
                 "marianne.daemon.detect.try_daemon_route",
                 new_callable=AsyncMock,
-                return_value=_mock_rejection(
-                    "System under high pressure — try again later"
-                ),
+                return_value=_mock_rejection("System under high pressure — try again later"),
             ),
         ):
             result = runner.invoke(app, ["run", str(config_path)])
@@ -107,9 +103,7 @@ class TestRejectionHintsDuplicate:
     """When a job with the same name is already running, hints should
     suggest pause/cancel — not generic 'try again later'."""
 
-    def test_duplicate_job_hints_mention_pause_or_cancel(
-        self, tmp_path: Path
-    ) -> None:
+    def test_duplicate_job_hints_mention_pause_or_cancel(self, tmp_path: Path) -> None:
         """Duplicate job rejection should suggest pause or cancel."""
         config_path = _make_config(tmp_path)
 
@@ -143,9 +137,7 @@ class TestRejectionHintsDuplicate:
 class TestRejectionHintsWorkspace:
     """Workspace-related rejections should suggest checking paths."""
 
-    def test_workspace_parent_missing_hints_mention_path(
-        self, tmp_path: Path
-    ) -> None:
+    def test_workspace_parent_missing_hints_mention_path(self, tmp_path: Path) -> None:
         """Workspace parent missing should suggest creating the directory."""
         config_path = _make_config(tmp_path)
 
@@ -176,9 +168,7 @@ class TestRejectionHintsWorkspace:
 class TestRejectionHintsConfigParse:
     """Config parse failures should suggest validation — not 'try again'."""
 
-    def test_config_parse_failure_hints_mention_validate(
-        self, tmp_path: Path
-    ) -> None:
+    def test_config_parse_failure_hints_mention_validate(self, tmp_path: Path) -> None:
         """Config parse rejection should suggest mzt validate."""
         config_path = _make_config(tmp_path)
 
@@ -217,9 +207,7 @@ class TestEarlyFailureDisplay:
     """When a job fails immediately after submission, the error detail
     should be included in the structured output — not as a raw print."""
 
-    def test_early_failure_shows_error_detail_in_hints(
-        self, tmp_path: Path
-    ) -> None:
+    def test_early_failure_shows_error_detail_in_hints(self, tmp_path: Path) -> None:
         """Error detail from early failure should appear as a hint."""
         config_path = _make_config(tmp_path)
 
@@ -256,9 +244,7 @@ class TestEarlyFailureDisplay:
         # Should suggest diagnose
         assert "diagnose" in output.lower()
 
-    def test_early_failure_no_error_detail_still_shows_diagnose(
-        self, tmp_path: Path
-    ) -> None:
+    def test_early_failure_no_error_detail_still_shows_diagnose(self, tmp_path: Path) -> None:
         """Even without error detail, early failure suggests diagnose."""
         config_path = _make_config(tmp_path)
 

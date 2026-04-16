@@ -85,12 +85,11 @@ class TestMinPriorityDefault:
 
         sig = inspect.signature(PatternQueryMixin.get_patterns)
         param = sig.parameters["min_priority"]
-        assert param.default == 0.01, (
-            f"Expected default min_priority=0.01, got {param.default}"
-        )
+        assert param.default == 0.01, f"Expected default min_priority=0.01, got {param.default}"
 
     def test_pattern_priority_005_returned_by_default(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """A pattern with priority 0.05 must appear in default queries.
 
@@ -105,7 +104,8 @@ class TestMinPriorityDefault:
         )
 
     def test_pattern_priority_002_returned_by_default(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """Even very low priority (0.02) should appear with new default."""
         _insert_pattern_direct(store, "very-low-001", priority=0.02)
@@ -114,7 +114,8 @@ class TestMinPriorityDefault:
         assert "very-low-001" in ids
 
     def test_pattern_below_new_threshold_excluded(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """Patterns with priority < 0.01 are still excluded."""
         _insert_pattern_direct(store, "too-low-001", priority=0.005)
@@ -129,7 +130,8 @@ class TestInstrumentIsolation:
     """Verify instrument-scoped pattern queries work correctly."""
 
     def test_instrument_filter_returns_matching_only(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """get_patterns(instrument_name=X) returns only X-scoped patterns.
 
@@ -139,13 +141,22 @@ class TestInstrumentIsolation:
         universal patterns, but that's a separate task.
         """
         _insert_pattern_direct(
-            store, "claude-001", priority=0.5, instrument_name="claude-cli",
+            store,
+            "claude-001",
+            priority=0.5,
+            instrument_name="claude-cli",
         )
         _insert_pattern_direct(
-            store, "gemini-001", priority=0.5, instrument_name="gemini-cli",
+            store,
+            "gemini-001",
+            priority=0.5,
+            instrument_name="gemini-cli",
         )
         _insert_pattern_direct(
-            store, "universal-001", priority=0.5, instrument_name=None,
+            store,
+            "universal-001",
+            priority=0.5,
+            instrument_name=None,
         )
 
         claude_patterns = store.get_patterns(instrument_name="claude-cli")
@@ -154,14 +165,21 @@ class TestInstrumentIsolation:
         assert "gemini-001" not in claude_ids
 
     def test_no_instrument_filter_returns_all(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """get_patterns() without instrument filter returns all patterns."""
         _insert_pattern_direct(
-            store, "scoped-001", priority=0.5, instrument_name="claude-cli",
+            store,
+            "scoped-001",
+            priority=0.5,
+            instrument_name="claude-cli",
         )
         _insert_pattern_direct(
-            store, "unscoped-001", priority=0.5, instrument_name=None,
+            store,
+            "unscoped-001",
+            priority=0.5,
+            instrument_name=None,
         )
 
         all_patterns = store.get_patterns()
@@ -170,24 +188,27 @@ class TestInstrumentIsolation:
         assert "unscoped-001" in ids
 
     def test_instrument_filter_with_low_priority(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """Instrument-scoped low-priority patterns are visible with new default."""
         _insert_pattern_direct(
-            store, "low-claude-001", priority=0.05, instrument_name="claude-cli",
+            store,
+            "low-claude-001",
+            priority=0.05,
+            instrument_name="claude-cli",
         )
         results = store.get_patterns(instrument_name="claude-cli")
         ids = [p.id for p in results]
-        assert "low-claude-001" in ids, (
-            "Low-priority instrument-scoped pattern must be visible"
-        )
+        assert "low-claude-001" in ids, "Low-priority instrument-scoped pattern must be visible"
 
 
 class TestDedupMerging:
     """Verify that dedup-merged patterns retain visibility."""
 
     def test_dedup_merged_pattern_visible(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """A pattern created via record_pattern (which handles dedup) is visible."""
         pid = store.record_pattern(
@@ -209,7 +230,8 @@ class TestDedupMerging:
         assert pid in ids, "Dedup-merged pattern must be visible"
 
     def test_dedup_merged_pattern_has_incremented_count(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """Dedup-merged pattern has occurrence_count >= 2."""
         pid = store.record_pattern(

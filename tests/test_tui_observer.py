@@ -25,6 +25,7 @@ from marianne.tui.reader import MonitorReader
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_observer_event(
     event: str,
     job_id: str = "test-job",
@@ -70,14 +71,17 @@ class TestReaderGetObserverEvents:
         """get_observer_events returns events from the IPC daemon."""
         mock_client = AsyncMock()
         mock_client.is_daemon_running = AsyncMock(return_value=True)
-        mock_client.call = AsyncMock(return_value={
-            "events": [
-                _make_observer_event(
-                    "observer.process_spawned", data={"pid": 42, "name": "claude"},
-                ),
-                _make_observer_event("observer.file_created", data={"path": "src/foo.py"}),
-            ]
-        })
+        mock_client.call = AsyncMock(
+            return_value={
+                "events": [
+                    _make_observer_event(
+                        "observer.process_spawned",
+                        data={"pid": 42, "name": "claude"},
+                    ),
+                    _make_observer_event("observer.file_created", data={"path": "src/foo.py"}),
+                ]
+            }
+        )
 
         reader = MonitorReader(ipc_client=mock_client)
         events = await reader.get_observer_events(job_id="test-job", limit=10)
@@ -317,8 +321,13 @@ class TestMonitorAppRefreshCycle:
         async def mock_call(method: str, params: dict | None = None) -> dict:
             call_order.append(method)
             if method == "daemon.top":
-                return {"cpu_percent": 0, "memory_percent": 0, "process_count": 0,
-                        "processes": [], "timestamp": time.time()}
+                return {
+                    "cpu_percent": 0,
+                    "memory_percent": 0,
+                    "process_count": 0,
+                    "processes": [],
+                    "timestamp": time.time(),
+                }
             if method == "daemon.events":
                 return {"events": []}
             if method == "daemon.observer_events":

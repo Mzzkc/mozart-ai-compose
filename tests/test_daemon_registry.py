@@ -13,7 +13,6 @@ import pytest
 
 from marianne.daemon.registry import DaemonJobStatus, JobRecord, JobRegistry
 
-
 # ─── Fixtures ──────────────────────────────────────────────────────────
 
 
@@ -465,6 +464,6 @@ class TestHookConfigStorage:
         # Reopen — migration should succeed idempotently
         async with JobRegistry(db_path) as reg:
             # Store hook config on old job — column must exist
-            await reg.store_hook_config("old-job", '[]')
+            await reg.store_hook_config("old-job", "[]")
             result = await reg.get_hook_config("old-job")
-            assert result == '[]'
+            assert result == "[]"

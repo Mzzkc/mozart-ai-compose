@@ -9,16 +9,14 @@ Verifies that:
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from marianne.core.checkpoint import JobStatus
 from marianne.daemon.registry import DaemonJobStatus
-
 
 # ─── Status Enum Tests ──────────────────────────────────────────────
 
@@ -75,7 +73,7 @@ class TestPauseBeforeChainHookExecution:
     @pytest.fixture
     def meta(self, tmp_path: Path) -> Any:
         """Create a mock JobMeta."""
-        from dataclasses import dataclass, field
+        from dataclasses import dataclass
 
         @dataclass
         class MockMeta:
@@ -88,7 +86,9 @@ class TestPauseBeforeChainHookExecution:
         return MockMeta()
 
     async def test_pause_before_chain_sets_status(
-        self, tmp_path: Path, meta: Any,
+        self,
+        tmp_path: Path,
+        meta: Any,
     ) -> None:
         """When pause_before_chain is True, job transitions to PAUSED_AT_CHAIN."""
         from marianne.daemon.manager import JobManager
@@ -124,7 +124,9 @@ class TestPauseBeforeChainHookExecution:
         assert meta.held_chain_hook["fresh"] is True
 
     async def test_no_pause_submits_normally(
-        self, tmp_path: Path, meta: Any,
+        self,
+        tmp_path: Path,
+        meta: Any,
     ) -> None:
         """Without pause_before_chain, hook submits chained job normally."""
         from marianne.daemon.manager import JobManager
@@ -143,9 +145,13 @@ class TestPauseBeforeChainHookExecution:
         mock_self = MagicMock()
         mock_self._set_job_status = AsyncMock()
         mock_self._expand_hook_vars = MagicMock(side_effect=lambda s, *a, **kw: s)
-        mock_self.submit_job = AsyncMock(return_value=JobResponse(
-            job_id="chained-job", status="accepted", message="ok",
-        ))
+        mock_self.submit_job = AsyncMock(
+            return_value=JobResponse(
+                job_id="chained-job",
+                status="accepted",
+                message="ok",
+            )
+        )
 
         result = await JobManager._execute_hook_run_job(
             self=mock_self,
@@ -174,9 +180,13 @@ class TestResumeHeldChain:
 
         mock_self = MagicMock(spec=JobManager)
         mock_self._set_job_status = AsyncMock()
-        mock_self.submit_job = AsyncMock(return_value=JobResponse(
-            job_id="chained-job", status="accepted", message="ok",
-        ))
+        mock_self.submit_job = AsyncMock(
+            return_value=JobResponse(
+                job_id="chained-job",
+                status="accepted",
+                message="ok",
+            )
+        )
 
         from dataclasses import dataclass, field
 
@@ -184,17 +194,21 @@ class TestResumeHeldChain:
         class MockMeta:
             job_id: str = "parent-job"
             status: DaemonJobStatus = DaemonJobStatus.PAUSED_AT_CHAIN
-            held_chain_hook: dict[str, Any] | None = field(default_factory=lambda: {
-                "job_path": "/tmp/chain.yaml",
-                "workspace": "/tmp/ws",
-                "fresh": True,
-                "chain_depth": 2,
-            })
+            held_chain_hook: dict[str, Any] | None = field(
+                default_factory=lambda: {
+                    "job_path": "/tmp/chain.yaml",
+                    "workspace": "/tmp/ws",
+                    "fresh": True,
+                    "chain_depth": 2,
+                }
+            )
 
         meta = MockMeta()
 
         response = await JobManager._resume_held_chain(
-            mock_self, "parent-job", meta,
+            mock_self,
+            "parent-job",
+            meta,
         )
 
         assert response.status == "accepted"
@@ -208,9 +222,13 @@ class TestResumeHeldChain:
 
         mock_self = MagicMock(spec=JobManager)
         mock_self._set_job_status = AsyncMock()
-        mock_self.submit_job = AsyncMock(return_value=JobResponse(
-            job_id="parent-job", status="rejected", message="pressure",
-        ))
+        mock_self.submit_job = AsyncMock(
+            return_value=JobResponse(
+                job_id="parent-job",
+                status="rejected",
+                message="pressure",
+            )
+        )
 
         held_hook = {
             "job_path": "/tmp/chain.yaml",
@@ -225,14 +243,14 @@ class TestResumeHeldChain:
         class MockMeta:
             job_id: str = "parent-job"
             status: DaemonJobStatus = DaemonJobStatus.PAUSED_AT_CHAIN
-            held_chain_hook: dict[str, Any] | None = field(
-                default_factory=lambda: held_hook.copy()
-            )
+            held_chain_hook: dict[str, Any] | None = field(default_factory=lambda: held_hook.copy())
 
         meta = MockMeta()
 
         response = await JobManager._resume_held_chain(
-            mock_self, "parent-job", meta,
+            mock_self,
+            "parent-job",
+            meta,
         )
 
         assert response.status == "rejected"
@@ -259,7 +277,9 @@ class TestResumeHeldChain:
 
         with pytest.raises(JobSubmissionError, match="no held chain hook"):
             await JobManager._resume_held_chain(
-                mock_self, "parent-job", meta,
+                mock_self,
+                "parent-job",
+                meta,
             )
 
 
@@ -272,7 +292,10 @@ class TestResumableStatus:
     def test_cli_resume_accepts_paused_at_chain(self) -> None:
         """The CLI resume command includes PAUSED_AT_CHAIN as resumable."""
         resumable = {
-            JobStatus.PAUSED, JobStatus.PAUSED_AT_CHAIN,
-            JobStatus.FAILED, JobStatus.RUNNING, JobStatus.CANCELLED,
+            JobStatus.PAUSED,
+            JobStatus.PAUSED_AT_CHAIN,
+            JobStatus.FAILED,
+            JobStatus.RUNNING,
+            JobStatus.CANCELLED,
         }
         assert JobStatus.PAUSED_AT_CHAIN in resumable

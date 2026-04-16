@@ -24,13 +24,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 from marianne.core.config import PromptConfig, ValidationRule
 from marianne.core.config.spec import SpecFragment
 from marianne.prompts.preamble import build_preamble
 from marianne.prompts.templating import PromptBuilder, SheetContext
-
 
 # =============================================================================
 # Fixtures
@@ -88,8 +85,10 @@ class TestPreambleCharacterization:
     def test_first_run_preamble_structure(self) -> None:
         """First-run preamble has specific structure and content."""
         result = build_preamble(
-            sheet_num=3, total_sheets=10,
-            workspace=Path("/tmp/ws"), retry_count=0,
+            sheet_num=3,
+            total_sheets=10,
+            workspace=Path("/tmp/ws"),
+            retry_count=0,
         )
         assert result.startswith("<marianne-preamble>")
         assert result.endswith("</marianne-preamble>")
@@ -101,8 +100,10 @@ class TestPreambleCharacterization:
     def test_parallel_preamble_adds_coordination_note(self) -> None:
         """Parallel execution adds a coordination warning."""
         result = build_preamble(
-            sheet_num=1, total_sheets=5,
-            workspace=Path("/tmp/ws"), is_parallel=True,
+            sheet_num=1,
+            total_sheets=5,
+            workspace=Path("/tmp/ws"),
+            is_parallel=True,
         )
         assert "concurrently" in result
         assert "coordinate via workspace files" in result
@@ -110,8 +111,10 @@ class TestPreambleCharacterization:
     def test_retry_preamble_mentions_retry_count(self) -> None:
         """Retry preamble includes attempt number."""
         result = build_preamble(
-            sheet_num=1, total_sheets=5,
-            workspace=Path("/tmp/ws"), retry_count=2,
+            sheet_num=1,
+            total_sheets=5,
+            workspace=Path("/tmp/ws"),
+            retry_count=2,
         )
         assert "<marianne-preamble>" in result
         # Should mention this is a retry
@@ -198,9 +201,7 @@ class TestInjectionCharacterization:
         """Skills are injected with the correct header."""
         config = _make_config()
         builder = PromptBuilder(config)
-        ctx = _make_context(
-            injected_skills=["You have access to the bash tool."]
-        )
+        ctx = _make_context(injected_skills=["You have access to the bash tool."])
         prompt = builder.build_sheet_prompt(ctx)
 
         assert "## Injected Skills" in prompt
@@ -210,9 +211,7 @@ class TestInjectionCharacterization:
         """Tools are injected with the correct header."""
         config = _make_config()
         builder = PromptBuilder(config)
-        ctx = _make_context(
-            injected_tools=["MCP server: filesystem-server"]
-        )
+        ctx = _make_context(injected_tools=["MCP server: filesystem-server"])
         prompt = builder.build_sheet_prompt(ctx)
 
         assert "## Injected Tools" in prompt
@@ -222,9 +221,7 @@ class TestInjectionCharacterization:
         """Context is injected with the correct header."""
         config = _make_config()
         builder = PromptBuilder(config)
-        ctx = _make_context(
-            injected_context=["Project uses Python 3.12"]
-        )
+        ctx = _make_context(injected_context=["Project uses Python 3.12"])
         prompt = builder.build_sheet_prompt(ctx)
 
         assert "## Injected Context" in prompt
@@ -360,9 +357,7 @@ class TestLearnedPatternsCharacterization:
             )
         ]
         patterns = ["PATTERN_MARKER"]
-        prompt = builder.build_sheet_prompt(
-            ctx, failure_history=failures, patterns=patterns
-        )
+        prompt = builder.build_sheet_prompt(ctx, failure_history=failures, patterns=patterns)
 
         history_pos = prompt.index("HISTORY_MARKER")
         pattern_pos = prompt.index("PATTERN_MARKER")
@@ -445,9 +440,7 @@ class TestValidationRequirementsCharacterization:
                 description="REQUIREMENT_MARKER",
             )
         ]
-        prompt = builder.build_sheet_prompt(
-            ctx, patterns=patterns, validation_rules=rules
-        )
+        prompt = builder.build_sheet_prompt(ctx, patterns=patterns, validation_rules=rules)
 
         pattern_pos = prompt.index("PATTERN_MARKER")
         req_pos = prompt.index("REQUIREMENT_MARKER")
@@ -474,20 +467,25 @@ class TestFullAssemblyOrder:
         )
 
         fragment = SpecFragment(
-            name="test", tags=["test"], kind="text",
+            name="test",
+            tags=["test"],
+            kind="text",
             content="SPEC_CONTENT",
         )
         failures = [
             HistoricalFailure(
-                sheet_num=1, rule_type="file_exists",
+                sheet_num=1,
+                rule_type="file_exists",
                 description="HISTORY_CONTENT",
-                failure_reason="err", failure_category="missing",
+                failure_reason="err",
+                failure_category="missing",
             )
         ]
         patterns = ["PATTERN_CONTENT"]
         rules = [
             ValidationRule(
-                type="file_exists", path="out.txt",
+                type="file_exists",
+                path="out.txt",
                 description="VALIDATION_CONTENT",
             )
         ]
@@ -513,8 +511,13 @@ class TestFullAssemblyOrder:
         }
 
         expected_order = [
-            "skills", "context", "template", "specs",
-            "history", "patterns", "validations",
+            "skills",
+            "context",
+            "template",
+            "specs",
+            "history",
+            "patterns",
+            "validations",
         ]
 
         for i in range(len(expected_order) - 1):

@@ -230,9 +230,9 @@ class TestSchemaErrorHintsForUnknownFields:
         )
         hints = _schema_error_hints(error_msg)
         # Must NOT be the generic fallback
-        assert not any(
-            "ensure your score has at minimum" in h.lower() for h in hints
-        ), f"Got generic fallback hint instead of specific unknown field hint: {hints}"
+        assert not any("ensure your score has at minimum" in h.lower() for h in hints), (
+            f"Got generic fallback hint instead of specific unknown field hint: {hints}"
+        )
         # Must suggest the correct field name
         assert any("retry" in h for h in hints), (
             f"Should suggest 'retry' for typo 'retries', got: {hints}"
@@ -273,9 +273,7 @@ prompt:
 instrument: claude-code
 timeout: 300
 """
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(score_content)
             f.flush()
             score_path = Path(f.name)
@@ -301,9 +299,7 @@ prompt:
   template: "Process item {{ item_num }}"
 instrument: claude-code
 """
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(score_content)
             f.flush()
             score_path = Path(f.name)

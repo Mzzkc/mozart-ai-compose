@@ -65,8 +65,7 @@ class TestMusicianErrorMessageRedaction:
     async def test_google_key_in_exception_redacted(self) -> None:
         """An exception containing a Google API key gets redacted."""
         error_msg = (
-            "ValueError: Google API returned 403 for key "
-            "AIzaSyAbCdEfGhIjKlMnOpQrStUvWxYz012345"
+            "ValueError: Google API returned 403 for key AIzaSyAbCdEfGhIjKlMnOpQrStUvWxYz012345"
         )
         redacted = redact_credentials(error_msg)
         assert redacted is not None
@@ -75,10 +74,7 @@ class TestMusicianErrorMessageRedaction:
 
     async def test_aws_key_in_exception_redacted(self) -> None:
         """An exception containing an AWS access key gets redacted."""
-        error_msg = (
-            "botocore.exceptions.ClientError: Access denied for "
-            "AKIAIOSFODNN7EXAMPLE"
-        )
+        error_msg = "botocore.exceptions.ClientError: Access denied for AKIAIOSFODNN7EXAMPLE"
         redacted = redact_credentials(error_msg)
         assert redacted is not None
         assert "AKIAIOSFODNN7EXAMPLE" not in redacted
@@ -111,9 +107,7 @@ class TestMusicianErrorMessageRedaction:
 
     async def test_slack_token_in_exception_redacted(self) -> None:
         """A Slack bot token in an exception gets redacted."""
-        error_msg = (
-            "SlackApiError: invalid_auth for xoxb-123456789012-abcdefghijklmn"
-        )
+        error_msg = "SlackApiError: invalid_auth for xoxb-123456789012-abcdefghijklmn"
         redacted = redact_credentials(error_msg)
         assert redacted is not None
         assert "xoxb-" not in redacted
@@ -121,9 +115,7 @@ class TestMusicianErrorMessageRedaction:
 
     async def test_hf_token_in_exception_redacted(self) -> None:
         """A Hugging Face token in an exception gets redacted."""
-        error_msg = (
-            "HTTPError: 401 for token hf_ABCDEFGHIJKLMNOPQRSTUVWXYZab"
-        )
+        error_msg = "HTTPError: 401 for token hf_ABCDEFGHIJKLMNOPQRSTUVWXYZab"
         redacted = redact_credentials(error_msg)
         assert redacted is not None
         assert "hf_" not in redacted
@@ -167,9 +159,7 @@ class TestValidationErrorRedaction:
 
     async def test_validation_path_with_credential_redacted(self) -> None:
         """File path containing a credential pattern is redacted."""
-        error_text = (
-            "FileNotFoundError: /workspace/sk-ant-api03-leaked-in-path-name/output.md"
-        )
+        error_text = "FileNotFoundError: /workspace/sk-ant-api03-leaked-in-path-name/output.md"
         redacted = redact_credentials(error_text)
         assert redacted is not None
         assert "sk-ant-api03" not in redacted
@@ -208,8 +198,8 @@ class TestCredentialScannerAdversarial:
     async def test_bearer_token_in_curl_command(self) -> None:
         """Bearer token inside a curl command in error output."""
         text = (
-            'curl: (22) The requested URL returned error: 401\n'
-            '> Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.long.token.here'
+            "curl: (22) The requested URL returned error: 401\n"
+            "> Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.long.token.here"
         )
         redacted = redact_credentials(text)
         assert redacted is not None
@@ -218,10 +208,7 @@ class TestCredentialScannerAdversarial:
 
     async def test_multiple_same_type_credentials(self) -> None:
         """Multiple credentials of the same type all get redacted."""
-        text = (
-            "keys: sk-ant-api03-aaaaaaaaaaaaaaaaaaa, "
-            "sk-ant-api03-bbbbbbbbbbbbbbbbbbb"
-        )
+        text = "keys: sk-ant-api03-aaaaaaaaaaaaaaaaaaa, sk-ant-api03-bbbbbbbbbbbbbbbbbbb"
         redacted = redact_credentials(text)
         assert redacted is not None
         assert redacted.count("[REDACTED_ANTHROPIC_KEY]") == 2
@@ -252,10 +239,10 @@ class TestCredentialScannerAdversarial:
     async def test_credential_in_traceback(self) -> None:
         """Credential embedded in a Python traceback."""
         text = (
-            'Traceback (most recent call last):\n'
+            "Traceback (most recent call last):\n"
             '  File "config.py", line 42, in load\n'
             '    raise ValueError(f"Bad key: {key}")\n'
-            'ValueError: Bad key: AKIAIOSFODNN7EXAMPLE\n'
+            "ValueError: Bad key: AKIAIOSFODNN7EXAMPLE\n"
         )
         redacted = redact_credentials(text)
         assert redacted is not None
@@ -309,9 +296,7 @@ class TestMusicianSheetTaskErrorRedaction:
             mode=AttemptMode.NORMAL,
         )
 
-    async def test_exception_with_anthropic_key_redacted_in_result(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_exception_with_anthropic_key_redacted_in_result(self, tmp_path: Path) -> None:
         """When a backend raises an exception containing an Anthropic key,
         the SheetAttemptResult.error_message must have the key redacted."""
         from marianne.daemon.baton.events import SheetAttemptResult
@@ -328,8 +313,7 @@ class TestMusicianSheetTaskErrorRedaction:
 
             async def execute(self, prompt: str, **kw: Any) -> Any:
                 raise ConnectionError(
-                    "Auth failed with key "
-                    "sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890"
+                    "Auth failed with key sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890"
                 )
 
         await sheet_task(
@@ -348,9 +332,7 @@ class TestMusicianSheetTaskErrorRedaction:
         # The non-credential part is preserved
         assert "ConnectionError" in result.error_message
 
-    async def test_exception_with_aws_key_redacted_in_result(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_exception_with_aws_key_redacted_in_result(self, tmp_path: Path) -> None:
         """AWS key in exception message must be redacted."""
         from marianne.daemon.baton.events import SheetAttemptResult
         from marianne.daemon.baton.musician import sheet_task
@@ -364,9 +346,7 @@ class TestMusicianSheetTaskErrorRedaction:
                 pass
 
             async def execute(self, prompt: str, **kw: Any) -> Any:
-                raise PermissionError(
-                    "Access denied for AKIAIOSFODNN7EXAMPLE"
-                )
+                raise PermissionError("Access denied for AKIAIOSFODNN7EXAMPLE")
 
         await sheet_task(
             job_id="test-job",
@@ -381,9 +361,7 @@ class TestMusicianSheetTaskErrorRedaction:
         assert "AKIAIOSFODNN7EXAMPLE" not in result.error_message
         assert "[REDACTED_AWS_KEY]" in result.error_message
 
-    async def test_exception_without_credentials_unchanged(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_exception_without_credentials_unchanged(self, tmp_path: Path) -> None:
         """Normal exceptions without credentials preserve the full message."""
         from marianne.daemon.baton.events import SheetAttemptResult
         from marianne.daemon.baton.musician import sheet_task
@@ -411,9 +389,7 @@ class TestMusicianSheetTaskErrorRedaction:
         assert result.error_message is not None
         assert result.error_message == "TimeoutError: Backend timed out after 30 seconds"
 
-    async def test_exception_with_multiple_credentials_all_redacted(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_exception_with_multiple_credentials_all_redacted(self, tmp_path: Path) -> None:
         """Multiple credential types in one exception all get redacted."""
         from marianne.daemon.baton.events import SheetAttemptResult
         from marianne.daemon.baton.musician import sheet_task
@@ -500,9 +476,7 @@ class TestClassifyErrorPathRedaction:
             mode=AttemptMode.NORMAL,
         )
 
-    async def test_error_message_with_anthropic_key_redacted(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_error_message_with_anthropic_key_redacted(self, tmp_path: Path) -> None:
         """Backend returning error_message with Anthropic key: key is redacted.
 
         Exercises the TRANSIENT path at musician.py _classify_error line 608
@@ -528,8 +502,7 @@ class TestClassifyErrorPathRedaction:
                     duration_seconds=1.0,
                     exit_code=None,  # Triggers TRANSIENT path
                     error_message=(
-                        "Auth failed with key "
-                        "sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890"
+                        "Auth failed with key sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890"
                     ),
                 )
 
@@ -547,9 +520,7 @@ class TestClassifyErrorPathRedaction:
         assert "[REDACTED_ANTHROPIC_KEY]" in result.error_message
         assert result.error_classification == "TRANSIENT"
 
-    async def test_auth_failure_error_message_with_key_redacted(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_auth_failure_error_message_with_key_redacted(self, tmp_path: Path) -> None:
         """Backend returning AUTH_FAILURE with key in error_message: key is redacted.
 
         Exercises the AUTH_FAILURE path at musician.py _classify_error line 622.
@@ -593,9 +564,7 @@ class TestClassifyErrorPathRedaction:
         assert "[REDACTED_ANTHROPIC_KEY]" in result.error_message
         assert result.error_classification == "AUTH_FAILURE"
 
-    async def test_execution_error_message_with_aws_key_redacted(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_execution_error_message_with_aws_key_redacted(self, tmp_path: Path) -> None:
         """Backend returning EXECUTION_ERROR with AWS key: key is redacted.
 
         Exercises the default EXECUTION_ERROR path at _classify_error line 627.
@@ -619,9 +588,7 @@ class TestClassifyErrorPathRedaction:
                     stderr="access denied",
                     duration_seconds=2.0,
                     exit_code=1,
-                    error_message=(
-                        "S3 PutObject failed for AKIAIOSFODNN7EXAMPLE"
-                    ),
+                    error_message=("S3 PutObject failed for AKIAIOSFODNN7EXAMPLE"),
                 )
 
         await sheet_task(
@@ -638,9 +605,7 @@ class TestClassifyErrorPathRedaction:
         assert "[REDACTED_AWS_KEY]" in result.error_message
         assert result.error_classification == "EXECUTION_ERROR"
 
-    async def test_none_error_message_passes_through(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_none_error_message_passes_through(self, tmp_path: Path) -> None:
         """Backend returning error_message=None: passes through unchanged."""
         from marianne.backends.base import ExecutionResult
         from marianne.daemon.baton.events import SheetAttemptResult
@@ -677,9 +642,7 @@ class TestClassifyErrorPathRedaction:
         assert result.error_message == "Exit code 1"
         assert result.error_classification == "EXECUTION_ERROR"
 
-    async def test_clean_error_message_preserved(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_clean_error_message_preserved(self, tmp_path: Path) -> None:
         """Backend returning error_message without credentials: preserved intact."""
         from marianne.backends.base import ExecutionResult
         from marianne.daemon.baton.events import SheetAttemptResult

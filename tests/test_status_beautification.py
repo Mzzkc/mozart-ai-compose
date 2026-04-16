@@ -272,8 +272,10 @@ class TestBeautifiedListDisplay:
 
         jobs = [
             self._make_job_meta(
-                "my-score", "running",
-                progress_completed=50, progress_total=100,
+                "my-score",
+                "running",
+                progress_completed=50,
+                progress_total=100,
             ),
         ]
 
@@ -304,7 +306,8 @@ class TestBeautifiedListDisplay:
         jobs = [
             self._make_job_meta("real-score", "running"),
             self._make_job_meta(
-                "chain-target", "completed",
+                "chain-target",
+                "completed",
                 workspace="/tmp/pytest-of-user/pytest-123/test_something/ws",
             ),
         ]
@@ -334,7 +337,8 @@ class TestBeautifiedListDisplay:
 
         jobs = [
             self._make_job_meta(
-                "my-score", "running",
+                "my-score",
+                "running",
                 submitted_at=datetime.now(UTC).timestamp() - 7200,  # 2h ago
             ),
         ]

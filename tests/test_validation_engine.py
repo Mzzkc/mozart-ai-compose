@@ -8,8 +8,6 @@ content_contains, content_regex, and command_succeeds.
 
 from __future__ import annotations
 
-import asyncio
-import os
 import time
 from pathlib import Path
 from typing import Any
@@ -22,13 +20,12 @@ from marianne.execution.validation.engine import ValidationEngine
 from marianne.execution.validation.models import (
     FileModificationTracker,
     SheetValidationResult,
-    ValidationResult,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_engine(
     workspace: Path,
@@ -235,7 +232,8 @@ class TestRunValidations:
     """Tests for running all validations for a sheet."""
 
     async def test_empty_rules_returns_empty_result(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """No rules returns an empty SheetValidationResult."""
         engine = _make_engine(temp_workspace)
@@ -392,7 +390,8 @@ class TestFileExistsValidation:
         assert result.results[0].passed is False
 
     async def test_file_exists_template_expansion(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Path templates are expanded before checking."""
         f = temp_workspace / "sheet-2-out.txt"
@@ -406,7 +405,8 @@ class TestFileExistsValidation:
         assert result.results[0].passed is True
 
     async def test_file_exists_missing_path_field(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Missing path field returns a missing-field error."""
         rule = ValidationRule.model_construct(
@@ -464,7 +464,8 @@ class TestFileModifiedValidation:
         assert result.results[0].passed is True
 
     async def test_file_modified_fail_not_modified(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Fails when the file mtime has not changed."""
         f = temp_workspace / "stale.txt"
@@ -480,7 +481,8 @@ class TestFileModifiedValidation:
         assert result.results[0].failure_category == "stale"
 
     async def test_file_modified_fail_file_missing(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Fails with 'missing' category if file does not exist at check time."""
         path = temp_workspace / "ghost.txt"
@@ -502,7 +504,8 @@ class TestFileModifiedValidation:
         assert result.results[0].failure_category == "missing"
 
     async def test_file_modified_new_file_after_snapshot(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """A file created after snapshot (mtime > 0.0 snapshot) passes."""
         path = temp_workspace / "new_file.txt"
@@ -520,7 +523,8 @@ class TestFileModifiedValidation:
         assert result.results[0].passed is True
 
     async def test_file_modified_missing_path_field(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Missing path field returns a missing-field error."""
         rule = ValidationRule.model_construct(
@@ -554,7 +558,9 @@ class TestContentContainsValidation:
         f = temp_workspace / "log.txt"
         f.write_text("Operation completed: SUCCESS marker here")
         rule = _rule_no_retry(
-            type="content_contains", path=str(f), pattern="SUCCESS",
+            type="content_contains",
+            path=str(f),
+            pattern="SUCCESS",
         )
         engine = _make_engine(temp_workspace)
         result = await engine.run_validations([rule])
@@ -565,7 +571,9 @@ class TestContentContainsValidation:
         f = temp_workspace / "log.txt"
         f.write_text("Operation failed: ERROR")
         rule = _rule_no_retry(
-            type="content_contains", path=str(f), pattern="SUCCESS",
+            type="content_contains",
+            path=str(f),
+            pattern="SUCCESS",
         )
         engine = _make_engine(temp_workspace)
         result = await engine.run_validations([rule])
@@ -575,7 +583,8 @@ class TestContentContainsValidation:
         assert r.suggested_fix is not None
 
     async def test_content_contains_file_missing(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Fails with 'missing' category when the file does not exist."""
         rule = _rule_no_retry(
@@ -589,33 +598,40 @@ class TestContentContainsValidation:
         assert result.results[0].failure_category == "missing"
 
     async def test_content_contains_case_sensitive(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Pattern matching is case-sensitive."""
         f = temp_workspace / "case.txt"
         f.write_text("success")
         rule = _rule_no_retry(
-            type="content_contains", path=str(f), pattern="SUCCESS",
+            type="content_contains",
+            path=str(f),
+            pattern="SUCCESS",
         )
         engine = _make_engine(temp_workspace)
         result = await engine.run_validations([rule])
         assert result.results[0].passed is False
 
     async def test_content_contains_multiline(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Pattern is found in multiline content."""
         f = temp_workspace / "multi.txt"
         f.write_text("line 1\nline 2\nTARGET\nline 4\n")
         rule = _rule_no_retry(
-            type="content_contains", path=str(f), pattern="TARGET",
+            type="content_contains",
+            path=str(f),
+            pattern="TARGET",
         )
         engine = _make_engine(temp_workspace)
         result = await engine.run_validations([rule])
         assert result.results[0].passed is True
 
     async def test_content_contains_missing_pattern_field(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Missing pattern field produces a missing-field error."""
         f = temp_workspace / "file.txt"
@@ -638,7 +654,8 @@ class TestContentContainsValidation:
         assert "'pattern'" in result.results[0].error_message
 
     async def test_content_contains_missing_path_field(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Missing path field produces a missing-field error."""
         rule = ValidationRule.model_construct(
@@ -659,14 +676,17 @@ class TestContentContainsValidation:
         assert "'path'" in result.results[0].error_message
 
     async def test_content_contains_long_pattern_truncated_in_failure(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Long patterns are truncated in the failure reason display."""
         f = temp_workspace / "file.txt"
         f.write_text("short")
         long_pattern = "A" * 100
         rule = _rule_no_retry(
-            type="content_contains", path=str(f), pattern=long_pattern,
+            type="content_contains",
+            path=str(f),
+            pattern=long_pattern,
         )
         engine = _make_engine(temp_workspace)
         result = await engine.run_validations([rule])
@@ -700,7 +720,8 @@ class TestContentRegexValidation:
         assert r.actual_value == "Version: 2.3.1"
 
     async def test_content_regex_fail_no_match(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Fails when regex does not match."""
         f = temp_workspace / "log.txt"
@@ -716,7 +737,8 @@ class TestContentRegexValidation:
         assert result.results[0].failure_category == "malformed"
 
     async def test_content_regex_invalid_pattern(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Invalid regex pattern returns a clear error."""
         f = temp_workspace / "file.txt"
@@ -742,7 +764,8 @@ class TestContentRegexValidation:
         assert "Invalid regex" in r.error_message
 
     async def test_content_regex_file_missing(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Fails with 'missing' when file does not exist."""
         rule = _rule_no_retry(
@@ -756,7 +779,8 @@ class TestContentRegexValidation:
         assert result.results[0].failure_category == "missing"
 
     async def test_content_regex_captures_match_group(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """actual_value contains the matched group(0)."""
         f = temp_workspace / "nums.txt"
@@ -771,7 +795,8 @@ class TestContentRegexValidation:
         assert result.results[0].actual_value == "count=42"
 
     async def test_content_regex_missing_path_field(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Missing path field produces a missing-field error."""
         rule = ValidationRule.model_construct(
@@ -792,7 +817,8 @@ class TestContentRegexValidation:
         assert "'path'" in result.results[0].error_message
 
     async def test_content_regex_missing_pattern_field(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Missing pattern field produces a missing-field error."""
         f = temp_workspace / "file.txt"
@@ -826,7 +852,8 @@ class TestCommandSucceedsValidation:
     async def test_command_succeeds_pass(self, temp_workspace: Path) -> None:
         """Passes when command exits with 0."""
         rule = _rule_no_retry(
-            type="command_succeeds", command="echo hello",
+            type="command_succeeds",
+            command="echo hello",
         )
         engine = _make_engine(temp_workspace)
         result = await engine.run_validations([rule])
@@ -838,7 +865,8 @@ class TestCommandSucceedsValidation:
     async def test_command_succeeds_fail(self, temp_workspace: Path) -> None:
         """Fails when command exits with non-zero."""
         rule = _rule_no_retry(
-            type="command_succeeds", command="exit 1",
+            type="command_succeeds",
+            command="exit 1",
         )
         engine = _make_engine(temp_workspace)
         result = await engine.run_validations([rule])
@@ -848,7 +876,8 @@ class TestCommandSucceedsValidation:
         assert r.failure_category == "error"
 
     async def test_command_succeeds_working_directory(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Command runs in the specified working directory."""
         subdir = temp_workspace / "sub"
@@ -864,7 +893,8 @@ class TestCommandSucceedsValidation:
         assert result.results[0].passed is True
 
     async def test_command_succeeds_default_cwd_is_workspace(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Without working_directory, command runs in workspace."""
         (temp_workspace / "ws_marker.txt").write_text("here")
@@ -877,7 +907,8 @@ class TestCommandSucceedsValidation:
         assert result.results[0].passed is True
 
     async def test_command_template_expansion(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Command template variables are expanded and shell-quoted."""
         rule = _rule_no_retry(
@@ -891,7 +922,8 @@ class TestCommandSucceedsValidation:
     async def test_command_timeout_mock(self, temp_workspace: Path) -> None:
         """Timeout produces a clear failure result (mocked for speed)."""
         rule = _rule_no_retry(
-            type="command_succeeds", command="sleep 999",
+            type="command_succeeds",
+            command="sleep 999",
         )
         engine = _make_engine(temp_workspace)
 
@@ -912,7 +944,8 @@ class TestCommandSucceedsValidation:
         assert "timed out" in r.error_message
 
     async def test_command_missing_command_field(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Missing command field returns a missing-field error."""
         rule = ValidationRule.model_construct(
@@ -935,7 +968,8 @@ class TestCommandSucceedsValidation:
     async def test_command_execution_error(self, temp_workspace: Path) -> None:
         """Subprocess execution error is caught and reported."""
         rule = _rule_no_retry(
-            type="command_succeeds", command="echo test",
+            type="command_succeeds",
+            command="echo test",
         )
         engine = _make_engine(temp_workspace)
 
@@ -963,7 +997,8 @@ class TestCommandSucceedsValidation:
         assert "error details" in r.error_message
 
     async def test_command_confidence_on_success(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Successful command has confidence=1.0."""
         rule = _rule_no_retry(type="command_succeeds", command="true")
@@ -974,7 +1009,8 @@ class TestCommandSucceedsValidation:
         assert r.confidence_factors == {"exit_code": 1.0}
 
     async def test_command_confidence_on_failure(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Failed command has lower confidence."""
         rule = _rule_no_retry(type="command_succeeds", command="false")
@@ -985,7 +1021,9 @@ class TestCommandSucceedsValidation:
         assert r.confidence_factors == {"exit_code": 0.5}
 
     async def test_high_risk_command_warning(
-        self, temp_workspace: Path, caplog: pytest.LogCaptureFixture,
+        self,
+        temp_workspace: Path,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """High-risk command patterns trigger a warning log."""
         rule = _rule_no_retry(
@@ -1057,7 +1095,8 @@ class TestSnapshotMtimeFiles:
     """Tests for mtime snapshotting of file_modified rules."""
 
     def test_snapshots_file_modified_rules_only(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Only file_modified rules trigger mtime snapshot."""
         f = temp_workspace / "tracked.txt"
@@ -1074,7 +1113,8 @@ class TestSnapshotMtimeFiles:
         assert original > 0
 
     def test_snapshot_missing_file_records_zero(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """Non-existent files get mtime 0.0 in snapshot."""
         path = temp_workspace / "missing.txt"
@@ -1095,7 +1135,8 @@ class TestCheckDuration:
     """Tests that check_duration_ms is populated."""
 
     async def test_duration_populated_on_pass(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """check_duration_ms is set on passing validation."""
         f = temp_workspace / "f.txt"
@@ -1106,7 +1147,8 @@ class TestCheckDuration:
         assert result.results[0].check_duration_ms >= 0
 
     async def test_duration_populated_on_fail(
-        self, temp_workspace: Path,
+        self,
+        temp_workspace: Path,
     ) -> None:
         """check_duration_ms is set on failing validation."""
         rule = _rule_no_retry(
@@ -1132,7 +1174,9 @@ class TestExceptionHandling:
         engine = _make_engine(temp_workspace)
 
         with patch.object(
-            engine, "_check_file_exists", side_effect=OSError("disk error"),
+            engine,
+            "_check_file_exists",
+            side_effect=OSError("disk error"),
         ):
             result = await engine.run_validations([rule])
 
@@ -1147,7 +1191,9 @@ class TestExceptionHandling:
         engine = _make_engine(temp_workspace)
 
         with patch.object(
-            engine, "_check_file_exists", side_effect=RuntimeError("unexpected"),
+            engine,
+            "_check_file_exists",
+            side_effect=RuntimeError("unexpected"),
         ):
             result = await engine.run_validations([rule])
 
@@ -1178,7 +1224,7 @@ class TestPromptVariablesInValidation105:
         workspace: Path,
         user_vars: dict,
         base_context: dict | None = None,
-    ) -> "ValidationEngine":
+    ) -> ValidationEngine:
         """Simulate the sheet.py construction site merge pattern."""
         if base_context is None:
             base_context = {"sheet_num": 1, "workspace": str(workspace)}
@@ -1218,6 +1264,7 @@ class TestPromptVariablesInValidation105:
 
         # Manually simulate _run_command_rule expansion loop
         import shlex
+
         context = dict(engine.sheet_context)
         context["workspace"] = str(engine.workspace)
         command = "check_env.sh {my_var}"
@@ -1228,9 +1275,7 @@ class TestPromptVariablesInValidation105:
         assert "{my_var}" not in command
         assert "production" in command
 
-    def test_builtin_wins_over_user_variable_on_collision(
-        self, tmp_path: Path
-    ) -> None:
+    def test_builtin_wins_over_user_variable_on_collision(self, tmp_path: Path) -> None:
         """Built-in workspace variable wins over user-defined one (TEST-105-C).
 
         Merge order: {**user_vars, **sheet_context.to_dict()}

@@ -156,7 +156,8 @@ class TestJinjaUndefinedVariableCheck:
     """Tests for JinjaUndefinedVariableCheck (V101)."""
 
     def test_all_variables_defined_passes(
-        self, minimal_config: tuple[JobConfig, Path, str],
+        self,
+        minimal_config: tuple[JobConfig, Path, str],
     ) -> None:
         """No warnings when all variables are defined."""
         config, config_path, raw_yaml = minimal_config
@@ -863,7 +864,8 @@ class TestPreludeCadenzaFileCheck:
     """Tests for PreludeCadenzaFileCheck (V108)."""
 
     def test_no_prelude_cadenzas_passes(
-        self, minimal_config: tuple[JobConfig, Path, str],
+        self,
+        minimal_config: tuple[JobConfig, Path, str],
     ) -> None:
         """Config without prelude/cadenzas produces no issues."""
         from marianne.validation.checks.paths import PreludeCadenzaFileCheck
@@ -1092,7 +1094,8 @@ class TestValidationRunner:
         assert runner.get_exit_code(issues) == 1
 
     def test_exit_code_0_on_warnings_only(
-        self, minimal_config: tuple[JobConfig, Path, str],
+        self,
+        minimal_config: tuple[JobConfig, Path, str],
     ) -> None:
         """Returns exit code 0 with only warnings."""
         config, config_path, raw_yaml = minimal_config

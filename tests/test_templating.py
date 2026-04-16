@@ -186,9 +186,7 @@ class TestPromptBuilder:
 
         assert "Process sheet 1 of 3" in prompt
 
-    def test_build_sheet_prompt_with_variables(
-        self, config_with_variables: PromptConfig
-    ) -> None:
+    def test_build_sheet_prompt_with_variables(self, config_with_variables: PromptConfig) -> None:
         """build_sheet_prompt should include config variables."""
         builder = PromptBuilder(config_with_variables)
         ctx = SheetContext(
@@ -221,9 +219,7 @@ class TestPromptBuilder:
         assert "Always validate output" in prompt
         assert "Check file permissions" in prompt
 
-    def test_build_sheet_prompt_with_validation_rules(
-        self, basic_config: PromptConfig
-    ) -> None:
+    def test_build_sheet_prompt_with_validation_rules(self, basic_config: PromptConfig) -> None:
         """build_sheet_prompt should inject validation requirements."""
         builder = PromptBuilder(basic_config)
         ctx = SheetContext(
@@ -266,9 +262,7 @@ class TestPromptBuilder:
 
         assert result == "/work/sheet3.md"
 
-    def test_expand_template_missing_variable(
-        self, basic_config: PromptConfig
-    ) -> None:
+    def test_expand_template_missing_variable(self, basic_config: PromptConfig) -> None:
         """_expand_template should preserve unknown placeholders."""
         builder = PromptBuilder(basic_config)
 
@@ -291,10 +285,7 @@ class TestPromptBuilder:
         JSON-roundtripped (string keys) configs.
         """
         config = PromptConfig(
-            template=(
-                "{% set focus = focus_map[instance] %}"
-                "Focus: {{ focus.name }}"
-            ),
+            template=("{% set focus = focus_map[instance] %}Focus: {{ focus.name }}"),
             variables={
                 # Simulate JSON-roundtripped string keys (the bug scenario)
                 "focus_map": {"1": {"name": "Alpha"}, "2": {"name": "Beta"}},
@@ -317,10 +308,7 @@ class TestPromptBuilder:
     def test_integer_keyed_variables_from_yaml(self) -> None:
         """Integer dict keys from YAML should work directly."""
         config = PromptConfig(
-            template=(
-                "{% set focus = items[instance] %}"
-                "Item: {{ focus }}"
-            ),
+            template=("{% set focus = items[instance] %}Item: {{ focus }}"),
             variables={
                 # YAML-loaded integer keys (normal path)
                 "items": {1: "first", 2: "second"},
@@ -515,8 +503,10 @@ class TestInheritedNewRuleSeparation:
         rules = [
             ValidationRule(type="file_exists", path="a.txt", description="Always required"),
             ValidationRule(
-                type="file_exists", path="b.txt",
-                description="New at sheet 3", condition="sheet_num >= 3",
+                type="file_exists",
+                path="b.txt",
+                description="New at sheet 3",
+                condition="sheet_num >= 3",
             ),
         ]
         # At sheet 3: first rule inherited, second rule new
@@ -567,7 +557,10 @@ class TestInjectionInPrompt:
     def test_injected_skills_tools_context_in_prompt(self, builder: PromptBuilder) -> None:
         """build_sheet_prompt with injected_context/skills/tools produces correct sections."""
         ctx = SheetContext(
-            sheet_num=1, total_sheets=3, start_item=1, end_item=1,
+            sheet_num=1,
+            total_sheets=3,
+            start_item=1,
+            end_item=1,
             workspace=Path("/tmp"),
         )
         ctx.injected_context = ["Project background info"]
@@ -586,7 +579,10 @@ class TestInjectionInPrompt:
     def test_empty_injections_no_sections(self, builder: PromptBuilder) -> None:
         """Empty injection fields produce no injection sections."""
         ctx = SheetContext(
-            sheet_num=1, total_sheets=3, start_item=1, end_item=1,
+            sheet_num=1,
+            total_sheets=3,
+            start_item=1,
+            end_item=1,
             workspace=Path("/tmp"),
         )
         prompt = builder.build_sheet_prompt(ctx)
@@ -598,7 +594,10 @@ class TestInjectionInPrompt:
     def test_injection_ordering_in_prompt(self, builder: PromptBuilder) -> None:
         """Skills/tools appear before context, context before validation rules."""
         ctx = SheetContext(
-            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            sheet_num=1,
+            total_sheets=1,
+            start_item=1,
+            end_item=1,
             workspace=Path("/tmp"),
         )
         ctx.injected_skills = ["Skill section"]
@@ -606,7 +605,9 @@ class TestInjectionInPrompt:
 
         rules = [
             ValidationRule(
-                type="file_exists", path="/tmp/out.txt", description="Output",
+                type="file_exists",
+                path="/tmp/out.txt",
+                description="Output",
             ),
         ]
         prompt = builder.build_sheet_prompt(ctx, validation_rules=rules)

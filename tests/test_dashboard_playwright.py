@@ -11,15 +11,13 @@ bind the same port).  Mark them accordingly.
 from __future__ import annotations
 
 import json
-import os
 import socket
 import tempfile
-import time
 import threading
+import time
+from collections.abc import Generator
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Generator
-from unittest.mock import AsyncMock, patch
 
 import pytest
 import uvicorn

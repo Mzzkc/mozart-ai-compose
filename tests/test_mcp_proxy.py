@@ -338,12 +338,14 @@ class TestServerLifecycle:
         """Test that total server failure raises RuntimeError."""
         proxy = MCPProxyService(servers=[sample_mcp_server_config])
 
-        with patch(
-            "asyncio.create_subprocess_exec",
-            side_effect=OSError("Command not found"),
+        with (
+            patch(
+                "asyncio.create_subprocess_exec",
+                side_effect=OSError("Command not found"),
+            ),
+            pytest.raises(RuntimeError, match="All 1 MCP servers failed"),
         ):
-            with pytest.raises(RuntimeError, match="All 1 MCP servers failed"):
-                await proxy.start()
+            await proxy.start()
 
         assert len(proxy._connections) == 0
 
@@ -390,9 +392,7 @@ class TestServerLifecycle:
                 ]
             )
 
-            async with MCPProxyService(
-                servers=[sample_mcp_server_config]
-            ) as proxy:
+            async with MCPProxyService(servers=[sample_mcp_server_config]) as proxy:
                 assert "test-server" in proxy._connections
 
         # After context exit, connections should be cleared
@@ -733,11 +733,13 @@ class TestReadJsonRpcEdgeCases:
         conn = _make_mock_conn(sample_mcp_server_config)
 
         valid_response = {"jsonrpc": "2.0", "id": 1, "result": {"data": "ok"}}
-        conn.stdout.readline = AsyncMock(side_effect=[
-            b"not valid json\n",
-            b"{broken: json\n",
-            json.dumps(valid_response).encode() + b"\n",
-        ])
+        conn.stdout.readline = AsyncMock(
+            side_effect=[
+                b"not valid json\n",
+                b"{broken: json\n",
+                json.dumps(valid_response).encode() + b"\n",
+            ]
+        )
 
         proxy = MCPProxyService(servers=[sample_mcp_server_config])
 
@@ -752,10 +754,12 @@ class TestReadJsonRpcEdgeCases:
 
         wrong_id = {"jsonrpc": "2.0", "id": 99, "result": {}}
         right_id = {"jsonrpc": "2.0", "id": 5, "result": {"match": True}}
-        conn.stdout.readline = AsyncMock(side_effect=[
-            json.dumps(wrong_id).encode() + b"\n",
-            json.dumps(right_id).encode() + b"\n",
-        ])
+        conn.stdout.readline = AsyncMock(
+            side_effect=[
+                json.dumps(wrong_id).encode() + b"\n",
+                json.dumps(right_id).encode() + b"\n",
+            ]
+        )
 
         proxy = MCPProxyService(servers=[sample_mcp_server_config])
 
@@ -962,12 +966,14 @@ class TestSubprocessSpawn:
         mock_proc.stdin = None
         mock_proc.stdout = None
 
-        with patch(
-            "marianne.bridge.mcp_proxy.asyncio.create_subprocess_exec",
-            return_value=mock_proc,
+        with (
+            patch(
+                "marianne.bridge.mcp_proxy.asyncio.create_subprocess_exec",
+                return_value=mock_proc,
+            ),
+            pytest.raises(RuntimeError, match="Failed to create pipes"),
         ):
-            with pytest.raises(RuntimeError, match="Failed to create pipes"):
-                await proxy._start_server(config)
+            await proxy._start_server(config)
 
 
 @pytest.mark.asyncio
@@ -1006,7 +1012,7 @@ class TestSubprocessStop:
         mock_proc.kill = MagicMock()
 
         # First wait times out (during graceful), second succeeds (after kill)
-        mock_proc.wait = AsyncMock(side_effect=[asyncio.TimeoutError(), 0])
+        mock_proc.wait = AsyncMock(side_effect=[TimeoutError(), 0])
 
         conn = MCPConnection(
             config=sample_mcp_server_config,
@@ -1030,9 +1036,7 @@ class TestSubprocessStop:
         proxy = MCPProxyService(servers=[config_a, config_b])
 
         mock_a = MagicMock(spec=asyncio.subprocess.Process)
-        mock_a.terminate = MagicMock(
-            side_effect=ProcessLookupError("no such process")
-        )
+        mock_a.terminate = MagicMock(side_effect=ProcessLookupError("no such process"))
         mock_a.wait = AsyncMock()
 
         mock_b = MagicMock(spec=asyncio.subprocess.Process)
@@ -1116,12 +1120,14 @@ class TestPartialStartup:
         """When all servers fail, start() raises RuntimeError."""
         proxy = MCPProxyService(servers=two_server_configs)
 
-        with patch(
-            "marianne.bridge.mcp_proxy.asyncio.create_subprocess_exec",
-            side_effect=OSError("Command not found"),
+        with (
+            patch(
+                "marianne.bridge.mcp_proxy.asyncio.create_subprocess_exec",
+                side_effect=OSError("Command not found"),
+            ),
+            pytest.raises(RuntimeError, match="All 2 MCP servers failed"),
         ):
-            with pytest.raises(RuntimeError, match="All 2 MCP servers failed"):
-                await proxy.start()
+            await proxy.start()
 
         assert len(proxy._connections) == 0
 
@@ -1131,9 +1137,7 @@ class TestPartialStartup:
         await proxy.start()
         assert len(proxy._connections) == 0
 
-    async def test_start_failure_during_initialize_handshake(
-        self, sample_mcp_server_config
-    ):
+    async def test_start_failure_during_initialize_handshake(self, sample_mcp_server_config):
         """Server spawns OK but initialize handshake fails."""
         proxy = MCPProxyService(servers=[sample_mcp_server_config])
 
@@ -1145,16 +1149,16 @@ class TestPartialStartup:
         mock_proc.stdout = AsyncMock()
         mock_proc.stdout.readline = AsyncMock(return_value=b"")
 
-        with patch(
-            "marianne.bridge.mcp_proxy.asyncio.create_subprocess_exec",
-            return_value=mock_proc,
+        with (
+            patch(
+                "marianne.bridge.mcp_proxy.asyncio.create_subprocess_exec",
+                return_value=mock_proc,
+            ),
+            pytest.raises(RuntimeError, match="All 1 MCP servers failed"),
         ):
-            with pytest.raises(RuntimeError, match="All 1 MCP servers failed"):
-                await proxy.start()
+            await proxy.start()
 
-    async def test_start_failure_during_tool_refresh(
-        self, sample_mcp_server_config
-    ):
+    async def test_start_failure_during_tool_refresh(self, sample_mcp_server_config):
         """Server init OK but tools/list fails → server treated as failed."""
         proxy = MCPProxyService(servers=[sample_mcp_server_config])
 
@@ -1177,12 +1181,14 @@ class TestPartialStartup:
             ]
         )
 
-        with patch(
-            "marianne.bridge.mcp_proxy.asyncio.create_subprocess_exec",
-            return_value=mock_proc,
+        with (
+            patch(
+                "marianne.bridge.mcp_proxy.asyncio.create_subprocess_exec",
+                return_value=mock_proc,
+            ),
+            pytest.raises(RuntimeError, match="All 1 MCP servers failed"),
         ):
-            with pytest.raises(RuntimeError, match="All 1 MCP servers failed"):
-                await proxy.start()
+            await proxy.start()
 
 
 @pytest.mark.asyncio
@@ -1191,9 +1197,7 @@ class TestToolCacheRefreshSubprocess:
 
     async def test_stale_cache_triggers_refresh(self, sample_mcp_server_config):
         """When tool cache TTL expires, list_tools refreshes from server."""
-        proxy = MCPProxyService(
-            servers=[sample_mcp_server_config], tool_cache_ttl=0
-        )
+        proxy = MCPProxyService(servers=[sample_mcp_server_config], tool_cache_ttl=0)
 
         mock_proc = MagicMock()
         mock_proc.stdin = MagicMock()
@@ -1214,9 +1218,7 @@ class TestToolCacheRefreshSubprocess:
                 ]
             },
         }
-        mock_proc.stdout.readline = AsyncMock(
-            return_value=json.dumps(tools_resp).encode() + b"\n"
-        )
+        mock_proc.stdout.readline = AsyncMock(return_value=json.dumps(tools_resp).encode() + b"\n")
 
         conn = MCPConnection(
             config=sample_mcp_server_config,
@@ -1234,13 +1236,9 @@ class TestToolCacheRefreshSubprocess:
         assert tools[0].name == "refreshed_tool"
         mock_proc.stdin.write.assert_called()  # Request was sent
 
-    async def test_cache_refresh_failure_returns_stale(
-        self, sample_mcp_server_config
-    ):
+    async def test_cache_refresh_failure_returns_stale(self, sample_mcp_server_config):
         """When refresh fails, stale cached tools are still returned."""
-        proxy = MCPProxyService(
-            servers=[sample_mcp_server_config], tool_cache_ttl=0
-        )
+        proxy = MCPProxyService(servers=[sample_mcp_server_config], tool_cache_ttl=0)
 
         mock_proc = MagicMock()
         mock_proc.stdin = MagicMock()

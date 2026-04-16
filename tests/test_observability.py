@@ -129,10 +129,12 @@ class TestHookResultPersistedToCheckpoint:
         )
 
         for i in range(3):
-            state.record_hook_result({
-                "hook_type": f"hook_{i}",
-                "success": i % 2 == 0,
-            })
+            state.record_hook_result(
+                {
+                    "hook_type": f"hook_{i}",
+                    "success": i % 2 == 0,
+                }
+            )
 
         assert len(state.hook_results) == 3
         assert state.hook_results[0]["hook_type"] == "hook_0"
@@ -146,11 +148,13 @@ class TestHookResultPersistedToCheckpoint:
             total_sheets=1,
         )
 
-        state.record_hook_result({
-            "hook_type": "run_job",
-            "success": True,
-            "chained_job_info": {"pid": 9999, "job_path": "/path/to/next.yaml"},
-        })
+        state.record_hook_result(
+            {
+                "hook_type": "run_job",
+                "success": True,
+                "chained_job_info": {"pid": 9999, "job_path": "/path/to/next.yaml"},
+            }
+        )
 
         data = state.model_dump(mode="json")
         restored = CheckpointState.model_validate(data)
@@ -421,9 +425,7 @@ class TestExecutionHistoryRecorded:
             )
 
         # Filter by sheet 1
-        sheet1_history = await backend.get_execution_history(
-            "filter-test", sheet_num=1
-        )
+        sheet1_history = await backend.get_execution_history("filter-test", sheet_num=1)
         assert len(sheet1_history) == 2
         assert all(r["sheet_num"] == 1 for r in sheet1_history)
 

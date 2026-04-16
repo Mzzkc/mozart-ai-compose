@@ -24,9 +24,7 @@ def _make_agent_def(name: str = "canyon") -> dict[str, object]:
 # ---------------------------------------------------------------------------
 # Rosetta corpus location (may not exist in CI)
 # ---------------------------------------------------------------------------
-ROSETTA_CORPUS_DIR = (
-    Path(__file__).parent.parent / "scores" / "rosetta-corpus" / "patterns"
-)
+ROSETTA_CORPUS_DIR = Path(__file__).parent.parent / "scores" / "rosetta-corpus" / "patterns"
 
 
 class TestPatternExpander:
@@ -62,9 +60,7 @@ class TestPatternExpander:
     def test_expand_multiple_patterns(self) -> None:
         """Multiple patterns merge their extensions."""
         expander = PatternExpander()
-        result = expander.expand(
-            ["cathedral-construction", "boundary-trace"], _make_agent_def()
-        )
+        result = expander.expand(["cathedral-construction", "boundary-trace"], _make_agent_def())
 
         assert len(result["applied_patterns"]) == 2
         # Both patterns contribute to inspect phase
@@ -206,9 +202,7 @@ class TestPatternStageExpansion:
         stages = expander.expand_stages("the-tool-chain")
 
         for stage in stages:
-            assert stage.instrument_guidance, (
-                f"Stage '{stage.name}' missing instrument_guidance"
-            )
+            assert stage.instrument_guidance, f"Stage '{stage.name}' missing instrument_guidance"
 
     def test_fan_out_stage_has_parameterized_sheets(self) -> None:
         """Fan-out stages report sheets as a fan_out string."""
@@ -222,9 +216,7 @@ class TestPatternStageExpansion:
     def test_parameters_customize_fan_out(self) -> None:
         """Pattern parameters can customize fan-out width."""
         expander = PatternExpander()
-        stages = expander.expand_stages(
-            "fan-out-synthesis", params={"fan_out": {"analyze": 3}}
-        )
+        stages = expander.expand_stages("fan-out-synthesis", params={"fan_out": {"analyze": 3}})
 
         analyze_stage = stages[1]
         assert analyze_stage.sheets == "fan_out(3)"
@@ -340,6 +332,4 @@ class TestRosettaCorpusLoading:
         loaded = expander.load_rosetta_corpus(corpus_dir)
 
         for name, pattern in loaded.items():
-            assert pattern.get("description"), (
-                f"Corpus pattern '{name}' missing description"
-            )
+            assert pattern.get("description"), f"Corpus pattern '{name}' missing description"

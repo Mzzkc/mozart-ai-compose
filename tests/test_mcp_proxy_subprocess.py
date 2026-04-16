@@ -21,7 +21,8 @@ def mcp_test_server_script(tmp_path_factory):
     """Create a minimal MCP test server that handles JSON-RPC over stdio."""
     tmp = tmp_path_factory.mktemp("mcp_server")
     script_path = tmp / "test_mcp_server.py"
-    script_path.write_text(textwrap.dedent('''\
+    script_path.write_text(
+        textwrap.dedent('''\
         """Minimal MCP test server for subprocess testing."""
         import json
         import os
@@ -149,7 +150,8 @@ def mcp_test_server_script(tmp_path_factory):
 
         if __name__ == "__main__":
             main()
-    '''))
+    ''')
+    )
     return str(script_path)
 
 
@@ -179,7 +181,6 @@ def make_config(mcp_test_server_script):
 
 
 class TestRealSubprocessLifecycle:
-
     async def test_start_and_stop_real_server(self, make_config):
         config = make_config()
         proxy = MCPProxyService([config])
@@ -236,7 +237,6 @@ class TestRealSubprocessLifecycle:
 
 
 class TestRealJsonRpcCommunication:
-
     async def test_list_tools_real_server(self, make_config):
         config = make_config()
 
@@ -258,9 +258,7 @@ class TestRealJsonRpcCommunication:
         config = make_config()
 
         async with MCPProxyService([config]) as proxy:
-            result = await proxy.execute_tool(
-                "echo", {"message": "hello from test"}
-            )
+            result = await proxy.execute_tool("echo", {"message": "hello from test"})
 
             assert result.is_error is False
             assert len(result.content) == 1
@@ -272,9 +270,7 @@ class TestRealJsonRpcCommunication:
 
         async with MCPProxyService([config]) as proxy:
             for i in range(5):
-                result = await proxy.execute_tool(
-                    "echo", {"message": f"call-{i}"}
-                )
+                result = await proxy.execute_tool("echo", {"message": f"call-{i}"})
                 assert result.content[0].text == f"call-{i}"
 
     async def test_tool_not_found_real_server(self, make_config):
@@ -291,25 +287,18 @@ class TestRealJsonRpcCommunication:
 
 
 class TestRealEnvironmentPassing:
-
     async def test_env_vars_passed_to_subprocess(self, make_config):
-        config = make_config(
-            env={"MZT_TEST_VAR": "test_value_42"}
-        )
+        config = make_config(env={"MZT_TEST_VAR": "test_value_42"})
 
         async with MCPProxyService([config]) as proxy:
-            result = await proxy.execute_tool(
-                "env_check", {"var_name": "MZT_TEST_VAR"}
-            )
+            result = await proxy.execute_tool("env_check", {"var_name": "MZT_TEST_VAR"})
             assert result.content[0].text == "test_value_42"
 
     async def test_env_var_not_set(self, make_config):
         config = make_config()
 
         async with MCPProxyService([config]) as proxy:
-            result = await proxy.execute_tool(
-                "env_check", {"var_name": "DEFINITELY_NOT_SET_12345"}
-            )
+            result = await proxy.execute_tool("env_check", {"var_name": "DEFINITELY_NOT_SET_12345"})
             assert result.content[0].text == "<NOT SET>"
 
 
@@ -319,7 +308,6 @@ class TestRealEnvironmentPassing:
 
 
 class TestRealProcessTermination:
-
     async def test_graceful_termination(self, make_config):
         config = make_config()
         proxy = MCPProxyService([config])
@@ -377,7 +365,6 @@ class TestRealProcessTermination:
 
 
 class TestRealToolCache:
-
     async def test_tool_cache_returns_cached_tools(self, make_config):
         config = make_config()
 

@@ -8,10 +8,8 @@ Each check has at least two tests:
 from pathlib import Path
 from textwrap import dedent
 
-import pytest
-
 from marianne.core.config import JobConfig
-from marianne.validation.base import ValidationIssue, ValidationSeverity
+from marianne.validation.base import ValidationSeverity
 from marianne.validation.checks.best_practices import (
     FanOutWithoutDependenciesCheck,
     FanOutWithoutParallelCheck,
@@ -23,7 +21,6 @@ from marianne.validation.checks.best_practices import (
     NoValidationsCheck,
     VariableShadowingCheck,
 )
-
 
 # ============================================================================
 # V201 — JinjaInValidationPathCheck

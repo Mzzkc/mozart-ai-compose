@@ -217,25 +217,17 @@ def test_multiple_patterns_mixed_promotion(store):
 
     # High pattern: 5 successes
     for i in range(5):
-        store.record_pattern_application(
-            high_id, f"exec_high_{i}", pattern_led_to_success=True
-        )
+        store.record_pattern_application(high_id, f"exec_high_{i}", pattern_led_to_success=True)
 
     # Low pattern: 5 failures
     for i in range(5):
-        store.record_pattern_application(
-            low_id, f"exec_low_{i}", pattern_led_to_success=False
-        )
+        store.record_pattern_application(low_id, f"exec_low_{i}", pattern_led_to_success=False)
 
     # Mid pattern: 3 successes, 2 failures (effectiveness ~0.45, stays PENDING)
     for i in range(3):
-        store.record_pattern_application(
-            mid_id, f"exec_mid_{i}", pattern_led_to_success=True
-        )
+        store.record_pattern_application(mid_id, f"exec_mid_{i}", pattern_led_to_success=True)
     for i in range(2):
-        store.record_pattern_application(
-            mid_id, f"exec_mid_fail_{i}", pattern_led_to_success=False
-        )
+        store.record_pattern_application(mid_id, f"exec_mid_fail_{i}", pattern_led_to_success=False)
 
     result = store.promote_ready_patterns()
 
@@ -298,9 +290,7 @@ def test_promotion_cycle_idempotent(store):
 
     # Record 5 successes
     for i in range(5):
-        store.record_pattern_application(
-            pattern_id, f"exec_{i}", pattern_led_to_success=True
-        )
+        store.record_pattern_application(pattern_id, f"exec_{i}", pattern_led_to_success=True)
 
     # First promotion
     result1 = store.promote_ready_patterns()

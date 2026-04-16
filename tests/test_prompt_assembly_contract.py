@@ -106,9 +106,7 @@ def builder_with_template_file(tmp_path: Path) -> PromptBuilder:
     return PromptBuilder(config)
 
 
-def _make_spec_fragment(
-    name: str, content: str, tags: list[str] | None = None
-) -> SpecFragment:
+def _make_spec_fragment(name: str, content: str, tags: list[str] | None = None) -> SpecFragment:
     """Helper to create SpecFragment for testing."""
     return SpecFragment(
         name=name,
@@ -158,16 +156,12 @@ class TestPreambleContract:
         result = build_preamble(1, 5, workspace, retry_count=1)
         assert "previous attempt failed" in result.lower()
 
-    def test_preamble_parallel_includes_concurrency_warning(
-        self, workspace: Path
-    ) -> None:
+    def test_preamble_parallel_includes_concurrency_warning(self, workspace: Path) -> None:
         """Parallel preamble warns about concurrent execution."""
         result = build_preamble(1, 5, workspace, is_parallel=True)
         assert "concurrently" in result.lower()
 
-    def test_preamble_sequential_no_concurrency_warning(
-        self, workspace: Path
-    ) -> None:
+    def test_preamble_sequential_no_concurrency_warning(self, workspace: Path) -> None:
         """Sequential preamble (is_parallel=False) has no concurrency warning."""
         result = build_preamble(1, 5, workspace, is_parallel=False)
         assert "concurrently" not in result.lower()
@@ -201,22 +195,28 @@ class TestPreambleContract:
 class TestSheetContextContract:
     """SheetContext.to_dict() defines what variables are available in templates."""
 
-    def test_to_dict_contains_all_required_keys(
-        self, basic_context: SheetContext
-    ) -> None:
+    def test_to_dict_contains_all_required_keys(self, basic_context: SheetContext) -> None:
         """to_dict produces all keys that templates can reference."""
         d = basic_context.to_dict()
         required_keys = {
-            "sheet_num", "total_sheets", "start_item", "end_item",
-            "workspace", "stage", "instance", "fan_count", "total_stages",
-            "previous_outputs", "previous_files",
-            "injected_context", "injected_skills", "injected_tools",
+            "sheet_num",
+            "total_sheets",
+            "start_item",
+            "end_item",
+            "workspace",
+            "stage",
+            "instance",
+            "fan_count",
+            "total_stages",
+            "previous_outputs",
+            "previous_files",
+            "injected_context",
+            "injected_skills",
+            "injected_tools",
         }
         assert required_keys.issubset(set(d.keys()))
 
-    def test_stage_defaults_to_sheet_num_when_zero(
-        self, basic_context: SheetContext
-    ) -> None:
+    def test_stage_defaults_to_sheet_num_when_zero(self, basic_context: SheetContext) -> None:
         """When stage is 0 (not set), to_dict falls back to sheet_num."""
         assert basic_context.stage == 0
         d = basic_context.to_dict()
@@ -230,9 +230,7 @@ class TestSheetContextContract:
         d = basic_context.to_dict()
         assert d["total_stages"] == basic_context.total_sheets
 
-    def test_fanout_metadata_reflected(
-        self, fanout_context: SheetContext
-    ) -> None:
+    def test_fanout_metadata_reflected(self, fanout_context: SheetContext) -> None:
         """Fan-out metadata (stage, instance, fan_count) is available."""
         d = fanout_context.to_dict()
         assert d["stage"] == 2
@@ -240,23 +238,17 @@ class TestSheetContextContract:
         assert d["fan_count"] == 4
         assert d["total_stages"] == 5
 
-    def test_workspace_is_string_in_dict(
-        self, basic_context: SheetContext
-    ) -> None:
+    def test_workspace_is_string_in_dict(self, basic_context: SheetContext) -> None:
         """Workspace path is converted to string for Jinja compatibility."""
         d = basic_context.to_dict()
         assert isinstance(d["workspace"], str)
 
-    def test_previous_outputs_empty_by_default(
-        self, basic_context: SheetContext
-    ) -> None:
+    def test_previous_outputs_empty_by_default(self, basic_context: SheetContext) -> None:
         """Previous outputs dict is empty when no cross-sheet context."""
         d = basic_context.to_dict()
         assert d["previous_outputs"] == {}
 
-    def test_injection_lists_empty_by_default(
-        self, basic_context: SheetContext
-    ) -> None:
+    def test_injection_lists_empty_by_default(self, basic_context: SheetContext) -> None:
         """All injection lists are empty by default."""
         d = basic_context.to_dict()
         assert d["injected_context"] == []
@@ -299,14 +291,17 @@ class TestAssemblyOrderContract:
 
         spec = _make_spec_fragment("test-spec", "Spec content here")
         patterns = ["Pattern 1: always test edge cases"]
-        rules = [ValidationRule(
-            type="file_exists",
-            path="{workspace}/output.md",
-            description="Output file exists",
-        )]
+        rules = [
+            ValidationRule(
+                type="file_exists",
+                path="{workspace}/output.md",
+                description="Output file exists",
+            )
+        ]
 
         # Use a HistoricalFailure-like object
         from marianne.execution.validation import HistoricalFailure
+
         failure = HistoricalFailure(
             sheet_num=0,
             rule_type="file_exists",
@@ -357,7 +352,10 @@ class TestAssemblyOrderContract:
         )
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            sheet_num=1,
+            total_sheets=1,
+            start_item=1,
+            end_item=1,
             workspace=workspace,
         )
 
@@ -369,14 +367,19 @@ class TestAssemblyOrderContract:
         config = PromptConfig(template="Do the work.", variables={})
         builder = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            sheet_num=1,
+            total_sheets=1,
+            start_item=1,
+            end_item=1,
             workspace=workspace,
         )
-        rules = [ValidationRule(
-            type="file_exists",
-            path="{workspace}/out.md",
-            description="Output file",
-        )]
+        rules = [
+            ValidationRule(
+                type="file_exists",
+                path="{workspace}/out.md",
+                description="Output file",
+            )
+        ]
 
         prompt = builder.build_sheet_prompt(ctx, validation_rules=rules)
         assert prompt.startswith("Do the work.")
@@ -403,9 +406,7 @@ class TestVariableMergingContract:
         prompt = b.build_sheet_prompt(basic_context)
         assert "Project: test-project" in prompt
 
-    def test_stakes_variable_available(
-        self, basic_context: SheetContext
-    ) -> None:
+    def test_stakes_variable_available(self, basic_context: SheetContext) -> None:
         """The 'stakes' config field is available as {{ stakes }}."""
         config = PromptConfig(
             template="Stakes: {{ stakes }}",
@@ -416,9 +417,7 @@ class TestVariableMergingContract:
         prompt = b.build_sheet_prompt(basic_context)
         assert "Stakes: high — production deployment" in prompt
 
-    def test_thinking_method_variable_available(
-        self, basic_context: SheetContext
-    ) -> None:
+    def test_thinking_method_variable_available(self, basic_context: SheetContext) -> None:
         """The 'thinking_method' config field is available as {{ thinking_method }}."""
         config = PromptConfig(
             template="Think: {{ thinking_method }}",
@@ -472,9 +471,7 @@ class TestTemplateFileContract:
         prompt = builder_with_template_file.build_sheet_prompt(basic_context)
         assert "File-based template: file-test sheet 3." in prompt
 
-    def test_template_and_file_mutually_exclusive(
-        self, workspace: Path, tmp_path: Path
-    ) -> None:
+    def test_template_and_file_mutually_exclusive(self, workspace: Path, tmp_path: Path) -> None:
         """PromptConfig rejects both template and template_file simultaneously."""
         tpl = tmp_path / "template.j2"
         tpl.write_text("FROM FILE")
@@ -494,67 +491,80 @@ class TestTemplateFileContract:
 class TestValidationFormattingContract:
     """Validation rules are formatted as a checklist for the musician."""
 
-    def test_file_exists_shows_create_path(
-        self, builder: PromptBuilder, workspace: Path
-    ) -> None:
+    def test_file_exists_shows_create_path(self, builder: PromptBuilder, workspace: Path) -> None:
         """file_exists rules show 'Create file: <path>' on their first applicable sheet."""
         # Use sheet 1 where unconditional rules are "new" (not inherited)
         ctx = SheetContext(
-            sheet_num=1, total_sheets=3, start_item=1, end_item=10,
+            sheet_num=1,
+            total_sheets=3,
+            start_item=1,
+            end_item=10,
             workspace=workspace,
         )
-        rules = [ValidationRule(
-            type="file_exists",
-            path="{workspace}/output.md",
-            description="Output file",
-        )]
+        rules = [
+            ValidationRule(
+                type="file_exists",
+                path="{workspace}/output.md",
+                description="Output file",
+            )
+        ]
         prompt = builder.build_sheet_prompt(ctx, validation_rules=rules)
         assert "Create file:" in prompt
         assert "output.md" in prompt
 
-    def test_command_succeeds_shows_command(
-        self, builder: PromptBuilder, workspace: Path
-    ) -> None:
+    def test_command_succeeds_shows_command(self, builder: PromptBuilder, workspace: Path) -> None:
         """command_succeeds rules show the command to run."""
         ctx = SheetContext(
-            sheet_num=1, total_sheets=3, start_item=1, end_item=10,
+            sheet_num=1,
+            total_sheets=3,
+            start_item=1,
+            end_item=10,
             workspace=workspace,
         )
-        rules = [ValidationRule(
-            type="command_succeeds",
-            command="pytest tests/ -x",
-            description="Tests pass",
-        )]
+        rules = [
+            ValidationRule(
+                type="command_succeeds",
+                command="pytest tests/ -x",
+                description="Tests pass",
+            )
+        ]
         prompt = builder.build_sheet_prompt(ctx, validation_rules=rules)
         assert "Command must succeed" in prompt
         assert "pytest tests/ -x" in prompt
 
-    def test_content_contains_shows_pattern(
-        self, builder: PromptBuilder, workspace: Path
-    ) -> None:
+    def test_content_contains_shows_pattern(self, builder: PromptBuilder, workspace: Path) -> None:
         """content_contains rules show the exact pattern to match."""
         ctx = SheetContext(
-            sheet_num=1, total_sheets=3, start_item=1, end_item=10,
+            sheet_num=1,
+            total_sheets=3,
+            start_item=1,
+            end_item=10,
             workspace=workspace,
         )
-        rules = [ValidationRule(
-            type="content_contains",
-            path="{workspace}/out.md",
-            pattern="class Foo",
-            description="Contains class",
-        )]
+        rules = [
+            ValidationRule(
+                type="content_contains",
+                path="{workspace}/out.md",
+                pattern="class Foo",
+                description="Contains class",
+            )
+        ]
         prompt = builder.build_sheet_prompt(ctx, validation_rules=rules)
         assert "Must contain exactly:" in prompt
         assert "class Foo" in prompt
 
     def test_new_vs_inherited_rule_separation(
-        self, workspace: Path,
+        self,
+        workspace: Path,
     ) -> None:
         """Rules applicable from sheet 1 are 'inherited' on sheet 2+."""
         config = PromptConfig(template="Work.", variables={})
         b = PromptBuilder(config)
         ctx = SheetContext(
-            sheet_num=2, total_sheets=3, start_item=1, end_item=1,
+            sheet_num=2,
+            total_sheets=3,
+            start_item=1,
+            end_item=1,
             workspace=workspace,
         )
         rules = [
@@ -582,14 +592,19 @@ class TestValidationFormattingContract:
     ) -> None:
         """{workspace} is expanded to actual path in validation output."""
         ctx = SheetContext(
-            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            sheet_num=1,
+            total_sheets=1,
+            start_item=1,
+            end_item=1,
             workspace=workspace,
         )
-        rules = [ValidationRule(
-            type="file_exists",
-            path="{workspace}/output.md",
-            description="Output file",
-        )]
+        rules = [
+            ValidationRule(
+                type="file_exists",
+                path="{workspace}/output.md",
+                description="Output file",
+            )
+        ]
         prompt = builder.build_sheet_prompt(ctx, validation_rules=rules)
         ws_str = str(workspace)
         assert ws_str in prompt
@@ -609,9 +624,7 @@ class TestSpecFragmentContract:
     ) -> None:
         """A single spec fragment appears in the prompt."""
         spec = _make_spec_fragment("intent", "The project's intent is correctness.")
-        prompt = builder.build_sheet_prompt(
-            basic_context, spec_fragments=[spec]
-        )
+        prompt = builder.build_sheet_prompt(basic_context, spec_fragments=[spec])
         assert "The project's intent is correctness." in prompt
 
     def test_multiple_fragments_all_present(
@@ -622,9 +635,7 @@ class TestSpecFragmentContract:
             _make_spec_fragment("intent", "Intent content"),
             _make_spec_fragment("arch", "Architecture content"),
         ]
-        prompt = builder.build_sheet_prompt(
-            basic_context, spec_fragments=specs
-        )
+        prompt = builder.build_sheet_prompt(basic_context, spec_fragments=specs)
         assert "Intent content" in prompt
         assert "Architecture content" in prompt
 
@@ -659,18 +670,19 @@ class TestPatternsAndHistoryContract:
     ) -> None:
         """At most 5 patterns are shown (to conserve tokens)."""
         many_patterns = [f"Pattern {i}" for i in range(10)]
-        prompt = builder.build_sheet_prompt(
-            basic_context, patterns=many_patterns
-        )
+        prompt = builder.build_sheet_prompt(basic_context, patterns=many_patterns)
         assert "Pattern 4" in prompt
-        assert "Pattern 5" not in prompt.split("## Learned Patterns")[1].split("Consider")[0] or \
-               prompt.count("Pattern") <= 7  # header + 5 items + footer
+        assert (
+            "Pattern 5" not in prompt.split("## Learned Patterns")[1].split("Consider")[0]
+            or prompt.count("Pattern") <= 7
+        )  # header + 5 items + footer
 
     def test_failure_history_limited_to_five(
         self, builder: PromptBuilder, basic_context: SheetContext
     ) -> None:
         """At most 5 historical failures are shown."""
         from marianne.execution.validation import HistoricalFailure
+
         failures = [
             HistoricalFailure(
                 sheet_num=i,
@@ -680,9 +692,7 @@ class TestPatternsAndHistoryContract:
             )
             for i in range(10)
         ]
-        prompt = builder.build_sheet_prompt(
-            basic_context, failure_history=failures
-        )
+        prompt = builder.build_sheet_prompt(basic_context, failure_history=failures)
         # Should show failures 0-4 (first 5)
         assert "Failure 0" in prompt
         assert "Failure 4" in prompt
@@ -699,6 +709,7 @@ class TestPatternsAndHistoryContract:
     ) -> None:
         """When a failure has a suggested_fix, it appears in the prompt."""
         from marianne.execution.validation import HistoricalFailure
+
         failure = HistoricalFailure(
             sheet_num=1,
             rule_type="file_exists",
@@ -706,9 +717,7 @@ class TestPatternsAndHistoryContract:
             failure_category="missing",
             suggested_fix="Create the output file before writing to it",
         )
-        prompt = builder.build_sheet_prompt(
-            basic_context, failure_history=[failure]
-        )
+        prompt = builder.build_sheet_prompt(basic_context, failure_history=[failure])
         assert "Create the output file" in prompt
 
 
@@ -723,6 +732,7 @@ class TestCompletionPromptContract:
     def test_completion_prompt_structure(self, workspace: Path) -> None:
         """Completion prompt has required structural elements."""
         from marianne.execution.validation import ValidationResult
+
         config = PromptConfig(template="Original task.", variables={})
         b = PromptBuilder(config)
 
@@ -755,11 +765,10 @@ class TestCompletionPromptContract:
         assert "COMPLETION MODE" in prompt
         assert "1 of 5" in prompt or "attempt 1" in prompt.lower()
 
-    def test_completion_prompt_mentions_passed_and_failed(
-        self, workspace: Path
-    ) -> None:
+    def test_completion_prompt_mentions_passed_and_failed(self, workspace: Path) -> None:
         """Completion prompt distinguishes passed from failed validations."""
         from marianne.execution.validation import ValidationResult
+
         config = PromptConfig(template="Task.", variables={})
         b = PromptBuilder(config)
 
@@ -777,7 +786,8 @@ class TestCompletionPromptContract:
         failed = ValidationResult(rule=rule_b, passed=False)
 
         ctx = CompletionContext(
-            sheet_num=1, total_sheets=1,
+            sheet_num=1,
+            total_sheets=1,
             passed_validations=[passed],
             failed_validations=[failed],
             completion_attempt=1,
@@ -800,9 +810,7 @@ class TestCompletionPromptContract:
 class TestAdversarialPromptContract:
     """Prompt assembly handles adversarial/edge-case inputs safely."""
 
-    def test_template_with_jinja_undefined_raises(
-        self, basic_context: SheetContext
-    ) -> None:
+    def test_template_with_jinja_undefined_raises(self, basic_context: SheetContext) -> None:
         """Undefined template variables raise UndefinedError (StrictUndefined)."""
         config = PromptConfig(
             template="Value: {{ nonexistent_var }}",
@@ -812,9 +820,7 @@ class TestAdversarialPromptContract:
         with pytest.raises(jinja2.UndefinedError):
             b.build_sheet_prompt(basic_context)
 
-    def test_empty_template_falls_back_to_default(
-        self, basic_context: SheetContext
-    ) -> None:
+    def test_empty_template_falls_back_to_default(self, basic_context: SheetContext) -> None:
         """An empty template string falls back to the default prompt.
 
         The default prompt includes sheet identity and item range.
@@ -826,9 +832,7 @@ class TestAdversarialPromptContract:
         assert "sheet 3" in prompt.lower() or "3 of 10" in prompt
         assert len(prompt) > 0
 
-    def test_variables_with_special_chars(
-        self, basic_context: SheetContext
-    ) -> None:
+    def test_variables_with_special_chars(self, basic_context: SheetContext) -> None:
         """Variables containing special characters render without escaping.
 
         Jinja2 autoescape is OFF (code, not HTML). Special chars pass through.
@@ -841,9 +845,7 @@ class TestAdversarialPromptContract:
         prompt = b.build_sheet_prompt(basic_context)
         assert '<script>alert("xss")</script>' in prompt
 
-    def test_very_large_template_output(
-        self, basic_context: SheetContext
-    ) -> None:
+    def test_very_large_template_output(self, basic_context: SheetContext) -> None:
         """Large template output doesn't crash or truncate."""
         big = "x" * 100_000
         config = PromptConfig(

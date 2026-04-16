@@ -9,12 +9,10 @@ Covers:
 
 from __future__ import annotations
 
-import json
 from io import StringIO
 from pathlib import Path
 from textwrap import dedent
 
-import pytest
 from rich.console import Console
 
 from marianne.core.config import JobConfig
@@ -48,7 +46,6 @@ from marianne.validation.rendering import (
     generate_preview,
 )
 from marianne.validation.reporter import ValidationReporter
-
 
 # ============================================================================
 # Helpers
@@ -661,9 +658,7 @@ class TestVersionReferenceCheckScan:
         check = VersionReferenceCheck()
         issues = check.check(config, config_path, yaml_str)
         # Should detect "evolution-v2" in the template line
-        stale_issues = [
-            i for i in issues if i.severity == ValidationSeverity.WARNING
-        ]
+        stale_issues = [i for i in issues if i.severity == ValidationSeverity.WARNING]
         assert len(stale_issues) >= 1
 
     def test_skips_evolution_from_markers(self, tmp_path: Path) -> None:
@@ -683,9 +678,9 @@ class TestVersionReferenceCheckScan:
         issues = check.check(config, config_path, yaml_str)
         # The EVOLUTION FROM marker should suppress the warning
         stale_warnings = [
-            i for i in issues
-            if i.severity == ValidationSeverity.WARNING
-            and i.metadata.get("pattern")
+            i
+            for i in issues
+            if i.severity == ValidationSeverity.WARNING and i.metadata.get("pattern")
         ]
         assert len(stale_warnings) == 0
 
@@ -705,9 +700,9 @@ class TestVersionReferenceCheckScan:
         check = VersionReferenceCheck()
         issues = check.check(config, config_path, yaml_str)
         stale_warnings = [
-            i for i in issues
-            if i.severity == ValidationSeverity.WARNING
-            and i.metadata.get("pattern")
+            i
+            for i in issues
+            if i.severity == ValidationSeverity.WARNING and i.metadata.get("pattern")
         ]
         assert len(stale_warnings) == 0
 
@@ -803,8 +798,9 @@ class TestBuildSnippet:
 class TestResolveInjectionsPreview:
     """Test _resolve_injections_preview with real files."""
 
-    def _make_ctx(self, tmp_path: Path) -> "SheetContext":
+    def _make_ctx(self, tmp_path: Path) -> SheetContext:
         from marianne.prompts.templating import SheetContext
+
         return SheetContext(
             sheet_num=1,
             total_sheets=1,
@@ -814,9 +810,12 @@ class TestResolveInjectionsPreview:
         )
 
     def _make_item(
-        self, file: str, category: str = "context",
-    ) -> "InjectionItem":
+        self,
+        file: str,
+        category: str = "context",
+    ) -> InjectionItem:
         from marianne.core.config.job import InjectionItem
+
         return InjectionItem(**{"file": file, "as": category})
 
     def test_resolves_existing_file(self, tmp_path: Path) -> None:
@@ -1045,9 +1044,7 @@ class TestReportRenderingTerminal:
         assert "not applicable" in output
 
     def test_render_errors_summary(self) -> None:
-        preview = _make_rendering_preview(
-            num_sheets=1, render_errors=["Error in sheet 1"]
-        )
+        preview = _make_rendering_preview(num_sheets=1, render_errors=["Error in sheet 1"])
         output = self._capture(preview)
         assert "Render Errors" in output
         assert "Error in sheet 1" in output
@@ -1111,9 +1108,7 @@ class TestReportRenderingJson:
         assert sheet["fan_count"] == 3
 
     def test_render_errors_included(self) -> None:
-        preview = _make_rendering_preview(
-            num_sheets=1, render_errors=["err1", "err2"]
-        )
+        preview = _make_rendering_preview(num_sheets=1, render_errors=["err1", "err2"])
         reporter = ValidationReporter()
         result = reporter.report_rendering_json(preview)
         assert result["render_errors"] == ["err1", "err2"]
@@ -1194,16 +1189,19 @@ class TestHelpers:
 
     def test_find_line_in_yaml_not_found(self) -> None:
         from marianne.validation.checks._helpers import find_line_in_yaml
+
         assert find_line_in_yaml("foo: bar\nbaz: qux", "nonexistent") is None
 
     def test_resolve_path_absolute(self, tmp_path: Path) -> None:
         from marianne.validation.checks._helpers import resolve_path
+
         abs_path = Path("/absolute/path")
         result = resolve_path(abs_path, tmp_path / "config.yaml")
         assert result == abs_path
 
     def test_resolve_path_relative(self, tmp_path: Path) -> None:
         from marianne.validation.checks._helpers import resolve_path
+
         rel_path = Path("relative/file.txt")
         config_path = tmp_path / "configs" / "config.yaml"
         config_path.parent.mkdir(parents=True, exist_ok=True)

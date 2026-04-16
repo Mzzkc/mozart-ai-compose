@@ -29,7 +29,6 @@ from marianne.core.config.instruments import (
     ModelCapacity,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -335,6 +334,7 @@ class TestBuildSheetsInstrumentConfigModel:
               template: "Do something"
         """)
         from marianne.core.sheet import build_sheets
+
         sheets = build_sheets(config)
 
         for sheet in sheets:
@@ -361,6 +361,7 @@ class TestBuildSheetsInstrumentConfigModel:
               template: "Do something"
         """)
         from marianne.core.sheet import build_sheets
+
         sheets = build_sheets(config)
 
         # Sheet 1 is in movement 1 — should get movement-level override
@@ -391,6 +392,7 @@ class TestBuildSheetsInstrumentConfigModel:
               template: "Do something"
         """)
         from marianne.core.sheet import build_sheets
+
         sheets = build_sheets(config)
 
         sheet_1 = next(s for s in sheets if s.num == 1)
@@ -422,6 +424,7 @@ class TestBuildSheetsInstrumentConfigModel:
               template: "Do something"
         """)
         from marianne.core.sheet import build_sheets
+
         sheets = build_sheets(config)
 
         assert sheets[0].instrument_config.get("model") == "gemini-2.5-flash"

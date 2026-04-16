@@ -40,7 +40,6 @@ from pydantic import BaseModel, ValidationError
 # =============================================================================
 # Import all config models for exhaustive testing
 # =============================================================================
-
 from marianne.core.config.backend import (
     BackendConfig,
     BridgeConfig,
@@ -105,7 +104,12 @@ from marianne.core.config.workspace import (
     LogConfig,
     WorkspaceLifecycleConfig,
 )
+from marianne.daemon.exceptions import (
+    DaemonError,
+    MethodNotFoundError,
+)
 from marianne.daemon.ipc.errors import (
+    _CODE_EXCEPTION_MAP,
     DAEMON_SHUTTING_DOWN,
     JOB_ALREADY_RUNNING,
     JOB_NOT_FOUND,
@@ -113,12 +117,7 @@ from marianne.daemon.ipc.errors import (
     METHOD_NOT_FOUND,
     RESOURCE_EXHAUSTED,
     WORKSPACE_NOT_FOUND,
-    _CODE_EXCEPTION_MAP,
     rpc_error_to_exception,
-)
-from marianne.daemon.exceptions import (
-    DaemonError,
-    MethodNotFoundError,
 )
 
 # =============================================================================
@@ -130,7 +129,9 @@ _RANDOM_KEY = st.text(
     min_size=1,
     max_size=20,
 )
-_RANDOM_VALUE = st.one_of(st.integers(), st.text(max_size=50), st.booleans(), st.floats(allow_nan=False))
+_RANDOM_VALUE = st.one_of(
+    st.integers(), st.text(max_size=50), st.booleans(), st.floats(allow_nan=False)
+)
 _TIMESTAMP = st.floats(min_value=0.0, max_value=2e9, allow_nan=False, allow_infinity=False)
 _JSON_STRINGS = st.one_of(
     st.text(max_size=200),
@@ -144,12 +145,20 @@ _JSON_STRINGS = st.one_of(
     st.just('{"result": "ok"}'),
     st.builds(
         json.dumps,
-        st.fixed_dictionaries({
-            "usage": st.fixed_dictionaries({
-                "input_tokens": st.one_of(st.integers(min_value=0, max_value=1_000_000), st.text(max_size=10)),
-                "output_tokens": st.one_of(st.integers(min_value=0, max_value=1_000_000), st.text(max_size=10)),
-            })
-        }),
+        st.fixed_dictionaries(
+            {
+                "usage": st.fixed_dictionaries(
+                    {
+                        "input_tokens": st.one_of(
+                            st.integers(min_value=0, max_value=1_000_000), st.text(max_size=10)
+                        ),
+                        "output_tokens": st.one_of(
+                            st.integers(min_value=0, max_value=1_000_000), st.text(max_size=10)
+                        ),
+                    }
+                )
+            }
+        ),
     ),
 )
 
@@ -239,9 +248,7 @@ class TestConfigStrictnessTotality:
 
     @given(field_name=_RANDOM_KEY, field_value=_RANDOM_VALUE)
     @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
-    def test_unknown_field_rejected_on_all_models(
-        self, field_name: str, field_value: Any
-    ) -> None:
+    def test_unknown_field_rejected_on_all_models(self, field_name: str, field_value: Any) -> None:
         """Every config model rejects fields not in its schema."""
         # Skip field names that happen to be real fields
         rejected_count = 0
@@ -275,8 +282,7 @@ class TestConfigStrictnessTotality:
                 # Check that at least one error is about the extra field
                 errors = e.errors()
                 has_extra_error = any(
-                    err.get("type") == "extra_forbidden"
-                    or field_name in str(err.get("loc", ()))
+                    err.get("type") == "extra_forbidden" or field_name in str(err.get("loc", ()))
                     for err in errors
                 )
                 if has_extra_error:
@@ -325,9 +331,7 @@ class TestConfigStrictnessTotality:
                     if extra_setting != "forbid":
                         missing_forbid.append(f"{mod_name}.{name} (extra={extra_setting!r})")
 
-        assert not missing_forbid, (
-            f"Config models missing extra='forbid': {missing_forbid}"
-        )
+        assert not missing_forbid, f"Config models missing extra='forbid': {missing_forbid}"
 
 
 # =============================================================================
@@ -369,8 +373,7 @@ class TestIPCErrorCodeMapping:
             error = {"code": code, "message": message}
             exc = rpc_error_to_exception(error)
             assert isinstance(exc, expected_cls), (
-                f"Code {code}: expected {expected_cls.__name__}, "
-                f"got {type(exc).__name__}"
+                f"Code {code}: expected {expected_cls.__name__}, got {type(exc).__name__}"
             )
 
     @given(code=st.integers(min_value=-40000, max_value=-30000))
@@ -465,12 +468,14 @@ class TestAutoFreshMonotonicity:
 
     @given(
         completed_at=_TIMESTAMP,
-        mtime_offset=st.floats(min_value=-100.0, max_value=100.0, allow_nan=False, allow_infinity=False),
+        mtime_offset=st.floats(
+            min_value=-100.0, max_value=100.0, allow_nan=False, allow_infinity=False
+        ),
     )
     @settings(max_examples=100)
     def test_monotonicity_in_mtime(self, completed_at: float, mtime_offset: float) -> None:
         """Increasing mtime relative to completed_at monotonically increases True likelihood."""
-        from marianne.daemon.manager import _should_auto_fresh, _MTIME_TOLERANCE_SECONDS
+        from marianne.daemon.manager import _MTIME_TOLERANCE_SECONDS, _should_auto_fresh
 
         # Simulate two mtimes
         mtime1 = completed_at + mtime_offset
@@ -566,10 +571,7 @@ class TestConfigDefaultConstruction:
     @staticmethod
     def _has_required_fields(model_cls: type[BaseModel]) -> bool:
         """Check if a model has any fields without defaults."""
-        for field_info in model_cls.model_fields.values():
-            if field_info.is_required():
-                return True
-        return False
+        return any(field_info.is_required() for field_info in model_cls.model_fields.values())
 
     def test_all_defaulted_models_construct(self) -> None:
         """Models with all defaults should construct without arguments."""
@@ -582,8 +584,7 @@ class TestConfigDefaultConstruction:
                 assert isinstance(instance, model_cls)
             except (ValidationError, TypeError) as e:
                 pytest.fail(
-                    f"{model_cls.__name__} has all-default fields but "
-                    f"failed construction: {e}"
+                    f"{model_cls.__name__} has all-default fields but failed construction: {e}"
                 )
 
 
@@ -600,7 +601,9 @@ class TestFieldBoundsEnforcement:
     """
 
     @given(
-        base_delay=st.floats(min_value=0.01, max_value=10000, allow_nan=False, allow_infinity=False),
+        base_delay=st.floats(
+            min_value=0.01, max_value=10000, allow_nan=False, allow_infinity=False
+        ),
         max_delay=st.floats(min_value=0.01, max_value=10000, allow_nan=False, allow_infinity=False),
     )
     @settings(max_examples=50)
@@ -668,7 +671,7 @@ class TestRetryDelayBounds:
             exponential_base=exp_base,
             jitter=False,
         )
-        raw_delay = config.base_delay_seconds * (config.exponential_base ** attempt)
+        raw_delay = config.base_delay_seconds * (config.exponential_base**attempt)
         clamped = min(raw_delay, config.max_delay_seconds)
         assert clamped <= config.max_delay_seconds
 
@@ -767,8 +770,14 @@ class TestConfigFieldCountStability:
         module_names = [
             f"{config_package}.{name}"
             for name in [
-                "backend", "execution", "instruments", "job",
-                "learning", "orchestration", "spec", "workspace",
+                "backend",
+                "execution",
+                "instruments",
+                "job",
+                "learning",
+                "orchestration",
+                "spec",
+                "workspace",
             ]
         ]
 

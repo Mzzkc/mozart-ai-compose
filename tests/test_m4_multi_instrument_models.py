@@ -20,6 +20,7 @@ from marianne.core.config.job import JobConfig, SheetConfig
 # Step 38: Per-sheet instrument overrides
 # ---------------------------------------------------------------------------
 
+
 class TestPerSheetInstrumentOverrides:
     """Per-sheet instrument assignment via sheets: (plural) in SheetConfig."""
 
@@ -75,6 +76,7 @@ class TestPerSheetInstrumentOverrides:
 # ---------------------------------------------------------------------------
 # Step 39: Score-level instruments: named profiles
 # ---------------------------------------------------------------------------
+
 
 class TestScoreLevelInstruments:
     """Score-level instruments: dict for named instrument definitions."""
@@ -148,6 +150,7 @@ instruments:
 # Step 40: sheet.instrument_map for batch assignment
 # ---------------------------------------------------------------------------
 
+
 class TestInstrumentMap:
     """sheet.instrument_map for batch instrument assignment."""
 
@@ -202,6 +205,7 @@ class TestInstrumentMap:
 # ---------------------------------------------------------------------------
 # Step 41: movements: YAML key
 # ---------------------------------------------------------------------------
+
 
 class TestMovementsKey:
     """movements: YAML key for movement declarations."""
@@ -300,6 +304,7 @@ movements:
 # Integration: Resolution chain
 # ---------------------------------------------------------------------------
 
+
 class TestInstrumentResolutionChain:
     """The instrument resolution chain in build_sheets."""
 
@@ -350,7 +355,7 @@ class TestInstrumentResolutionChain:
         )
         sheets = build_sheets(config)
         assert sheets[0].instrument_name == "claude-code"  # movement 1 → score default
-        assert sheets[1].instrument_name == "gemini-cli"   # movement 2 → movement override
+        assert sheets[1].instrument_name == "gemini-cli"  # movement 2 → movement override
         assert sheets[2].instrument_name == "claude-code"  # movement 3 → score default
 
     def test_build_sheets_per_sheet_overrides_movement(self) -> None:
@@ -451,6 +456,7 @@ class TestInstrumentResolutionChain:
 # ---------------------------------------------------------------------------
 # Backward compatibility
 # ---------------------------------------------------------------------------
+
 
 class TestBackwardCompatibility:
     """Existing scores with backend: still work unchanged."""

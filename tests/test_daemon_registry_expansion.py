@@ -13,8 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from marianne.daemon.registry import DaemonJobStatus, JobRecord, JobRegistry
-
+from marianne.daemon.registry import JobRegistry
 
 # ─── Fixtures ──────────────────────────────────────────────────────────
 

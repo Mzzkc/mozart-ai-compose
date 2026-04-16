@@ -158,9 +158,7 @@ class TestLiveStatesInitialization:
             MagicMock(num=2, instrument_name="claude-cli", movement=1),
             MagicMock(num=3, instrument_name="gemini-cli", movement=2),
         ]
-        instruments_used = list(
-            {s.instrument_name for s in sheets if s.instrument_name}
-        )
+        instruments_used = list({s.instrument_name for s in sheets if s.instrument_name})
         assert len(instruments_used) == 2
         assert set(instruments_used) == {"claude-cli", "gemini-cli"}
 
@@ -170,9 +168,7 @@ class TestLiveStatesInitialization:
             MagicMock(num=1, instrument_name=None, movement=1),
             MagicMock(num=2, instrument_name="claude-cli", movement=1),
         ]
-        instruments_used = list(
-            {s.instrument_name for s in sheets if s.instrument_name}
-        )
+        instruments_used = list({s.instrument_name for s in sheets if s.instrument_name})
         assert instruments_used == ["claude-cli"]
 
     def test_instruments_used_filters_empty_string(self) -> None:
@@ -181,17 +177,13 @@ class TestLiveStatesInitialization:
             MagicMock(num=1, instrument_name="", movement=1),
             MagicMock(num=2, instrument_name="claude-cli", movement=1),
         ]
-        instruments_used = list(
-            {s.instrument_name for s in sheets if s.instrument_name}
-        )
+        instruments_used = list({s.instrument_name for s in sheets if s.instrument_name})
         assert instruments_used == ["claude-cli"]
 
     def test_total_movements_empty_sheets(self) -> None:
         """Empty sheets list → total_movements=None (default kwarg)."""
         sheets: list[Any] = []
-        total_movements = max(
-            (s.movement for s in sheets), default=None
-        )
+        total_movements = max((s.movement for s in sheets), default=None)
         assert total_movements is None
 
     def test_total_movements_single_movement(self) -> None:
@@ -848,8 +840,14 @@ class TestAttemptResultToObserverEvent:
         event = attempt_result_to_observer_event(result)
         data = event["data"]
         expected_keys = {
-            "instrument", "attempt", "success", "validation_pass_rate",
-            "cost_usd", "duration_seconds", "rate_limited",
-            "error_classification", "model_used",
+            "instrument",
+            "attempt",
+            "success",
+            "validation_pass_rate",
+            "cost_usd",
+            "duration_seconds",
+            "rate_limited",
+            "error_classification",
+            "model_used",
         }
         assert set(data.keys()) == expected_keys

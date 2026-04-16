@@ -8,6 +8,7 @@ This is an adversarial test that checks for the bug class where tests are
 written using a fixture from an optional dependency that isn't actually
 installed, causing fixture-not-found errors at runtime.
 """
+
 import re
 from pathlib import Path
 
@@ -51,8 +52,9 @@ def test_no_pytest_mock_import() -> None:
 
         for i, line in enumerate(lines, start=1):
             # Look for pytest_mock imports
-            if re.search(r"^\s*import\s+pytest_mock", line) or \
-               re.search(r"^\s*from\s+pytest_mock\s+import", line):
+            if re.search(r"^\s*import\s+pytest_mock", line) or re.search(
+                r"^\s*from\s+pytest_mock\s+import", line
+            ):
                 violations.append((test_file, i, line.strip()))
 
     if violations:
@@ -83,7 +85,7 @@ def test_mocker_calls_without_fixture() -> None:
 
         for match in mocker_calls:
             # Get line number
-            line_num = content[:match.start()].count("\n") + 1
+            line_num = content[: match.start()].count("\n") + 1
             line = content.split("\n")[line_num - 1]
             violations.append((test_file, line_num, line.strip()))
 

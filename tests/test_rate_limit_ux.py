@@ -16,7 +16,6 @@ import pytest
 
 from marianne.cli.output import format_rate_limit_info
 
-
 # =============================================================================
 # format_rate_limit_info — pure formatting function
 # =============================================================================
@@ -180,12 +179,14 @@ class TestRunRejectionRateLimitInfo:
                 "marianne.daemon.detect.try_daemon_route",
                 side_effect=mock_route,
             ),
-            patch("marianne.cli.commands.run.output_error") as mock_error,
+            patch("marianne.cli.commands.run.output_error"),
             patch("marianne.cli.commands.run.console") as mock_console,
             pytest.raises((SystemExit, Exception)),
         ):
             await _try_daemon_submit(
-                config_file=MagicMock(spec_set=["resolve"], resolve=MagicMock(return_value="/fake.yaml")),
+                config_file=MagicMock(
+                    spec_set=["resolve"], resolve=MagicMock(return_value="/fake.yaml")
+                ),
                 workspace=None,
                 fresh=False,
                 self_healing=False,
@@ -197,9 +198,7 @@ class TestRunRejectionRateLimitInfo:
         assert call_count == 2  # job.submit + daemon.rate_limits
 
         # Verify console output includes rate limit info
-        console_output = " ".join(
-            str(c) for c in mock_console.print.call_args_list
-        )
+        console_output = " ".join(str(c) for c in mock_console.print.call_args_list)
         assert "claude-cli" in console_output
         assert "1m" in console_output or "90" in console_output
 
@@ -236,7 +235,9 @@ class TestRunRejectionRateLimitInfo:
             pytest.raises((SystemExit, Exception)),
         ):
             await _try_daemon_submit(
-                config_file=MagicMock(spec_set=["resolve"], resolve=MagicMock(return_value="/fake.yaml")),
+                config_file=MagicMock(
+                    spec_set=["resolve"], resolve=MagicMock(return_value="/fake.yaml")
+                ),
                 workspace=None,
                 fresh=False,
                 self_healing=False,
@@ -337,7 +338,9 @@ class TestFreshRunFeedback:
             pytest.raises((SystemExit, Exception)),
         ):
             await _try_daemon_submit(
-                config_file=MagicMock(spec_set=["resolve"], resolve=MagicMock(return_value="/fake.yaml")),
+                config_file=MagicMock(
+                    spec_set=["resolve"], resolve=MagicMock(return_value="/fake.yaml")
+                ),
                 workspace=None,
                 fresh=True,
                 self_healing=False,
@@ -351,6 +354,8 @@ class TestFreshRunFeedback:
         msg = call_args[0][0] if call_args[0] else call_args.kwargs.get("message", "")
         assert "already running" in msg.lower()
         # Verify hints include clearing suggestion
-        hints = call_args.kwargs.get("hints", call_args[1].get("hints", []) if len(call_args) > 1 else [])
+        hints = call_args.kwargs.get(
+            "hints", call_args[1].get("hints", []) if len(call_args) > 1 else []
+        )
         hint_text = " ".join(hints)
         assert "clear" in hint_text.lower() or "cancel" in hint_text.lower()

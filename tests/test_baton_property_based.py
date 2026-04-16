@@ -128,10 +128,14 @@ def sheet_attempt_result(draw: st.DrawFn) -> SheetAttemptResult:
         validation_pass_rate=pass_rate,
         error_classification=error_class,
         rate_limited=rate_limited,
-        cost_usd=draw(st.floats(
-            min_value=0.0, max_value=100.0,
-            allow_nan=False, allow_infinity=False,
-        )),
+        cost_usd=draw(
+            st.floats(
+                min_value=0.0,
+                max_value=100.0,
+                allow_nan=False,
+                allow_infinity=False,
+            )
+        ),
         input_tokens=draw(st.integers(min_value=0, max_value=1_000_000)),
         output_tokens=draw(st.integers(min_value=0, max_value=1_000_000)),
         timestamp=time.time(),
@@ -190,12 +194,18 @@ class TestTerminalStatesAbsorbing:
     async def test_attempt_result_cannot_reopen_completed_sheet(self) -> None:
         """SheetAttemptResult on a completed sheet does not change status."""
         baton = BatonCore()
-        sheet = SheetExecutionState(sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.COMPLETED)
+        sheet = SheetExecutionState(
+            sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.COMPLETED
+        )
         baton.register_job("j1", {1: sheet}, {})
 
         event = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code", attempt=1,
-            execution_success=True, validation_pass_rate=100.0,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=True,
+            validation_pass_rate=100.0,
         )
         await baton.handle_event(event)
         assert sheet.status == "completed", "Terminal state was mutated by SheetAttemptResult"
@@ -204,12 +214,18 @@ class TestTerminalStatesAbsorbing:
     async def test_attempt_result_cannot_reopen_failed_sheet(self) -> None:
         """SheetAttemptResult on a failed sheet does not change status."""
         baton = BatonCore()
-        sheet = SheetExecutionState(sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.FAILED)
+        sheet = SheetExecutionState(
+            sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.FAILED
+        )
         baton.register_job("j1", {1: sheet}, {})
 
         event = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code", attempt=1,
-            execution_success=True, validation_pass_rate=100.0,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=True,
+            validation_pass_rate=100.0,
         )
         await baton.handle_event(event)
         # The handler appends to attempt_results but the status check at the
@@ -226,9 +242,15 @@ class TestTerminalStatesAbsorbing:
         """CancelJob only cancels non-terminal sheets, not completed ones."""
         baton = BatonCore()
         sheets = {
-            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.COMPLETED),
-            2: SheetExecutionState(sheet_num=2, instrument_name="claude-code", status=BatonSheetStatus.PENDING),
-            3: SheetExecutionState(sheet_num=3, instrument_name="claude-code", status=BatonSheetStatus.DISPATCHED),
+            1: SheetExecutionState(
+                sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.COMPLETED
+            ),
+            2: SheetExecutionState(
+                sheet_num=2, instrument_name="claude-code", status=BatonSheetStatus.PENDING
+            ),
+            3: SheetExecutionState(
+                sheet_num=3, instrument_name="claude-code", status=BatonSheetStatus.DISPATCHED
+            ),
         }
         baton.register_job("j1", sheets, {})
 
@@ -245,11 +267,21 @@ class TestTerminalStatesAbsorbing:
         """JobTimeout cancels non-terminal sheets but preserves terminal ones."""
         baton = BatonCore()
         sheets = {
-            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.COMPLETED),
-            2: SheetExecutionState(sheet_num=2, instrument_name="claude-code", status=BatonSheetStatus.FAILED),
-            3: SheetExecutionState(sheet_num=3, instrument_name="claude-code", status=BatonSheetStatus.SKIPPED),
-            4: SheetExecutionState(sheet_num=4, instrument_name="claude-code", status=BatonSheetStatus.DISPATCHED),
-            5: SheetExecutionState(sheet_num=5, instrument_name="claude-code", status=BatonSheetStatus.PENDING),
+            1: SheetExecutionState(
+                sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.COMPLETED
+            ),
+            2: SheetExecutionState(
+                sheet_num=2, instrument_name="claude-code", status=BatonSheetStatus.FAILED
+            ),
+            3: SheetExecutionState(
+                sheet_num=3, instrument_name="claude-code", status=BatonSheetStatus.SKIPPED
+            ),
+            4: SheetExecutionState(
+                sheet_num=4, instrument_name="claude-code", status=BatonSheetStatus.DISPATCHED
+            ),
+            5: SheetExecutionState(
+                sheet_num=5, instrument_name="claude-code", status=BatonSheetStatus.PENDING
+            ),
         }
         baton.register_job("j1", sheets, {})
 
@@ -266,8 +298,12 @@ class TestTerminalStatesAbsorbing:
         """Non-graceful shutdown cancels non-terminal, preserves terminal."""
         baton = BatonCore()
         sheets = {
-            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.COMPLETED),
-            2: SheetExecutionState(sheet_num=2, instrument_name="claude-code", status=BatonSheetStatus.PENDING),
+            1: SheetExecutionState(
+                sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.COMPLETED
+            ),
+            2: SheetExecutionState(
+                sheet_num=2, instrument_name="claude-code", status=BatonSheetStatus.PENDING
+            ),
         }
         baton.register_job("j1", sheets, {})
 
@@ -293,7 +329,9 @@ class TestRateLimitDoesNotConsumeRetryBudget:
         """A rate-limited SheetAttemptResult does not increment normal_attempts."""
         baton = BatonCore()
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.DISPATCHED,
+            sheet_num=1,
+            instrument_name="claude-code",
+            status=BatonSheetStatus.DISPATCHED,
             max_retries=3,
         )
         baton.register_job("j1", {1: sheet}, {})
@@ -301,8 +339,12 @@ class TestRateLimitDoesNotConsumeRetryBudget:
         initial_attempts = sheet.normal_attempts
 
         event = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code", attempt=1,
-            execution_success=False, rate_limited=True,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=False,
+            rate_limited=True,
         )
         await baton.handle_event(event)
 
@@ -322,7 +364,9 @@ class TestRateLimitDoesNotConsumeRetryBudget:
         """No matter how many rate limits hit, retry budget stays at 0."""
         baton = BatonCore()
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.DISPATCHED,
+            sheet_num=1,
+            instrument_name="claude-code",
+            status=BatonSheetStatus.DISPATCHED,
             max_retries=3,
         )
         baton.register_job("j1", {1: sheet}, {})
@@ -331,8 +375,12 @@ class TestRateLimitDoesNotConsumeRetryBudget:
             # Reset to dispatched for each attempt (simulating re-dispatch)
             sheet.status = BatonSheetStatus.DISPATCHED
             event = SheetAttemptResult(
-                job_id="j1", sheet_num=1, instrument_name="claude-code",
-                attempt=i + 1, execution_success=False, rate_limited=True,
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=i + 1,
+                execution_success=False,
+                rate_limited=True,
             )
             await baton.handle_event(event)
 
@@ -346,7 +394,9 @@ class TestRateLimitDoesNotConsumeRetryBudget:
         """After rate limits, a real failure properly increments."""
         baton = BatonCore()
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.DISPATCHED,
+            sheet_num=1,
+            instrument_name="claude-code",
+            status=BatonSheetStatus.DISPATCHED,
             max_retries=3,
         )
         baton.register_job("j1", {1: sheet}, {})
@@ -354,23 +404,33 @@ class TestRateLimitDoesNotConsumeRetryBudget:
         # 5 rate limits — should not consume budget
         for i in range(5):
             sheet.status = BatonSheetStatus.DISPATCHED
-            await baton.handle_event(SheetAttemptResult(
-                job_id="j1", sheet_num=1, instrument_name="claude-code",
-                attempt=i + 1, rate_limited=True,
-            ))
+            await baton.handle_event(
+                SheetAttemptResult(
+                    job_id="j1",
+                    sheet_num=1,
+                    instrument_name="claude-code",
+                    attempt=i + 1,
+                    rate_limited=True,
+                )
+            )
 
         assert sheet.normal_attempts == 0
 
         # Now a real failure
         sheet.status = BatonSheetStatus.DISPATCHED
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=6, execution_success=False, validation_pass_rate=0.0,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=6,
+                execution_success=False,
+                validation_pass_rate=0.0,
+            )
+        )
 
         assert sheet.normal_attempts == 1, (
-            f"After 5 rate limits + 1 real failure, expected 1 attempt, "
-            f"got {sheet.normal_attempts}"
+            f"After 5 rate limits + 1 real failure, expected 1 attempt, got {sheet.normal_attempts}"
         )
 
 
@@ -390,8 +450,10 @@ class TestRetryBudgetMonotonic:
                 st.booleans(),  # execution_success
                 st.booleans(),  # rate_limited
                 st.floats(  # pass_rate
-                    min_value=0.0, max_value=100.0,
-                    allow_nan=False, allow_infinity=False,
+                    min_value=0.0,
+                    max_value=100.0,
+                    allow_nan=False,
+                    allow_infinity=False,
                 ),
             ),
             min_size=1,
@@ -404,7 +466,9 @@ class TestRetryBudgetMonotonic:
         """Through any sequence of events, normal_attempts is monotonic."""
         baton = BatonCore()
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.DISPATCHED,
+            sheet_num=1,
+            instrument_name="claude-code",
+            status=BatonSheetStatus.DISPATCHED,
             max_retries=100,  # High to avoid hitting exhaustion
         )
         baton.register_job("j1", {1: sheet}, {})
@@ -419,7 +483,9 @@ class TestRetryBudgetMonotonic:
             sheet.status = BatonSheetStatus.DISPATCHED
 
             event = SheetAttemptResult(
-                job_id="j1", sheet_num=1, instrument_name="claude-code",
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
                 attempt=i + 1,
                 execution_success=success,
                 rate_limited=rate_limited,
@@ -429,7 +495,7 @@ class TestRetryBudgetMonotonic:
 
             assert sheet.normal_attempts >= prev_attempts, (
                 f"normal_attempts decreased: {prev_attempts} → {sheet.normal_attempts} "
-                f"after event {i+1} (success={success}, rate_limited={rate_limited})"
+                f"after event {i + 1} (success={success}, rate_limited={rate_limited})"
             )
             prev_attempts = sheet.normal_attempts
 
@@ -456,9 +522,7 @@ class TestJobCompletionEquivalence:
         baton = BatonCore()
 
         sheets = {
-            i + 1: SheetExecutionState(
-                sheet_num=i + 1, instrument_name="claude-code", status=s
-            )
+            i + 1: SheetExecutionState(sheet_num=i + 1, instrument_name="claude-code", status=s)
             for i, s in enumerate(statuses)
         }
         baton.register_job("j1", sheets, {})
@@ -478,9 +542,7 @@ class TestJobCompletionEquivalence:
         # With no sheets, all() returns True — this documents the behavior.
         result = baton.is_job_complete("j1")
         # Document: vacuous truth — empty sheets means all(empty) = True
-        assert result is True, (
-            "Empty job should be vacuously complete (all 0 sheets are terminal)"
-        )
+        assert result is True, "Empty job should be vacuously complete (all 0 sheets are terminal)"
 
 
 # =============================================================================
@@ -494,9 +556,7 @@ class TestSerializationRoundTrips:
     @pytest.mark.property_based
     @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
     @given(state=rich_sheet_execution_state())
-    def test_sheet_execution_state_round_trip(
-        self, state: RichSheetExecutionState
-    ) -> None:
+    def test_sheet_execution_state_round_trip(self, state: RichSheetExecutionState) -> None:
         """SheetExecutionState survives serialization round-trip."""
         serialized = state.to_dict()
         restored = RichSheetExecutionState.from_dict(serialized)
@@ -534,9 +594,7 @@ class TestSerializationRoundTrips:
     @pytest.mark.property_based
     @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
     @given(state=rich_sheet_execution_state())
-    def test_double_round_trip_is_idempotent(
-        self, state: RichSheetExecutionState
-    ) -> None:
+    def test_double_round_trip_is_idempotent(self, state: RichSheetExecutionState) -> None:
         """Serializing twice produces the same result — idempotency."""
         first = RichSheetExecutionState.from_dict(state.to_dict())
         second = RichSheetExecutionState.from_dict(first.to_dict())
@@ -562,12 +620,11 @@ class TestCircuitBreakerInvariants:
     @pytest.mark.property_based
     @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
     @given(threshold=st.integers(min_value=1, max_value=20))
-    def test_closed_to_open_requires_threshold_failures(
-        self, threshold: int
-    ) -> None:
+    def test_closed_to_open_requires_threshold_failures(self, threshold: int) -> None:
         """Circuit breaker trips after exactly `threshold` consecutive failures."""
         state = InstrumentState(
-            name="claude-code", max_concurrent=4,
+            name="claude-code",
+            max_concurrent=4,
             circuit_breaker_threshold=threshold,
         )
 
@@ -587,7 +644,8 @@ class TestCircuitBreakerInvariants:
         """A success resets the counter, preventing trip after interleaving."""
         threshold = 5
         state = InstrumentState(
-            name="claude-code", max_concurrent=4,
+            name="claude-code",
+            max_concurrent=4,
             circuit_breaker_threshold=threshold,
         )
 
@@ -609,7 +667,8 @@ class TestCircuitBreakerInvariants:
     def test_half_open_success_closes_breaker(self) -> None:
         """Success in HALF_OPEN state transitions to CLOSED."""
         state = InstrumentState(
-            name="claude-code", max_concurrent=4,
+            name="claude-code",
+            max_concurrent=4,
             circuit_breaker=CircuitBreakerState.HALF_OPEN,
         )
         state.record_success()
@@ -619,7 +678,8 @@ class TestCircuitBreakerInvariants:
     def test_half_open_failure_reopens_breaker(self) -> None:
         """Failure in HALF_OPEN state transitions back to OPEN."""
         state = InstrumentState(
-            name="claude-code", max_concurrent=4,
+            name="claude-code",
+            max_concurrent=4,
             circuit_breaker=CircuitBreakerState.HALF_OPEN,
         )
         state.record_failure()
@@ -640,7 +700,8 @@ class TestCircuitBreakerInvariants:
     ) -> None:
         """No sequence of successes/failures produces an invalid state."""
         state = InstrumentState(
-            name="claude-code", max_concurrent=4,
+            name="claude-code",
+            max_concurrent=4,
             circuit_breaker_threshold=threshold,
         )
         valid_states = set(CircuitBreakerState)
@@ -689,9 +750,7 @@ class TestDispatchConcurrencyInvariant:
         config = DispatchConfig(max_concurrent_sheets=max_concurrent)
         dispatched: list[tuple[str, int]] = []
 
-        async def callback(
-            job_id: str, sheet_num: int, state: SheetExecutionState
-        ) -> None:
+        async def callback(job_id: str, sheet_num: int, state: SheetExecutionState) -> None:
             dispatched.append((job_id, sheet_num))
 
         result = await dispatch_ready(baton, config, callback)
@@ -725,9 +784,7 @@ class TestDispatchConcurrencyInvariant:
             instrument_concurrency={"claude-code": inst_limit},
         )
 
-        async def callback(
-            job_id: str, sheet_num: int, state: SheetExecutionState
-        ) -> None:
+        async def callback(job_id: str, sheet_num: int, state: SheetExecutionState) -> None:
             pass  # Dispatch marks status = dispatched
 
         result = await dispatch_ready(baton, config, callback)
@@ -742,8 +799,12 @@ class TestDispatchConcurrencyInvariant:
         """Sheets for a rate-limited instrument are not dispatched."""
         baton = BatonCore()
         sheets = {
-            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.PENDING),
-            2: SheetExecutionState(sheet_num=2, instrument_name="gemini-cli", status=BatonSheetStatus.PENDING),
+            1: SheetExecutionState(
+                sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.PENDING
+            ),
+            2: SheetExecutionState(
+                sheet_num=2, instrument_name="gemini-cli", status=BatonSheetStatus.PENDING
+            ),
         }
         baton.register_job("j1", sheets, {})
 
@@ -753,32 +814,28 @@ class TestDispatchConcurrencyInvariant:
 
         dispatched_instruments: list[str] = []
 
-        async def callback(
-            job_id: str, sheet_num: int, state: SheetExecutionState
-        ) -> None:
+        async def callback(job_id: str, sheet_num: int, state: SheetExecutionState) -> None:
             dispatched_instruments.append(state.instrument_name)
 
         await dispatch_ready(baton, config, callback)
 
-        assert "claude-code" not in dispatched_instruments, (
-            "Rate-limited instrument was dispatched"
-        )
+        assert "claude-code" not in dispatched_instruments, "Rate-limited instrument was dispatched"
 
     @pytest.mark.property_based
     async def test_paused_job_blocks_dispatch(self) -> None:
         """Sheets from a paused job are not dispatched."""
         baton = BatonCore()
         sheets = {
-            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.PENDING),
+            1: SheetExecutionState(
+                sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.PENDING
+            ),
         }
         baton.register_job("j1", sheets, {})
         await baton.handle_event(PauseJob(job_id="j1"))
 
         config = DispatchConfig()
 
-        async def callback(
-            job_id: str, sheet_num: int, state: SheetExecutionState
-        ) -> None:
+        async def callback(job_id: str, sheet_num: int, state: SheetExecutionState) -> None:
             pytest.fail("Should not dispatch from paused job")
 
         result = await dispatch_ready(baton, config, callback)
@@ -807,7 +864,8 @@ class TestBatonJobStateCostAggregation:
         job = BatonJobState(job_id="j1", total_sheets=len(costs))
         for i, cost in enumerate(costs):
             sheet = RichSheetExecutionState(
-                sheet_num=i + 1, instrument_name="claude-code",
+                sheet_num=i + 1,
+                instrument_name="claude-code",
                 total_cost_usd=cost,
             )
             job.register_sheet(sheet)
@@ -841,12 +899,11 @@ class TestInstrumentStateAvailability:
         rate_limited=st.booleans(),
         breaker=st.sampled_from(list(CircuitBreakerState)),
     )
-    def test_availability_formula(
-        self, rate_limited: bool, breaker: CircuitBreakerState
-    ) -> None:
+    def test_availability_formula(self, rate_limited: bool, breaker: CircuitBreakerState) -> None:
         """Verify availability matches the formal specification."""
         state = InstrumentState(
-            name="claude-code", max_concurrent=4,
+            name="claude-code",
+            max_concurrent=4,
             rate_limited=rate_limited,
             circuit_breaker=breaker,
         )
@@ -863,12 +920,11 @@ class TestInstrumentStateAvailability:
         running=st.integers(min_value=0, max_value=20),
         max_concurrent=st.integers(min_value=1, max_value=20),
     )
-    def test_at_capacity_formula(
-        self, running: int, max_concurrent: int
-    ) -> None:
+    def test_at_capacity_formula(self, running: int, max_concurrent: int) -> None:
         """at_capacity ⟺ running_count >= max_concurrent."""
         state = InstrumentState(
-            name="claude-code", max_concurrent=max_concurrent,
+            name="claude-code",
+            max_concurrent=max_concurrent,
             running_count=running,
         )
         expected = running >= max_concurrent
@@ -897,7 +953,9 @@ class TestBatonJobStateCompletionProperties:
         job = BatonJobState(job_id="j1", total_sheets=len(statuses))
         for i, status in enumerate(statuses):
             sheet = RichSheetExecutionState(
-                sheet_num=i + 1, instrument_name="claude-code", status=status,
+                sheet_num=i + 1,
+                instrument_name="claude-code",
+                status=status,
             )
             job.register_sheet(sheet)
 
@@ -918,7 +976,9 @@ class TestBatonJobStateCompletionProperties:
         job = BatonJobState(job_id="j1", total_sheets=len(statuses))
         for i, status in enumerate(statuses):
             sheet = RichSheetExecutionState(
-                sheet_num=i + 1, instrument_name="claude-code", status=status,
+                sheet_num=i + 1,
+                instrument_name="claude-code",
+                status=status,
             )
             job.register_sheet(sheet)
 
@@ -939,7 +999,9 @@ class TestBatonJobStateCompletionProperties:
         job = BatonJobState(job_id="j1", total_sheets=len(statuses))
         for i, status in enumerate(statuses):
             sheet = RichSheetExecutionState(
-                sheet_num=i + 1, instrument_name="claude-code", status=status,
+                sheet_num=i + 1,
+                instrument_name="claude-code",
+                status=status,
             )
             job.register_sheet(sheet)
 
@@ -960,7 +1022,9 @@ class TestBatonJobStateCompletionProperties:
         job = BatonJobState(job_id="j1", total_sheets=len(statuses))
         for i, status in enumerate(statuses):
             sheet = RichSheetExecutionState(
-                sheet_num=i + 1, instrument_name="claude-code", status=status,
+                sheet_num=i + 1,
+                instrument_name="claude-code",
+                status=status,
             )
             job.register_sheet(sheet)
 
@@ -987,12 +1051,11 @@ class TestRichSheetRecordAttemptProperties:
     @given(
         attempts=st.lists(sheet_attempt_result(), min_size=1, max_size=10),
     )
-    def test_total_cost_is_sum(
-        self, attempts: list[SheetAttemptResult]
-    ) -> None:
+    def test_total_cost_is_sum(self, attempts: list[SheetAttemptResult]) -> None:
         """total_cost_usd equals the sum of all attempt costs."""
         state = RichSheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
+            sheet_num=1,
+            instrument_name="claude-code",
         )
         for attempt in attempts:
             state.record_attempt(attempt)
@@ -1005,12 +1068,11 @@ class TestRichSheetRecordAttemptProperties:
     @given(
         attempts=st.lists(sheet_attempt_result(), min_size=1, max_size=10),
     )
-    def test_total_duration_is_sum(
-        self, attempts: list[SheetAttemptResult]
-    ) -> None:
+    def test_total_duration_is_sum(self, attempts: list[SheetAttemptResult]) -> None:
         """total_duration_seconds equals the sum of all attempt durations."""
         state = RichSheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
+            sheet_num=1,
+            instrument_name="claude-code",
         )
         for attempt in attempts:
             state.record_attempt(attempt)
@@ -1032,15 +1094,13 @@ class TestRichSheetRecordAttemptProperties:
         don't consume retries. Rate-limited attempts are tempo changes.
         """
         state = RichSheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
+            sheet_num=1,
+            instrument_name="claude-code",
         )
         for attempt in attempts:
             state.record_attempt(attempt)
 
-        expected = sum(
-            1 for a in attempts
-            if not a.rate_limited and not a.execution_success
-        )
+        expected = sum(1 for a in attempts if not a.rate_limited and not a.execution_success)
         assert state.normal_attempts == expected
 
     @pytest.mark.property_based
@@ -1048,12 +1108,11 @@ class TestRichSheetRecordAttemptProperties:
     @given(
         attempts=st.lists(sheet_attempt_result(), min_size=0, max_size=10),
     )
-    def test_attempt_results_length_matches(
-        self, attempts: list[SheetAttemptResult]
-    ) -> None:
+    def test_attempt_results_length_matches(self, attempts: list[SheetAttemptResult]) -> None:
         """attempt_results list has exactly the number of recorded attempts."""
         state = RichSheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
+            sheet_num=1,
+            instrument_name="claude-code",
         )
         for attempt in attempts:
             state.record_attempt(attempt)
@@ -1071,7 +1130,8 @@ class TestRichSheetRecordAttemptProperties:
     ) -> None:
         """can_retry ⟺ normal_attempts < max_retries."""
         state = RichSheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
+            sheet_num=1,
+            instrument_name="claude-code",
             max_retries=max_retries,
         )
         state.normal_attempts = n_non_rate_limited
@@ -1095,7 +1155,8 @@ class TestRichSheetRecordAttemptProperties:
     ) -> None:
         """is_exhausted ⟺ can_retry is False AND can_complete is False."""
         state = RichSheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
+            sheet_num=1,
+            instrument_name="claude-code",
             max_retries=max_retries,
             max_completion=max_completion,
         )
@@ -1119,7 +1180,10 @@ class TestObserverEventConversion:
         """Every BatonEvent type converts to a valid ObserverEvent dict."""
         events: list[BatonEvent] = [
             SheetAttemptResult(
-                job_id="j1", sheet_num=1, instrument_name="claude-code", attempt=1,
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
             ),
             SheetSkipped(job_id="j1", sheet_num=1, reason="skip_when"),
             RateLimitHit(instrument="claude-code", wait_seconds=60.0, job_id="j1", sheet_num=1),
@@ -1138,21 +1202,21 @@ class TestObserverEventConversion:
             ResourceAnomaly(severity="warning", metric="memory", value=85.0),
         ]
 
-        events.extend([
-            StaleCheck(job_id="j1", sheet_num=1),
-            CronTick(entry_name="daily", score_path="/tmp/s.yaml"),
-            ConfigReloaded(job_id="j1", new_config={}),
-            DispatchRetry(),
-        ])
+        events.extend(
+            [
+                StaleCheck(job_id="j1", sheet_num=1),
+                CronTick(entry_name="daily", score_path="/tmp/s.yaml"),
+                ConfigReloaded(job_id="j1", new_config={}),
+                DispatchRetry(),
+            ]
+        )
 
         required_keys = {"job_id", "sheet_num", "event", "data", "timestamp"}
 
         for event in events:
             obs = to_observer_event(event)
             missing = required_keys - set(obs.keys())
-            assert not missing, (
-                f"{type(event).__name__} missing keys: {missing}"
-            )
+            assert not missing, f"{type(event).__name__} missing keys: {missing}"
             assert isinstance(obs["event"], str)
             assert isinstance(obs["data"], dict)
             assert isinstance(obs["timestamp"], float)
@@ -1171,8 +1235,12 @@ class TestDependencyResolution:
         """A sheet whose dependency is pending is NOT ready."""
         baton = BatonCore()
         sheets = {
-            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.PENDING),
-            2: SheetExecutionState(sheet_num=2, instrument_name="claude-code", status=BatonSheetStatus.PENDING),
+            1: SheetExecutionState(
+                sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.PENDING
+            ),
+            2: SheetExecutionState(
+                sheet_num=2, instrument_name="claude-code", status=BatonSheetStatus.PENDING
+            ),
         }
         deps = {2: [1]}  # Sheet 2 depends on sheet 1
         baton.register_job("j1", sheets, deps)
@@ -1188,8 +1256,12 @@ class TestDependencyResolution:
         """A sheet whose dependency is completed IS ready."""
         baton = BatonCore()
         sheets = {
-            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.COMPLETED),
-            2: SheetExecutionState(sheet_num=2, instrument_name="claude-code", status=BatonSheetStatus.PENDING),
+            1: SheetExecutionState(
+                sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.COMPLETED
+            ),
+            2: SheetExecutionState(
+                sheet_num=2, instrument_name="claude-code", status=BatonSheetStatus.PENDING
+            ),
         }
         deps = {2: [1]}
         baton.register_job("j1", sheets, deps)
@@ -1204,8 +1276,12 @@ class TestDependencyResolution:
         """A sheet whose dependency is skipped IS ready (skipped satisfies)."""
         baton = BatonCore()
         sheets = {
-            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.SKIPPED),
-            2: SheetExecutionState(sheet_num=2, instrument_name="claude-code", status=BatonSheetStatus.PENDING),
+            1: SheetExecutionState(
+                sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.SKIPPED
+            ),
+            2: SheetExecutionState(
+                sheet_num=2, instrument_name="claude-code", status=BatonSheetStatus.PENDING
+            ),
         }
         deps = {2: [1]}
         baton.register_job("j1", sheets, deps)
@@ -1220,8 +1296,12 @@ class TestDependencyResolution:
         """A sheet whose dependency FAILED is NOT ready (failed ≠ satisfied)."""
         baton = BatonCore()
         sheets = {
-            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.FAILED),
-            2: SheetExecutionState(sheet_num=2, instrument_name="claude-code", status=BatonSheetStatus.PENDING),
+            1: SheetExecutionState(
+                sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.FAILED
+            ),
+            2: SheetExecutionState(
+                sheet_num=2, instrument_name="claude-code", status=BatonSheetStatus.PENDING
+            ),
         }
         deps = {2: [1]}
         baton.register_job("j1", sheets, deps)
@@ -1241,11 +1321,15 @@ class TestDependencyResolution:
         sheets: dict[int, SheetExecutionState] = {}
         for i in range(1, n_deps + 1):
             sheets[i] = SheetExecutionState(
-                sheet_num=i, instrument_name="claude-code", status=BatonSheetStatus.COMPLETED,
+                sheet_num=i,
+                instrument_name="claude-code",
+                status=BatonSheetStatus.COMPLETED,
             )
         target = n_deps + 1
         sheets[target] = SheetExecutionState(
-            sheet_num=target, instrument_name="claude-code", status=BatonSheetStatus.PENDING,
+            sheet_num=target,
+            instrument_name="claude-code",
+            status=BatonSheetStatus.PENDING,
         )
         deps = {target: list(range(1, n_deps + 1))}
 
@@ -1297,7 +1381,10 @@ class TestPromptAssemblyOrderingProperty:
         builder = PromptBuilder(config)
 
         ctx = SheetContext(
-            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            sheet_num=1,
+            total_sheets=1,
+            start_item=1,
+            end_item=1,
             workspace=Path("/ws"),
             injected_skills=[f"SKILL: {skill_text}"],
             injected_context=[f"CTX: {context_text}"],
@@ -1332,7 +1419,10 @@ class TestPromptAssemblyOrderingProperty:
         builder = PromptBuilder(config)
 
         ctx = SheetContext(
-            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            sheet_num=1,
+            total_sheets=1,
+            start_item=1,
+            end_item=1,
             workspace=Path("/ws"),
         )
 
@@ -1347,7 +1437,9 @@ class TestPromptAssemblyOrderingProperty:
         ]
 
         prompt = builder.build_sheet_prompt(
-            ctx, patterns=patterns, validation_rules=rules,
+            ctx,
+            patterns=patterns,
+            validation_rules=rules,
         )
 
         # Find the LAST pattern position and the FIRST validation position
@@ -1361,9 +1453,7 @@ class TestPromptAssemblyOrderingProperty:
         if pattern_positions and validation_positions:
             last_pattern = max(pattern_positions)
             first_validation = min(validation_positions)
-            assert last_pattern < first_validation, (
-                "All patterns must come before all validations"
-            )
+            assert last_pattern < first_validation, "All patterns must come before all validations"
 
 
 # =============================================================================
@@ -1485,9 +1575,15 @@ class TestFailurePropagationTransitiveClosure:
         """Failure propagation does not overwrite already-completed dependents."""
         baton = BatonCore()
         sheets = {
-            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.PENDING),
-            2: SheetExecutionState(sheet_num=2, instrument_name="claude-code", status=BatonSheetStatus.COMPLETED),
-            3: SheetExecutionState(sheet_num=3, instrument_name="claude-code", status=BatonSheetStatus.PENDING),
+            1: SheetExecutionState(
+                sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.PENDING
+            ),
+            2: SheetExecutionState(
+                sheet_num=2, instrument_name="claude-code", status=BatonSheetStatus.COMPLETED
+            ),
+            3: SheetExecutionState(
+                sheet_num=3, instrument_name="claude-code", status=BatonSheetStatus.PENDING
+            ),
         }
         # Sheet 2 depends on 1, Sheet 3 depends on 2
         deps = {2: [1], 3: [2]}
@@ -1513,9 +1609,15 @@ class TestFailurePropagationTransitiveClosure:
         """Propagating failure from a leaf (no dependents) changes nothing."""
         baton = BatonCore()
         sheets = {
-            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.COMPLETED),
-            2: SheetExecutionState(sheet_num=2, instrument_name="claude-code", status=BatonSheetStatus.PENDING),
-            3: SheetExecutionState(sheet_num=3, instrument_name="claude-code", status=BatonSheetStatus.PENDING),
+            1: SheetExecutionState(
+                sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.COMPLETED
+            ),
+            2: SheetExecutionState(
+                sheet_num=2, instrument_name="claude-code", status=BatonSheetStatus.PENDING
+            ),
+            3: SheetExecutionState(
+                sheet_num=3, instrument_name="claude-code", status=BatonSheetStatus.PENDING
+            ),
         }
         # Linear chain: 2 depends on 1, 3 depends on 2
         deps = {2: [1], 3: [2]}
@@ -1534,9 +1636,7 @@ class TestFailurePropagationTransitiveClosure:
         n_sheets=st.integers(min_value=3, max_value=20),
         data=st.data(),
     )
-    async def test_propagation_is_idempotent(
-        self, n_sheets: int, data: st.DataObject
-    ) -> None:
+    async def test_propagation_is_idempotent(self, n_sheets: int, data: st.DataObject) -> None:
         """Calling propagation twice produces the same result as once."""
         deps: dict[int, list[int]] = {}
         for i in range(2, n_sheets + 1):
@@ -1594,10 +1694,20 @@ class TestStateMachineTransitionValidity:
     then verify all invariants hold after each event.
     """
 
-    _KNOWN_STATUSES = frozenset({
-        "pending", "ready", "dispatched", "completed", "failed",
-        "skipped", "cancelled", "waiting", "retry_scheduled", "fermata",
-    })
+    _KNOWN_STATUSES = frozenset(
+        {
+            "pending",
+            "ready",
+            "dispatched",
+            "completed",
+            "failed",
+            "skipped",
+            "cancelled",
+            "waiting",
+            "retry_scheduled",
+            "fermata",
+        }
+    )
 
     _TERMINAL_STATUSES = frozenset({"completed", "failed", "skipped", "cancelled"})
 
@@ -1609,32 +1719,46 @@ class TestStateMachineTransitionValidity:
         match event_type:
             case "attempt_success":
                 return SheetAttemptResult(
-                    job_id=job_id, sheet_num=sheet_num,
-                    instrument_name=instrument, attempt=1,
-                    execution_success=True, validation_pass_rate=100.0,
+                    job_id=job_id,
+                    sheet_num=sheet_num,
+                    instrument_name=instrument,
+                    attempt=1,
+                    execution_success=True,
+                    validation_pass_rate=100.0,
                 )
             case "attempt_fail":
                 return SheetAttemptResult(
-                    job_id=job_id, sheet_num=sheet_num,
-                    instrument_name=instrument, attempt=1,
-                    execution_success=False, validation_pass_rate=0.0,
+                    job_id=job_id,
+                    sheet_num=sheet_num,
+                    instrument_name=instrument,
+                    attempt=1,
+                    execution_success=False,
+                    validation_pass_rate=0.0,
                 )
             case "attempt_partial":
                 return SheetAttemptResult(
-                    job_id=job_id, sheet_num=sheet_num,
-                    instrument_name=instrument, attempt=1,
-                    execution_success=True, validation_pass_rate=50.0,
-                    validations_passed=1, validations_total=2,
+                    job_id=job_id,
+                    sheet_num=sheet_num,
+                    instrument_name=instrument,
+                    attempt=1,
+                    execution_success=True,
+                    validation_pass_rate=50.0,
+                    validations_passed=1,
+                    validations_total=2,
                 )
             case "attempt_rate_limited":
                 return SheetAttemptResult(
-                    job_id=job_id, sheet_num=sheet_num,
-                    instrument_name=instrument, attempt=1,
+                    job_id=job_id,
+                    sheet_num=sheet_num,
+                    instrument_name=instrument,
+                    attempt=1,
                     rate_limited=True,
                 )
             case "skip":
                 return SheetSkipped(
-                    job_id=job_id, sheet_num=sheet_num, reason="test",
+                    job_id=job_id,
+                    sheet_num=sheet_num,
+                    reason="test",
                 )
             case "retry_due":
                 return RetryDue(job_id=job_id, sheet_num=sheet_num)
@@ -1648,47 +1772,69 @@ class TestStateMachineTransitionValidity:
                 return JobTimeout(job_id=job_id)
             case "escalation_needed":
                 return EscalationNeeded(
-                    job_id=job_id, sheet_num=sheet_num,
+                    job_id=job_id,
+                    sheet_num=sheet_num,
                     reason="test escalation",
                 )
             case "escalation_resolved_retry":
                 return EscalationResolved(
-                    job_id=job_id, sheet_num=sheet_num, decision="retry",
+                    job_id=job_id,
+                    sheet_num=sheet_num,
+                    decision="retry",
                 )
             case "escalation_timeout":
                 return EscalationTimeout(
-                    job_id=job_id, sheet_num=sheet_num,
+                    job_id=job_id,
+                    sheet_num=sheet_num,
                 )
             case "process_exited":
                 return ProcessExited(
-                    job_id=job_id, sheet_num=sheet_num,
-                    pid=12345, exit_code=1,
+                    job_id=job_id,
+                    sheet_num=sheet_num,
+                    pid=12345,
+                    exit_code=1,
                 )
             case "rate_limit_hit":
                 return RateLimitHit(
-                    instrument=instrument, wait_seconds=60.0,
-                    job_id=job_id, sheet_num=sheet_num,
+                    instrument=instrument,
+                    wait_seconds=60.0,
+                    job_id=job_id,
+                    sheet_num=sheet_num,
                 )
             case "rate_limit_expired":
                 return RateLimitExpired(instrument=instrument)
             case _:
                 return SheetAttemptResult(
-                    job_id=job_id, sheet_num=sheet_num,
-                    instrument_name=instrument, attempt=1,
+                    job_id=job_id,
+                    sheet_num=sheet_num,
+                    instrument_name=instrument,
+                    attempt=1,
                 )
 
     @pytest.mark.property_based
     @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
     @given(
         event_types=st.lists(
-            st.sampled_from([
-                "attempt_success", "attempt_fail", "attempt_partial",
-                "attempt_rate_limited", "skip", "retry_due",
-                "pause", "resume", "cancel", "timeout",
-                "escalation_needed", "escalation_resolved_retry",
-                "escalation_timeout", "process_exited",
-                "rate_limit_hit", "rate_limit_expired",
-            ]),
+            st.sampled_from(
+                [
+                    "attempt_success",
+                    "attempt_fail",
+                    "attempt_partial",
+                    "attempt_rate_limited",
+                    "skip",
+                    "retry_due",
+                    "pause",
+                    "resume",
+                    "cancel",
+                    "timeout",
+                    "escalation_needed",
+                    "escalation_resolved_retry",
+                    "escalation_timeout",
+                    "process_exited",
+                    "rate_limit_hit",
+                    "rate_limit_expired",
+                ]
+            ),
             min_size=1,
             max_size=20,
         ),
@@ -1700,16 +1846,22 @@ class TestStateMachineTransitionValidity:
         baton = BatonCore()
         sheets = {
             1: SheetExecutionState(
-                sheet_num=1, instrument_name="claude-code",
-                status=BatonSheetStatus.PENDING, max_retries=100,  # High to avoid exhaustion
+                sheet_num=1,
+                instrument_name="claude-code",
+                status=BatonSheetStatus.PENDING,
+                max_retries=100,  # High to avoid exhaustion
             ),
             2: SheetExecutionState(
-                sheet_num=2, instrument_name="claude-code",
-                status=BatonSheetStatus.DISPATCHED, max_retries=100,
+                sheet_num=2,
+                instrument_name="claude-code",
+                status=BatonSheetStatus.DISPATCHED,
+                max_retries=100,
             ),
             3: SheetExecutionState(
-                sheet_num=3, instrument_name="gemini-cli",
-                status=BatonSheetStatus.PENDING, max_retries=100,
+                sheet_num=3,
+                instrument_name="gemini-cli",
+                status=BatonSheetStatus.PENDING,
+                max_retries=100,
             ),
         }
         baton.register_job("j1", sheets, {2: [1]})
@@ -1718,31 +1870,39 @@ class TestStateMachineTransitionValidity:
             # Pick a sheet to target
             target_sheet = 1 if event_type in ("retry_due",) else 2
             instrument = sheets[target_sheet].instrument_name
-            event = self._make_event_for_job(
-                event_type, "j1", target_sheet, instrument
-            )
+            event = self._make_event_for_job(event_type, "j1", target_sheet, instrument)
             await baton.handle_event(event)
 
             # After every event, all sheet statuses must be in the known set
             for snum, sheet in sheets.items():
                 assert sheet.status in self._KNOWN_STATUSES, (
-                    f"Sheet {snum} has invalid status '{sheet.status}' "
-                    f"after event '{event_type}'"
+                    f"Sheet {snum} has invalid status '{sheet.status}' after event '{event_type}'"
                 )
 
     @pytest.mark.property_based
     @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
     @given(
-        terminal_status=st.sampled_from([
-            BatonSheetStatus.COMPLETED, BatonSheetStatus.FAILED,
-            BatonSheetStatus.SKIPPED, BatonSheetStatus.CANCELLED,
-        ]),
+        terminal_status=st.sampled_from(
+            [
+                BatonSheetStatus.COMPLETED,
+                BatonSheetStatus.FAILED,
+                BatonSheetStatus.SKIPPED,
+                BatonSheetStatus.CANCELLED,
+            ]
+        ),
         event_types=st.lists(
-            st.sampled_from([
-                "attempt_success", "attempt_fail", "attempt_rate_limited",
-                "retry_due", "escalation_needed", "process_exited",
-                "rate_limit_hit", "rate_limit_expired",
-            ]),
+            st.sampled_from(
+                [
+                    "attempt_success",
+                    "attempt_fail",
+                    "attempt_rate_limited",
+                    "retry_due",
+                    "escalation_needed",
+                    "process_exited",
+                    "rate_limit_hit",
+                    "rate_limit_expired",
+                ]
+            ),
             min_size=1,
             max_size=10,
         ),
@@ -1753,15 +1913,15 @@ class TestStateMachineTransitionValidity:
         """A sheet in terminal state stays terminal through any event sequence."""
         baton = BatonCore()
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
-            status=terminal_status, max_retries=100,
+            sheet_num=1,
+            instrument_name="claude-code",
+            status=terminal_status,
+            max_retries=100,
         )
         baton.register_job("j1", {1: sheet}, {})
 
         for event_type in event_types:
-            event = self._make_event_for_job(
-                event_type, "j1", 1, "claude-code"
-            )
+            event = self._make_event_for_job(event_type, "j1", 1, "claude-code")
             await baton.handle_event(event)
 
             assert sheet.status in self._TERMINAL_STATUSES, (
@@ -1773,23 +1933,27 @@ class TestStateMachineTransitionValidity:
     @settings(max_examples=30, suppress_health_check=[HealthCheck.too_slow])
     @given(
         event_types=st.lists(
-            st.sampled_from([
-                "attempt_fail", "attempt_partial",
-                "attempt_rate_limited", "process_exited",
-            ]),
+            st.sampled_from(
+                [
+                    "attempt_fail",
+                    "attempt_partial",
+                    "attempt_rate_limited",
+                    "process_exited",
+                ]
+            ),
             min_size=1,
             max_size=15,
         ),
     )
-    async def test_attempt_count_consistency(
-        self, event_types: list[str]
-    ) -> None:
+    async def test_attempt_count_consistency(self, event_types: list[str]) -> None:
         """After any event sequence, normal_attempts >= 0 and
         normal_attempts <= number of non-rate-limited events processed."""
         baton = BatonCore()
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
-            status=BatonSheetStatus.DISPATCHED, max_retries=100,
+            sheet_num=1,
+            instrument_name="claude-code",
+            status=BatonSheetStatus.DISPATCHED,
+            max_retries=100,
         )
         baton.register_job("j1", {1: sheet}, {})
 
@@ -1798,9 +1962,7 @@ class TestStateMachineTransitionValidity:
             if sheet.status in self._TERMINAL_STATUSES:
                 break
             sheet.status = BatonSheetStatus.DISPATCHED
-            event = self._make_event_for_job(
-                event_type, "j1", 1, "claude-code"
-            )
+            event = self._make_event_for_job(event_type, "j1", 1, "claude-code")
             if event_type != "attempt_rate_limited":
                 non_rate_limited_events += 1
             await baton.handle_event(event)
@@ -1837,7 +1999,9 @@ class TestPauseResumeEscalationOrthogonality:
         should NOT unpause the job."""
         baton = BatonCore()
         sheets = {
-            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.PENDING),
+            1: SheetExecutionState(
+                sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.PENDING
+            ),
         }
         baton.register_job("j1", sheets, {})
 
@@ -1846,15 +2010,11 @@ class TestPauseResumeEscalationOrthogonality:
         assert baton.is_job_paused("j1") is True
 
         # Escalation happens (sheet goes to fermata, job stays paused)
-        await baton.handle_event(
-            EscalationNeeded(job_id="j1", sheet_num=1, reason="test")
-        )
+        await baton.handle_event(EscalationNeeded(job_id="j1", sheet_num=1, reason="test"))
         assert baton.is_job_paused("j1") is True
 
         # Escalation resolves — but user pause should keep job paused
-        await baton.handle_event(
-            EscalationResolved(job_id="j1", sheet_num=1, decision="retry")
-        )
+        await baton.handle_event(EscalationResolved(job_id="j1", sheet_num=1, decision="retry"))
         assert baton.is_job_paused("j1") is True, (
             "Job was unpaused by escalation resolution despite user pause"
         )
@@ -1866,17 +2026,15 @@ class TestPauseResumeEscalationOrthogonality:
         """Escalation timeout should not unpause a user-paused job."""
         baton = BatonCore()
         sheets = {
-            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.PENDING),
+            1: SheetExecutionState(
+                sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.PENDING
+            ),
         }
         baton.register_job("j1", sheets, {})
 
         await baton.handle_event(PauseJob(job_id="j1"))
-        await baton.handle_event(
-            EscalationNeeded(job_id="j1", sheet_num=1, reason="test")
-        )
-        await baton.handle_event(
-            EscalationTimeout(job_id="j1", sheet_num=1)
-        )
+        await baton.handle_event(EscalationNeeded(job_id="j1", sheet_num=1, reason="test"))
+        await baton.handle_event(EscalationTimeout(job_id="j1", sheet_num=1))
 
         assert baton.is_job_paused("j1") is True, (
             "Job was unpaused by escalation timeout despite user pause"
@@ -1887,29 +2045,33 @@ class TestPauseResumeEscalationOrthogonality:
         """ResumeJob clears both user_paused and paused flags."""
         baton = BatonCore()
         sheets = {
-            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.PENDING),
+            1: SheetExecutionState(
+                sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.PENDING
+            ),
         }
         baton.register_job("j1", sheets, {})
 
         await baton.handle_event(PauseJob(job_id="j1"))
-        await baton.handle_event(
-            EscalationNeeded(job_id="j1", sheet_num=1, reason="test")
-        )
+        await baton.handle_event(EscalationNeeded(job_id="j1", sheet_num=1, reason="test"))
         # Both dimensions paused
         assert baton.is_job_paused("j1") is True
 
         await baton.handle_event(ResumeJob(job_id="j1"))
-        assert baton.is_job_paused("j1") is False, (
-            "ResumeJob should clear all pause dimensions"
-        )
+        assert baton.is_job_paused("j1") is False, "ResumeJob should clear all pause dimensions"
 
     @pytest.mark.property_based
     @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
     @given(
         operations=st.lists(
-            st.sampled_from([
-                "pause", "resume", "escalate", "resolve", "timeout",
-            ]),
+            st.sampled_from(
+                [
+                    "pause",
+                    "resume",
+                    "escalate",
+                    "resolve",
+                    "timeout",
+                ]
+            ),
             min_size=1,
             max_size=15,
         ),
@@ -1921,7 +2083,9 @@ class TestPauseResumeEscalationOrthogonality:
         is internally consistent: paused=True if user_paused or escalation_paused."""
         baton = BatonCore()
         sheets = {
-            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.PENDING),
+            1: SheetExecutionState(
+                sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.PENDING
+            ),
         }
         baton.register_job("j1", sheets, {})
 
@@ -1941,24 +2105,18 @@ class TestPauseResumeEscalationOrthogonality:
                 case "resolve":
                     if sheets[1].status == "fermata":
                         await baton.handle_event(
-                            EscalationResolved(
-                                job_id="j1", sheet_num=1, decision="retry"
-                            )
+                            EscalationResolved(job_id="j1", sheet_num=1, decision="retry")
                         )
                 case "timeout":
                     if sheets[1].status == "fermata":
-                        await baton.handle_event(
-                            EscalationTimeout(job_id="j1", sheet_num=1)
-                        )
+                        await baton.handle_event(EscalationTimeout(job_id="j1", sheet_num=1))
 
             # Invariant: paused state is well-defined
             job = baton._jobs.get("j1")
             if job is not None:
                 # If user_paused is True, paused must be True
                 if job.user_paused:
-                    assert job.paused is True, (
-                        f"user_paused=True but paused=False after '{op}'"
-                    )
+                    assert job.paused is True, f"user_paused=True but paused=False after '{op}'"
 
 
 # =============================================================================
@@ -1983,9 +2141,7 @@ class TestDependencyFailurePreventsZombieJobs:
         n_sheets=st.integers(min_value=2, max_value=12),
         data=st.data(),
     )
-    async def test_no_zombie_sheets_after_failure(
-        self, n_sheets: int, data: st.DataObject
-    ) -> None:
+    async def test_no_zombie_sheets_after_failure(self, n_sheets: int, data: st.DataObject) -> None:
         """After a failure + propagation, no pending sheet has an
         unsatisfiable dependency chain."""
         # Generate random DAG
@@ -2026,9 +2182,8 @@ class TestDependencyFailurePreventsZombieJobs:
                 for dep_num in deps.get(sheet_num, []):
                     dep = sheets.get(dep_num)
                     if dep is not None:
-                        is_unsatisfied = (
-                            dep.status == "failed"
-                            or (dep.status == "skipped" and dep.error_code is not None)
+                        is_unsatisfied = dep.status == "failed" or (
+                            dep.status == "skipped" and dep.error_code is not None
                         )
                         assert not is_unsatisfied, (
                             f"Zombie detected: sheet {sheet_num} is pending "
@@ -2069,7 +2224,8 @@ class TestDependencyFailurePreventsZombieJobs:
         fail_sheets = data.draw(
             st.lists(
                 st.integers(min_value=1, max_value=n_sheets),
-                min_size=n_failures, max_size=n_failures,
+                min_size=n_failures,
+                max_size=n_failures,
                 unique=True,
             )
         )
@@ -2093,10 +2249,8 @@ class TestDependencyFailurePreventsZombieJobs:
                 for dep_num in deps.get(sheet_num, []):
                     dep = sheets.get(dep_num)
                     if dep is not None:
-                        is_unsatisfied = (
-                            dep.status == BatonSheetStatus.FAILED
-                            or (dep.status == BatonSheetStatus.SKIPPED
-                                and dep.error_code is not None)
+                        is_unsatisfied = dep.status == BatonSheetStatus.FAILED or (
+                            dep.status == BatonSheetStatus.SKIPPED and dep.error_code is not None
                         )
                         assert not is_unsatisfied, (
                             f"Zombie after multi-failure: sheet {sheet_num} "
@@ -2125,8 +2279,10 @@ class TestCompletionModeInvariants:
     @pytest.mark.asyncio
     @given(
         pass_rate=st.floats(
-            min_value=0.01, max_value=99.99,
-            allow_nan=False, allow_infinity=False,
+            min_value=0.01,
+            max_value=99.99,
+            allow_nan=False,
+            allow_infinity=False,
         ),
         max_completion=st.integers(min_value=1, max_value=10),
     )
@@ -2137,7 +2293,8 @@ class TestCompletionModeInvariants:
         """A partial validation pass increments completion_attempts exactly once."""
         baton = BatonCore()
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
+            sheet_num=1,
+            instrument_name="claude-code",
             status=BatonSheetStatus.DISPATCHED,
             max_completion=max_completion,
         )
@@ -2145,11 +2302,19 @@ class TestCompletionModeInvariants:
         initial_completion = sheet.completion_attempts
 
         event = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=True, exit_code=0,
-            duration_seconds=1.0, validations_passed=1,
-            validations_total=2, validation_pass_rate=pass_rate,
-            cost_usd=0.01, input_tokens=100, output_tokens=50,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=True,
+            exit_code=0,
+            duration_seconds=1.0,
+            validations_passed=1,
+            validations_total=2,
+            validation_pass_rate=pass_rate,
+            cost_usd=0.01,
+            input_tokens=100,
+            output_tokens=50,
             timestamp=time.time(),
         )
         await baton.handle_event(event)
@@ -2165,7 +2330,8 @@ class TestCompletionModeInvariants:
         """When completion budget is exhausted, sheet reaches terminal or fermata."""
         baton = BatonCore()
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
+            sheet_num=1,
+            instrument_name="claude-code",
             status=BatonSheetStatus.DISPATCHED,
             max_completion=n_completions,
             max_retries=0,  # No retry budget either
@@ -2179,11 +2345,19 @@ class TestCompletionModeInvariants:
             if sheet.status != BatonSheetStatus.DISPATCHED:
                 sheet.status = BatonSheetStatus.DISPATCHED
             event = SheetAttemptResult(
-                job_id="j1", sheet_num=1, instrument_name="claude-code",
-                attempt=i + 1, execution_success=True, exit_code=0,
-                duration_seconds=1.0, validations_passed=1,
-                validations_total=2, validation_pass_rate=50.0,
-                cost_usd=0.01, input_tokens=100, output_tokens=50,
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=i + 1,
+                execution_success=True,
+                exit_code=0,
+                duration_seconds=1.0,
+                validations_passed=1,
+                validations_total=2,
+                validation_pass_rate=50.0,
+                cost_usd=0.01,
+                input_tokens=100,
+                output_tokens=50,
                 timestamp=time.time(),
             )
             await baton.handle_event(event)
@@ -2191,16 +2365,15 @@ class TestCompletionModeInvariants:
         # Sheet must have reached terminal or fermata (escalation)
         assert sheet.status in (
             _TERMINAL_BATON_STATUSES | {BatonSheetStatus.FERMATA, BatonSheetStatus.RETRY_SCHEDULED}
-        ), (
-            f"Sheet stuck in {sheet.status} after completion budget exhaustion"
-        )
+        ), f"Sheet stuck in {sheet.status} after completion budget exhaustion"
 
     @pytest.mark.asyncio
     async def test_full_pass_always_completes_regardless_of_budget(self) -> None:
         """100% pass rate → COMPLETED, even with zero completion budget remaining."""
         baton = BatonCore()
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
+            sheet_num=1,
+            instrument_name="claude-code",
             status=BatonSheetStatus.DISPATCHED,
             max_completion=0,  # No completion budget
             max_retries=0,  # No retry budget
@@ -2208,11 +2381,19 @@ class TestCompletionModeInvariants:
         baton.register_job("j1", {1: sheet}, {})
 
         event = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=True, exit_code=0,
-            duration_seconds=1.0, validations_passed=5,
-            validations_total=5, validation_pass_rate=100.0,
-            cost_usd=0.01, input_tokens=100, output_tokens=50,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=True,
+            exit_code=0,
+            duration_seconds=1.0,
+            validations_passed=5,
+            validations_total=5,
+            validation_pass_rate=100.0,
+            cost_usd=0.01,
+            input_tokens=100,
+            output_tokens=50,
             timestamp=time.time(),
         )
         await baton.handle_event(event)
@@ -2236,28 +2417,37 @@ class TestF018GuardInvariant:
     @pytest.mark.asyncio
     @given(
         reported_rate=st.floats(
-            min_value=0.0, max_value=99.99,
-            allow_nan=False, allow_infinity=False,
+            min_value=0.0,
+            max_value=99.99,
+            allow_nan=False,
+            allow_infinity=False,
         ),
     )
     @settings(max_examples=50, suppress_health_check=[HealthCheck.function_scoped_fixture])
-    async def test_zero_validations_success_always_completes(
-        self, reported_rate: float
-    ) -> None:
+    async def test_zero_validations_success_always_completes(self, reported_rate: float) -> None:
         """execution_success + 0 validations → COMPLETED, any pass rate."""
         baton = BatonCore()
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
+            sheet_num=1,
+            instrument_name="claude-code",
             status=BatonSheetStatus.DISPATCHED,
         )
         baton.register_job("j1", {1: sheet}, {})
 
         event = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=True, exit_code=0,
-            duration_seconds=1.0, validations_passed=0,
-            validations_total=0, validation_pass_rate=reported_rate,
-            cost_usd=0.01, input_tokens=100, output_tokens=50,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=True,
+            exit_code=0,
+            duration_seconds=1.0,
+            validations_passed=0,
+            validations_total=0,
+            validation_pass_rate=reported_rate,
+            cost_usd=0.01,
+            input_tokens=100,
+            output_tokens=50,
             timestamp=time.time(),
         )
         await baton.handle_event(event)
@@ -2272,17 +2462,26 @@ class TestF018GuardInvariant:
         """execution_success=False bypasses the F-018 guard entirely."""
         baton = BatonCore()
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
+            sheet_num=1,
+            instrument_name="claude-code",
             status=BatonSheetStatus.DISPATCHED,
         )
         baton.register_job("j1", {1: sheet}, {})
 
         event = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=False, exit_code=1,
-            duration_seconds=1.0, validations_passed=0,
-            validations_total=0, validation_pass_rate=0.0,
-            cost_usd=0.01, input_tokens=100, output_tokens=50,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=False,
+            exit_code=1,
+            duration_seconds=1.0,
+            validations_passed=0,
+            validations_total=0,
+            validation_pass_rate=0.0,
+            cost_usd=0.01,
+            input_tokens=100,
+            output_tokens=50,
             timestamp=time.time(),
         )
         await baton.handle_event(event)
@@ -2305,7 +2504,9 @@ class TestCostEnforcementInvariants:
 
     @pytest.mark.asyncio
     @given(
-        cost_per_attempt=st.floats(min_value=0.1, max_value=10.0, allow_nan=False, allow_infinity=False),
+        cost_per_attempt=st.floats(
+            min_value=0.1, max_value=10.0, allow_nan=False, allow_infinity=False
+        ),
         limit=st.floats(min_value=0.01, max_value=5.0, allow_nan=False, allow_infinity=False),
     )
     @settings(max_examples=50, suppress_health_check=[HealthCheck.function_scoped_fixture])
@@ -2315,7 +2516,8 @@ class TestCostEnforcementInvariants:
         """Sending attempts whose cumulative cost exceeds the limit fails the sheet."""
         baton = BatonCore()
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
+            sheet_num=1,
+            instrument_name="claude-code",
             status=BatonSheetStatus.DISPATCHED,
             max_retries=100,  # High budget so cost limit triggers first
         )
@@ -2329,11 +2531,19 @@ class TestCostEnforcementInvariants:
             if sheet.status != BatonSheetStatus.DISPATCHED:
                 sheet.status = BatonSheetStatus.DISPATCHED
             event = SheetAttemptResult(
-                job_id="j1", sheet_num=1, instrument_name="claude-code",
-                attempt=i + 1, execution_success=False, exit_code=1,
-                duration_seconds=1.0, validations_passed=0,
-                validations_total=1, validation_pass_rate=0.0,
-                cost_usd=cost_per_attempt, input_tokens=100, output_tokens=50,
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=i + 1,
+                execution_success=False,
+                exit_code=1,
+                duration_seconds=1.0,
+                validations_passed=0,
+                validations_total=1,
+                validation_pass_rate=0.0,
+                cost_usd=cost_per_attempt,
+                input_tokens=100,
+                output_tokens=50,
                 timestamp=time.time(),
             )
             await baton.handle_event(event)
@@ -2348,7 +2558,8 @@ class TestCostEnforcementInvariants:
     @given(
         sheet_costs=st.lists(
             st.floats(min_value=0.1, max_value=5.0, allow_nan=False, allow_infinity=False),
-            min_size=2, max_size=5,
+            min_size=2,
+            max_size=5,
         ),
         job_limit=st.floats(min_value=0.5, max_value=10.0, allow_nan=False, allow_infinity=False),
     )
@@ -2360,7 +2571,8 @@ class TestCostEnforcementInvariants:
         baton = BatonCore()
         sheets = {
             i: SheetExecutionState(
-                sheet_num=i, instrument_name="claude-code",
+                sheet_num=i,
+                instrument_name="claude-code",
                 status=BatonSheetStatus.DISPATCHED,
             )
             for i in range(1, len(sheet_costs) + 1)
@@ -2371,11 +2583,19 @@ class TestCostEnforcementInvariants:
         # Submit one attempt per sheet with the given costs
         for i, cost in enumerate(sheet_costs, 1):
             event = SheetAttemptResult(
-                job_id="j1", sheet_num=i, instrument_name="claude-code",
-                attempt=1, execution_success=True, exit_code=0,
-                duration_seconds=1.0, validations_passed=1,
-                validations_total=1, validation_pass_rate=100.0,
-                cost_usd=cost, input_tokens=100, output_tokens=50,
+                job_id="j1",
+                sheet_num=i,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=True,
+                exit_code=0,
+                duration_seconds=1.0,
+                validations_passed=1,
+                validations_total=1,
+                validation_pass_rate=100.0,
+                cost_usd=cost,
+                input_tokens=100,
+                output_tokens=50,
                 timestamp=time.time(),
             )
             await baton.handle_event(event)
@@ -2383,8 +2603,7 @@ class TestCostEnforcementInvariants:
         total_cost = sum(sheet_costs)
         if total_cost > job_limit:
             assert baton.is_job_paused("j1"), (
-                f"Job cost ${total_cost:.2f} exceeds limit ${job_limit:.2f} "
-                f"but job is not paused"
+                f"Job cost ${total_cost:.2f} exceeds limit ${job_limit:.2f} but job is not paused"
             )
 
     @pytest.mark.asyncio
@@ -2392,18 +2611,27 @@ class TestCostEnforcementInvariants:
         """Sheet cost within the limit does not fail the sheet."""
         baton = BatonCore()
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
+            sheet_num=1,
+            instrument_name="claude-code",
             status=BatonSheetStatus.DISPATCHED,
         )
         baton.register_job("j1", {1: sheet}, {})
         baton.set_sheet_cost_limit("j1", 1, 100.0)
 
         event = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=True, exit_code=0,
-            duration_seconds=1.0, validations_passed=1,
-            validations_total=1, validation_pass_rate=100.0,
-            cost_usd=1.0, input_tokens=100, output_tokens=50,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=True,
+            exit_code=0,
+            duration_seconds=1.0,
+            validations_passed=1,
+            validations_total=1,
+            validation_pass_rate=100.0,
+            cost_usd=1.0,
+            input_tokens=100,
+            output_tokens=50,
             timestamp=time.time(),
         )
         await baton.handle_event(event)
@@ -2431,22 +2659,34 @@ class TestExhaustionDecisionTree:
         """Healing is tried before escalation when both are enabled."""
         baton = BatonCore()
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
+            sheet_num=1,
+            instrument_name="claude-code",
             status=BatonSheetStatus.DISPATCHED,
-            max_retries=0, max_completion=0,
+            max_retries=0,
+            max_completion=0,
         )
         baton.register_job(
-            "j1", {1: sheet}, {},
+            "j1",
+            {1: sheet},
+            {},
             self_healing_enabled=True,
             escalation_enabled=True,
         )
 
         event = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=False, exit_code=1,
-            duration_seconds=1.0, validations_passed=0,
-            validations_total=1, validation_pass_rate=0.0,
-            cost_usd=0.01, input_tokens=100, output_tokens=50,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=False,
+            exit_code=1,
+            duration_seconds=1.0,
+            validations_passed=0,
+            validations_total=1,
+            validation_pass_rate=0.0,
+            cost_usd=0.01,
+            input_tokens=100,
+            output_tokens=50,
             timestamp=time.time(),
         )
         await baton.handle_event(event)
@@ -2459,12 +2699,16 @@ class TestExhaustionDecisionTree:
         """Escalation is used when healing budget is exhausted."""
         baton = BatonCore()
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
+            sheet_num=1,
+            instrument_name="claude-code",
             status=BatonSheetStatus.DISPATCHED,
-            max_retries=0, max_completion=0,
+            max_retries=0,
+            max_completion=0,
         )
         baton.register_job(
-            "j1", {1: sheet}, {},
+            "j1",
+            {1: sheet},
+            {},
             self_healing_enabled=True,
             escalation_enabled=True,
         )
@@ -2472,11 +2716,19 @@ class TestExhaustionDecisionTree:
         sheet.healing_attempts = 1
 
         event = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=False, exit_code=1,
-            duration_seconds=1.0, validations_passed=0,
-            validations_total=1, validation_pass_rate=0.0,
-            cost_usd=0.01, input_tokens=100, output_tokens=50,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=False,
+            exit_code=1,
+            duration_seconds=1.0,
+            validations_passed=0,
+            validations_total=1,
+            validation_pass_rate=0.0,
+            cost_usd=0.01,
+            input_tokens=100,
+            output_tokens=50,
             timestamp=time.time(),
         )
         await baton.handle_event(event)
@@ -2490,23 +2742,34 @@ class TestExhaustionDecisionTree:
         baton = BatonCore()
         sheets = {
             1: SheetExecutionState(
-                sheet_num=1, instrument_name="claude-code",
+                sheet_num=1,
+                instrument_name="claude-code",
                 status=BatonSheetStatus.DISPATCHED,
-                max_retries=0, max_completion=0,
+                max_retries=0,
+                max_completion=0,
             ),
             2: SheetExecutionState(
-                sheet_num=2, instrument_name="claude-code",
+                sheet_num=2,
+                instrument_name="claude-code",
                 status=BatonSheetStatus.PENDING,
             ),
         }
         baton.register_job("j1", sheets, {2: [1]})
 
         event = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=False, exit_code=1,
-            duration_seconds=1.0, validations_passed=0,
-            validations_total=1, validation_pass_rate=0.0,
-            cost_usd=0.01, input_tokens=100, output_tokens=50,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=False,
+            exit_code=1,
+            duration_seconds=1.0,
+            validations_passed=0,
+            validations_total=1,
+            validation_pass_rate=0.0,
+            cost_usd=0.01,
+            input_tokens=100,
+            output_tokens=50,
             timestamp=time.time(),
         )
         await baton.handle_event(event)
@@ -2530,33 +2793,45 @@ class TestExhaustionDecisionTree:
         definite outcome (not stuck in dispatched/running)."""
         baton = BatonCore()
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
+            sheet_num=1,
+            instrument_name="claude-code",
             status=BatonSheetStatus.DISPATCHED,
-            max_retries=0, max_completion=0,
+            max_retries=0,
+            max_completion=0,
         )
         # Pre-exhaust healing so we get to the decision point
         sheet.healing_attempts = 1 if not healing_enabled else 0
 
         baton.register_job(
-            "j1", {1: sheet}, {},
+            "j1",
+            {1: sheet},
+            {},
             self_healing_enabled=healing_enabled,
             escalation_enabled=escalation_enabled,
         )
 
         event = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=False, exit_code=1,
-            duration_seconds=1.0, validations_passed=0,
-            validations_total=1, validation_pass_rate=0.0,
-            cost_usd=0.01, input_tokens=100, output_tokens=50,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=False,
+            exit_code=1,
+            duration_seconds=1.0,
+            validations_passed=0,
+            validations_total=1,
+            validation_pass_rate=0.0,
+            cost_usd=0.01,
+            input_tokens=100,
+            output_tokens=50,
             timestamp=time.time(),
         )
         await baton.handle_event(event)
 
-        valid_outcomes = (
-            _TERMINAL_BATON_STATUSES
-            | {BatonSheetStatus.FERMATA, BatonSheetStatus.RETRY_SCHEDULED}
-        )
+        valid_outcomes = _TERMINAL_BATON_STATUSES | {
+            BatonSheetStatus.FERMATA,
+            BatonSheetStatus.RETRY_SCHEDULED,
+        }
         assert sheet.status in valid_outcomes, (
             f"Exhaustion left sheet in {sheet.status} "
             f"(healing={healing_enabled}, escalation={escalation_enabled})"
@@ -2613,8 +2888,7 @@ class TestRateLimitCrossJobInvariant:
         for job_id, sheets in all_sheets.items():
             for sheet_num, sheet in sheets.items():
                 assert sheet.status == BatonSheetStatus.WAITING, (
-                    f"{job_id} sheet {sheet_num}: expected WAITING, "
-                    f"got {sheet.status}"
+                    f"{job_id} sheet {sheet_num}: expected WAITING, got {sheet.status}"
                 )
 
     @pytest.mark.asyncio
@@ -2623,11 +2897,13 @@ class TestRateLimitCrossJobInvariant:
         baton = BatonCore()
         sheets = {
             1: SheetExecutionState(
-                sheet_num=1, instrument_name="claude-code",
+                sheet_num=1,
+                instrument_name="claude-code",
                 status=BatonSheetStatus.DISPATCHED,
             ),
             2: SheetExecutionState(
-                sheet_num=2, instrument_name="gemini-cli",
+                sheet_num=2,
+                instrument_name="gemini-cli",
                 status=BatonSheetStatus.DISPATCHED,
             ),
         }
@@ -2645,15 +2921,18 @@ class TestRateLimitCrossJobInvariant:
         baton = BatonCore()
         sheets = {
             1: SheetExecutionState(
-                sheet_num=1, instrument_name="claude-code",
+                sheet_num=1,
+                instrument_name="claude-code",
                 status=BatonSheetStatus.COMPLETED,
             ),
             2: SheetExecutionState(
-                sheet_num=2, instrument_name="claude-code",
+                sheet_num=2,
+                instrument_name="claude-code",
                 status=BatonSheetStatus.DISPATCHED,
             ),
             3: SheetExecutionState(
-                sheet_num=3, instrument_name="claude-code",
+                sheet_num=3,
+                instrument_name="claude-code",
                 status=BatonSheetStatus.FAILED,
             ),
         }
@@ -2672,11 +2951,13 @@ class TestRateLimitCrossJobInvariant:
         baton = BatonCore()
         sheets = {
             1: SheetExecutionState(
-                sheet_num=1, instrument_name="claude-code",
+                sheet_num=1,
+                instrument_name="claude-code",
                 status=BatonSheetStatus.WAITING,
             ),
             2: SheetExecutionState(
-                sheet_num=2, instrument_name="claude-code",
+                sheet_num=2,
+                instrument_name="claude-code",
                 status=BatonSheetStatus.COMPLETED,
             ),
         }
@@ -2710,7 +2991,8 @@ class TestBuildDispatchConfigInvariant:
                 st.sampled_from(list(CircuitBreakerState)),
                 st.integers(min_value=1, max_value=10),  # max_concurrent
             ),
-            min_size=1, max_size=5,
+            min_size=1,
+            max_size=5,
             unique_by=lambda x: x[0],
         ),
     )
@@ -2766,7 +3048,8 @@ class TestRecordAttemptCountsOnlyFailures:
     @given(
         results=st.lists(
             sheet_attempt_result(),
-            min_size=1, max_size=20,
+            min_size=1,
+            max_size=20,
         ),
     )
     @settings(max_examples=50, suppress_health_check=[HealthCheck.function_scoped_fixture])
@@ -2775,7 +3058,8 @@ class TestRecordAttemptCountsOnlyFailures:
     ) -> None:
         """normal_attempts = count(not success AND not rate_limited)."""
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
+            sheet_num=1,
+            instrument_name="claude-code",
             max_retries=100,
         )
 
@@ -2803,29 +3087,46 @@ class TestRecordAttemptCountsOnlyFailures:
     ) -> None:
         """Successful and rate-limited attempts leave normal_attempts at 0."""
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
+            sheet_num=1,
+            instrument_name="claude-code",
             max_retries=100,
         )
 
         for _ in range(n_success):
             result = SheetAttemptResult(
-                job_id="j1", sheet_num=1, instrument_name="claude-code",
-                attempt=1, execution_success=True, exit_code=0,
-                duration_seconds=1.0, validations_passed=1,
-                validations_total=1, validation_pass_rate=100.0,
-                cost_usd=0.01, input_tokens=100, output_tokens=50,
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=True,
+                exit_code=0,
+                duration_seconds=1.0,
+                validations_passed=1,
+                validations_total=1,
+                validation_pass_rate=100.0,
+                cost_usd=0.01,
+                input_tokens=100,
+                output_tokens=50,
                 timestamp=time.time(),
             )
             sheet.record_attempt(result)
 
         for _ in range(n_rate_limited):
             result = SheetAttemptResult(
-                job_id="j1", sheet_num=1, instrument_name="claude-code",
-                attempt=1, execution_success=False, exit_code=1,
-                duration_seconds=1.0, validations_passed=0,
-                validations_total=0, validation_pass_rate=0.0,
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=False,
+                exit_code=1,
+                duration_seconds=1.0,
+                validations_passed=0,
+                validations_total=0,
+                validation_pass_rate=0.0,
                 rate_limited=True,
-                cost_usd=0.01, input_tokens=100, output_tokens=50,
+                cost_usd=0.01,
+                input_tokens=100,
+                output_tokens=50,
                 timestamp=time.time(),
             )
             sheet.record_attempt(result)
@@ -2851,17 +3152,14 @@ class TestRetryDelayMonotonicity:
 
     @given(n_attempts=st.integers(min_value=1, max_value=50))
     @settings(max_examples=50)
-    def test_delays_are_monotonically_non_decreasing(
-        self, n_attempts: int
-    ) -> None:
+    def test_delays_are_monotonically_non_decreasing(self, n_attempts: int) -> None:
         """Each retry delay is >= the previous one."""
         baton = BatonCore()
         delays = [baton.calculate_retry_delay(i) for i in range(n_attempts)]
 
         for i in range(1, len(delays)):
             assert delays[i] >= delays[i - 1], (
-                f"Delay decreased: attempt {i-1}={delays[i-1]}, "
-                f"attempt {i}={delays[i]}"
+                f"Delay decreased: attempt {i - 1}={delays[i - 1]}, attempt {i}={delays[i]}"
             )
 
     @given(attempt=st.integers(min_value=0, max_value=100))
@@ -2898,7 +3196,8 @@ class TestProcessCrashConsistency:
         """ProcessExited increments normal_attempts by 1."""
         baton = BatonCore()
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
+            sheet_num=1,
+            instrument_name="claude-code",
             status=BatonSheetStatus.DISPATCHED,
             max_retries=5,
         )
@@ -2915,7 +3214,8 @@ class TestProcessCrashConsistency:
         """ProcessExited on a PENDING sheet is ignored."""
         baton = BatonCore()
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
+            sheet_num=1,
+            instrument_name="claude-code",
             status=BatonSheetStatus.PENDING,
             max_retries=5,
         )
@@ -2932,9 +3232,11 @@ class TestProcessCrashConsistency:
         """ProcessExited with exhausted retries routes to healing if enabled."""
         baton = BatonCore()
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
+            sheet_num=1,
+            instrument_name="claude-code",
             status=BatonSheetStatus.DISPATCHED,
-            max_retries=1, normal_attempts=0,
+            max_retries=1,
+            normal_attempts=0,
         )
         baton.register_job("j1", {1: sheet}, {}, self_healing_enabled=True)
 
@@ -2969,23 +3271,34 @@ class TestAuthFailureIsTerminal:
         """AUTH_FAILURE → FAILED immediately, ignoring all recovery options."""
         baton = BatonCore()
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
+            sheet_num=1,
+            instrument_name="claude-code",
             status=BatonSheetStatus.DISPATCHED,
             max_retries=max_retries,
         )
         baton.register_job(
-            "j1", {1: sheet}, {},
+            "j1",
+            {1: sheet},
+            {},
             self_healing_enabled=healing,
             escalation_enabled=escalation,
         )
 
         event = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=False, exit_code=1,
-            duration_seconds=1.0, validations_passed=0,
-            validations_total=0, validation_pass_rate=0.0,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=False,
+            exit_code=1,
+            duration_seconds=1.0,
+            validations_passed=0,
+            validations_total=0,
+            validation_pass_rate=0.0,
             error_classification="AUTH_FAILURE",
-            cost_usd=0.01, input_tokens=100, output_tokens=50,
+            cost_usd=0.01,
+            input_tokens=100,
+            output_tokens=50,
             timestamp=time.time(),
         )
         await baton.handle_event(event)
@@ -3001,23 +3314,33 @@ class TestAuthFailureIsTerminal:
         baton = BatonCore()
         sheets = {
             1: SheetExecutionState(
-                sheet_num=1, instrument_name="claude-code",
+                sheet_num=1,
+                instrument_name="claude-code",
                 status=BatonSheetStatus.DISPATCHED,
             ),
             2: SheetExecutionState(
-                sheet_num=2, instrument_name="claude-code",
+                sheet_num=2,
+                instrument_name="claude-code",
                 status=BatonSheetStatus.PENDING,
             ),
         }
         baton.register_job("j1", sheets, {2: [1]})
 
         event = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code",
-            attempt=1, execution_success=False, exit_code=1,
-            duration_seconds=1.0, validations_passed=0,
-            validations_total=0, validation_pass_rate=0.0,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=False,
+            exit_code=1,
+            duration_seconds=1.0,
+            validations_passed=0,
+            validations_total=0,
+            validation_pass_rate=0.0,
             error_classification="AUTH_FAILURE",
-            cost_usd=0.01, input_tokens=100, output_tokens=50,
+            cost_usd=0.01,
+            input_tokens=100,
+            output_tokens=50,
             timestamp=time.time(),
         )
         await baton.handle_event(event)

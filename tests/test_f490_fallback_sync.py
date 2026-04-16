@@ -62,12 +62,9 @@ pytestmark = pytest.mark.xfail(
     ),
 )
 from marianne.daemon.baton.adapter import BatonAdapter
-from marianne.daemon.baton.core import BatonCore
 from marianne.daemon.baton.events import SheetAttemptResult
 from marianne.daemon.baton.state import (
     BatonSheetStatus,
-    CircuitBreakerState,
-    InstrumentState,
     SheetExecutionState,
 )
 
@@ -112,6 +109,7 @@ class TestFallbackSyncInstrumentName:
             if sheet is None:
                 return
             from marianne.core.checkpoint import SheetStatus
+
             try:
                 sheet.status = SheetStatus(status)
             except ValueError:
@@ -169,6 +167,7 @@ class TestFallbackSyncInstrumentName:
             if sheet is None:
                 return
             from marianne.core.checkpoint import SheetStatus
+
             try:
                 sheet.status = SheetStatus(status)
             except ValueError:
@@ -228,6 +227,7 @@ class TestFallbackSyncHistory:
             if sheet is None:
                 return
             from marianne.core.checkpoint import SheetStatus
+
             try:
                 sheet.status = SheetStatus(status)
             except ValueError:
@@ -287,6 +287,7 @@ class TestFallbackSyncHistory:
             if sheet is None:
                 return
             from marianne.core.checkpoint import SheetStatus
+
             try:
                 sheet.status = SheetStatus(status)
             except ValueError:
@@ -356,13 +357,15 @@ class TestFallbackSyncStatusAlongside:
             instrument_name: str | None = None,
             fallback_history: list | None = None,
         ) -> None:
-            synced_calls.append({
-                "job_id": job_id,
-                "sheet_num": sheet_num,
-                "status": status,
-                "instrument_name": instrument_name,
-                "fallback_history": fallback_history,
-            })
+            synced_calls.append(
+                {
+                    "job_id": job_id,
+                    "sheet_num": sheet_num,
+                    "status": status,
+                    "instrument_name": instrument_name,
+                    "fallback_history": fallback_history,
+                }
+            )
 
         adapter = BatonAdapter(state_sync_callback=sync_cb)
 

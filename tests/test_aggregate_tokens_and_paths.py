@@ -8,12 +8,12 @@ the first. This requires `extract_json_path_all` — a sibling to the original
 
 TDD tests written by Harper, movement 4.
 """
+
 from __future__ import annotations
 
 import json
 
 from marianne.utils.json_path import extract_json_path, extract_json_path_all
-
 
 # =============================================================================
 # extract_json_path_all — comprehensive tests
@@ -40,9 +40,7 @@ class TestExtractJsonPathAll:
                 }
             }
         }
-        results = extract_json_path_all(
-            data, "stats.models.*.tokens.prompt"
-        )
+        results = extract_json_path_all(data, "stats.models.*.tokens.prompt")
         assert sorted(results) == [50, 150, 300]
 
     def test_single_model_returns_list_of_one(self) -> None:
@@ -93,9 +91,7 @@ class TestExtractJsonPathAll:
                 "b": {"usage": {"tokens": {"prompt": 20}}},
             }
         }
-        results = extract_json_path_all(
-            data, "models.*.usage.tokens.prompt"
-        )
+        results = extract_json_path_all(data, "models.*.usage.tokens.prompt")
         assert sorted(results) == [10, 20]
 
     def test_consistency_with_extract_json_path_single_model(self) -> None:
@@ -122,12 +118,8 @@ class TestExtractJsonPathAll:
                 }
             }
         }
-        input_toks = extract_json_path_all(
-            data, "stats.models.*.tokens.prompt"
-        )
-        output_toks = extract_json_path_all(
-            data, "stats.models.*.tokens.candidates"
-        )
+        input_toks = extract_json_path_all(data, "stats.models.*.tokens.prompt")
+        output_toks = extract_json_path_all(data, "stats.models.*.tokens.candidates")
         assert sum(input_toks) == 1200 + 8500  # 9700
         assert sum(output_toks) == 50 + 4200  # 4250
 
@@ -197,14 +189,16 @@ class TestAggregateTokensInBackend:
             input_tokens_path="stats.models.*.tokens.prompt",
             output_tokens_path="stats.models.*.tokens.candidates",
         )
-        stdout = json.dumps({
-            "stats": {
-                "models": {
-                    "router": {"tokens": {"prompt": 100, "candidates": 20}},
-                    "main": {"tokens": {"prompt": 500, "candidates": 300}},
+        stdout = json.dumps(
+            {
+                "stats": {
+                    "models": {
+                        "router": {"tokens": {"prompt": 100, "candidates": 20}},
+                        "main": {"tokens": {"prompt": 500, "candidates": 300}},
+                    }
                 }
             }
-        })
+        )
         result = backend._parse_output(stdout, "", exit_code=0)
         # First match only — depends on dict ordering (router first)
         assert result.input_tokens == 100
@@ -217,14 +211,16 @@ class TestAggregateTokensInBackend:
             input_tokens_path="stats.models.*.tokens.prompt",
             output_tokens_path="stats.models.*.tokens.candidates",
         )
-        stdout = json.dumps({
-            "stats": {
-                "models": {
-                    "router": {"tokens": {"prompt": 100, "candidates": 20}},
-                    "main": {"tokens": {"prompt": 500, "candidates": 300}},
+        stdout = json.dumps(
+            {
+                "stats": {
+                    "models": {
+                        "router": {"tokens": {"prompt": 100, "candidates": 20}},
+                        "main": {"tokens": {"prompt": 500, "candidates": 300}},
+                    }
                 }
             }
-        })
+        )
         result = backend._parse_output(stdout, "", exit_code=0)
         assert result.input_tokens == 600  # 100 + 500
         assert result.output_tokens == 320  # 20 + 300
@@ -248,13 +244,15 @@ class TestAggregateTokensInBackend:
             input_tokens_path="stats.models.*.tokens.prompt",
             output_tokens_path="stats.models.*.tokens.candidates",
         )
-        stdout = json.dumps({
-            "stats": {
-                "models": {
-                    "main": {"tokens": {"prompt": 500, "candidates": 300}},
+        stdout = json.dumps(
+            {
+                "stats": {
+                    "models": {
+                        "main": {"tokens": {"prompt": 500, "candidates": 300}},
+                    }
                 }
             }
-        })
+        )
         result = backend._parse_output(stdout, "", exit_code=0)
         assert result.input_tokens == 500
         assert result.output_tokens == 300
@@ -266,9 +264,7 @@ class TestAggregateTokensInBackend:
             input_tokens_path="usage.input_tokens",
             output_tokens_path="usage.output_tokens",
         )
-        stdout = json.dumps({
-            "usage": {"input_tokens": 150, "output_tokens": 200}
-        })
+        stdout = json.dumps({"usage": {"input_tokens": 150, "output_tokens": 200}})
         result = backend._parse_output(stdout, "", exit_code=0)
         assert result.input_tokens == 150
         assert result.output_tokens == 200
@@ -281,19 +277,21 @@ class TestAggregateTokensInBackend:
             output_tokens_path="stats.models.*.tokens.candidates",
         )
         # Real gemini-cli structure with flash-lite router + flash main
-        stdout = json.dumps({
-            "response": "Here is the analysis...",
-            "stats": {
-                "models": {
-                    "gemini-2.5-flash-lite-preview-06-17": {
-                        "tokens": {"prompt": 1200, "candidates": 50}
-                    },
-                    "gemini-2.5-flash-preview-05-20": {
-                        "tokens": {"prompt": 8500, "candidates": 4200}
-                    },
-                }
+        stdout = json.dumps(
+            {
+                "response": "Here is the analysis...",
+                "stats": {
+                    "models": {
+                        "gemini-2.5-flash-lite-preview-06-17": {
+                            "tokens": {"prompt": 1200, "candidates": 50}
+                        },
+                        "gemini-2.5-flash-preview-05-20": {
+                            "tokens": {"prompt": 8500, "candidates": 4200}
+                        },
+                    }
+                },
             }
-        })
+        )
         result = backend._parse_output(stdout, "", exit_code=0)
         assert result.input_tokens == 9700  # 1200 + 8500
         assert result.output_tokens == 4250  # 50 + 4200
@@ -311,18 +309,21 @@ class TestCliOutputConfigAggregateTokens:
     def test_default_is_false(self) -> None:
         """aggregate_tokens defaults to False for backward compat."""
         from marianne.core.config.instruments import CliOutputConfig
+
         config = CliOutputConfig(format="json")
         assert config.aggregate_tokens is False
 
     def test_can_set_true(self) -> None:
         """aggregate_tokens can be set to True."""
         from marianne.core.config.instruments import CliOutputConfig
+
         config = CliOutputConfig(format="json", aggregate_tokens=True)
         assert config.aggregate_tokens is True
 
     def test_survives_serialization(self) -> None:
         """aggregate_tokens round-trips through dict serialization."""
         from marianne.core.config.instruments import CliOutputConfig
+
         config = CliOutputConfig(format="json", aggregate_tokens=True)
         data = config.model_dump()
         restored = CliOutputConfig.model_validate(data)
@@ -331,6 +332,7 @@ class TestCliOutputConfigAggregateTokens:
     def test_loaded_from_yaml_dict(self) -> None:
         """aggregate_tokens loads correctly from YAML-like dict."""
         from marianne.core.config.instruments import CliOutputConfig
+
         data = {
             "format": "json",
             "aggregate_tokens": True,

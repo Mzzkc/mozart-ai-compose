@@ -13,7 +13,6 @@ import pytest
 from marianne.daemon.config import ResourceLimitConfig
 from marianne.daemon.monitor import ResourceMonitor, ResourceSnapshot, _compute_percent
 
-
 # ─── _compute_percent ──────────────────────────────────────────────────
 
 
@@ -109,7 +108,9 @@ class TestCheckNow:
 
     @pytest.mark.asyncio
     async def test_check_now_includes_manager_counts(
-        self, monitor: ResourceMonitor, mock_manager: MagicMock,
+        self,
+        monitor: ResourceMonitor,
+        mock_manager: MagicMock,
     ):
         """check_now pulls running_jobs and active_sheets from manager."""
         mock_manager.running_count = 3
@@ -232,7 +233,8 @@ class TestMemoryThresholds:
 
     @pytest.mark.asyncio
     async def test_warning_logged_above_80_percent(
-        self, monitor: ResourceMonitor,
+        self,
+        monitor: ResourceMonitor,
     ):
         """Memory between 80% and 95% logs a warning."""
         snapshot = ResourceSnapshot(
@@ -252,7 +254,8 @@ class TestMemoryThresholds:
 
     @pytest.mark.asyncio
     async def test_critical_logged_above_95_percent(
-        self, monitor: ResourceMonitor,
+        self,
+        monitor: ResourceMonitor,
     ):
         """Memory above 95% logs an error and enforces limit."""
         snapshot = ResourceSnapshot(
@@ -275,7 +278,8 @@ class TestMemoryThresholds:
 
     @pytest.mark.asyncio
     async def test_no_warning_below_80_percent(
-        self, monitor: ResourceMonitor,
+        self,
+        monitor: ResourceMonitor,
     ):
         """Memory below 80% produces no warnings."""
         snapshot = ResourceSnapshot(
@@ -300,7 +304,8 @@ class TestProcessCountTracking:
 
     @pytest.mark.asyncio
     async def test_process_warning_above_80_percent(
-        self, monitor: ResourceMonitor,
+        self,
+        monitor: ResourceMonitor,
     ):
         """Process count between 80% and 95% logs a warning."""
         snapshot = ResourceSnapshot(
@@ -320,7 +325,8 @@ class TestProcessCountTracking:
 
     @pytest.mark.asyncio
     async def test_process_critical_above_95_percent(
-        self, monitor: ResourceMonitor,
+        self,
+        monitor: ResourceMonitor,
     ):
         """Process count above 95% logs an error and enforces limit."""
         snapshot = ResourceSnapshot(
@@ -425,13 +431,17 @@ class TestLoadShedding:
 
     @pytest.mark.asyncio
     async def test_shed_pauses_oldest_job(
-        self, monitor: ResourceMonitor, mock_manager: MagicMock,
+        self,
+        monitor: ResourceMonitor,
+        mock_manager: MagicMock,
     ):
         """_shed_oldest_job calls pause_job on the oldest running job."""
-        mock_manager.list_jobs = AsyncMock(return_value=[
-            {"job_id": "old-job", "status": "running", "submitted_at": 100},
-            {"job_id": "new-job", "status": "running", "submitted_at": 200},
-        ])
+        mock_manager.list_jobs = AsyncMock(
+            return_value=[
+                {"job_id": "old-job", "status": "running", "submitted_at": 100},
+                {"job_id": "new-job", "status": "running", "submitted_at": 200},
+            ]
+        )
         mock_manager.pause_job = AsyncMock(return_value=True)
 
         await monitor._shed_oldest_job("processes")
@@ -440,12 +450,16 @@ class TestLoadShedding:
 
     @pytest.mark.asyncio
     async def test_shed_falls_back_to_cancel_on_pause_failure(
-        self, monitor: ResourceMonitor, mock_manager: MagicMock,
+        self,
+        monitor: ResourceMonitor,
+        mock_manager: MagicMock,
     ):
         """When pause_job raises, _shed_oldest_job falls back to cancel_job."""
-        mock_manager.list_jobs = AsyncMock(return_value=[
-            {"job_id": "stuck-job", "status": "running", "submitted_at": 100},
-        ])
+        mock_manager.list_jobs = AsyncMock(
+            return_value=[
+                {"job_id": "stuck-job", "status": "running", "submitted_at": 100},
+            ]
+        )
         mock_manager.pause_job = AsyncMock(side_effect=Exception("not pausable"))
         mock_manager.cancel_job = AsyncMock(return_value=True)
 
@@ -456,12 +470,16 @@ class TestLoadShedding:
 
     @pytest.mark.asyncio
     async def test_shed_noop_when_no_running_jobs(
-        self, monitor: ResourceMonitor, mock_manager: MagicMock,
+        self,
+        monitor: ResourceMonitor,
+        mock_manager: MagicMock,
     ):
         """_shed_oldest_job is a no-op when no jobs are running."""
-        mock_manager.list_jobs = AsyncMock(return_value=[
-            {"job_id": "done", "status": "completed", "submitted_at": 100},
-        ])
+        mock_manager.list_jobs = AsyncMock(
+            return_value=[
+                {"job_id": "done", "status": "completed", "submitted_at": 100},
+            ]
+        )
 
         # Should not raise
         await monitor._shed_oldest_job("processes")
@@ -475,7 +493,9 @@ class TestLoadShedding:
 
     @pytest.mark.asyncio
     async def test_enforce_memory_calls_shed(
-        self, monitor: ResourceMonitor, mock_manager: MagicMock,
+        self,
+        monitor: ResourceMonitor,
+        mock_manager: MagicMock,
     ):
         """_enforce_memory_limit delegates to _shed_oldest_job."""
         mock_manager.list_jobs = AsyncMock(return_value=[])
@@ -485,7 +505,9 @@ class TestLoadShedding:
 
     @pytest.mark.asyncio
     async def test_enforce_process_calls_shed(
-        self, monitor: ResourceMonitor, mock_manager: MagicMock,
+        self,
+        monitor: ResourceMonitor,
+        mock_manager: MagicMock,
     ):
         """_enforce_process_limit delegates to _shed_oldest_job."""
         mock_manager.list_jobs = AsyncMock(return_value=[])
@@ -500,7 +522,8 @@ class TestProbeFailure:
     """Tests for fail-closed behavior when system probes return None."""
 
     def test_is_accepting_work_false_when_memory_probe_fails(
-        self, monitor: ResourceMonitor,
+        self,
+        monitor: ResourceMonitor,
     ):
         """When memory probe fails, is_accepting_work returns False (fail-closed)."""
         with (
@@ -510,7 +533,8 @@ class TestProbeFailure:
             assert monitor.is_accepting_work() is False
 
     def test_is_accepting_work_false_when_process_probe_fails(
-        self, monitor: ResourceMonitor,
+        self,
+        monitor: ResourceMonitor,
     ):
         """When process probe fails, is_accepting_work returns False (fail-closed)."""
         with (
@@ -532,7 +556,8 @@ class TestProbeFailure:
             assert snapshot.memory_usage_mb == 0.0  # fallback value
 
     def test_is_accepting_work_false_when_degraded(
-        self, monitor: ResourceMonitor,
+        self,
+        monitor: ResourceMonitor,
     ):
         """When monitor is degraded, is_accepting_work returns False."""
         monitor._degraded = True
@@ -551,7 +576,8 @@ class TestCircuitBreaker:
 
     @pytest.mark.asyncio
     async def test_consecutive_failures_trigger_degraded(
-        self, resource_config: ResourceLimitConfig,
+        self,
+        resource_config: ResourceLimitConfig,
     ):
         """After 5 consecutive check failures, monitor enters degraded mode."""
         monitor = ResourceMonitor(resource_config, manager=None)

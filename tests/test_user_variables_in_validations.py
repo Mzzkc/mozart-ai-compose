@@ -15,12 +15,9 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
 
-import pytest
-
-from marianne.validation.rendering import _expand_path, generate_preview
 from marianne.core.config import JobConfig
+from marianne.validation.rendering import _expand_path, generate_preview
 
 
 class TestExpandPathWithUserVariables:

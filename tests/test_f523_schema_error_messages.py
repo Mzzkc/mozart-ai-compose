@@ -8,8 +8,6 @@ Tests verify that validate command provides clear, actionable error messages
 for common structural mistakes.
 """
 
-import pytest
-from pathlib import Path
 from marianne.cli.commands.validate import _schema_error_hints
 
 
@@ -24,10 +22,12 @@ class TestSheetPluralError:
         hints = _schema_error_hints(error_msg)
 
         # Should provide specific guidance, not generic unknown field message
-        assert any("sheet" in h.lower() and "singular" in h.lower() for h in hints), \
+        assert any("sheet" in h.lower() and "singular" in h.lower() for h in hints), (
             f"Expected hint about singular 'sheet', got: {hints}"
-        assert any("size" in h.lower() and "total_items" in h.lower() for h in hints), \
+        )
+        assert any("size" in h.lower() and "total_items" in h.lower() for h in hints), (
             f"Expected hint about sheet structure (size, total_items), got: {hints}"
+        )
 
     def test_prompts_plural_gets_specific_hint(self) -> None:
         """prompts (plural) error should explain prompt (singular) structure."""
@@ -35,10 +35,12 @@ class TestSheetPluralError:
 
         hints = _schema_error_hints(error_msg)
 
-        assert any("prompt" in h.lower() and "singular" in h.lower() for h in hints), \
+        assert any("prompt" in h.lower() and "singular" in h.lower() for h in hints), (
             f"Expected hint about singular 'prompt', got: {hints}"
-        assert any("template" in h.lower() for h in hints), \
+        )
+        assert any("template" in h.lower() for h in hints), (
             f"Expected hint about prompt.template, got: {hints}"
+        )
 
 
 class TestMovementsStructureError:
@@ -51,10 +53,12 @@ class TestMovementsStructureError:
 
         hints = _schema_error_hints(error_msg)
 
-        assert any("movement" in h.lower() and "dictionary" in h.lower() for h in hints), \
+        assert any("movement" in h.lower() and "dictionary" in h.lower() for h in hints), (
             f"Expected hint about movements as dict, got: {hints}"
-        assert any("1:" in h or "2:" in h for h in hints), \
+        )
+        assert any("1:" in h or "2:" in h for h in hints), (
             f"Expected example with movement numbers as keys, got: {hints}"
+        )
 
 
 class TestMissingRequiredFields:
@@ -67,10 +71,12 @@ class TestMissingRequiredFields:
         hints = _schema_error_hints(error_msg)
 
         # Should show what a minimal sheet looks like
-        assert any("sheet:" in h for h in hints), \
+        assert any("sheet:" in h for h in hints), (
             f"Expected YAML example with 'sheet:', got: {hints}"
-        assert any("size" in h.lower() or "total_items" in h.lower() for h in hints), \
+        )
+        assert any("size" in h.lower() or "total_items" in h.lower() for h in hints), (
             f"Expected hint about required sheet fields, got: {hints}"
+        )
 
     def test_missing_prompt_gets_structure_example(self) -> None:
         """Missing 'prompt' field should provide minimal working example."""
@@ -78,10 +84,12 @@ class TestMissingRequiredFields:
 
         hints = _schema_error_hints(error_msg)
 
-        assert any("prompt:" in h for h in hints), \
+        assert any("prompt:" in h for h in hints), (
             f"Expected YAML example with 'prompt:', got: {hints}"
-        assert any("template" in h.lower() for h in hints), \
+        )
+        assert any("template" in h.lower() for h in hints), (
             f"Expected hint about prompt.template, got: {hints}"
+        )
 
 
 class TestMultipleErrorsInOneMessage:
@@ -98,10 +106,12 @@ prompts
         hints = _schema_error_hints(error_msg)
 
         # Should address both errors
-        assert any("sheets" in h.lower() for h in hints), \
+        assert any("sheets" in h.lower() for h in hints), (
             f"Expected hint about 'sheets', got: {hints}"
-        assert any("prompts" in h.lower() for h in hints), \
+        )
+        assert any("prompts" in h.lower() for h in hints), (
             f"Expected hint about 'prompts', got: {hints}"
+        )
 
     def test_extra_forbidden_plus_field_required(self) -> None:
         """Extra field + missing field should provide both fixes."""
@@ -115,10 +125,12 @@ prompt
 
         # Should explain both the wrong field and the missing field
         assert len(hints) >= 2, f"Expected multiple hints, got: {hints}"
-        assert any("sheet" in h.lower() for h in hints), \
+        assert any("sheet" in h.lower() for h in hints), (
             f"Expected hint about correct field name, got: {hints}"
-        assert any("prompt" in h.lower() and "required" in h.lower() for h in hints), \
+        )
+        assert any("prompt" in h.lower() and "required" in h.lower() for h in hints), (
             f"Expected hint about missing prompt field, got: {hints}"
+        )
 
 
 class TestRealWorldOnboardingScenarios:
@@ -136,10 +148,11 @@ sheet
         hints = _schema_error_hints(error_msg)
 
         # Should be clear that sheets (plural) is wrong and sheet (singular) is needed
-        assert any("sheet" in h.lower() and "singular" in h.lower() for h in hints) or \
-               any("sheets" in h.lower() and "sheet:" in h.lower() for h in hints), \
-            f"Expected clear guidance from sheets→sheet, got: {hints}"
+        assert any("sheet" in h.lower() and "singular" in h.lower() for h in hints) or any(
+            "sheets" in h.lower() and "sheet:" in h.lower() for h in hints
+        ), f"Expected clear guidance from sheets→sheet, got: {hints}"
 
         # Should show what a correct sheet: block looks like
-        assert any("size" in h.lower() for h in hints), \
+        assert any("size" in h.lower() for h in hints), (
             f"Expected example showing sheet structure, got: {hints}"
+        )

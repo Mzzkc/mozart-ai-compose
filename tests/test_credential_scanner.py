@@ -65,7 +65,7 @@ class TestRedactCredentials:
         """Bearer tokens in Authorization headers are redacted."""
         from marianne.utils.credential_scanner import redact_credentials
 
-        text = 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWI'
+        text = "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWI"
         result = redact_credentials(text)
         assert "eyJhbGciOiJ" not in result
         assert "[REDACTED_BEARER_TOKEN]" in result
@@ -184,7 +184,9 @@ class TestSlackTokenRedaction:
         """Slack user token (xoxp-) is redacted."""
         from marianne.utils.credential_scanner import redact_credentials
 
-        text = "token: xoxp-123456789012-1234567890123-1234567890123-abcdefghijklmnopqrstuvwxyz123456"
+        text = (
+            "token: xoxp-123456789012-1234567890123-1234567890123-abcdefghijklmnopqrstuvwxyz123456"
+        )
         result = redact_credentials(text)
         assert "xoxp-123456789012" not in result
         assert "[REDACTED_SLACK_TOKEN]" in result

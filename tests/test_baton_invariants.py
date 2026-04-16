@@ -19,11 +19,7 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 from marianne.daemon.baton.core import BatonCore
-from marianne.daemon.baton.state import BatonSheetStatus, SheetExecutionState
-from marianne.daemon.baton.dispatch import DispatchConfig, dispatch_ready
 from marianne.daemon.baton.events import (
     CancelJob,
     EscalationNeeded,
@@ -31,10 +27,9 @@ from marianne.daemon.baton.events import (
     EscalationTimeout,
     PauseJob,
     RateLimitHit,
-    ResumeJob,
     SheetAttemptResult,
 )
-
+from marianne.daemon.baton.state import BatonSheetStatus, SheetExecutionState
 
 # =============================================================================
 # Helpers
@@ -68,8 +63,7 @@ def _make_baton_with_fan_out(
     baton = BatonCore()
     total = fan_count + 2  # source + fan_count voices + join
     sheets = {
-        i: SheetExecutionState(sheet_num=i, instrument_name=instrument)
-        for i in range(1, total + 1)
+        i: SheetExecutionState(sheet_num=i, instrument_name=instrument) for i in range(1, total + 1)
     }
     # Fan-out: sheets 2..N depend on sheet 1
     deps: dict[int, list[int]] = {}
@@ -106,9 +100,7 @@ def _fail_sheet(baton: BatonCore, job_id: str, sheet_num: int) -> None:
             loop.close()
 
 
-async def _dispatch_noop(
-    job_id: str, sheet_num: int, state: SheetExecutionState
-) -> None:
+async def _dispatch_noop(job_id: str, sheet_num: int, state: SheetExecutionState) -> None:
     """No-op dispatch callback for testing."""
     state.status = BatonSheetStatus.DISPATCHED
 
@@ -343,18 +335,12 @@ class TestEscalationUnpauseCorrectness:
         baton.register_job("test-job", sheets, {})
 
         # Escalation pauses the job
-        await baton.handle_event(
-            EscalationNeeded(
-                job_id="test-job", sheet_num=1, reason="test"
-            )
-        )
+        await baton.handle_event(EscalationNeeded(job_id="test-job", sheet_num=1, reason="test"))
         assert baton.is_job_paused("test-job")
 
         # Resolution should unpause
         await baton.handle_event(
-            EscalationResolved(
-                job_id="test-job", sheet_num=1, decision="retry"
-            )
+            EscalationResolved(job_id="test-job", sheet_num=1, decision="retry")
         )
         assert not baton.is_job_paused("test-job")
 
@@ -383,17 +369,13 @@ class TestEscalationUnpauseCorrectness:
 
         # Escalation on sheet 1
         await baton.handle_event(
-            EscalationNeeded(
-                job_id="test-job", sheet_num=1, reason="healing needed"
-            )
+            EscalationNeeded(job_id="test-job", sheet_num=1, reason="healing needed")
         )
         assert baton.is_job_paused("test-job")
 
         # Composer resolves escalation
         await baton.handle_event(
-            EscalationResolved(
-                job_id="test-job", sheet_num=1, decision="retry"
-            )
+            EscalationResolved(job_id="test-job", sheet_num=1, decision="retry")
         )
 
         # Job should still be paused (user's pause is separate)
@@ -416,16 +398,10 @@ class TestEscalationUnpauseCorrectness:
         assert baton.is_job_paused("test-job")
 
         # Escalation
-        await baton.handle_event(
-            EscalationNeeded(
-                job_id="test-job", sheet_num=1, reason="test"
-            )
-        )
+        await baton.handle_event(EscalationNeeded(job_id="test-job", sheet_num=1, reason="test"))
 
         # Timeout fires
-        await baton.handle_event(
-            EscalationTimeout(job_id="test-job", sheet_num=1)
-        )
+        await baton.handle_event(EscalationTimeout(job_id="test-job", sheet_num=1))
 
         # Job should still be paused
         assert baton.is_job_paused("test-job"), (
@@ -514,9 +490,7 @@ class TestRateLimitHitStatusGuard:
                 sheet_num=1,
             )
         )
-        assert sheets[1].status == "completed", (
-            "Completed sheet must not regress to waiting"
-        )
+        assert sheets[1].status == "completed", "Completed sheet must not regress to waiting"
 
 
 # =============================================================================

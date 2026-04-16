@@ -14,8 +14,6 @@ import hypothesis.strategies as st
 import pytest
 from hypothesis import HealthCheck, given, settings
 
-from tests.conftest_adversarial import _nonneg_float, _positive_int, _short_text
-
 from marianne.core.config.instruments import (
     CliCommand,
     CliErrorConfig,
@@ -28,13 +26,15 @@ from marianne.core.config.instruments import (
     ModelCapacity,
 )
 from marianne.core.config.job import InstrumentDef, MovementDef
+from tests.conftest_adversarial import _nonneg_float, _positive_int
 
 # ---------------------------------------------------------------------------
 # Strategies
 # ---------------------------------------------------------------------------
 
 _nonempty_text = st.text(
-    min_size=1, max_size=50,
+    min_size=1,
+    max_size=50,
     alphabet=st.characters(categories=("L", "N")),
 )
 
@@ -43,76 +43,94 @@ _flag_or_none = st.one_of(st.none(), _nonempty_text.map(lambda s: f"--{s}"))
 
 def model_capacity_strategy() -> st.SearchStrategy[dict[str, Any]]:
     """Strategy for ModelCapacity as a dict."""
-    return st.fixed_dictionaries({
-        "name": _nonempty_text,
-        "context_window": _positive_int,
-        "cost_per_1k_input": _nonneg_float,
-        "cost_per_1k_output": _nonneg_float,
-    })
+    return st.fixed_dictionaries(
+        {
+            "name": _nonempty_text,
+            "context_window": _positive_int,
+            "cost_per_1k_input": _nonneg_float,
+            "cost_per_1k_output": _nonneg_float,
+        }
+    )
 
 
 def cli_command_strategy() -> st.SearchStrategy[dict[str, Any]]:
     """Strategy for CliCommand as a dict."""
-    return st.fixed_dictionaries({
-        "executable": _nonempty_text,
-        "prompt_flag": _flag_or_none,
-    })
+    return st.fixed_dictionaries(
+        {
+            "executable": _nonempty_text,
+            "prompt_flag": _flag_or_none,
+        }
+    )
 
 
 def cli_output_config_strategy() -> st.SearchStrategy[dict[str, Any]]:
     """Strategy for CliOutputConfig as a dict."""
-    return st.fixed_dictionaries({
-        "format": st.sampled_from(["text", "json", "jsonl"]),
-    })
+    return st.fixed_dictionaries(
+        {
+            "format": st.sampled_from(["text", "json", "jsonl"]),
+        }
+    )
 
 
 def cli_error_config_strategy() -> st.SearchStrategy[dict[str, Any]]:
     """Strategy for CliErrorConfig as a dict."""
-    return st.fixed_dictionaries({
-        "success_exit_codes": st.lists(st.integers(min_value=0, max_value=255), max_size=5),
-    })
+    return st.fixed_dictionaries(
+        {
+            "success_exit_codes": st.lists(st.integers(min_value=0, max_value=255), max_size=5),
+        }
+    )
 
 
 def cli_profile_strategy() -> st.SearchStrategy[dict[str, Any]]:
     """Strategy for CliProfile as a dict."""
-    return st.fixed_dictionaries({
-        "command": cli_command_strategy(),
-        "output": cli_output_config_strategy(),
-    })
+    return st.fixed_dictionaries(
+        {
+            "command": cli_command_strategy(),
+            "output": cli_output_config_strategy(),
+        }
+    )
 
 
 def code_mode_interface_strategy() -> st.SearchStrategy[dict[str, Any]]:
     """Strategy for CodeModeInterface as a dict."""
-    return st.fixed_dictionaries({
-        "name": _nonempty_text,
-        "typescript": _nonempty_text.map(lambda s: f"interface {s} {{}}"),
-    })
+    return st.fixed_dictionaries(
+        {
+            "name": _nonempty_text,
+            "typescript": _nonempty_text.map(lambda s: f"interface {s} {{}}"),
+        }
+    )
 
 
 def code_mode_config_strategy() -> st.SearchStrategy[dict[str, Any]]:
     """Strategy for CodeModeConfig as a dict."""
-    return st.fixed_dictionaries({
-        "runtime": st.sampled_from(["deno", "node_vm", "v8_isolate"]),
-        "max_execution_ms": st.integers(min_value=100, max_value=120000),
-    })
+    return st.fixed_dictionaries(
+        {
+            "runtime": st.sampled_from(["deno", "node_vm", "v8_isolate"]),
+            "max_execution_ms": st.integers(min_value=100, max_value=120000),
+        }
+    )
 
 
 def http_profile_strategy() -> st.SearchStrategy[dict[str, Any]]:
     """Strategy for HttpProfile as a dict."""
-    return st.fixed_dictionaries({
-        "base_url": _nonempty_text.map(lambda s: f"http://{s}"),
-        "schema_family": st.sampled_from(["openai", "anthropic", "gemini"]),
-    })
+    return st.fixed_dictionaries(
+        {
+            "base_url": _nonempty_text.map(lambda s: f"http://{s}"),
+            "schema_family": st.sampled_from(["openai", "anthropic", "gemini"]),
+        }
+    )
 
 
 def instrument_profile_strategy() -> st.SearchStrategy[dict[str, Any]]:
     """Strategy for InstrumentProfile (cli kind only) as a dict."""
-    return st.fixed_dictionaries({
-        "name": _nonempty_text,
-        "display_name": _nonempty_text,
-        "kind": st.just("cli"),
-        "cli": cli_profile_strategy(),
-    })
+    return st.fixed_dictionaries(
+        {
+            "name": _nonempty_text,
+            "display_name": _nonempty_text,
+            "kind": st.just("cli"),
+            "cli": cli_profile_strategy(),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -228,27 +246,39 @@ def test_instrument_profile_roundtrip(data: dict[str, Any]) -> None:
 # M4: InstrumentDef and MovementDef strategies and tests
 # ---------------------------------------------------------------------------
 
+
 def instrument_def_strategy() -> st.SearchStrategy[dict[str, Any]]:
     """Strategy for InstrumentDef as a dict."""
-    return st.fixed_dictionaries({
-        "profile": _nonempty_text,
-        "config": st.fixed_dictionaries({}, optional={
-            "model": _nonempty_text,
-            "timeout_seconds": _nonneg_float,
-        }),
-    })
+    return st.fixed_dictionaries(
+        {
+            "profile": _nonempty_text,
+            "config": st.fixed_dictionaries(
+                {},
+                optional={
+                    "model": _nonempty_text,
+                    "timeout_seconds": _nonneg_float,
+                },
+            ),
+        }
+    )
 
 
 def movement_def_strategy() -> st.SearchStrategy[dict[str, Any]]:
     """Strategy for MovementDef as a dict."""
-    return st.fixed_dictionaries({}, optional={
-        "name": _nonempty_text,
-        "instrument": _nonempty_text,
-        "instrument_config": st.fixed_dictionaries({}, optional={
-            "model": _nonempty_text,
-        }),
-        "voices": _positive_int,
-    })
+    return st.fixed_dictionaries(
+        {},
+        optional={
+            "name": _nonempty_text,
+            "instrument": _nonempty_text,
+            "instrument_config": st.fixed_dictionaries(
+                {},
+                optional={
+                    "model": _nonempty_text,
+                },
+            ),
+            "voices": _positive_int,
+        },
+    )
 
 
 @pytest.mark.property_based

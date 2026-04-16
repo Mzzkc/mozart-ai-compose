@@ -21,10 +21,10 @@ import pytest
 
 from marianne.learning.store import GlobalLearningStore
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def store(tmp_path: Path) -> GlobalLearningStore:
@@ -49,12 +49,23 @@ def _insert_pattern(store: GlobalLearningStore, pattern_id: str, name: str) -> s
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                pattern_id, "test_type", name, "test pattern",
-                1, now, now, now,
-                0, 0,
-                0.5, 0.0, None,
-                "[]", 0.5,
-                "pending", 0.5,
+                pattern_id,
+                "test_type",
+                name,
+                "test pattern",
+                1,
+                now,
+                now,
+                now,
+                0,
+                0,
+                0.5,
+                0.0,
+                None,
+                "[]",
+                0.5,
+                "pending",
+                0.5,
             ),
         )
     return pattern_id
@@ -78,7 +89,7 @@ def _insert_applications(
     assert len(successes) == len(grounding_confidences)
 
     with store._get_connection() as conn:
-        for i, (success, gc) in enumerate(zip(successes, grounding_confidences)):
+        for i, (success, gc) in enumerate(zip(successes, grounding_confidences, strict=False)):
             applied_at = base_time + timedelta(hours=i)
             conn.execute(
                 """
@@ -105,6 +116,7 @@ def _insert_applications(
 # 1. calculate_effectiveness_drift
 # ===========================================================================
 
+
 class TestCalculateEffectivenessDrift:
     """Tests for calculate_effectiveness_drift()."""
 
@@ -116,7 +128,8 @@ class TestCalculateEffectivenessDrift:
         """Pattern with fewer than 2*window_size applications returns None."""
         pid = _insert_pattern(store, "p-insuf", "insufficient_data")
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True, False, True],
             grounding_confidences=[0.8, 0.7, 0.9],
         )
@@ -127,7 +140,8 @@ class TestCalculateEffectivenessDrift:
         pid = _insert_pattern(store, "p-bound", "boundary_pattern")
         n = 9  # One short of 2*5=10
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True] * n,
             grounding_confidences=[0.8] * n,
         )
@@ -139,7 +153,8 @@ class TestCalculateEffectivenessDrift:
         pid = _insert_pattern(store, "p-stable", "stable_pattern")
         # 10 applications, all successful with same confidence
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True] * 10,
             grounding_confidences=[0.9] * 10,
         )
@@ -160,7 +175,8 @@ class TestCalculateEffectivenessDrift:
         # Older 5: all successes, Recent 5: all failures
         # (index 0 = oldest, so older window = first 5, recent = last 5)
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True] * 5 + [False] * 5,
             grounding_confidences=[0.8] * 10,
         )
@@ -176,7 +192,8 @@ class TestCalculateEffectivenessDrift:
         pid = _insert_pattern(store, "p-pos", "improving_pattern")
         # Older 5: all failures, Recent 5: all successes
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[False] * 5 + [True] * 5,
             grounding_confidences=[0.8] * 10,
         )
@@ -192,7 +209,8 @@ class TestCalculateEffectivenessDrift:
         pid = _insert_pattern(store, "p-ws3", "window3_pattern")
         # 6 apps needed for window_size=3
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True, True, True, False, False, False],
             grounding_confidences=[0.8] * 6,
         )
@@ -207,7 +225,8 @@ class TestCalculateEffectivenessDrift:
         pid = _insert_pattern(store, "p-thresh", "threshold_pattern")
         # Moderate drift: 4/5 success -> 2/5 success
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True, True, True, True, False, True, True, False, False, False],
             grounding_confidences=[0.9] * 10,
         )
@@ -230,12 +249,14 @@ class TestCalculateEffectivenessDrift:
         success_pattern = [True, True, True, True, False, True, False, False, False, False]
 
         _insert_applications(
-            store, pid_high,
+            store,
+            pid_high,
             successes=success_pattern,
             grounding_confidences=[0.95] * 10,
         )
         _insert_applications(
-            store, pid_low,
+            store,
+            pid_low,
             successes=success_pattern,
             grounding_confidences=[0.55] * 10,
         )
@@ -253,7 +274,8 @@ class TestCalculateEffectivenessDrift:
         """When all grounding_confidence values are None, avg should default to 1.0."""
         pid = _insert_pattern(store, "p-none-gc", "no_grounding")
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True] * 10,
             grounding_confidences=[None] * 10,
         )
@@ -269,7 +291,8 @@ class TestCalculateEffectivenessDrift:
         # Middle 5 (older window): all True
         # Newest 5 (recent window): all False
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True] * 5 + [True] * 5 + [False] * 5,
             grounding_confidences=[0.8] * 15,
         )
@@ -283,6 +306,7 @@ class TestCalculateEffectivenessDrift:
 # 2. calculate_epistemic_drift
 # ===========================================================================
 
+
 class TestCalculateEpistemicDrift:
     """Tests for calculate_epistemic_drift()."""
 
@@ -295,18 +319,22 @@ class TestCalculateEpistemicDrift:
         """Pattern with fewer than 2*window_size apps with confidence should return None."""
         pid = _insert_pattern(store, "ep-insuf", "insuf_epistemic")
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True] * 4,
             grounding_confidences=[0.8] * 4,
         )
         result = store.calculate_epistemic_drift(pid)
         assert result is None
 
-    def test_returns_none_when_all_grounding_confidence_null(self, store: GlobalLearningStore) -> None:
+    def test_returns_none_when_all_grounding_confidence_null(
+        self, store: GlobalLearningStore
+    ) -> None:
         """When all grounding_confidence values are NULL, should return None."""
         pid = _insert_pattern(store, "ep-null", "null_gc_pattern")
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True] * 10,
             grounding_confidences=[None] * 10,
         )
@@ -317,7 +345,8 @@ class TestCalculateEpistemicDrift:
         """Consistent confidence values should show stable direction."""
         pid = _insert_pattern(store, "ep-stable", "stable_belief")
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True] * 10,
             grounding_confidences=[0.85] * 10,
         )
@@ -333,7 +362,8 @@ class TestCalculateEpistemicDrift:
         pid = _insert_pattern(store, "ep-weak", "weakening_belief")
         # Older 5: high confidence (0.9), Recent 5: low confidence (0.3)
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True] * 10,
             grounding_confidences=[0.9] * 5 + [0.3] * 5,
         )
@@ -349,7 +379,8 @@ class TestCalculateEpistemicDrift:
         pid = _insert_pattern(store, "ep-strong", "strengthening_belief")
         # Older 5: low confidence (0.3), Recent 5: high confidence (0.9)
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True] * 10,
             grounding_confidences=[0.3] * 5 + [0.9] * 5,
         )
@@ -365,7 +396,8 @@ class TestCalculateEpistemicDrift:
         pid = _insert_pattern(store, "ep-entropy", "entropy_pattern")
         # Wildly varying confidence values
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True] * 10,
             grounding_confidences=[0.1, 0.9, 0.2, 0.8, 0.15, 0.85, 0.1, 0.95, 0.2, 0.8],
         )
@@ -378,7 +410,8 @@ class TestCalculateEpistemicDrift:
         pid = _insert_pattern(store, "ep-custom", "custom_epistemic")
         # 6 apps for window_size=3
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True] * 6,
             grounding_confidences=[0.9, 0.9, 0.9, 0.4, 0.4, 0.4],
         )
@@ -393,7 +426,8 @@ class TestCalculateEpistemicDrift:
         pid = _insert_pattern(store, "ep-mixed", "mixed_gc_pattern")
         # 12 total apps, but only 10 have non-null confidence
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True] * 12,
             grounding_confidences=[0.8, None, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, None],
         )
@@ -406,6 +440,7 @@ class TestCalculateEpistemicDrift:
 # 3. Pattern retirement logic
 # ===========================================================================
 
+
 class TestPatternRetirement:
     """Tests for retire_drifting_patterns() and get_retired_patterns()."""
 
@@ -414,7 +449,8 @@ class TestPatternRetirement:
         pid = _insert_pattern(store, "r-neg", "retire_neg")
         # Strong negative drift: older=success, recent=failure
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True] * 5 + [False] * 5,
             grounding_confidences=[0.8] * 10,
         )
@@ -437,7 +473,8 @@ class TestPatternRetirement:
         pid = _insert_pattern(store, "r-pos", "positive_drift_pattern")
         # Positive drift: older=failure, recent=success
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[False] * 5 + [True] * 5,
             grounding_confidences=[0.8] * 10,
         )
@@ -445,17 +482,22 @@ class TestPatternRetirement:
         retired_ids = [r[0] for r in retired]
         assert pid not in retired_ids
 
-    def test_retire_positive_drift_when_not_requiring_negative(self, store: GlobalLearningStore) -> None:
-        """When require_negative_drift=False, positively drifting patterns should also be retired."""
+    def test_retire_positive_drift_when_not_requiring_negative(
+        self, store: GlobalLearningStore
+    ) -> None:
+        """When require_negative_drift=False, positively drifting patterns
+        should also be retired."""
         pid = _insert_pattern(store, "r-pos2", "positive_anomalous")
         # Strong positive drift
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[False] * 5 + [True] * 5,
             grounding_confidences=[0.8] * 10,
         )
         retired = store.retire_drifting_patterns(
-            drift_threshold=0.1, require_negative_drift=False,
+            drift_threshold=0.1,
+            require_negative_drift=False,
         )
         retired_ids = [r[0] for r in retired]
         assert pid in retired_ids
@@ -465,7 +507,8 @@ class TestPatternRetirement:
         pid = _insert_pattern(store, "r-low", "low_drift")
         # Minimal drift
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True] * 10,
             grounding_confidences=[0.9] * 10,
         )
@@ -477,7 +520,8 @@ class TestPatternRetirement:
         """Patterns without enough data should not be candidates for retirement."""
         pid = _insert_pattern(store, "r-short", "short_history")
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[False] * 3,
             grounding_confidences=[0.8] * 3,
         )
@@ -510,7 +554,8 @@ class TestPatternRetirement:
         """Retirement function should return (pattern_id, pattern_name, drift_magnitude) tuples."""
         pid = _insert_pattern(store, "r-tuple", "tuple_test")
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True] * 5 + [False] * 5,
             grounding_confidences=[0.8] * 10,
         )
@@ -528,6 +573,7 @@ class TestPatternRetirement:
 # 4. Drift threshold detection: get_drifting_patterns & summaries
 # ===========================================================================
 
+
 class TestGetDriftingPatterns:
     """Tests for get_drifting_patterns() and drift summary methods."""
 
@@ -538,13 +584,15 @@ class TestGetDriftingPatterns:
 
         # Drifting pattern
         _insert_applications(
-            store, pid_drift,
+            store,
+            pid_drift,
             successes=[True] * 5 + [False] * 5,
             grounding_confidences=[0.8] * 10,
         )
         # Stable pattern
         _insert_applications(
-            store, pid_stable,
+            store,
+            pid_stable,
             successes=[True] * 10,
             grounding_confidences=[0.8] * 10,
         )
@@ -561,13 +609,15 @@ class TestGetDriftingPatterns:
 
         # High drift: all success -> all failure
         _insert_applications(
-            store, pid_high,
+            store,
+            pid_high,
             successes=[True] * 5 + [False] * 5,
             grounding_confidences=[0.8] * 10,
         )
         # Medium drift: 4/5 success -> 2/5 success
         _insert_applications(
-            store, pid_med,
+            store,
+            pid_med,
             successes=[True, True, True, True, False, True, True, False, False, False],
             grounding_confidences=[0.8] * 10,
         )
@@ -581,7 +631,8 @@ class TestGetDriftingPatterns:
         for i in range(5):
             pid = _insert_pattern(store, f"gd-lim-{i}", f"limit_pattern_{i}")
             _insert_applications(
-                store, pid,
+                store,
+                pid,
                 successes=[True] * 5 + [False] * 5,
                 grounding_confidences=[0.8] * 10,
             )
@@ -607,7 +658,8 @@ class TestGetDriftingPatterns:
         # Need 10+ apps per pattern for the summary query (HAVING app_count >= 10)
         pid = _insert_pattern(store, "gds-p1", "summary_pattern")
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True] * 5 + [False] * 5,
             grounding_confidences=[0.8] * 10,
         )
@@ -617,20 +669,24 @@ class TestGetDriftingPatterns:
         assert summary["patterns_analyzed"] >= 1
         assert isinstance(summary["avg_drift_magnitude"], float)
 
-    def test_get_pattern_drift_summary_identifies_most_drifted(self, store: GlobalLearningStore) -> None:
+    def test_get_pattern_drift_summary_identifies_most_drifted(
+        self, store: GlobalLearningStore
+    ) -> None:
         """Summary should correctly identify the pattern with highest drift."""
         pid_big = _insert_pattern(store, "gds-big", "big_drift")
         pid_small = _insert_pattern(store, "gds-small", "small_drift")
 
         # Big drift
         _insert_applications(
-            store, pid_big,
+            store,
+            pid_big,
             successes=[True] * 5 + [False] * 5,
             grounding_confidences=[0.8] * 10,
         )
         # Small drift (mostly stable)
         _insert_applications(
-            store, pid_small,
+            store,
+            pid_small,
             successes=[True] * 10,
             grounding_confidences=[0.8] * 10,
         )
@@ -643,23 +699,28 @@ class TestGetDriftingPatterns:
 # 4b. Epistemic drifting patterns & summary
 # ===========================================================================
 
+
 class TestGetEpistemicDriftingPatterns:
     """Tests for get_epistemic_drifting_patterns() and epistemic drift summary."""
 
-    def test_get_epistemic_drifting_patterns_returns_exceeding(self, store: GlobalLearningStore) -> None:
+    def test_get_epistemic_drifting_patterns_returns_exceeding(
+        self, store: GlobalLearningStore
+    ) -> None:
         """Only patterns with significant epistemic drift should be returned."""
         pid_drift = _insert_pattern(store, "ed-drift", "epist_drifting")
         pid_stable = _insert_pattern(store, "ed-stable", "epist_stable")
 
         # Drifting beliefs
         _insert_applications(
-            store, pid_drift,
+            store,
+            pid_drift,
             successes=[True] * 10,
             grounding_confidences=[0.9] * 5 + [0.2] * 5,
         )
         # Stable beliefs
         _insert_applications(
-            store, pid_stable,
+            store,
+            pid_stable,
             successes=[True] * 10,
             grounding_confidences=[0.8] * 10,
         )
@@ -669,18 +730,22 @@ class TestGetEpistemicDriftingPatterns:
         assert pid_drift in result_ids
         assert pid_stable not in result_ids
 
-    def test_get_epistemic_drifting_sorted_by_belief_change(self, store: GlobalLearningStore) -> None:
+    def test_get_epistemic_drifting_sorted_by_belief_change(
+        self, store: GlobalLearningStore
+    ) -> None:
         """Results should be sorted by abs(belief_change) descending."""
         pid1 = _insert_pattern(store, "ed-big", "big_belief_change")
         pid2 = _insert_pattern(store, "ed-small", "small_belief_change")
 
         _insert_applications(
-            store, pid1,
+            store,
+            pid1,
             successes=[True] * 10,
             grounding_confidences=[0.9] * 5 + [0.1] * 5,  # Large change
         )
         _insert_applications(
-            store, pid2,
+            store,
+            pid2,
             successes=[True] * 10,
             grounding_confidences=[0.8] * 5 + [0.5] * 5,  # Moderate change
         )
@@ -703,7 +768,8 @@ class TestGetEpistemicDriftingPatterns:
         """Epistemic drift summary should aggregate stats correctly."""
         pid = _insert_pattern(store, "eds-p", "epi_summary_pattern")
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True] * 10,
             grounding_confidences=[0.9] * 5 + [0.3] * 5,
         )
@@ -715,18 +781,22 @@ class TestGetEpistemicDriftingPatterns:
         assert isinstance(summary["avg_belief_entropy"], float)
         assert summary["most_unstable"] == pid
 
-    def test_epistemic_drift_summary_identifies_most_unstable(self, store: GlobalLearningStore) -> None:
+    def test_epistemic_drift_summary_identifies_most_unstable(
+        self, store: GlobalLearningStore
+    ) -> None:
         """Summary should correctly identify pattern with highest epistemic drift."""
         pid_unstable = _insert_pattern(store, "eds-un", "very_unstable")
         pid_calm = _insert_pattern(store, "eds-calm", "calm_pattern")
 
         _insert_applications(
-            store, pid_unstable,
+            store,
+            pid_unstable,
             successes=[True] * 10,
             grounding_confidences=[0.95] * 5 + [0.1] * 5,  # Huge drop
         )
         _insert_applications(
-            store, pid_calm,
+            store,
+            pid_calm,
             successes=[True] * 10,
             grounding_confidences=[0.7] * 10,
         )
@@ -739,6 +809,7 @@ class TestGetEpistemicDriftingPatterns:
 # 5. Edge cases
 # ===========================================================================
 
+
 class TestDriftEdgeCases:
     """Edge cases and boundary conditions for drift detection."""
 
@@ -746,7 +817,8 @@ class TestDriftEdgeCases:
         """Pattern with all failures and no grounding confidence."""
         pid = _insert_pattern(store, "edge-fail", "all_failures")
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[False] * 10,
             grounding_confidences=[None] * 10,
         )
@@ -760,7 +832,8 @@ class TestDriftEdgeCases:
         """With window_size=1, need only 2 applications."""
         pid = _insert_pattern(store, "edge-w1", "tiny_window")
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True, False],
             grounding_confidences=[0.9, 0.1],
         )
@@ -773,7 +846,8 @@ class TestDriftEdgeCases:
         """When mean confidence is 0 (or very near), entropy should be 0."""
         pid = _insert_pattern(store, "edge-zero", "zero_confidence")
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True] * 10,
             grounding_confidences=[0.0] * 10,
         )
@@ -787,7 +861,8 @@ class TestDriftEdgeCases:
         pid = _insert_pattern(store, "edge-laplace", "laplace_test")
         # 5 successes in older, 0 successes in recent
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True] * 5 + [False] * 5,
             grounding_confidences=[0.8] * 10,
         )
@@ -805,12 +880,14 @@ class TestDriftEdgeCases:
         pid_short = _insert_pattern(store, "edge-short", "short_data")
 
         _insert_applications(
-            store, pid_enough,
+            store,
+            pid_enough,
             successes=[True] * 5 + [False] * 5,
             grounding_confidences=[0.8] * 10,
         )
         _insert_applications(
-            store, pid_short,
+            store,
+            pid_short,
             successes=[True] * 3,
             grounding_confidences=[0.8] * 3,
         )
@@ -824,7 +901,8 @@ class TestDriftEdgeCases:
         """Retiring the same pattern twice should not cause errors."""
         pid = _insert_pattern(store, "edge-idem", "idempotent_retire")
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True] * 5 + [False] * 5,
             grounding_confidences=[0.8] * 10,
         )
@@ -844,7 +922,8 @@ class TestDriftEdgeCases:
         pid = _insert_pattern(store, "edge-cap", "entropy_cap")
         # Very low mean, high variance relative to mean
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True] * 10,
             grounding_confidences=[0.01, 0.99, 0.01, 0.99, 0.01, 0.99, 0.01, 0.99, 0.01, 0.99],
         )
@@ -857,7 +936,8 @@ class TestDriftEdgeCases:
         pid = _insert_pattern(store, "edge-noise", "noise_pattern")
         # Tiny drift: 4/5 success vs 3/5 success
         _insert_applications(
-            store, pid,
+            store,
+            pid,
             successes=[True, True, True, True, False, True, True, True, False, False],
             grounding_confidences=[0.8] * 10,
         )

@@ -7,10 +7,11 @@ There's a race where the job transitions to RUNNING but no sheets have dispatche
 The fix: set started_at when creating initial CheckpointState for new jobs.
 """
 
-from datetime import datetime, UTC
+from datetime import UTC, datetime
+
 import pytest
 
-from marianne.core.checkpoint import CheckpointState, SheetState, SheetStatus, JobStatus
+from marianne.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
 from marianne.utils.time import utc_now
 
 
@@ -149,8 +150,9 @@ class TestStartedAtBug:
 
     async def test_status_compute_elapsed_when_running(self):
         """Status command should compute correct elapsed time for running jobs."""
-        from marianne.cli.commands.status import _compute_elapsed
         from time import sleep
+
+        from marianne.cli.commands.status import _compute_elapsed
 
         # Create checkpoint with recent started_at
         started = utc_now()
@@ -171,7 +173,9 @@ class TestStartedAtBug:
 
         # Should be > 0 and roughly 0.1 seconds (allow generous margin for CI)
         assert elapsed > 0.05
-        assert elapsed < 30.0  # Generous bound per quality gate requirements  # Should be much less than 1 second
+        assert (
+            elapsed < 30.0
+        )  # Generous bound per quality gate requirements  # Should be much less than 1 second
 
     async def test_status_compute_elapsed_when_completed(self):
         """Status command should use actual duration for completed jobs."""

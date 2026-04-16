@@ -11,11 +11,8 @@ import os
 import signal
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from marianne.daemon.pgroup import ProcessGroupManager
 from marianne.daemon.system_probe import SystemProbe
-
 
 # ─── Setup ─────────────────────────────────────────────────────────────
 
@@ -112,10 +109,12 @@ class TestKillAllChildren:
             patch("marianne.daemon.pgroup.os.getpgrp", return_value=1234),
             patch("marianne.daemon.pgroup.os.getpid", return_value=1234),
             patch.object(
-                ProcessGroupManager, "_count_group_members", return_value=3,
+                ProcessGroupManager,
+                "_count_group_members",
+                return_value=3,
             ),
             patch("marianne.daemon.pgroup.os.killpg") as mock_killpg,
-            patch("marianne.daemon.pgroup.signal.signal") as mock_signal,
+            patch("marianne.daemon.pgroup.signal.signal"),
         ):
             result = pgm.kill_all_children()
 
@@ -131,7 +130,9 @@ class TestKillAllChildren:
             patch("marianne.daemon.pgroup.os.getpgrp", return_value=1234),
             patch("marianne.daemon.pgroup.os.getpid", return_value=1234),
             patch.object(
-                ProcessGroupManager, "_count_group_members", return_value=1,
+                ProcessGroupManager,
+                "_count_group_members",
+                return_value=1,
             ),
             patch("marianne.daemon.pgroup.os.killpg") as mock_killpg,
             patch("marianne.daemon.pgroup.signal.signal"),
@@ -150,7 +151,9 @@ class TestKillAllChildren:
             patch("marianne.daemon.pgroup.os.getpgrp", return_value=1234),
             patch("marianne.daemon.pgroup.os.getpid", return_value=1234),
             patch.object(
-                ProcessGroupManager, "_count_group_members", return_value=0,
+                ProcessGroupManager,
+                "_count_group_members",
+                return_value=0,
             ),
         ):
             result = pgm.kill_all_children()
@@ -167,7 +170,9 @@ class TestKillAllChildren:
             patch("marianne.daemon.pgroup.os.getpgrp", return_value=1234),
             patch("marianne.daemon.pgroup.os.getpid", return_value=1234),
             patch.object(
-                ProcessGroupManager, "_count_group_members", return_value=1,
+                ProcessGroupManager,
+                "_count_group_members",
+                return_value=1,
             ),
             patch("marianne.daemon.pgroup.os.killpg", side_effect=ProcessLookupError),
             patch("marianne.daemon.pgroup.signal.signal"),
@@ -185,7 +190,9 @@ class TestKillAllChildren:
             patch("marianne.daemon.pgroup.os.getpgrp", return_value=1234),
             patch("marianne.daemon.pgroup.os.getpid", return_value=1234),
             patch.object(
-                ProcessGroupManager, "_count_group_members", return_value=1,
+                ProcessGroupManager,
+                "_count_group_members",
+                return_value=1,
             ),
             patch("marianne.daemon.pgroup.os.killpg", side_effect=PermissionError),
             patch("marianne.daemon.pgroup.signal.signal"),
@@ -209,7 +216,9 @@ class TestKillAllChildren:
             patch("marianne.daemon.pgroup.os.getpgrp", return_value=1234),
             patch("marianne.daemon.pgroup.os.getpid", return_value=1234),
             patch.object(
-                ProcessGroupManager, "_count_group_members", return_value=1,
+                ProcessGroupManager,
+                "_count_group_members",
+                return_value=1,
             ),
             patch("marianne.daemon.pgroup.os.killpg"),
             patch("marianne.daemon.pgroup.signal.signal", side_effect=track_signal),
@@ -346,7 +355,9 @@ class TestCleanupOrphans:
         with (
             patch.dict("sys.modules", {"psutil": None}),
             patch.object(
-                ProcessGroupManager, "_cleanup_orphans_proc", return_value=[42],
+                ProcessGroupManager,
+                "_cleanup_orphans_proc",
+                return_value=[42],
             ) as mock_fallback,
         ):
             result = pgm.cleanup_orphans()
@@ -412,7 +423,8 @@ class TestCountGroupMembers:
             patch("marianne.daemon.system_probe.os.getpgid", side_effect=fake_getpgid),
         ):
             count = ProcessGroupManager._count_group_members(
-                pgid=1234, exclude_pid=100,
+                pgid=1234,
+                exclude_pid=100,
             )
 
         # Only proc2 matches (same pgid, not excluded)
@@ -442,7 +454,9 @@ class TestAtexitCleanup:
             patch("marianne.daemon.pgroup.os.getpgrp", return_value=1234),
             patch("marianne.daemon.pgroup.os.getpid", return_value=1234),
             patch.object(
-                ProcessGroupManager, "_count_group_members", return_value=2,
+                ProcessGroupManager,
+                "_count_group_members",
+                return_value=2,
             ),
             patch("marianne.daemon.pgroup.os.killpg") as mock_killpg,
             patch("marianne.daemon.pgroup.signal.signal"),
@@ -460,7 +474,9 @@ class TestAtexitCleanup:
             patch("marianne.daemon.pgroup.os.getpgrp", return_value=1234),
             patch("marianne.daemon.pgroup.os.getpid", return_value=1234),
             patch.object(
-                ProcessGroupManager, "_count_group_members", return_value=0,
+                ProcessGroupManager,
+                "_count_group_members",
+                return_value=0,
             ),
             patch("marianne.daemon.pgroup.os.killpg") as mock_killpg,
         ):
@@ -489,10 +505,13 @@ class TestSystemProbeDelegation:
     def test_count_group_members_delegates_to_system_probe(self):
         """_count_group_members calls SystemProbe.count_group_members."""
         with patch.object(
-            SystemProbe, "count_group_members", return_value=5,
+            SystemProbe,
+            "count_group_members",
+            return_value=5,
         ) as mock_probe:
             result = ProcessGroupManager._count_group_members(
-                pgid=1234, exclude_pid=100,
+                pgid=1234,
+                exclude_pid=100,
             )
 
         mock_probe.assert_called_once_with(1234, exclude_pid=100)
@@ -501,10 +520,13 @@ class TestSystemProbeDelegation:
     def test_count_group_members_returns_zero_on_none(self):
         """_count_group_members converts None (probe failure) to 0 (fail-safe)."""
         with patch.object(
-            SystemProbe, "count_group_members", return_value=None,
+            SystemProbe,
+            "count_group_members",
+            return_value=None,
         ):
             result = ProcessGroupManager._count_group_members(
-                pgid=1234, exclude_pid=100,
+                pgid=1234,
+                exclude_pid=100,
             )
 
         assert result == 0
@@ -518,7 +540,9 @@ class TestSystemProbeDelegation:
             patch("marianne.daemon.pgroup.os.getpgrp", return_value=1234),
             patch("marianne.daemon.pgroup.os.getpid", return_value=1234),
             patch.object(
-                SystemProbe, "count_group_members", return_value=2,
+                SystemProbe,
+                "count_group_members",
+                return_value=2,
             ) as mock_probe,
             patch("marianne.daemon.pgroup.os.killpg") as mock_killpg,
             patch("marianne.daemon.pgroup.signal.signal"),
@@ -538,7 +562,9 @@ class TestSystemProbeDelegation:
             patch("marianne.daemon.pgroup.os.getpgrp", return_value=1234),
             patch("marianne.daemon.pgroup.os.getpid", return_value=1234),
             patch.object(
-                SystemProbe, "count_group_members", return_value=0,
+                SystemProbe,
+                "count_group_members",
+                return_value=0,
             ),
             patch("marianne.daemon.pgroup.os.killpg") as mock_killpg,
         ):

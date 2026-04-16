@@ -62,10 +62,7 @@ description: "This will fail to parse"
         """Test validation of a valid configuration."""
         response = client.post(
             "/api/scores/validate",
-            json={
-                "content": valid_yaml_content,
-                "filename": "test-config.yaml"
-            }
+            json={"content": valid_yaml_content, "filename": "test-config.yaml"},
         )
 
         assert response.status_code == 200
@@ -87,11 +84,7 @@ description: "This will fail to parse"
     def test_validate_yaml_syntax_error(self, client, yaml_syntax_error):
         """Test validation of YAML with syntax errors."""
         response = client.post(
-            "/api/scores/validate",
-            json={
-                "content": yaml_syntax_error,
-                "filename": "invalid.yaml"
-            }
+            "/api/scores/validate", json={"content": yaml_syntax_error, "filename": "invalid.yaml"}
         )
 
         assert response.status_code == 200
@@ -107,10 +100,7 @@ description: "This will fail to parse"
         """Test validation of content that fails schema validation."""
         response = client.post(
             "/api/scores/validate",
-            json={
-                "content": invalid_yaml_content,
-                "filename": "schema-error.yaml"
-            }
+            json={"content": invalid_yaml_content, "filename": "schema-error.yaml"},
         )
 
         assert response.status_code == 200
@@ -133,11 +123,7 @@ description: "This will fail to parse"
     def test_validate_empty_content(self, client):
         """Test validation of empty content."""
         response = client.post(
-            "/api/scores/validate",
-            json={
-                "content": "",
-                "filename": "empty.yaml"
-            }
+            "/api/scores/validate", json={"content": "", "filename": "empty.yaml"}
         )
 
         assert response.status_code == 200
@@ -156,10 +142,7 @@ workspace: "./workspace"
 
         response = client.post(
             "/api/scores/validate",
-            json={
-                "content": missing_fields_yaml,
-                "filename": "missing-fields.yaml"
-            }
+            json={"content": missing_fields_yaml, "filename": "missing-fields.yaml"},
         )
 
         assert response.status_code == 200
@@ -176,17 +159,14 @@ workspace: "./workspace"
     def test_validate_request_validation(self, client):
         """Test API request validation."""
         # Missing content field
-        response = client.post(
-            "/api/scores/validate",
-            json={"filename": "test.yaml"}
-        )
+        response = client.post("/api/scores/validate", json={"filename": "test.yaml"})
         assert response.status_code == 422  # Validation error
 
         # Invalid JSON
         response = client.post(
             "/api/scores/validate",
             data="invalid json",
-            headers={"Content-Type": "application/json"}
+            headers={"Content-Type": "application/json"},
         )
         assert response.status_code == 422
 
@@ -194,10 +174,7 @@ workspace: "./workspace"
         """Test that validation issues have the correct format for frontend."""
         response = client.post(
             "/api/scores/validate",
-            json={
-                "content": invalid_yaml_content,
-                "filename": "format-test.yaml"
-            }
+            json={"content": invalid_yaml_content, "filename": "format-test.yaml"},
         )
 
         assert response.status_code == 200
@@ -241,22 +218,18 @@ class TestRealtimeValidationJavaScript:
                     "message": "Missing required field: backend",
                     "line": 5,
                     "context": "Job configuration must specify a backend",
-                    "auto_fixable": False
+                    "auto_fixable": False,
                 },
                 {
                     "check_id": "V101",
                     "severity": "WARNING",
                     "message": "Undefined template variable: {{ env_name }}",
                     "line": 12,
-                    "suggestion": "Define the variable or use a default filter"
-                }
+                    "suggestion": "Define the variable or use a default filter",
+                },
             ],
-            "counts": {
-                "ERROR": 1,
-                "WARNING": 1,
-                "INFO": 0
-            },
-            "error_message": None
+            "counts": {"ERROR": 1, "WARNING": 1, "INFO": 0},
+            "error_message": None,
         }
 
         # Verify the response structure matches what JavaScript expects
@@ -286,14 +259,14 @@ class TestValidationErrorMarkers:
                 message="Jinja syntax error",
                 line=5,
                 context="{{ invalid_syntax }",
-                suggestion="Close the template bracket"
+                suggestion="Close the template bracket",
             ),
             ValidationIssue(
                 check_id="V101",
                 severity=ValidationSeverity.WARNING,
                 message="Undefined variable",
-                line=10
-            )
+                line=10,
+            ),
         ]
 
         # Convert to API response format (as done in scores.py)
@@ -306,7 +279,7 @@ class TestValidationErrorMarkers:
                 "line": issue.line,
                 "context": issue.context,
                 "suggestion": issue.suggestion,
-                "auto_fixable": issue.auto_fixable
+                "auto_fixable": issue.auto_fixable,
             }
             api_issues.append(api_issue)
 
@@ -322,6 +295,7 @@ class TestValidationPanelBehavior:
 
     def test_validation_status_mapping(self):
         """Test validation status determination logic."""
+
         def determine_status(error_count: int, warning_count: int) -> str:
             """Simulate JavaScript status determination logic."""
             if error_count > 0:
@@ -339,6 +313,7 @@ class TestValidationPanelBehavior:
 
     def test_validation_message_formatting(self):
         """Test validation message formatting logic."""
+
         def format_message(error_count: int, warning_count: int) -> str:
             """Simulate JavaScript message formatting."""
             if error_count > 0:
@@ -372,7 +347,7 @@ class TestValidationPerformance:
             "name: test",
             "name: test-job",
             "name: test-job\nbackend:",
-            "name: test-job\nbackend:\n  type: claude_cli"
+            "name: test-job\nbackend:\n  type: claude_cli",
         ]
 
         # In real implementation, only the last change would trigger validation
@@ -447,10 +422,7 @@ workspace: "./test-workspace"
         # Submit to validation API
         response = app_client.post(
             "/api/scores/validate",
-            json={
-                "content": user_config,
-                "filename": "integration-test.yaml"
-            }
+            json={"content": user_config, "filename": "integration-test.yaml"},
         )
 
         assert response.status_code == 200
@@ -504,8 +476,8 @@ workspace: "{workspace_dir}"
             json={
                 "content": config_with_files,
                 "filename": "file-ref-test.yaml",
-                "workspace_path": str(workspace_dir)
-            }
+                "workspace_path": str(workspace_dir),
+            },
         )
 
         assert response.status_code == 200

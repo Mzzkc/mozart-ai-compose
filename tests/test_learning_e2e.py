@@ -53,9 +53,7 @@ class TestLearningCycleE2E:
         assert found[0].pattern_name == "missing_output_file"
         assert found[0].pattern_type == "validation_failure"
 
-    def test_pattern_application_and_feedback(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_pattern_application_and_feedback(self, store: GlobalLearningStore) -> None:
         """Test recording a pattern application and its outcome."""
         # Step 1: Record pattern
         pattern_id = store.record_pattern(
@@ -90,9 +88,7 @@ class TestLearningCycleE2E:
         # led_to_success_count should be updated from the successful application
         assert found[0].led_to_success_count >= 1
 
-    def test_duplicate_pattern_increments_count(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_duplicate_pattern_increments_count(self, store: GlobalLearningStore) -> None:
         """Test that recording the same pattern twice increments its count."""
         # Record same pattern twice
         id1 = store.record_pattern(
@@ -123,9 +119,7 @@ class TestLearningCycleE2E:
         assert len(found) == 1
         assert found[0].occurrence_count == 2
 
-    def test_rate_limit_coordination(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_rate_limit_coordination(self, store: GlobalLearningStore) -> None:
         """Test cross-workspace rate limit coordination."""
         # Record a rate limit event
         store.record_rate_limit_event(
@@ -159,8 +153,7 @@ class TestLearningCycleE2E:
             pattern_type="error_recovery",
             pattern_name="add_explicit_output_path",
             description=(
-                "Adding explicit output path to prompt prevents "
-                "file-not-found validation failures"
+                "Adding explicit output path to prompt prevents file-not-found validation failures"
             ),
             context_tags=["validation", "output_file", "prompt_engineering"],
             suggested_action="Append 'Write output to {{workspace}}/output.txt' to prompt",
@@ -255,9 +248,7 @@ class TestErrorRecoveryLearningE2E:
     and learned wait time retrieval works across simulated job runs.
     """
 
-    def test_error_recovery_learn_and_apply_wait_time(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_error_recovery_learn_and_apply_wait_time(self, store: GlobalLearningStore) -> None:
         """Test: record recoveries -> learned wait time adapts.
 
         Simulates multiple error recovery events and verifies the store
@@ -320,9 +311,7 @@ class TestTrustScoreEvolutionE2E:
     FIX-11g: Tests the quarantine → validate → auto-apply trust lifecycle.
     """
 
-    def test_trust_score_evolves_through_applications(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_trust_score_evolves_through_applications(self, store: GlobalLearningStore) -> None:
         """Pattern trust score should increase after successful applications."""
         pattern_id = store.record_pattern(
             pattern_type="prompt_tweak",
@@ -400,9 +389,7 @@ class TestSuccessFactorsE2E:
     WHY patterns succeed.
     """
 
-    def test_success_factors_recorded_and_analyzed(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_success_factors_recorded_and_analyzed(self, store: GlobalLearningStore) -> None:
         """Test recording success factors and querying pattern analysis."""
         pattern_id = store.record_pattern(
             pattern_type="validation_fix",
@@ -429,9 +416,7 @@ class TestSuccessFactorsE2E:
         assert analysis["pattern_name"] == "fix_output_format"
         assert analysis["has_factors"] is True
 
-    def test_execution_stats_reflect_recorded_outcomes(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_execution_stats_reflect_recorded_outcomes(self, store: GlobalLearningStore) -> None:
         """Test that execution stats aggregate recorded outcomes."""
         from marianne.learning.outcomes import SheetOutcome
 
@@ -470,9 +455,7 @@ class TestMultiRunMeasurementE2E:
     execution statistics — closing the full learning feedback loop.
     """
 
-    def test_detect_store_apply_measure_cycle(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_detect_store_apply_measure_cycle(self, store: GlobalLearningStore) -> None:
         """Full cycle: discover from failure -> store -> apply on next run -> measure improvement.
 
         Run 1: Sheet fails, pattern discovered from the failure.
@@ -579,9 +562,7 @@ class TestMultiRunMeasurementE2E:
         stats = store.get_execution_stats()
         assert stats["total_executions"] >= 2
 
-    def test_pattern_degrades_on_repeated_failure(
-        self, store: GlobalLearningStore
-    ) -> None:
+    def test_pattern_degrades_on_repeated_failure(self, store: GlobalLearningStore) -> None:
         """Verify that a pattern's trust degrades when it consistently fails.
 
         This is the negative measurement: when a pattern doesn't help,

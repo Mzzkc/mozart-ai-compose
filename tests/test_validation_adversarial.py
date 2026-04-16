@@ -158,9 +158,7 @@ class _DiagnoseCrashRemedy(BaseRemedy):
         raise ValueError("Diagnose went boom")
 
     def apply(self, context: ErrorContext) -> RemedyResult:
-        return RemedyResult(
-            success=False, message="Should not be reached", action_taken="none"
-        )
+        return RemedyResult(success=False, message="Should not be reached", action_taken="none")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -195,9 +193,7 @@ class TestCatastrophicRegex:
         ],
         ids=["nested_plus", "alternation_repeat", "nested_plus_literal"],
     )
-    def test_redos_against_long_input_does_not_hang(
-        self, tmp_path: Path, pattern: str
-    ) -> None:
+    def test_redos_against_long_input_does_not_hang(self, tmp_path: Path, pattern: str) -> None:
         """Run a ReDoS pattern against long input and confirm it finishes
         within a reasonable time frame (the test timeout guards against hang)."""
         evil_file = tmp_path / "evil.txt"
@@ -386,7 +382,8 @@ class TestHealingEdgeCases:
         # The crash should appear in actions_skipped (via diagnosis_errors)
         assert len(report.actions_skipped) >= 1
         crash_messages = [
-            reason for _name, reason in report.actions_skipped
+            reason
+            for _name, reason in report.actions_skipped
             if "crashed" in reason.lower() or "Diagnose" in reason
         ]
         assert len(crash_messages) >= 1
@@ -584,9 +581,7 @@ class TestValidationRunnerEdgeCases:
             "emoji_variable",
         ],
     )
-    def test_malformed_conditions_default_to_true(
-        self, tmp_path: Path, condition: str
-    ) -> None:
+    def test_malformed_conditions_default_to_true(self, tmp_path: Path, condition: str) -> None:
         """Malformed conditions should default to True (unconditional)."""
         engine = _make_engine(tmp_path)
         assert engine._check_condition(condition) is True
@@ -608,15 +603,15 @@ class TestValidationRunnerEdgeCases:
     @pytest.mark.parametrize(
         "path",
         [
-            p for p in _ADVERSARIAL_PATHS
-            if p and "\x00" not in p  # skip null bytes (OS rejects)
+            p
+            for p in _ADVERSARIAL_PATHS
+            if p
+            and "\x00" not in p  # skip null bytes (OS rejects)
             and "\n" not in p  # skip newlines (causes issues)
         ],
         ids=lambda p: repr(p)[:30],
     )
-    def test_file_exists_adversarial_paths(
-        self, tmp_path: Path, path: str
-    ) -> None:
+    def test_file_exists_adversarial_paths(self, tmp_path: Path, path: str) -> None:
         """file_exists with adversarial path values should not crash."""
         engine = _make_engine(tmp_path)
         rule = _make_rule(type="file_exists", path=path)
@@ -812,9 +807,7 @@ class TestReporterEdgeCases:
         _ADVERSARIAL_STRINGS[:10],
         ids=lambda s: repr(s)[:30],
     )
-    def test_report_json_with_adversarial_messages(
-        self, adversarial_str: str
-    ) -> None:
+    def test_report_json_with_adversarial_messages(self, adversarial_str: str) -> None:
         """Reporter handles adversarial strings in issue messages."""
         import json
 
@@ -841,20 +834,19 @@ class TestValidationRunnerCheckAggregation:
     @pytest.mark.adversarial
     def test_check_that_raises_exception(self) -> None:
         """A check that raises should be caught and reported as an error."""
+
         class _BrokenCheck:
             check_id = "VBROK"
             severity = ValidationSeverity.ERROR
             description = "Always breaks"
 
-            def check(
-                self, config: Any, config_path: Path, raw_yaml: str
-            ) -> list[ValidationIssue]:
+            def check(self, config: Any, config_path: Path, raw_yaml: str) -> list[ValidationIssue]:
                 raise RuntimeError("Check exploded!")
 
         runner = ValidationRunner(checks=[_BrokenCheck()])
         # Need a minimal config to pass to validate
-        from unittest.mock import MagicMock
         from marianne.core.config import JobConfig
+
         config = MagicMock(spec=JobConfig)
         issues = runner.validate(config, Path("/tmp/fake.yaml"), "")
         assert len(issues) == 1
@@ -864,23 +856,28 @@ class TestValidationRunnerCheckAggregation:
     @pytest.mark.adversarial
     def test_runner_severity_sorting(self) -> None:
         """Issues should be sorted with ERROR first, then WARNING, then INFO."""
+
         class _MultiCheck:
             check_id = "VMULTI"
             severity = ValidationSeverity.INFO
             description = "Returns multiple severities"
 
-            def check(
-                self, config: Any, config_path: Path, raw_yaml: str
-            ) -> list[ValidationIssue]:
+            def check(self, config: Any, config_path: Path, raw_yaml: str) -> list[ValidationIssue]:
                 return [
-                    ValidationIssue(check_id="I01", severity=ValidationSeverity.INFO, message="info"),
-                    ValidationIssue(check_id="E01", severity=ValidationSeverity.ERROR, message="error"),
-                    ValidationIssue(check_id="W01", severity=ValidationSeverity.WARNING, message="warn"),
+                    ValidationIssue(
+                        check_id="I01", severity=ValidationSeverity.INFO, message="info"
+                    ),
+                    ValidationIssue(
+                        check_id="E01", severity=ValidationSeverity.ERROR, message="error"
+                    ),
+                    ValidationIssue(
+                        check_id="W01", severity=ValidationSeverity.WARNING, message="warn"
+                    ),
                 ]
 
         runner = ValidationRunner(checks=[_MultiCheck()])
-        from unittest.mock import MagicMock
         from marianne.core.config import JobConfig
+
         config = MagicMock(spec=JobConfig)
         issues = runner.validate(config, Path("/tmp/f.yaml"), "")
         severities = [i.severity for i in issues]

@@ -17,7 +17,6 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from pydantic import ValidationError
 
-
 # =============================================================================
 # TechniqueConfig tests
 # =============================================================================
@@ -556,16 +555,29 @@ class TestA2AEvents:
 
         before = time.time()
         submitted = A2ATaskSubmitted(
-            job_id="j1", sheet_num=1, target_agent="x", task_description="t",
+            job_id="j1",
+            sheet_num=1,
+            target_agent="x",
+            task_description="t",
         )
         routed = A2ATaskRouted(
-            job_id="j1", sheet_num=1, source_agent="a", target_agent="b", task_id="t1",
+            job_id="j1",
+            sheet_num=1,
+            source_agent="a",
+            target_agent="b",
+            task_id="t1",
         )
         completed = A2ATaskCompleted(
-            job_id="j1", sheet_num=1, task_id="t1", artifacts={},
+            job_id="j1",
+            sheet_num=1,
+            task_id="t1",
+            artifacts={},
         )
         failed = A2ATaskFailed(
-            job_id="j1", sheet_num=1, task_id="t1", reason="err",
+            job_id="j1",
+            sheet_num=1,
+            task_id="t1",
+            reason="err",
         )
         after = time.time()
 
@@ -579,7 +591,10 @@ class TestA2AEvents:
         # The BatonEvent type alias should include A2A types
         # We verify by checking to_observer_event handles them
         submitted = ev.A2ATaskSubmitted(
-            job_id="j1", sheet_num=1, target_agent="x", task_description="t",
+            job_id="j1",
+            sheet_num=1,
+            target_agent="x",
+            task_description="t",
         )
         result = ev.to_observer_event(submitted)
         assert result["event"].startswith("baton.a2a.")
@@ -589,7 +604,10 @@ class TestA2AEvents:
         from marianne.daemon.baton import events as ev
 
         submitted = ev.A2ATaskSubmitted(
-            job_id="j1", sheet_num=1, target_agent="x", task_description="t",
+            job_id="j1",
+            sheet_num=1,
+            target_agent="x",
+            task_description="t",
         )
         obs = ev.to_observer_event(submitted)
         assert obs["job_id"] == "j1"
@@ -597,19 +615,29 @@ class TestA2AEvents:
         assert "a2a" in obs["event"]
 
         routed = ev.A2ATaskRouted(
-            job_id="j2", sheet_num=2, source_agent="a", target_agent="b", task_id="t1",
+            job_id="j2",
+            sheet_num=2,
+            source_agent="a",
+            target_agent="b",
+            task_id="t1",
         )
         obs = ev.to_observer_event(routed)
         assert obs["job_id"] == "j2"
 
         completed = ev.A2ATaskCompleted(
-            job_id="j3", sheet_num=3, task_id="t1", artifacts={"f": "v"},
+            job_id="j3",
+            sheet_num=3,
+            task_id="t1",
+            artifacts={"f": "v"},
         )
         obs = ev.to_observer_event(completed)
         assert obs["data"]["task_id"] == "t1"
 
         failed = ev.A2ATaskFailed(
-            job_id="j4", sheet_num=4, task_id="t1", reason="nope",
+            job_id="j4",
+            sheet_num=4,
+            task_id="t1",
+            reason="nope",
         )
         obs = ev.to_observer_event(failed)
         assert obs["data"]["reason"] == "nope"
@@ -860,60 +888,87 @@ class TestOpenCodeProfile:
 # =============================================================================
 
 _short_text = st.text(
-    min_size=1, max_size=50,
+    min_size=1,
+    max_size=50,
     alphabet=st.characters(categories=("L", "N", "P")),
 )
 _phase_list = st.lists(
-    st.sampled_from(["recon", "plan", "work", "integration", "inspect", "aar",
-                     "consolidate", "reflect", "resurrect", "play"]),
-    min_size=0, max_size=6,
+    st.sampled_from(
+        [
+            "recon",
+            "plan",
+            "work",
+            "integration",
+            "inspect",
+            "aar",
+            "consolidate",
+            "reflect",
+            "resurrect",
+            "play",
+        ]
+    ),
+    min_size=0,
+    max_size=6,
 )
 
 
 def _technique_config_strategy() -> st.SearchStrategy[dict[str, Any]]:
-    return st.fixed_dictionaries({
-        "kind": st.sampled_from(["skill", "mcp", "protocol"]),
-        "phases": _phase_list,
-        "config": st.just({}),
-    })
+    return st.fixed_dictionaries(
+        {
+            "kind": st.sampled_from(["skill", "mcp", "protocol"]),
+            "phases": _phase_list,
+            "config": st.just({}),
+        }
+    )
 
 
 def _a2a_skill_strategy() -> st.SearchStrategy[dict[str, Any]]:
-    return st.fixed_dictionaries({
-        "id": _short_text,
-        "description": _short_text,
-    })
+    return st.fixed_dictionaries(
+        {
+            "id": _short_text,
+            "description": _short_text,
+        }
+    )
 
 
 def _agent_card_strategy() -> st.SearchStrategy[dict[str, Any]]:
-    return st.fixed_dictionaries({
-        "name": _short_text,
-        "description": _short_text,
-        "skills": st.lists(_a2a_skill_strategy(), min_size=0, max_size=5),
-    })
+    return st.fixed_dictionaries(
+        {
+            "name": _short_text,
+            "description": _short_text,
+            "skills": st.lists(_a2a_skill_strategy(), min_size=0, max_size=5),
+        }
+    )
 
 
 def _fleet_score_entry_strategy() -> st.SearchStrategy[dict[str, Any]]:
-    return st.fixed_dictionaries({
-        "path": _short_text,
-    }, optional={
-        "group": _short_text,
-    })
+    return st.fixed_dictionaries(
+        {
+            "path": _short_text,
+        },
+        optional={
+            "group": _short_text,
+        },
+    )
 
 
 def _fleet_group_config_strategy() -> st.SearchStrategy[dict[str, Any]]:
-    return st.fixed_dictionaries({
-        "depends_on": st.just([]),
-    })
+    return st.fixed_dictionaries(
+        {
+            "depends_on": st.just([]),
+        }
+    )
 
 
 def _fleet_config_strategy() -> st.SearchStrategy[dict[str, Any]]:
-    return st.fixed_dictionaries({
-        "name": _short_text,
-        "type": st.just("fleet"),
-        "scores": st.lists(_fleet_score_entry_strategy(), min_size=1, max_size=5),
-        "groups": st.just({}),
-    })
+    return st.fixed_dictionaries(
+        {
+            "name": _short_text,
+            "type": st.just("fleet"),
+            "scores": st.lists(_fleet_score_entry_strategy(), min_size=1, max_size=5),
+            "groups": st.just({}),
+        }
+    )
 
 
 class TestTechniqueConfigPropertyBased:

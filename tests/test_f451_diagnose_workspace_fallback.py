@@ -20,7 +20,8 @@ class TestDiagnoseWorkspaceFallback:
 
     @pytest.mark.asyncio
     async def test_conductor_not_found_falls_back_to_workspace(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """JobSubmissionError with -w flag falls back to filesystem instead of exiting."""
         from marianne.daemon.exceptions import JobSubmissionError
@@ -64,7 +65,9 @@ class TestDiagnoseWorkspaceFallback:
 
         # Verify filesystem fallback was called with correct args
         mock_find.assert_called_once_with(
-            "test-job", workspace, json_output=False,
+            "test-job",
+            workspace,
+            json_output=False,
         )
 
     @pytest.mark.asyncio
@@ -92,7 +95,8 @@ class TestDiagnoseWorkspaceFallback:
 
     @pytest.mark.asyncio
     async def test_workspace_fallback_not_found_also_exits(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """When filesystem fallback also fails, exits with error."""
         import typer

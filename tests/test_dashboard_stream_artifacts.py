@@ -387,9 +387,7 @@ class TestArtifactSecurity:
 
         with patch("marianne.dashboard.app._state_backend") as mock_backend:
             mock_backend.load = AsyncMock(return_value=job_state)
-            response = client.get(
-                "/api/jobs/test-123/artifacts?include_hidden=true"
-            )
+            response = client.get("/api/jobs/test-123/artifacts?include_hidden=true")
 
         assert response.status_code == 200
         data = response.json()
@@ -417,9 +415,7 @@ class TestArtifactSecurity:
 
         with patch("marianne.dashboard.app._state_backend") as mock_backend:
             mock_backend.load = AsyncMock(return_value=job_state)
-            response = client.get(
-                "/api/jobs/test-123/artifacts?file_pattern=*.py&recursive=false"
-            )
+            response = client.get("/api/jobs/test-123/artifacts?file_pattern=*.py&recursive=false")
 
         assert response.status_code == 200
         data = response.json()

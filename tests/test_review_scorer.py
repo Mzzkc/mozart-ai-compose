@@ -14,8 +14,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from marianne.review.scorer import (
-    AIReviewResult,
     AIReviewer,
+    AIReviewResult,
     GitDiffProvider,
     ReviewIssue,
 )
@@ -206,14 +206,23 @@ class TestAIReviewer:
     async def test_review_successful(self, reviewer: AIReviewer, mock_backend: MagicMock):
         """Successful review parses JSON response."""
         reviewer.diff_provider.get_diff.return_value = "diff --git a/foo.py"
-        response_json = json.dumps({
-            "score": 85,
-            "components": {"code_quality": 25, "test_coverage": 20, "security": 22, "documentation": 18},
-            "issues": [{"severity": "low", "category": "docs", "description": "Missing doc"}],
-            "summary": "Good overall",
-        })
+        response_json = json.dumps(
+            {
+                "score": 85,
+                "components": {
+                    "code_quality": 25,
+                    "test_coverage": 20,
+                    "security": 22,
+                    "documentation": 18,
+                },
+                "issues": [{"severity": "low", "category": "docs", "description": "Missing doc"}],
+                "summary": "Good overall",
+            }
+        )
         mock_backend.execute.return_value = MagicMock(
-            success=True, output=response_json, error_message=None,
+            success=True,
+            output=response_json,
+            error_message=None,
         )
         result = await reviewer.review(Path("/tmp/ws"))
         assert result.score == 85
@@ -225,7 +234,9 @@ class TestAIReviewer:
         """Backend failure returns score=0."""
         reviewer.diff_provider.get_diff.return_value = "diff content"
         mock_backend.execute.return_value = MagicMock(
-            success=False, output="", error_message="API error",
+            success=False,
+            output="",
+            error_message="API error",
         )
         result = await reviewer.review(Path("/tmp/ws"))
         assert result.score == 0
@@ -245,7 +256,9 @@ class TestAIReviewer:
         """Very large diffs are truncated to 50K chars."""
         reviewer.diff_provider.get_diff.return_value = "x" * 60000
         mock_backend.execute.return_value = MagicMock(
-            success=True, output='{"score": 70, "summary": "ok"}', error_message=None,
+            success=True,
+            output='{"score": 70, "summary": "ok"}',
+            error_message=None,
         )
         result = await reviewer.review(Path("/tmp/ws"))
         # Verify it still works (prompt is built with truncated diff)
@@ -267,12 +280,14 @@ class TestParseReviewResponse:
         return AIReviewer(MagicMock(), config)
 
     def test_valid_json(self, reviewer: AIReviewer):
-        response = json.dumps({
-            "score": 75,
-            "components": {"code_quality": 20},
-            "issues": [],
-            "summary": "Decent code",
-        })
+        response = json.dumps(
+            {
+                "score": 75,
+                "components": {"code_quality": 20},
+                "issues": [],
+                "summary": "Decent code",
+            }
+        )
         result = reviewer._parse_review_response(response)
         assert result.score == 75
         assert result.summary == "Decent code"
@@ -311,13 +326,15 @@ class TestParseReviewResponse:
         assert result.score == 0
 
     def test_issues_parsed(self, reviewer: AIReviewer):
-        response = json.dumps({
-            "score": 60,
-            "issues": [
-                {"severity": "high", "category": "security", "description": "SQL injection"},
-                {"severity": "low", "category": "docs", "description": "Missing docs"},
-            ],
-        })
+        response = json.dumps(
+            {
+                "score": 60,
+                "issues": [
+                    {"severity": "high", "category": "security", "description": "SQL injection"},
+                    {"severity": "low", "category": "docs", "description": "Missing docs"},
+                ],
+            }
+        )
         result = reviewer._parse_review_response(response)
         assert len(result.issues) == 2
         assert result.issues[0].severity == "high"
@@ -325,10 +342,12 @@ class TestParseReviewResponse:
 
     def test_issues_with_defaults(self, reviewer: AIReviewer):
         """Issues with missing fields use defaults."""
-        response = json.dumps({
-            "score": 50,
-            "issues": [{}],
-        })
+        response = json.dumps(
+            {
+                "score": 50,
+                "issues": [{}],
+            }
+        )
         result = reviewer._parse_review_response(response)
         assert result.issues[0].severity == "medium"
         assert result.issues[0].category == "code_quality"

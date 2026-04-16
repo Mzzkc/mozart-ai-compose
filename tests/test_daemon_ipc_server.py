@@ -19,7 +19,6 @@ from marianne.daemon.ipc.handler import RequestHandler
 from marianne.daemon.ipc.protocol import JsonRpcError, JsonRpcRequest, JsonRpcResponse
 from marianne.daemon.ipc.server import DaemonServer
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -78,9 +77,7 @@ async def _make_dummy_writer() -> tuple[asyncio.StreamWriter, socket.socket, soc
     rsock.setblocking(False)
     wsock.setblocking(False)
     loop = asyncio.get_event_loop()
-    transport, protocol = await loop.create_connection(
-        lambda: asyncio.Protocol(), sock=wsock
-    )
+    transport, protocol = await loop.create_connection(lambda: asyncio.Protocol(), sock=wsock)
     # StreamWriter needs a reader protocol — create a minimal one
     reader = asyncio.StreamReader()
     reader_protocol = asyncio.StreamReaderProtocol(reader)
@@ -160,8 +157,6 @@ class TestDaemonServerLifecycle:
         server = DaemonServer(sock, _make_handler(), permissions=0o600)
         await server.start()
         try:
-            import stat
-
             mode = sock.stat().st_mode
             # Check only user bits (socket type flag varies by OS)
             assert mode & 0o777 == 0o600
@@ -184,12 +179,15 @@ class TestDaemonServerRequestHandling:
         server = DaemonServer(sock, _make_handler())
         await server.start()
         try:
-            resp = await _send_request(sock, {
-                "jsonrpc": "2.0",
-                "method": "test.echo",
-                "params": {"message": "hello"},
-                "id": 1,
-            })
+            resp = await _send_request(
+                sock,
+                {
+                    "jsonrpc": "2.0",
+                    "method": "test.echo",
+                    "params": {"message": "hello"},
+                    "id": 1,
+                },
+            )
             assert resp["result"] == {"echo": {"message": "hello"}}
             assert resp["id"] == 1
         finally:
@@ -202,11 +200,14 @@ class TestDaemonServerRequestHandling:
         server = DaemonServer(sock, _make_handler())
         await server.start()
         try:
-            resp = await _send_request(sock, {
-                "jsonrpc": "2.0",
-                "method": "daemon.status",
-                "id": 2,
-            })
+            resp = await _send_request(
+                sock,
+                {
+                    "jsonrpc": "2.0",
+                    "method": "daemon.status",
+                    "id": 2,
+                },
+            )
             assert resp["result"]["running"] is True
         finally:
             await server.stop()
@@ -218,11 +219,14 @@ class TestDaemonServerRequestHandling:
         server = DaemonServer(sock, _make_handler())
         await server.start()
         try:
-            resp = await _send_request(sock, {
-                "jsonrpc": "2.0",
-                "method": "nonexistent.method",
-                "id": 3,
-            })
+            resp = await _send_request(
+                sock,
+                {
+                    "jsonrpc": "2.0",
+                    "method": "nonexistent.method",
+                    "id": 3,
+                },
+            )
             assert "error" in resp
             assert resp["error"]["code"] == -32601
             assert "nonexistent.method" in resp["error"]["message"]
@@ -236,11 +240,14 @@ class TestDaemonServerRequestHandling:
         server = DaemonServer(sock, _make_handler())
         await server.start()
         try:
-            resp = await _send_request(sock, {
-                "jsonrpc": "2.0",
-                "method": "test.fail",
-                "id": 4,
-            })
+            resp = await _send_request(
+                sock,
+                {
+                    "jsonrpc": "2.0",
+                    "method": "test.fail",
+                    "id": 4,
+                },
+            )
             assert "error" in resp
             # JobSubmissionError maps to JOB_NOT_FOUND (-32000)
             assert resp["error"]["code"] == -32000
@@ -254,11 +261,14 @@ class TestDaemonServerRequestHandling:
         server = DaemonServer(sock, _make_handler())
         await server.start()
         try:
-            resp = await _send_request(sock, {
-                "jsonrpc": "2.0",
-                "method": "test.crash",
-                "id": 5,
-            })
+            resp = await _send_request(
+                sock,
+                {
+                    "jsonrpc": "2.0",
+                    "method": "test.crash",
+                    "id": 5,
+                },
+            )
             assert "error" in resp
             assert resp["error"]["code"] == -32603
         finally:
@@ -300,10 +310,13 @@ class TestDaemonServerMalformedRequests:
         server = DaemonServer(sock, _make_handler())
         await server.start()
         try:
-            resp = await _send_request(sock, {
-                "jsonrpc": "2.0",
-                "id": 6,
-            })
+            resp = await _send_request(
+                sock,
+                {
+                    "jsonrpc": "2.0",
+                    "id": 6,
+                },
+            )
             assert resp["error"]["code"] == -32600
         finally:
             await server.stop()
@@ -367,13 +380,17 @@ class TestDaemonServerConcurrency:
         server = DaemonServer(sock, _make_handler())
         await server.start()
         try:
+
             async def _client(client_id: int) -> dict[str, Any]:
-                return await _send_request(sock, {
-                    "jsonrpc": "2.0",
-                    "method": "test.echo",
-                    "params": {"client": client_id},
-                    "id": client_id,
-                })
+                return await _send_request(
+                    sock,
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "test.echo",
+                        "params": {"client": client_id},
+                        "id": client_id,
+                    },
+                )
 
             results = await asyncio.gather(*[_client(i) for i in range(5)])
             for i, resp in enumerate(results):
@@ -395,11 +412,14 @@ class TestDaemonServerConcurrency:
 
             # Server should still work for new clients
             await asyncio.sleep(0.05)
-            resp = await _send_request(sock, {
-                "jsonrpc": "2.0",
-                "method": "daemon.status",
-                "id": 1,
-            })
+            resp = await _send_request(
+                sock,
+                {
+                    "jsonrpc": "2.0",
+                    "method": "daemon.status",
+                    "id": 1,
+                },
+            )
             assert resp["result"]["running"] is True
         finally:
             await server.stop()

@@ -535,22 +535,16 @@ class TestErrorCodeIntegration:
         ).error_code.value.startswith("E0")
 
         # Rate limits
-        assert classifier.classify(
-            stderr="rate limit"
-        ).error_code.value.startswith("E1")
+        assert classifier.classify(stderr="rate limit").error_code.value.startswith("E1")
 
         # Validation
         assert classifier.classify(exit_code=0).error_code.value.startswith("E2")
 
         # Backend errors
-        assert classifier.classify(
-            stderr="401 unauthorized"
-        ).error_code.value.startswith("E5")
+        assert classifier.classify(stderr="401 unauthorized").error_code.value.startswith("E5")
 
         # Network errors
-        assert classifier.classify(
-            stderr="connection refused"
-        ).error_code.value.startswith("E9")
+        assert classifier.classify(stderr="connection refused").error_code.value.startswith("E9")
 
 
 # ============================================================================
@@ -664,8 +658,7 @@ class TestQuotaExhaustion:
     def test_quota_uses_parsed_wait_time(self, classifier: ErrorClassifier) -> None:
         """Test quota exhaustion uses parsed wait time."""
         result = classifier.classify(
-            stdout="Token budget exhausted. Resets in 2 hours.",
-            exit_code=1
+            stdout="Token budget exhausted. Resets in 2 hours.", exit_code=1
         )
         assert result.error_code == ErrorCode.QUOTA_EXHAUSTED
         # Should be ~7200 seconds (2 hours)
@@ -673,19 +666,13 @@ class TestQuotaExhaustion:
 
     def test_quota_default_wait_when_no_time(self, classifier: ErrorClassifier) -> None:
         """Test quota exhaustion uses default wait when no time parsed."""
-        result = classifier.classify(
-            stdout="Your daily token limit has been reached.",
-            exit_code=1
-        )
+        result = classifier.classify(stdout="Your daily token limit has been reached.", exit_code=1)
         assert result.error_code == ErrorCode.QUOTA_EXHAUSTED
         assert result.suggested_wait_seconds == 3600.0  # 1 hour default
 
     # Integration with is_rate_limit
     def test_quota_is_rate_limit_true(self, classifier: ErrorClassifier) -> None:
         """Test quota exhaustion has is_rate_limit=True for runner handling."""
-        result = classifier.classify(
-            stdout="tokens exhausted, resets 9pm",
-            exit_code=1
-        )
+        result = classifier.classify(stdout="tokens exhausted, resets 9pm", exit_code=1)
         assert result.is_rate_limit is True
         assert result.error_code == ErrorCode.QUOTA_EXHAUSTED

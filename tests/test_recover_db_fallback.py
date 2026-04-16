@@ -108,16 +108,19 @@ def _mock_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # commands/__init__.py re-exports recover as function, shadowing the module.
     # Use sys.modules to get the actual module.
     import sys
+
     recover_mod = sys.modules["marianne.cli.commands.recover"]
     monkeypatch.setattr(recover_mod, "_get_db_path", lambda: db_path)
 
     # Prevent live conductor routing
     async def _fake_route(method, params, **kw):
         from marianne.daemon.exceptions import JobSubmissionError
+
         raise JobSubmissionError(f"Job not found: {params.get('job_id')}")
 
     monkeypatch.setattr(
-        "marianne.daemon.detect.try_daemon_route", _fake_route,
+        "marianne.daemon.detect.try_daemon_route",
+        _fake_route,
     )
 
     return db_path
@@ -127,7 +130,9 @@ class TestRecoverFromDB:
     """Test that recover loads from the DB when conductor doesn't have the job."""
 
     def test_recover_finds_job_in_db(
-        self, tmp_path: Path, _mock_db: Path,
+        self,
+        tmp_path: Path,
+        _mock_db: Path,
     ) -> None:
         """Recover loads a completed/failed job from DB when conductor doesn't have it."""
         workspace = tmp_path / "ws"
@@ -135,8 +140,11 @@ class TestRecoverFromDB:
         (workspace / "output-1.txt").write_text("done")
 
         cp = _make_checkpoint(
-            "old-job", workspace, total_sheets=2,
-            failed_sheets=[1], completed_sheets=[2],
+            "old-job",
+            workspace,
+            total_sheets=2,
+            failed_sheets=[1],
+            completed_sheets=[2],
         )
         _create_db(_mock_db, [cp])
 
@@ -145,7 +153,9 @@ class TestRecoverFromDB:
         assert "recovered" in result.stdout.lower() or "completed" in result.stdout.lower()
 
     def test_recover_nonexistent_job_in_db(
-        self, tmp_path: Path, _mock_db: Path,
+        self,
+        tmp_path: Path,
+        _mock_db: Path,
     ) -> None:
         """Recover shows error when job is not in DB either."""
         _create_db(_mock_db, [])
@@ -155,7 +165,9 @@ class TestRecoverFromDB:
         assert "not found" in result.stdout.lower()
 
     def test_recover_dry_run_no_db_modification(
-        self, tmp_path: Path, _mock_db: Path,
+        self,
+        tmp_path: Path,
+        _mock_db: Path,
     ) -> None:
         """Dry-run reads from DB but doesn't write back."""
         workspace = tmp_path / "ws"
@@ -163,7 +175,10 @@ class TestRecoverFromDB:
         (workspace / "output-1.txt").write_text("done")
 
         cp = _make_checkpoint(
-            "dry-test", workspace, total_sheets=1, failed_sheets=[1],
+            "dry-test",
+            workspace,
+            total_sheets=1,
+            failed_sheets=[1],
         )
         _create_db(_mock_db, [cp])
 
@@ -173,14 +188,14 @@ class TestRecoverFromDB:
 
         # DB should still show failed
         conn = sqlite3.connect(str(_mock_db))
-        row = conn.execute(
-            "SELECT status FROM jobs WHERE job_id=?", ("dry-test",)
-        ).fetchone()
+        row = conn.execute("SELECT status FROM jobs WHERE job_id=?", ("dry-test",)).fetchone()
         conn.close()
         assert row[0] == "failed"
 
     def test_recover_writes_back_to_db(
-        self, tmp_path: Path, _mock_db: Path,
+        self,
+        tmp_path: Path,
+        _mock_db: Path,
     ) -> None:
         """Successful recovery writes updated state back to DB."""
         workspace = tmp_path / "ws"
@@ -189,7 +204,10 @@ class TestRecoverFromDB:
         (workspace / "output-2.txt").write_text("done")
 
         cp = _make_checkpoint(
-            "write-back", workspace, total_sheets=2, failed_sheets=[1, 2],
+            "write-back",
+            workspace,
+            total_sheets=2,
+            failed_sheets=[1, 2],
         )
         _create_db(_mock_db, [cp])
 
@@ -210,11 +228,16 @@ class TestRecoverFromDB:
         assert row[1] == "completed"
 
     def test_recover_no_config_snapshot_resets_to_pending(
-        self, tmp_path: Path, _mock_db: Path,
+        self,
+        tmp_path: Path,
+        _mock_db: Path,
     ) -> None:
         """Recover resets sheets to PENDING when config snapshot is missing."""
         cp = _make_checkpoint(
-            "no-config", tmp_path, failed_sheets=[1], include_config=False,
+            "no-config",
+            tmp_path,
+            failed_sheets=[1],
+            include_config=False,
         )
         _create_db(_mock_db, [cp])
 
@@ -232,21 +255,24 @@ class TestRecoverFromDB:
         assert updated["sheets"]["1"]["status"] == "pending"
 
     def test_recover_cascade_from_sheet(
-        self, tmp_path: Path, _mock_db: Path,
+        self,
+        tmp_path: Path,
+        _mock_db: Path,
     ) -> None:
         """--from-sheet cascade recovery also uses the DB path helper."""
         workspace = tmp_path / "ws"
         workspace.mkdir()
 
         cp = _make_checkpoint(
-            "cascade-test", workspace, total_sheets=3,
-            completed_sheets=[1], failed_sheets=[2, 3],
+            "cascade-test",
+            workspace,
+            total_sheets=3,
+            completed_sheets=[1],
+            failed_sheets=[2, 3],
         )
         _create_db(_mock_db, [cp])
 
-        result = runner.invoke(
-            app, ["recover", "cascade-test", "--from-sheet", "2"]
-        )
+        result = runner.invoke(app, ["recover", "cascade-test", "--from-sheet", "2"])
         assert result.exit_code == 0
         assert "reset" in result.stdout.lower()
 

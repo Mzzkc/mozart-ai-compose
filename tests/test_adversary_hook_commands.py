@@ -6,16 +6,14 @@ before being passed to subprocess execution.
 
 from __future__ import annotations
 
-import re
-
 import pytest
 
 from marianne.daemon.manager import JobManager
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_manager() -> JobManager:
     """Create a JobManager with minimal stubs (no daemon needed)."""
@@ -25,6 +23,7 @@ def _make_manager() -> JobManager:
 # ---------------------------------------------------------------------------
 # Destructive pattern tests
 # ---------------------------------------------------------------------------
+
 
 class TestHookCommandValidation:
     """T1.1: Hook command validation guards."""
@@ -59,7 +58,7 @@ class TestHookCommandValidation:
         [
             "echo hello",
             "python3 -m pytest tests/",
-            "rm -rf ./build/",           # relative path is fine
+            "rm -rf ./build/",  # relative path is fine
             "git log --oneline -20",
             "docker compose up -d",
             "make lint && make test",

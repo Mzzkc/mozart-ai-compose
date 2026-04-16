@@ -30,9 +30,9 @@ import pytest
 from marianne.core.checkpoint import CheckpointState, SheetState, SheetStatus
 from marianne.core.sheet import Sheet
 from marianne.daemon.baton.adapter import (
-    BatonAdapter,
     _BATON_TO_CHECKPOINT,
     _CHECKPOINT_TO_BATON,
+    BatonAdapter,
     attempt_result_to_observer_event,
     baton_to_checkpoint_status,
     checkpoint_to_baton_status,
@@ -42,10 +42,8 @@ from marianne.daemon.baton.adapter import (
 )
 from marianne.daemon.baton.events import (
     DispatchRetry,
-    RateLimitExpired,
     SheetAttemptResult,
     SheetSkipped,
-    ShutdownRequested,
 )
 from marianne.daemon.baton.state import (
     BatonSheetStatus,
@@ -54,6 +52,7 @@ from marianne.daemon.baton.state import (
 # =========================================================================
 # Fixtures
 # =========================================================================
+
 
 def _make_sheet(
     num: int = 1,
@@ -77,9 +76,11 @@ def _make_sheet(
         timeout_seconds=timeout,
     )
 
+
 def _make_adapter(**kwargs: Any) -> BatonAdapter:
     """Create a BatonAdapter with defaults."""
     return BatonAdapter(**kwargs)
+
 
 def _make_checkpoint_sheet(
     sheet_num: int = 1,
@@ -95,15 +96,18 @@ def _make_checkpoint_sheet(
         completion_attempts=completion_attempts,
     )
 
+
 def _make_checkpoint(sheets: dict[int, SheetState] | None = None) -> MagicMock:
     """Create a mock CheckpointState with given sheets."""
     cp = MagicMock(spec=CheckpointState)
     cp.sheets = sheets or {}
     return cp
 
+
 # =========================================================================
 # 1. State Mapping — Totality and Inverse Consistency
 # =========================================================================
+
 
 class TestStateMappingTotality:
     """Every BatonSheetStatus MUST have a checkpoint mapping."""
@@ -116,11 +120,20 @@ class TestStateMappingTotality:
             )
 
     def test_every_checkpoint_status_mapped_to_baton(self) -> None:
-        """_CHECKPOINT_TO_BATON covers every CheckpointState status string (11 states since Phase 1)."""
+        """_CHECKPOINT_TO_BATON covers every CheckpointState status
+        string (11 states since Phase 1)."""
         expected = {
-            "pending", "ready", "dispatched", "in_progress",
-            "waiting", "retry_scheduled", "fermata",
-            "completed", "failed", "skipped", "cancelled",
+            "pending",
+            "ready",
+            "dispatched",
+            "in_progress",
+            "waiting",
+            "retry_scheduled",
+            "fermata",
+            "completed",
+            "failed",
+            "skipped",
+            "cancelled",
         }
         assert set(_CHECKPOINT_TO_BATON.keys()) == expected
 
@@ -131,8 +144,7 @@ class TestStateMappingTotality:
             # For terminal states the roundtrip should be stable
             if cp_status in ("completed", "failed", "skipped"):
                 assert roundtripped == cp_status, (
-                    f"Roundtrip broke for '{cp_status}': "
-                    f"got '{roundtripped}' via {baton_status}"
+                    f"Roundtrip broke for '{cp_status}': got '{roundtripped}' via {baton_status}"
                 )
 
     def test_checkpoint_to_baton_unknown_status_raises(self) -> None:
@@ -157,9 +169,11 @@ class TestStateMappingTotality:
         """CANCELLED maps 1:1 to 'cancelled' since Phase 1."""
         assert baton_to_checkpoint_status(BatonSheetStatus.CANCELLED) == "cancelled"
 
+
 # =========================================================================
 # 2. Recovery Edge Cases
 # =========================================================================
+
 
 class TestRecoverJobEdgeCases:
     """Adversarial scenarios for recover_job() — the restart recovery path."""
@@ -173,9 +187,9 @@ class TestRecoverJobEdgeCases:
         adapter = _make_adapter()
         sheets = [_make_sheet(num=1)]
         deps = {1: []}
-        cp = _make_checkpoint({
-            1: _make_checkpoint_sheet(1, SheetStatus.IN_PROGRESS, attempt_count=2)
-        })
+        cp = _make_checkpoint(
+            {1: _make_checkpoint_sheet(1, SheetStatus.IN_PROGRESS, attempt_count=2)}
+        )
 
         adapter.recover_job("j1", sheets, deps, cp)
 
@@ -189,9 +203,9 @@ class TestRecoverJobEdgeCases:
         adapter = _make_adapter()
         sheets = [_make_sheet(num=1)]
         deps = {1: []}
-        cp = _make_checkpoint({
-            1: _make_checkpoint_sheet(1, SheetStatus.COMPLETED, attempt_count=1)
-        })
+        cp = _make_checkpoint(
+            {1: _make_checkpoint_sheet(1, SheetStatus.COMPLETED, attempt_count=1)}
+        )
 
         adapter.recover_job("j1", sheets, deps, cp)
 
@@ -204,9 +218,7 @@ class TestRecoverJobEdgeCases:
         adapter = _make_adapter()
         sheets = [_make_sheet(num=1)]
         deps = {1: []}
-        cp = _make_checkpoint({
-            1: _make_checkpoint_sheet(1, SheetStatus.FAILED, attempt_count=3)
-        })
+        cp = _make_checkpoint({1: _make_checkpoint_sheet(1, SheetStatus.FAILED, attempt_count=3)})
 
         adapter.recover_job("j1", sheets, deps, cp)
 
@@ -220,9 +232,7 @@ class TestRecoverJobEdgeCases:
         sheets = [_make_sheet(num=1), _make_sheet(num=2)]
         deps = {1: [], 2: [1]}
         # Only sheet 1 in checkpoint
-        cp = _make_checkpoint({
-            1: _make_checkpoint_sheet(1, SheetStatus.COMPLETED)
-        })
+        cp = _make_checkpoint({1: _make_checkpoint_sheet(1, SheetStatus.COMPLETED)})
 
         adapter.recover_job("j1", sheets, deps, cp)
 
@@ -237,12 +247,16 @@ class TestRecoverJobEdgeCases:
         adapter = _make_adapter()
         sheets = [_make_sheet(num=1)]
         deps = {1: []}
-        cp = _make_checkpoint({
-            1: _make_checkpoint_sheet(
-                1, SheetStatus.IN_PROGRESS,
-                attempt_count=3, completion_attempts=2,
-            )
-        })
+        cp = _make_checkpoint(
+            {
+                1: _make_checkpoint_sheet(
+                    1,
+                    SheetStatus.IN_PROGRESS,
+                    attempt_count=3,
+                    completion_attempts=2,
+                )
+            }
+        )
 
         adapter.recover_job("j1", sheets, deps, cp)
 
@@ -256,17 +270,11 @@ class TestRecoverJobEdgeCases:
         adapter = _make_adapter()
         sheets = [_make_sheet(num=1)]
         deps = {1: []}
-        cp = _make_checkpoint({
-            1: _make_checkpoint_sheet(1, SheetStatus.PENDING)
-        })
+        cp = _make_checkpoint({1: _make_checkpoint_sheet(1, SheetStatus.PENDING)})
 
         mock_config = MagicMock()
-        with patch(
-            "marianne.daemon.baton.prompt.PromptRenderer"
-        ) as mock_renderer_cls:
-            adapter.recover_job(
-                "j1", sheets, deps, cp, prompt_config=mock_config
-            )
+        with patch("marianne.daemon.baton.prompt.PromptRenderer") as mock_renderer_cls:
+            adapter.recover_job("j1", sheets, deps, cp, prompt_config=mock_config)
             mock_renderer_cls.assert_called_once()
 
         assert "j1" in adapter._job_renderers
@@ -276,9 +284,7 @@ class TestRecoverJobEdgeCases:
         adapter = _make_adapter()
         sheets = [_make_sheet(num=1)]
         deps = {1: []}
-        cp = _make_checkpoint({
-            1: _make_checkpoint_sheet(1, SheetStatus.PENDING)
-        })
+        cp = _make_checkpoint({1: _make_checkpoint_sheet(1, SheetStatus.PENDING)})
 
         adapter.recover_job("j1", sheets, deps, cp)
 
@@ -291,9 +297,7 @@ class TestRecoverJobEdgeCases:
         adapter = _make_adapter()
         sheets = [_make_sheet(num=1)]
         deps = {1: []}
-        cp = _make_checkpoint({
-            1: _make_checkpoint_sheet(1, SheetStatus.SKIPPED)
-        })
+        cp = _make_checkpoint({1: _make_checkpoint_sheet(1, SheetStatus.SKIPPED)})
 
         adapter.recover_job("j1", sheets, deps, cp)
 
@@ -301,9 +305,11 @@ class TestRecoverJobEdgeCases:
         assert state is not None
         assert state.status == BatonSheetStatus.SKIPPED
 
+
 # =========================================================================
 # 3. Dispatch Callback Edge Cases
 # =========================================================================
+
 
 class TestDispatchCallbackEdgeCases:
     """Adversarial scenarios for _dispatch_callback()."""
@@ -326,7 +332,7 @@ class TestDispatchCallbackEdgeCases:
             await adapter._dispatch_callback("j1", 1, state)
 
         # Task should exist
-        assert (("j1", 1) in adapter._active_tasks) or True  # may have completed
+        assert True  # may have completed
 
     @pytest.mark.asyncio
     async def test_dispatch_mode_completion_when_completion_attempts(self) -> None:
@@ -349,9 +355,7 @@ class TestDispatchCallbackEdgeCases:
         assert state is not None
         state.completion_attempts = 2
 
-        with patch(
-            "marianne.daemon.baton.adapter.sheet_task", new_callable=AsyncMock
-        ):
+        with patch("marianne.daemon.baton.adapter.sheet_task", new_callable=AsyncMock):
             await adapter._dispatch_callback("j1", 1, state)
             # Wait for spawned tasks
             tasks = list(adapter._active_tasks.values())
@@ -453,6 +457,7 @@ class TestDispatchCallbackEdgeCases:
         call_kwargs = pool.acquire.call_args
         assert call_kwargs[1]["model"] is None
 
+
 # =========================================================================
 # 4. State Sync Filtering
 # =========================================================================
@@ -460,6 +465,7 @@ class TestDispatchCallbackEdgeCases:
 # =========================================================================
 # 5. Completion Detection Edge Cases
 # =========================================================================
+
 
 class TestCompletionDetectionEdgeCases:
     """Adversarial scenarios for _check_completions()."""
@@ -524,7 +530,9 @@ class TestCompletionDetectionEdgeCases:
         """Skipped + completed + cancelled = all terminal, but not all success."""
         adapter = _make_adapter()
         sheets = [
-            _make_sheet(num=1), _make_sheet(num=2), _make_sheet(num=3),
+            _make_sheet(num=1),
+            _make_sheet(num=2),
+            _make_sheet(num=3),
         ]
         adapter.register_job("j1", sheets, {1: [], 2: [], 3: []})
 
@@ -544,9 +552,11 @@ class TestCompletionDetectionEdgeCases:
         with pytest.raises(KeyError, match="not registered"):
             await adapter.wait_for_completion("nonexistent")
 
+
 # =========================================================================
 # 6. Observer Event Edge Values
 # =========================================================================
+
 
 class TestObserverEventEdgeValues:
     """Boundary values for attempt_result_to_observer_event()."""
@@ -554,10 +564,13 @@ class TestObserverEventEdgeValues:
     def test_zero_cost_zero_duration(self) -> None:
         """Zero cost and duration are valid — first attempt that fails instantly."""
         result = SheetAttemptResult(
-            job_id="j1", sheet_num=1,
-            instrument_name="claude-code", attempt=1,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
             execution_success=False,
-            cost_usd=0.0, duration_seconds=0.0,
+            cost_usd=0.0,
+            duration_seconds=0.0,
         )
         event = attempt_result_to_observer_event(result)
         assert event["data"]["cost_usd"] == 0.0
@@ -567,9 +580,12 @@ class TestObserverEventEdgeValues:
     def test_very_large_cost(self) -> None:
         """Extremely high cost should not be silently capped."""
         result = SheetAttemptResult(
-            job_id="j1", sheet_num=1,
-            instrument_name="claude-code", attempt=1,
-            execution_success=True, validation_pass_rate=100.0,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=True,
+            validation_pass_rate=100.0,
             cost_usd=99999.99,
         )
         event = attempt_result_to_observer_event(result)
@@ -578,8 +594,10 @@ class TestObserverEventEdgeValues:
     def test_partial_validation_event_name(self) -> None:
         """execution_success=True with <100% validations → sheet.partial."""
         result = SheetAttemptResult(
-            job_id="j1", sheet_num=1,
-            instrument_name="claude-code", attempt=1,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
             execution_success=True,
             validation_pass_rate=50.0,
         )
@@ -589,8 +607,10 @@ class TestObserverEventEdgeValues:
     def test_rate_limited_takes_priority(self) -> None:
         """Rate limited event name takes priority over success/failure."""
         result = SheetAttemptResult(
-            job_id="j1", sheet_num=1,
-            instrument_name="claude-code", attempt=1,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
             execution_success=False,
             rate_limited=True,
         )
@@ -600,9 +620,12 @@ class TestObserverEventEdgeValues:
     def test_rate_limited_with_success_still_rate_limit(self) -> None:
         """Even if execution_success is True, rate_limited flag wins."""
         result = SheetAttemptResult(
-            job_id="j1", sheet_num=1,
-            instrument_name="claude-code", attempt=1,
-            execution_success=True, validation_pass_rate=100.0,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=True,
+            validation_pass_rate=100.0,
             rate_limited=True,
         )
         event = attempt_result_to_observer_event(result)
@@ -611,7 +634,8 @@ class TestObserverEventEdgeValues:
     def test_skipped_event_has_reason(self) -> None:
         """Skipped observer events include the reason."""
         event = SheetSkipped(
-            job_id="j1", sheet_num=1,
+            job_id="j1",
+            sheet_num=1,
             reason="skip_when condition met",
         )
         obs = skipped_to_observer_event(event)
@@ -622,8 +646,10 @@ class TestObserverEventEdgeValues:
         """Observer event timestamp comes from the source event."""
         ts = 1234567890.123
         result = SheetAttemptResult(
-            job_id="j1", sheet_num=1,
-            instrument_name="claude-code", attempt=1,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
             timestamp=ts,
         )
         event = attempt_result_to_observer_event(result)
@@ -632,8 +658,10 @@ class TestObserverEventEdgeValues:
     def test_validation_pass_rate_exactly_100(self) -> None:
         """100.0 exactly = sheet.completed, not sheet.partial."""
         result = SheetAttemptResult(
-            job_id="j1", sheet_num=1,
-            instrument_name="claude-code", attempt=1,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
             execution_success=True,
             validation_pass_rate=100.0,
         )
@@ -643,17 +671,21 @@ class TestObserverEventEdgeValues:
     def test_validation_pass_rate_99_99_is_partial(self) -> None:
         """99.99 is NOT 100.0 — the check is >= 100.0."""
         result = SheetAttemptResult(
-            job_id="j1", sheet_num=1,
-            instrument_name="claude-code", attempt=1,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
             execution_success=True,
             validation_pass_rate=99.99,
         )
         event = attempt_result_to_observer_event(result)
         assert event["event"] == "sheet.partial"
 
+
 # =========================================================================
 # 7. Deregistration Cleanup
 # =========================================================================
+
 
 class TestDeregistrationCleanup:
     """Verify deregister_job cleans up ALL adapter state."""
@@ -695,7 +727,9 @@ class TestDeregistrationCleanup:
 
         with patch("marianne.daemon.baton.prompt.PromptRenderer"):
             adapter.register_job(
-                "j1", sheets, {1: []},
+                "j1",
+                sheets,
+                {1: []},
                 prompt_config=MagicMock(),
             )
         assert "j1" in adapter._job_renderers
@@ -742,9 +776,11 @@ class TestDeregistrationCleanup:
         j2_task.cancel.assert_not_called()
         assert ("j2", 1) in adapter._active_tasks
 
+
 # =========================================================================
 # 8. Dependency Extraction Edge Cases
 # =========================================================================
+
 
 class TestDependencyExtractionEdgeCases:
     """Adversarial scenarios for extract_dependencies()."""
@@ -826,9 +862,11 @@ class TestDependencyExtractionEdgeCases:
         assert deps[1] == []
         assert deps[2] == [1]
 
+
 # =========================================================================
 # 9. sheets_to_execution_states Edge Cases
 # =========================================================================
+
 
 class TestSheetsToExecutionStatesEdgeCases:
     """Edge cases for the sheet → execution state conversion."""
@@ -852,7 +890,9 @@ class TestSheetsToExecutionStatesEdgeCases:
         """max_retries and max_completion are passed to each state."""
         sheets = [_make_sheet(num=1)]
         states = sheets_to_execution_states(
-            sheets, max_retries=7, max_completion=12,
+            sheets,
+            max_retries=7,
+            max_completion=12,
         )
         assert states[1].max_retries == 7
         assert states[1].max_completion == 12
@@ -864,9 +904,11 @@ class TestSheetsToExecutionStatesEdgeCases:
         for s in states.values():
             assert s.status == BatonSheetStatus.PENDING
 
+
 # =========================================================================
 # 10. Musician Wrapper Exception Handling
 # =========================================================================
+
 
 class TestMusicianWrapperExceptionHandling:
     """The _musician_wrapper must ALWAYS release the backend."""
@@ -884,9 +926,7 @@ class TestMusicianWrapperExceptionHandling:
         pool.release = AsyncMock()
         adapter.set_backend_pool(pool)
 
-        with patch(
-            "marianne.daemon.baton.adapter.sheet_task", new_callable=AsyncMock
-        ):
+        with patch("marianne.daemon.baton.adapter.sheet_task", new_callable=AsyncMock):
             from marianne.daemon.baton.state import AttemptContext, AttemptMode
 
             await adapter._musician_wrapper(
@@ -922,9 +962,7 @@ class TestMusicianWrapperExceptionHandling:
                     job_id="j1",
                     sheet=sheets[0],
                     backend=mock_backend,
-                    context=AttemptContext(
-                        attempt_number=1, mode=AttemptMode.NORMAL
-                    ),
+                    context=AttemptContext(attempt_number=1, mode=AttemptMode.NORMAL),
                 )
 
         pool.release.assert_called_once_with("claude-code", mock_backend)
@@ -938,14 +976,10 @@ class TestMusicianWrapperExceptionHandling:
 
         pool = AsyncMock()
         mock_backend = MagicMock()
-        pool.release = AsyncMock(
-            side_effect=RuntimeError("pool release exploded")
-        )
+        pool.release = AsyncMock(side_effect=RuntimeError("pool release exploded"))
         adapter.set_backend_pool(pool)
 
-        with patch(
-            "marianne.daemon.baton.adapter.sheet_task", new_callable=AsyncMock
-        ):
+        with patch("marianne.daemon.baton.adapter.sheet_task", new_callable=AsyncMock):
             from marianne.daemon.baton.state import AttemptContext, AttemptMode
 
             # Should NOT raise despite release failure
@@ -953,24 +987,22 @@ class TestMusicianWrapperExceptionHandling:
                 job_id="j1",
                 sheet=sheets[0],
                 backend=mock_backend,
-                context=AttemptContext(
-                    attempt_number=1, mode=AttemptMode.NORMAL
-                ),
+                context=AttemptContext(attempt_number=1, mode=AttemptMode.NORMAL),
             )
 
         pool.release.assert_called_once()  # Release was attempted
+
 
 # =========================================================================
 # 11. EventBus Publishing Resilience
 # =========================================================================
 
+
 class TestEventBusPublishingResilience:
     """EventBus publishing failures must not crash the adapter."""
 
     @pytest.mark.asyncio
-
     @pytest.mark.asyncio
-
     @pytest.mark.asyncio
     async def test_publish_sheet_skipped_bus_failure(self) -> None:
         """Skipped event publish failure doesn't crash."""
@@ -1008,9 +1040,11 @@ class TestEventBusPublishingResilience:
         assert event["event"] == "job.completed"
         assert event["data"]["result"] is True
 
+
 # =========================================================================
 # 12. Registration Edge Cases
 # =========================================================================
+
 
 class TestRegistrationEdgeCases:
     """Edge cases for register_job()."""
@@ -1061,11 +1095,11 @@ class TestRegistrationEdgeCases:
             _make_sheet(num=3, movement=2),
         ]
 
-        with patch(
-            "marianne.daemon.baton.prompt.PromptRenderer"
-        ) as mock_cls:
+        with patch("marianne.daemon.baton.prompt.PromptRenderer") as mock_cls:
             adapter.register_job(
-                "j1", sheets, {1: [], 2: [], 3: []},
+                "j1",
+                sheets,
+                {1: [], 2: [], 3: []},
                 prompt_config=MagicMock(),
             )
             mock_cls.assert_called_once()
@@ -1073,9 +1107,11 @@ class TestRegistrationEdgeCases:
             assert kwargs["total_stages"] == 2
             assert kwargs["total_sheets"] == 3
 
+
 # =========================================================================
 # 13. has_completed_sheets Edge Cases
 # =========================================================================
+
 
 class TestHasCompletedSheetsEdgeCases:
     """Edge cases for the F-145 completed_new_work helper."""
@@ -1117,9 +1153,11 @@ class TestHasCompletedSheetsEdgeCases:
         adapter = _make_adapter()
         assert adapter.has_completed_sheets("ghost") is False
 
+
 # =========================================================================
 # 14. Shutdown
 # =========================================================================
+
 
 class TestShutdownBehavior:
     """Adversarial scenarios for adapter shutdown."""
@@ -1154,9 +1192,7 @@ class TestShutdownBehavior:
     async def test_shutdown_pool_close_failure_does_not_crash(self) -> None:
         """If pool.close_all raises, shutdown still completes."""
         pool = AsyncMock()
-        pool.close_all = AsyncMock(
-            side_effect=RuntimeError("pool close exploded")
-        )
+        pool.close_all = AsyncMock(side_effect=RuntimeError("pool close exploded"))
         adapter = _make_adapter()
         adapter.set_backend_pool(pool)
 
@@ -1177,9 +1213,11 @@ class TestShutdownBehavior:
         assert len(adapter._active_tasks) == 0
         await adapter.shutdown()
 
+
 # =========================================================================
 # 15. _on_musician_done Callback
 # =========================================================================
+
 
 class TestOnMusicianDoneCallback:
     """Edge cases for the task completion callback."""
@@ -1229,9 +1267,11 @@ class TestOnMusicianDoneCallback:
         adapter._on_musician_done("j1", 1, task)
         assert ("j1", 1) not in adapter._active_tasks
 
+
 # =========================================================================
 # 16. get_sheet Edge Cases
 # =========================================================================
+
 
 class TestGetSheetEdgeCases:
     """Edge cases for the adapter's sheet lookup."""

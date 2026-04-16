@@ -11,7 +11,6 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-
 # --- ModelCapacity ---
 
 
@@ -432,8 +431,13 @@ class TestInstrumentProfile:
             display_name="Gemini CLI",
             description="Google's Gemini CLI with tool use and vision",
             kind="cli",
-            capabilities={"tool_use", "file_editing", "shell_access", "vision",
-                          "structured_output"},
+            capabilities={
+                "tool_use",
+                "file_editing",
+                "shell_access",
+                "vision",
+                "structured_output",
+            },
             default_model="gemini-2.5-pro",
             default_timeout_seconds=1800.0,
             models=[
@@ -684,10 +688,12 @@ class TestInstrumentModelsAdversarial:
         # Forward compat is handled by explicit schema versioning, not
         # by silently dropping unknown fields.
         with pytest.raises(ValidationError, match="extra_forbidden"):
-            ModelCapacity.model_validate({
-                "name": "test",
-                "context_window": 1000,
-                "cost_per_1k_input": 0.0,
-                "cost_per_1k_output": 0.0,
-                "future_field": "should be rejected",
-            })
+            ModelCapacity.model_validate(
+                {
+                    "name": "test",
+                    "context_window": 1000,
+                    "cost_per_1k_input": 0.0,
+                    "cost_per_1k_output": 0.0,
+                    "future_field": "should be rejected",
+                }
+            )

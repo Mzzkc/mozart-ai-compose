@@ -13,7 +13,6 @@ import pytest
 
 from marianne.core.config.instruments import InstrumentProfile
 
-
 # --- InstrumentRegistry ---
 
 

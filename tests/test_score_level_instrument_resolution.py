@@ -105,17 +105,13 @@ class TestInstrumentMapResolution:
             prompt={"template": "Do work on sheet {{ sheet_num }}"},
         )
 
-    def test_instrument_map_resolves_named_instrument(
-        self, config_with_instrument_map: JobConfig
-    ):
+    def test_instrument_map_resolves_named_instrument(self, config_with_instrument_map: JobConfig):
         """Sheets 1-2 mapped to 'fast' should resolve to 'gemini-cli'."""
         sheets = build_sheets(config_with_instrument_map)
         assert sheets[0].instrument_name == "gemini-cli"
         assert sheets[1].instrument_name == "gemini-cli"
 
-    def test_instrument_map_profile_name_unchanged(
-        self, config_with_instrument_map: JobConfig
-    ):
+    def test_instrument_map_profile_name_unchanged(self, config_with_instrument_map: JobConfig):
         """Sheets 3-4 mapped to 'claude-code' (already a profile) should stay as-is."""
         sheets = build_sheets(config_with_instrument_map)
         assert sheets[2].instrument_name == "claude-code"
@@ -202,7 +198,9 @@ prompt:
         issues = checker.check(config, tmp_path / "test.yaml", raw_yaml)
         # 'fast' should NOT be flagged — it's a valid score-level instrument name
         fast_issues = [i for i in issues if "fast" in i.message.lower()]
-        assert len(fast_issues) == 0, f"V210 incorrectly flagged score-level name 'fast': {fast_issues}"
+        assert len(fast_issues) == 0, (
+            f"V210 incorrectly flagged score-level name 'fast': {fast_issues}"
+        )
 
     def test_v210_still_warns_on_truly_unknown_name(self, tmp_path):
         """V210 should still warn about names that aren't profiles OR score-level names."""
@@ -278,7 +276,9 @@ prompt:
         checker = InstrumentNameCheck()
         issues = checker.check(config, tmp_path / "test.yaml", raw_yaml)
         fast_issues = [i for i in issues if "fast" in i.message.lower()]
-        assert len(fast_issues) == 0, f"V210 incorrectly flagged score-level name in instrument_map: {fast_issues}"
+        assert len(fast_issues) == 0, (
+            f"V210 incorrectly flagged score-level name in instrument_map: {fast_issues}"
+        )
 
     def test_v210_accepts_score_level_name_in_movement(self, tmp_path):
         """V210 should not warn about score-level names used in movement instrument."""
@@ -320,4 +320,6 @@ prompt:
         checker = InstrumentNameCheck()
         issues = checker.check(config, tmp_path / "test.yaml", raw_yaml)
         fast_issues = [i for i in issues if "fast" in i.message.lower()]
-        assert len(fast_issues) == 0, f"V210 incorrectly flagged score-level name in movement: {fast_issues}"
+        assert len(fast_issues) == 0, (
+            f"V210 incorrectly flagged score-level name in movement: {fast_issues}"
+        )

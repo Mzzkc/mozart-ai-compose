@@ -1,9 +1,8 @@
 """Tests for config reconciliation on reload."""
+
 from __future__ import annotations
 
 from typing import Any
-
-import pytest
 
 from marianne.core.checkpoint import CheckpointState
 from marianne.core.config import JobConfig
@@ -82,14 +81,10 @@ class TestReconcileConfig:
         """Changing cost_limits should reset cost tracking fields."""
         from marianne.execution.reconciliation import reconcile_config
 
-        old_snapshot = self._make_snapshot(
-            cost_limits={"max_cost_per_job": 10.0}
-        )
+        old_snapshot = self._make_snapshot(cost_limits={"max_cost_per_job": 10.0})
         # Build full snapshot from validated config so defaults match
         old_config = JobConfig.model_validate(old_snapshot)
-        new_snapshot = self._make_snapshot(
-            cost_limits={"max_cost_per_job": 50.0}
-        )
+        new_snapshot = self._make_snapshot(cost_limits={"max_cost_per_job": 50.0})
         new_config = JobConfig.model_validate(new_snapshot)
         state = self._make_state(
             config_snapshot=old_config.model_dump(mode="json"),
@@ -115,7 +110,7 @@ class TestReconcileConfig:
             rate_limit_waits=3,
         )
 
-        report = reconcile_config(state, config)
+        reconcile_config(state, config)
         assert state.total_estimated_cost == 5.0  # untouched
         assert state.rate_limit_waits == 3  # untouched
 
@@ -123,13 +118,9 @@ class TestReconcileConfig:
         """Changing rate_limit should reset rate limit tracking fields."""
         from marianne.execution.reconciliation import reconcile_config
 
-        old_snapshot = self._make_snapshot(
-            rate_limit={"wait_minutes": 30, "max_waits": 12}
-        )
+        old_snapshot = self._make_snapshot(rate_limit={"wait_minutes": 30, "max_waits": 12})
         old_config = JobConfig.model_validate(old_snapshot)
-        new_snapshot = self._make_snapshot(
-            rate_limit={"wait_minutes": 60, "max_waits": 24}
-        )
+        new_snapshot = self._make_snapshot(rate_limit={"wait_minutes": 60, "max_waits": 24})
         new_config = JobConfig.model_validate(new_snapshot)
         state = self._make_state(
             config_snapshot=old_config.model_dump(mode="json"),

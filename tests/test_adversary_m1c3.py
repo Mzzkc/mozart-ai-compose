@@ -28,9 +28,6 @@ import pytest
 
 from marianne.core.checkpoint import SheetState, SheetStatus
 
-
-
-
 # =============================================================================
 # F-075 Regression: Resume After Fan-Out Failure
 # =============================================================================
@@ -113,6 +110,7 @@ class TestF122IpcCloneBypass:
     def test_hooks_uses_resolve_socket_path(self):
         """hooks.py must use _resolve_socket_path for clone-aware routing."""
         import inspect
+
         from marianne.execution import hooks
 
         source = inspect.getsource(hooks._try_daemon_submit)
@@ -129,6 +127,7 @@ class TestF122IpcCloneBypass:
     def test_mcp_tools_uses_resolve_socket_path(self):
         """mcp/tools.py must use _resolve_socket_path for clone-aware routing."""
         import inspect
+
         from marianne.mcp import tools
 
         source = inspect.getsource(tools.JobTools.__init__)
@@ -145,6 +144,7 @@ class TestF122IpcCloneBypass:
     def test_dashboard_routes_uses_resolve_socket_path(self):
         """dashboard/routes/jobs.py must use _resolve_socket_path."""
         import inspect
+
         from marianne.dashboard.routes import jobs
 
         source = inspect.getsource(jobs)
@@ -154,8 +154,7 @@ class TestF122IpcCloneBypass:
                 "_resolve_socket_path for clone-aware socket resolution"
             )
             assert "DaemonConfig().socket" not in source, (
-                "F-122 regression: dashboard routes must not "
-                "hardcode DaemonConfig().socket.path"
+                "F-122 regression: dashboard routes must not hardcode DaemonConfig().socket.path"
             )
 
     @pytest.mark.adversarial
@@ -167,6 +166,7 @@ class TestF122IpcCloneBypass:
         _create_daemon_client() and injected into services.
         """
         import inspect
+
         from marianne.dashboard import app as dashboard_app
 
         source = inspect.getsource(dashboard_app)
@@ -175,8 +175,7 @@ class TestF122IpcCloneBypass:
             "_resolve_socket_path for clone-aware socket resolution"
         )
         assert "DaemonConfig().socket" not in source, (
-            "F-122 regression: dashboard must not "
-            "hardcode DaemonConfig().socket.path"
+            "F-122 regression: dashboard must not hardcode DaemonConfig().socket.path"
         )
 
 
@@ -238,10 +237,13 @@ class TestBatonStateEdgeCases:
 
         baton = BatonCore()
         result = SheetAttemptResult(
-            job_id="nonexistent-job", sheet_num=1,
-            instrument_name="claude-cli", attempt=1,
+            job_id="nonexistent-job",
+            sheet_num=1,
+            instrument_name="claude-cli",
+            attempt=1,
             execution_success=True,
-            validation_pass_rate=100.0, validations_total=1,
+            validation_pass_rate=100.0,
+            validations_total=1,
         )
         # Should not crash
         baton._handle_attempt_result(result)
@@ -258,10 +260,13 @@ class TestBatonStateEdgeCases:
         baton.register_job("test-job", sheets, {})
 
         result = SheetAttemptResult(
-            job_id="test-job", sheet_num=99,
-            instrument_name="claude-cli", attempt=1,
+            job_id="test-job",
+            sheet_num=99,
+            instrument_name="claude-cli",
+            attempt=1,
             execution_success=True,
-            validation_pass_rate=100.0, validations_total=1,
+            validation_pass_rate=100.0,
+            validations_total=1,
         )
         # Should not crash
         baton._handle_attempt_result(result)

@@ -71,9 +71,7 @@ class TestValidationResult:
 class TestSheetValidationResult:
     """Tests for SheetValidationResult dataclass."""
 
-    def _make_result(
-        self, passed: bool, confidence: float = 1.0
-    ) -> ValidationResult:
+    def _make_result(self, passed: bool, confidence: float = 1.0) -> ValidationResult:
         """Helper to create a ValidationResult."""
         rule = ValidationRule(type="file_exists", path="/test.txt")
         return ValidationResult(
@@ -102,9 +100,7 @@ class TestSheetValidationResult:
         """Test pass_percentage calculation."""
         passed = self._make_result(passed=True)
         failed = self._make_result(passed=False)
-        sheet_result = SheetValidationResult(
-            sheet_num=1, results=[passed, passed, failed]
-        )
+        sheet_result = SheetValidationResult(sheet_num=1, results=[passed, passed, failed])
         assert sheet_result.pass_percentage == pytest.approx(66.67, rel=0.01)
 
     def test_aggregate_confidence(self):
@@ -121,9 +117,7 @@ class TestSheetValidationResult:
         """Test getting only passed results."""
         passed = self._make_result(passed=True)
         failed = self._make_result(passed=False)
-        sheet_result = SheetValidationResult(
-            sheet_num=1, results=[passed, failed, passed]
-        )
+        sheet_result = SheetValidationResult(sheet_num=1, results=[passed, failed, passed])
         assert len(sheet_result.get_passed_results()) == 2
 
     def test_get_failed_results(self):
@@ -1101,11 +1095,19 @@ class TestSemanticConsistencyResult:
             sheets_compared=[1, 2, 3],
             inconsistencies=[
                 SemanticInconsistency(
-                    key="A", sheet_a=1, value_a="x", sheet_b=2, value_b="y",
+                    key="A",
+                    sheet_a=1,
+                    value_a="x",
+                    sheet_b=2,
+                    value_b="y",
                     severity="error",
                 ),
                 SemanticInconsistency(
-                    key="B", sheet_a=1, value_a="p", sheet_b=3, value_b="q",
+                    key="B",
+                    sheet_a=1,
+                    value_a="p",
+                    sheet_b=3,
+                    value_b="q",
                     severity="warning",
                 ),
             ],
@@ -1128,7 +1130,11 @@ class TestSemanticConsistencyResult:
             sheets_compared=[1, 2],
             inconsistencies=[
                 SemanticInconsistency(
-                    key="X", sheet_a=1, value_a="a", sheet_b=2, value_b="b",
+                    key="X",
+                    sheet_a=1,
+                    value_a="a",
+                    sheet_b=2,
+                    value_b="b",
                 ),
             ],
             keys_checked=3,

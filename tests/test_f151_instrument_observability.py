@@ -97,11 +97,16 @@ class TestBatonPathInstrumentPopulation:
 
         mock_config.pause_between_sheets_seconds = 0
 
-        with patch("marianne.core.sheet.build_sheets", return_value=[mock_sheet_1, mock_sheet_2]):
-            with patch("marianne.daemon.baton.adapter.extract_dependencies", return_value={}):
-                result = await JobManager._run_via_baton(
-                    manager, "test-job", mock_config, mock_request,
-                )
+        with (
+            patch("marianne.core.sheet.build_sheets", return_value=[mock_sheet_1, mock_sheet_2]),
+            patch("marianne.daemon.baton.adapter.extract_dependencies", return_value={}),
+        ):
+            await JobManager._run_via_baton(
+                manager,
+                "test-job",
+                mock_config,
+                mock_request,
+            )
 
         # F-255.2: live state is now created by _run_via_baton
         live = manager._live_states["test-job"]
@@ -147,7 +152,10 @@ class TestBatonPathInstrumentPopulation:
         with patch("marianne.core.sheet.build_sheets", return_value=[mock_sheet]):
             with patch("marianne.daemon.baton.adapter.extract_dependencies", return_value={}):
                 await JobManager._run_via_baton(
-                    manager, "test-job", mock_config, mock_request,
+                    manager,
+                    "test-job",
+                    mock_config,
+                    mock_request,
                 )
 
         # instrument_name comes from the Sheet entity

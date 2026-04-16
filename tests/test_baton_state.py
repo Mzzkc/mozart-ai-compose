@@ -25,7 +25,6 @@ from marianne.daemon.baton.state import (
     SheetExecutionState,
 )
 
-
 # =============================================================================
 # BatonSheetStatus enum
 # =============================================================================
@@ -142,8 +141,12 @@ class TestAttemptContext:
 
     def test_with_previous_results(self) -> None:
         result = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code", attempt=1,
-            execution_success=False, error_classification="TRANSIENT",
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=False,
+            error_classification="TRANSIENT",
         )
         ctx = AttemptContext(
             attempt_number=2,
@@ -192,9 +195,16 @@ class TestSheetExecutionState:
         """Successful attempts don't consume retry budget."""
         state = SheetExecutionState(sheet_num=1, instrument_name="claude-code")
         result = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code", attempt=1,
-            execution_success=True, cost_usd=0.05, duration_seconds=12.5,
-            validations_passed=3, validations_total=3, validation_pass_rate=100.0,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=True,
+            cost_usd=0.05,
+            duration_seconds=12.5,
+            validations_passed=3,
+            validations_total=3,
+            validation_pass_rate=100.0,
         )
         state.record_attempt(result)
         assert state.normal_attempts == 0  # Success doesn't consume retry budget
@@ -206,8 +216,13 @@ class TestSheetExecutionState:
         """Failed attempts consume retry budget."""
         state = SheetExecutionState(sheet_num=1, instrument_name="claude-code")
         result = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code", attempt=1,
-            execution_success=False, cost_usd=0.10, duration_seconds=5.0,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=False,
+            cost_usd=0.10,
+            duration_seconds=5.0,
             error_classification="TRANSIENT",
         )
         state.record_attempt(result)
@@ -219,8 +234,12 @@ class TestSheetExecutionState:
         """Rate limits are tempo changes, not failures."""
         state = SheetExecutionState(sheet_num=1, instrument_name="claude-code")
         result = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code", attempt=1,
-            execution_success=False, rate_limited=True,
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=False,
+            rate_limited=True,
         )
         state.record_attempt(result)
         assert state.normal_attempts == 0  # NOT incremented
@@ -229,44 +248,58 @@ class TestSheetExecutionState:
     def test_record_failed_attempt_increments_normal(self) -> None:
         state = SheetExecutionState(sheet_num=1, instrument_name="claude-code")
         result = SheetAttemptResult(
-            job_id="j1", sheet_num=1, instrument_name="claude-code", attempt=1,
-            execution_success=False, error_classification="TRANSIENT",
+            job_id="j1",
+            sheet_num=1,
+            instrument_name="claude-code",
+            attempt=1,
+            execution_success=False,
+            error_classification="TRANSIENT",
         )
         state.record_attempt(result)
         assert state.normal_attempts == 1
 
     def test_can_retry_when_under_limit(self) -> None:
         state = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code", max_retries=3,
+            sheet_num=1,
+            instrument_name="claude-code",
+            max_retries=3,
         )
         state.normal_attempts = 2
         assert state.can_retry is True
 
     def test_cannot_retry_when_at_limit(self) -> None:
         state = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code", max_retries=3,
+            sheet_num=1,
+            instrument_name="claude-code",
+            max_retries=3,
         )
         state.normal_attempts = 3
         assert state.can_retry is False
 
     def test_can_complete_when_under_limit(self) -> None:
         state = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code", max_completion=5,
+            sheet_num=1,
+            instrument_name="claude-code",
+            max_completion=5,
         )
         state.completion_attempts = 4
         assert state.can_complete is True
 
     def test_cannot_complete_when_at_limit(self) -> None:
         state = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code", max_completion=5,
+            sheet_num=1,
+            instrument_name="claude-code",
+            max_completion=5,
         )
         state.completion_attempts = 5
         assert state.can_complete is False
 
     def test_is_exhausted_when_both_limits_reached(self) -> None:
         state = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
-            max_retries=3, max_completion=5,
+            sheet_num=1,
+            instrument_name="claude-code",
+            max_retries=3,
+            max_completion=5,
         )
         state.normal_attempts = 3
         state.completion_attempts = 5
@@ -360,7 +393,8 @@ class TestInstrumentState:
 
     def test_record_failure_trips_circuit_breaker(self) -> None:
         state = InstrumentState(
-            name="claude-code", max_concurrent=4,
+            name="claude-code",
+            max_concurrent=4,
             circuit_breaker_threshold=3,
         )
         state.record_failure()
@@ -422,9 +456,12 @@ class TestBatonJobState:
 
     def test_register_sheet(self) -> None:
         job = BatonJobState(job_id="j1", total_sheets=3)
-        job.register_sheet(SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
-        ))
+        job.register_sheet(
+            SheetExecutionState(
+                sheet_num=1,
+                instrument_name="claude-code",
+            )
+        )
         assert len(job.sheets) == 1
         assert 1 in job.sheets
 

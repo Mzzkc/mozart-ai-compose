@@ -142,9 +142,7 @@ class TestInMemoryStateBackendMarkSheetStatus:
         backend = InMemoryStateBackend()
         state = _make_state("job-1")
         await backend.save(state)
-        await backend.mark_sheet_status(
-            "job-1", 2, SheetStatus.FAILED, error_message="timeout"
-        )
+        await backend.mark_sheet_status("job-1", 2, SheetStatus.FAILED, error_message="timeout")
         loaded = await backend.load("job-1")
         assert loaded is not None
         assert loaded.sheets[2].status == SheetStatus.FAILED

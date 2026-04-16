@@ -17,10 +17,7 @@ Covers:
 - Filter documentation in export headers
 """
 
-from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
-
-import pytest
+from unittest.mock import Mock, patch
 
 from marianne.learning.patterns import PatternType
 from marianne.learning.store.models import QuarantineStatus
@@ -98,12 +95,8 @@ class TestPendingPatternFiltering:
 
         mock_store = Mock()
         patterns = [
-            self._create_mock_pattern(
-                "p1", "Pattern 1", QuarantineStatus.PENDING, 0.5
-            ),
-            self._create_mock_pattern(
-                "p2", "Pattern 2", QuarantineStatus.PENDING, 0.5
-            ),
+            self._create_mock_pattern("p1", "Pattern 1", QuarantineStatus.PENDING, 0.5),
+            self._create_mock_pattern("p2", "Pattern 2", QuarantineStatus.PENDING, 0.5),
         ]
         mock_store.get_patterns.return_value = patterns
         mock_store.get_drifting_patterns.return_value = []
@@ -142,12 +135,8 @@ class TestPendingPatternFiltering:
 
         mock_store = Mock()
         patterns = [
-            self._create_mock_pattern(
-                "p1", "Pattern 1", QuarantineStatus.PENDING, 0.5
-            ),
-            self._create_mock_pattern(
-                "p2", "Pattern 2", QuarantineStatus.PENDING, 0.5
-            ),
+            self._create_mock_pattern("p1", "Pattern 1", QuarantineStatus.PENDING, 0.5),
+            self._create_mock_pattern("p2", "Pattern 2", QuarantineStatus.PENDING, 0.5),
         ]
         mock_store.get_patterns.return_value = patterns
         mock_store.get_drifting_patterns.return_value = []
@@ -203,9 +192,7 @@ class TestEffectivenessFiltering:
         return p
 
     @patch("marianne.learning.global_store.get_global_store")
-    def test_min_effectiveness_filters_low_effectiveness_patterns(
-        self, mock_store_factory
-    ):
+    def test_min_effectiveness_filters_low_effectiveness_patterns(self, mock_store_factory):
         """Patterns below min_effectiveness should be filtered out."""
         from marianne.cli.commands.learning._export import learning_export
 
@@ -315,9 +302,7 @@ class TestFilterDocumentation:
 
         with patch("marianne.cli.commands.learning._export.console"):
             with patch("marianne.cli.commands.learning._export._write_file") as mock_write:
-                learning_export(
-                    output_dir="/tmp/test", include_pending=True, min_effectiveness=0.0
-                )
+                learning_export(output_dir="/tmp/test", include_pending=True, min_effectiveness=0.0)
 
                 # Check headers
                 semantic_calls = [

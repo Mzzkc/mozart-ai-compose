@@ -57,6 +57,7 @@ from marianne.daemon.manager import _MTIME_TOLERANCE_SECONDS, _should_auto_fresh
 # Helpers
 # =============================================================================
 
+
 def _minimal_job_config(**overrides: Any) -> dict[str, Any]:
     """Build a minimal valid JobConfig dict for testing."""
     base: dict[str, Any] = {
@@ -66,6 +67,7 @@ def _minimal_job_config(**overrides: Any) -> dict[str, Any]:
     }
     base.update(overrides)
     return base
+
 
 def _make_sheet_exec_state(
     sheet_num: int,
@@ -91,9 +93,11 @@ def _make_sheet_exec_state(
         ]
     return s
 
+
 # =============================================================================
 # 1. F-441: extra='forbid' Edge Cases
 # =============================================================================
+
 
 class TestF441StrictnessEdges:
     """Test extra='forbid' interactions with real-world YAML patterns."""
@@ -119,17 +123,13 @@ class TestF441StrictnessEdges:
 
     def test_unknown_nested_parallel_field_rejected(self) -> None:
         """Unknown field in parallel config is caught."""
-        data = _minimal_job_config(
-            parallel={"enabled": True, "auto_distribute": True}
-        )
+        data = _minimal_job_config(parallel={"enabled": True, "auto_distribute": True})
         with pytest.raises(ValidationError, match="extra_forbidden"):
             JobConfig(**data)
 
     def test_multiple_unknown_fields_all_reported(self) -> None:
         """Multiple unknown fields at top level all appear in the error."""
-        data = _minimal_job_config(
-            bogus_a="x", bogus_b="y", bogus_c="z"
-        )
+        data = _minimal_job_config(bogus_a="x", bogus_b="y", bogus_c="z")
         with pytest.raises(ValidationError) as exc_info:
             JobConfig(**data)
         error_str = str(exc_info.value)
@@ -166,15 +166,11 @@ class TestF441StrictnessEdges:
         path doesn't conflict with the forbid check.
         """
         # Using the alias (user-facing YAML key)
-        item = InjectionItem.model_validate(
-            {"file": "path/to/file.md", "as": "context"}
-        )
+        item = InjectionItem.model_validate({"file": "path/to/file.md", "as": "context"})
         assert item.as_ == InjectionCategory.CONTEXT
 
         # Using the field name directly (populate_by_name=True)
-        item2 = InjectionItem.model_validate(
-            {"file": "path/to/file.md", "as_": "skill"}
-        )
+        item2 = InjectionItem.model_validate({"file": "path/to/file.md", "as_": "skill"})
         assert item2.as_ == InjectionCategory.SKILL
 
     def test_injection_item_unknown_field_rejected(self) -> None:
@@ -255,16 +251,13 @@ class TestF441StrictnessEdges:
     def test_concert_config_unknown_field(self) -> None:
         """ConcertConfig rejects unknown fields."""
         with pytest.raises(ValidationError, match="extra_forbidden"):
-            ConcertConfig.model_validate(
-                {"scores": ["a.yaml"], "auto_chain": True}
-            )
+            ConcertConfig.model_validate({"scores": ["a.yaml"], "auto_chain": True})
 
     def test_notification_config_unknown_field(self) -> None:
         """NotificationConfig rejects unknown fields."""
         with pytest.raises(ValidationError, match="extra_forbidden"):
-            NotificationConfig.model_validate(
-                {"type": "desktop", "channel": "general"}
-            )
+            NotificationConfig.model_validate({"type": "desktop", "channel": "general"})
+
 
 # =============================================================================
 # 2. F-211: Sync Dedup Cache Lifecycle
@@ -273,6 +266,7 @@ class TestF441StrictnessEdges:
 # =============================================================================
 # 3. Auto-Fresh Edge Cases
 # =============================================================================
+
 
 class TestAutoFreshEdges:
     """Test _should_auto_fresh boundary conditions."""
@@ -301,9 +295,7 @@ class TestAutoFreshEdges:
         """mtime == completed_at + tolerance + epsilon triggers fresh."""
         base = 1000000.0
         mock_path = MagicMock(spec=Path)
-        mock_path.stat.return_value = MagicMock(
-            st_mtime=base + _MTIME_TOLERANCE_SECONDS + 0.001
-        )
+        mock_path.stat.return_value = MagicMock(st_mtime=base + _MTIME_TOLERANCE_SECONDS + 0.001)
 
         result = _should_auto_fresh(mock_path, base)
         assert result is True
@@ -312,9 +304,7 @@ class TestAutoFreshEdges:
         """mtime == completed_at + tolerance does NOT trigger (strict >)."""
         base = 1000000.0
         mock_path = MagicMock(spec=Path)
-        mock_path.stat.return_value = MagicMock(
-            st_mtime=base + _MTIME_TOLERANCE_SECONDS
-        )
+        mock_path.stat.return_value = MagicMock(st_mtime=base + _MTIME_TOLERANCE_SECONDS)
 
         result = _should_auto_fresh(mock_path, base)
         assert result is False
@@ -358,9 +348,11 @@ class TestAutoFreshEdges:
         result = _should_auto_fresh(mock_path, -100.0)
         assert result is True
 
+
 # =============================================================================
 # 4. Cross-Sheet Context Edge Cases
 # =============================================================================
+
 
 class TestCrossSheetContextEdges:
     """Test baton adapter cross-sheet context collection edge cases."""
@@ -375,21 +367,13 @@ class TestCrossSheetContextEdges:
 
         job_state = BatonJobState(job_id="test-job", total_sheets=4)
         for i in range(1, 4):
-            job_state.register_sheet(
-                _make_sheet_exec_state(i, BatonSheetStatus.SKIPPED)
-            )
-        job_state.register_sheet(
-            _make_sheet_exec_state(4, BatonSheetStatus.IN_PROGRESS)
-        )
+            job_state.register_sheet(_make_sheet_exec_state(i, BatonSheetStatus.SKIPPED))
+        job_state.register_sheet(_make_sheet_exec_state(4, BatonSheetStatus.IN_PROGRESS))
 
         adapter._baton._jobs["test-job"] = job_state
-        adapter._job_cross_sheet["test-job"] = CrossSheetConfig(
-            auto_capture_stdout=True
-        )
+        adapter._job_cross_sheet["test-job"] = CrossSheetConfig(auto_capture_stdout=True)
 
-        previous_outputs, previous_files = adapter._collect_cross_sheet_context(
-            "test-job", 4
-        )
+        previous_outputs, previous_files = adapter._collect_cross_sheet_context("test-job", 4)
 
         assert previous_outputs == {1: "[SKIPPED]", 2: "[SKIPPED]", 3: "[SKIPPED]"}
         assert previous_files == {}
@@ -407,9 +391,7 @@ class TestCrossSheetContextEdges:
             _make_sheet_exec_state(1, BatonSheetStatus.COMPLETED, stdout="Output 1")
         )
         # Sheet 2: SKIPPED
-        job_state.register_sheet(
-            _make_sheet_exec_state(2, BatonSheetStatus.SKIPPED)
-        )
+        job_state.register_sheet(_make_sheet_exec_state(2, BatonSheetStatus.SKIPPED))
         # Sheet 3: FAILED (stdout NOT included on baton path — F-202)
         job_state.register_sheet(
             _make_sheet_exec_state(
@@ -417,13 +399,12 @@ class TestCrossSheetContextEdges:
             )
         )
         # Sheet 4: current
-        job_state.register_sheet(
-            _make_sheet_exec_state(4, BatonSheetStatus.IN_PROGRESS)
-        )
+        job_state.register_sheet(_make_sheet_exec_state(4, BatonSheetStatus.IN_PROGRESS))
 
         adapter._baton._jobs["test-job"] = job_state
         adapter._job_cross_sheet["test-job"] = CrossSheetConfig(
-            auto_capture_stdout=True, lookback_sheets=0  # All sheets
+            auto_capture_stdout=True,
+            lookback_sheets=0,  # All sheets
         )
 
         previous_outputs, _ = adapter._collect_cross_sheet_context("test-job", 4)
@@ -512,9 +493,11 @@ class TestCrossSheetContextEdges:
         assert "[truncated]" in previous_outputs[1]
         assert previous_outputs[1].startswith("A" * 1000)
 
+
 # =============================================================================
 # 5. Credential Redaction Defensive Pattern
 # =============================================================================
+
 
 class TestCredentialRedactionDefensivePattern:
     """Test the `redact_credentials(content) or content` pattern in adapter."""
@@ -566,9 +549,7 @@ class TestCredentialRedactionDefensivePattern:
         from marianne.utils.credential_scanner import redact_credentials
 
         text = (
-            "Key1: sk-ant-api03" + "A" * 30
-            + " Key2: AIzaSy" + "B" * 28
-            + " Key3: AKIA" + "C" * 16
+            "Key1: sk-ant-api03" + "A" * 30 + " Key2: AIzaSy" + "B" * 28 + " Key3: AKIA" + "C" * 16
         )
         result = redact_credentials(text)
         assert "sk-ant" not in result
@@ -576,9 +557,11 @@ class TestCredentialRedactionDefensivePattern:
         assert "AKIA" not in result
         assert result.count("REDACTED") == 3
 
+
 # =============================================================================
 # 6. F-441 Config Strictness with Real Score Patterns
 # =============================================================================
+
 
 class TestF441RealScorePatterns:
     """Test extra='forbid' against patterns that appear in real scores."""
@@ -648,9 +631,11 @@ class TestF441RealScorePatterns:
         assert config.sheet.fan_out == {}
         assert config.sheet.total_items == 5
 
+
 # =============================================================================
 # 7. Baton State Mapping Completeness
 # =============================================================================
+
 
 class TestBatonStateMappingEdges:
     """Test baton_to_checkpoint_status edge cases."""
@@ -661,8 +646,17 @@ class TestBatonStateMappingEdges:
 
         # All 11 SheetStatus values as of M5 (SheetStatus expansion)
         valid_checkpoint_statuses = {
-            "pending", "ready", "dispatched", "in_progress", "waiting",
-            "retry_scheduled", "fermata", "completed", "failed", "skipped", "cancelled",
+            "pending",
+            "ready",
+            "dispatched",
+            "in_progress",
+            "waiting",
+            "retry_scheduled",
+            "fermata",
+            "completed",
+            "failed",
+            "skipped",
+            "cancelled",
         }
 
         for status in BatonSheetStatus:
@@ -689,9 +683,11 @@ class TestBatonStateMappingEdges:
                 f"Terminal baton status {status} mapped to non-terminal {result}"
             )
 
+
 # =============================================================================
 # 8. Feature Interaction Tests
 # =============================================================================
+
 
 class TestFeatureInteractions:
     """Test interactions between M4 features designed independently."""

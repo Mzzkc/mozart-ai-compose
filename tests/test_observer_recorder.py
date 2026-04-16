@@ -222,9 +222,7 @@ class TestJSONLPersistence:
         }
         recorder._write_event("job-unknown", event)  # Should not raise
 
-    def test_file_write_failure_still_populates_ring_buffer(
-        self, tmp_path: Path
-    ) -> None:
+    def test_file_write_failure_still_populates_ring_buffer(self, tmp_path: Path) -> None:
         """Ring buffer MUST receive events even when file I/O fails."""
         recorder = self._make_recorder()
         recorder.register_job("job-1", tmp_path)
@@ -360,21 +358,25 @@ class TestCoalescing:
         recorder.register_job("job-1", tmp_path)
 
         # Event 1: ts=1000.0
-        recorder._handle_event({
-            "job_id": "job-1",
-            "sheet_num": 0,
-            "event": "observer.file_modified",
-            "data": {"path": "same-file.md"},
-            "timestamp": 1000.0,
-        })
+        recorder._handle_event(
+            {
+                "job_id": "job-1",
+                "sheet_num": 0,
+                "event": "observer.file_modified",
+                "data": {"path": "same-file.md"},
+                "timestamp": 1000.0,
+            }
+        )
         # Event 2: ts=1005.0 — 5 seconds later, outside 1s window
-        recorder._handle_event({
-            "job_id": "job-1",
-            "sheet_num": 0,
-            "event": "observer.file_modified",
-            "data": {"path": "same-file.md"},
-            "timestamp": 1005.0,
-        })
+        recorder._handle_event(
+            {
+                "job_id": "job-1",
+                "sheet_num": 0,
+                "event": "observer.file_modified",
+                "data": {"path": "same-file.md"},
+                "timestamp": 1005.0,
+            }
+        )
 
         recorder.flush("job-1")
         jsonl_path = tmp_path / ".marianne-observer.jsonl"
@@ -391,13 +393,15 @@ class TestCoalescing:
         now = time.time()
 
         for i in range(5):
-            recorder._handle_event({
-                "job_id": "job-1",
-                "sheet_num": 0,
-                "event": "observer.file_modified",
-                "data": {"path": "active-file.md"},
-                "timestamp": now + i * 0.1,
-            })
+            recorder._handle_event(
+                {
+                    "job_id": "job-1",
+                    "sheet_num": 0,
+                    "event": "observer.file_modified",
+                    "data": {"path": "active-file.md"},
+                    "timestamp": now + i * 0.1,
+                }
+            )
 
         # Ring buffer should have ALL 5 events, even though JSONL will coalesce
         assert len(state.recent_events) == 5
@@ -408,13 +412,15 @@ class TestCoalescing:
         recorder.register_job("job-1", tmp_path)
         now = time.time()
         for i in range(3):
-            recorder._handle_event({
-                "job_id": "job-1",
-                "sheet_num": 0,
-                "event": "observer.file_created",
-                "data": {"path": "same-file.md"},
-                "timestamp": now + i * 0.1,
-            })
+            recorder._handle_event(
+                {
+                    "job_id": "job-1",
+                    "sheet_num": 0,
+                    "event": "observer.file_created",
+                    "data": {"path": "same-file.md"},
+                    "timestamp": now + i * 0.1,
+                }
+            )
 
         recorder.flush("job-1")
         jsonl_path = tmp_path / ".marianne-observer.jsonl"
@@ -435,7 +441,8 @@ class TestSizeCap:
         import asyncio
 
         recorder = self._make_recorder(
-            max_timeline_bytes=4096, coalesce_window_seconds=0.0,
+            max_timeline_bytes=4096,
+            coalesce_window_seconds=0.0,
         )
         recorder.register_job("job-1", tmp_path)
 
@@ -467,7 +474,8 @@ class TestSizeCap:
         import asyncio
 
         recorder = self._make_recorder(
-            max_timeline_bytes=4096, coalesce_window_seconds=0.0,
+            max_timeline_bytes=4096,
+            coalesce_window_seconds=0.0,
         )
         recorder.register_job("job-1", tmp_path)
 
@@ -611,7 +619,8 @@ class TestLifecycle:
 
     @pytest.mark.asyncio
     async def test_periodic_flush_expires_coalesced_events(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """REVIEW FIX 2: The periodic flush timer writes expired coalesce entries."""
         config = ObserverConfig(coalesce_window_seconds=0.2)
@@ -623,13 +632,15 @@ class TestLifecycle:
         recorder.register_job("job-1", tmp_path)
 
         # Buffer a file_modified event via _handle_event (it goes into coalesce buffer)
-        recorder._handle_event({
-            "job_id": "job-1",
-            "sheet_num": 0,
-            "event": "observer.file_modified",
-            "data": {"path": "delayed-file.md"},
-            "timestamp": time.time(),
-        })
+        recorder._handle_event(
+            {
+                "job_id": "job-1",
+                "sheet_num": 0,
+                "event": "observer.file_modified",
+                "data": {"path": "delayed-file.md"},
+                "timestamp": time.time(),
+            }
+        )
 
         # The event should be in coalesce buffer, not yet in JSONL
         jsonl_path = tmp_path / ".marianne-observer.jsonl"
@@ -790,13 +801,15 @@ class TestObserverEventsIPC:
         handler_fn, manager = self._extract_handler("daemon.observer_events")
         recorder = ObserverRecorder(config=ObserverConfig())
         recorder.register_job("job-1", tmp_path)
-        recorder._handle_event({
-            "job_id": "job-1",
-            "sheet_num": 0,
-            "event": "observer.file_created",
-            "data": {"path": "output.md"},
-            "timestamp": 1000.0,
-        })
+        recorder._handle_event(
+            {
+                "job_id": "job-1",
+                "sheet_num": 0,
+                "event": "observer.file_created",
+                "data": {"path": "output.md"},
+                "timestamp": 1000.0,
+            }
+        )
         manager.observer_recorder = recorder
 
         result = await handler_fn({"job_id": "job-1", "limit": 50}, None)
@@ -810,13 +823,15 @@ class TestObserverEventsIPC:
         recorder = ObserverRecorder(config=ObserverConfig())
         recorder.register_job("job-1", tmp_path)
         for i in range(60):
-            recorder._handle_event({
-                "job_id": "job-1",
-                "sheet_num": 0,
-                "event": "observer.file_created",
-                "data": {"path": f"file-{i}.md"},
-                "timestamp": 1000.0 + i,
-            })
+            recorder._handle_event(
+                {
+                    "job_id": "job-1",
+                    "sheet_num": 0,
+                    "event": "observer.file_created",
+                    "data": {"path": f"file-{i}.md"},
+                    "timestamp": 1000.0 + i,
+                }
+            )
         manager.observer_recorder = recorder
 
         result = await handler_fn({"job_id": "job-1"}, None)
@@ -833,13 +848,15 @@ class TestObserverEventsIPC:
         recorder.register_job("job-1", ws1)
         recorder.register_job("job-2", ws2)
         for jid in ("job-1", "job-2"):
-            recorder._handle_event({
-                "job_id": jid,
-                "sheet_num": 0,
-                "event": "observer.process_spawned",
-                "data": {"pid": 1234},
-                "timestamp": 1000.0,
-            })
+            recorder._handle_event(
+                {
+                    "job_id": jid,
+                    "sheet_num": 0,
+                    "event": "observer.process_spawned",
+                    "data": {"pid": 1234},
+                    "timestamp": 1000.0,
+                }
+            )
         manager.observer_recorder = recorder
 
         result = await handler_fn({"job_id": None, "limit": 50}, None)

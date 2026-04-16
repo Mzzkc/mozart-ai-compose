@@ -15,10 +15,6 @@ import json
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
-from marianne.core.config import JobConfig
-from marianne.core.config.execution import ParallelConfig
-from marianne.core.config.workspace import IsolationConfig
-
 import pytest
 
 from marianne.core.checkpoint import CheckpointState
@@ -60,30 +56,6 @@ def sample_outputs():
         2: "Output from sheet 2\nAlso multiline",
         3: "Output from sheet 3\nFinal content here",
     }
-
-
-@pytest.fixture
-def batch_result_success():
-    """Create a successful batch result."""
-    return ParallelBatchResult(
-        sheets=[1, 2, 3],
-        completed=[1, 2, 3],
-        failed=[],
-        skipped=[],
-        duration_seconds=10.5,
-    )
-
-
-@pytest.fixture
-def batch_result_partial():
-    """Create a partial success batch result."""
-    return ParallelBatchResult(
-        sheets=[1, 2, 3],
-        completed=[1, 2],
-        failed=[3],
-        error_details={3: "Sheet 3 failed"},
-        duration_seconds=15.0,
-    )
 
 
 # =============================================================================

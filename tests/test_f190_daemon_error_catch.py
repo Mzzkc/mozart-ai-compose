@@ -13,9 +13,8 @@ TDD: Tests define the contract. Implementation fulfills it.
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
-import pytest
 from typer.testing import CliRunner
 
 from marianne.cli import app
@@ -34,8 +33,7 @@ class TestDiagnoseErrorsDaemonErrorCatch:
             "marianne.daemon.detect.try_daemon_route",
             new_callable=AsyncMock,
             side_effect=MethodNotFoundError(
-                "Method 'job.errors' not found on conductor. "
-                "Restart with: mzt restart"
+                "Method 'job.errors' not found on conductor. Restart with: mzt restart"
             ),
         ):
             result = runner.invoke(app, ["errors", "test-job"])
@@ -64,9 +62,7 @@ class TestDiagnoseDaemonErrorCatch:
         with patch(
             "marianne.daemon.detect.try_daemon_route",
             new_callable=AsyncMock,
-            side_effect=MethodNotFoundError(
-                "Method 'job.diagnose' not found"
-            ),
+            side_effect=MethodNotFoundError("Method 'job.diagnose' not found"),
         ):
             result = runner.invoke(app, ["diagnose", "test-job"])
         assert result.exit_code != 0
@@ -93,9 +89,7 @@ class TestHistoryDaemonErrorCatch:
         with patch(
             "marianne.daemon.detect.try_daemon_route",
             new_callable=AsyncMock,
-            side_effect=MethodNotFoundError(
-                "Method 'job.history' not found"
-            ),
+            side_effect=MethodNotFoundError("Method 'job.history' not found"),
         ):
             result = runner.invoke(app, ["history", "test-job"])
         assert result.exit_code != 0
@@ -125,10 +119,10 @@ class TestRecoverDaemonErrorCatch:
         """Missing DB file produces clean error with hint."""
         import sys
 
-        import marianne.cli.commands.recover
         recover_mod = sys.modules["marianne.cli.commands.recover"]
         with patch.object(
-            recover_mod, "_get_db_path",
+            recover_mod,
+            "_get_db_path",
             return_value=Path("/nonexistent/daemon-state.db"),
         ):
             result = runner.invoke(app, ["recover", "test-job"])

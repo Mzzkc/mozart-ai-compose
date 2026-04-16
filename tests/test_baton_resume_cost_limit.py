@@ -22,9 +22,7 @@ from marianne.daemon.baton.events import (
 from marianne.daemon.baton.state import SheetExecutionState
 
 
-def _make_sheet(
-    sheet_num: int, instrument: str = "claude-code"
-) -> SheetExecutionState:
+def _make_sheet(sheet_num: int, instrument: str = "claude-code") -> SheetExecutionState:
     return SheetExecutionState(
         sheet_num=sheet_num,
         instrument_name=instrument,
@@ -166,6 +164,4 @@ class TestResumeJobCostLimitRecheck:
         # User resumes
         await baton.handle_event(ResumeJob(job_id="j1"))
         assert job.user_paused is False
-        assert job.paused is True, (
-            "Cost enforcement should re-pause the job even after user resume"
-        )
+        assert job.paused is True, "Cost enforcement should re-pause the job even after user resume"

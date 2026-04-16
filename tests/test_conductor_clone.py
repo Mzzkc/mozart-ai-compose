@@ -16,7 +16,6 @@ import pytest
 
 from marianne.daemon.config import DaemonConfig, SocketConfig
 
-
 # =============================================================================
 # Clone path resolution
 # =============================================================================
@@ -288,11 +287,13 @@ class TestConductorStartWithClone:
 
         clone_paths = resolve_clone_paths("start-test")
 
-        with patch("marianne.daemon.process._load_config") as mock_load, \
-             patch("marianne.daemon.process._read_pid", return_value=None), \
-             patch("marianne.daemon.process.DaemonProcess") as mock_daemon, \
-             patch("marianne.core.logging.configure_logging"), \
-             patch("asyncio.run"):
+        with (
+            patch("marianne.daemon.process._load_config") as mock_load,
+            patch("marianne.daemon.process._read_pid", return_value=None),
+            patch("marianne.daemon.process.DaemonProcess") as mock_daemon,
+            patch("marianne.core.logging.configure_logging"),
+            patch("asyncio.run"),
+        ):
             mock_load.return_value = DaemonConfig()
 
             from marianne.daemon.process import start_conductor
@@ -306,11 +307,13 @@ class TestConductorStartWithClone:
 
     def test_start_with_clone_inherits_non_path_config(self) -> None:
         """Clone config should inherit non-path settings from base config."""
-        with patch("marianne.daemon.process._load_config") as mock_load, \
-             patch("marianne.daemon.process._read_pid", return_value=None), \
-             patch("marianne.daemon.process.DaemonProcess") as mock_daemon, \
-             patch("marianne.core.logging.configure_logging"), \
-             patch("asyncio.run"):
+        with (
+            patch("marianne.daemon.process._load_config") as mock_load,
+            patch("marianne.daemon.process._read_pid", return_value=None),
+            patch("marianne.daemon.process.DaemonProcess") as mock_daemon,
+            patch("marianne.core.logging.configure_logging"),
+            patch("asyncio.run"),
+        ):
             base_config = DaemonConfig(max_concurrent_jobs=7)
             mock_load.return_value = base_config
 
@@ -328,11 +331,13 @@ class TestConductorStartWithClone:
             pid_file=Path("/tmp/test-prod-no-clone.pid"),
         )
 
-        with patch("marianne.daemon.process._load_config") as mock_load, \
-             patch("marianne.daemon.process._read_pid", return_value=None), \
-             patch("marianne.daemon.process.DaemonProcess") as mock_daemon, \
-             patch("marianne.core.logging.configure_logging"), \
-             patch("asyncio.run"):
+        with (
+            patch("marianne.daemon.process._load_config") as mock_load,
+            patch("marianne.daemon.process._read_pid", return_value=None),
+            patch("marianne.daemon.process.DaemonProcess") as mock_daemon,
+            patch("marianne.core.logging.configure_logging"),
+            patch("asyncio.run"),
+        ):
             mock_load.return_value = prod_config
 
             from marianne.daemon.process import start_conductor
@@ -349,11 +354,13 @@ class TestConductorStartWithClone:
 
         clone_paths = resolve_clone_paths("pid-test")
 
-        with patch("marianne.daemon.process._load_config") as mock_load, \
-             patch("marianne.daemon.process._read_pid") as mock_read_pid, \
-             patch("marianne.daemon.process.DaemonProcess"), \
-             patch("marianne.core.logging.configure_logging"), \
-             patch("asyncio.run"):
+        with (
+            patch("marianne.daemon.process._load_config") as mock_load,
+            patch("marianne.daemon.process._read_pid") as mock_read_pid,
+            patch("marianne.daemon.process.DaemonProcess"),
+            patch("marianne.core.logging.configure_logging"),
+            patch("asyncio.run"),
+        ):
             mock_load.return_value = DaemonConfig()
             mock_read_pid.return_value = None
 
@@ -370,11 +377,13 @@ class TestConductorStartWithClone:
 
         clone_paths = resolve_clone_paths("log-test")
 
-        with patch("marianne.daemon.process._load_config") as mock_load, \
-             patch("marianne.daemon.process._read_pid", return_value=None), \
-             patch("marianne.daemon.process.DaemonProcess"), \
-             patch("marianne.core.logging.configure_logging") as mock_log, \
-             patch("asyncio.run"):
+        with (
+            patch("marianne.daemon.process._load_config") as mock_load,
+            patch("marianne.daemon.process._read_pid", return_value=None),
+            patch("marianne.daemon.process.DaemonProcess"),
+            patch("marianne.core.logging.configure_logging") as mock_log,
+            patch("asyncio.run"),
+        ):
             mock_load.return_value = DaemonConfig()
 
             from marianne.daemon.process import start_conductor
@@ -413,9 +422,7 @@ class TestConductorStopWithClone:
                     pid_file = resolve_clone_paths(get_clone_name()).pid_file
 
                 mock_stop(pid_file=pid_file, force=False)
-                mock_stop.assert_called_once_with(
-                    pid_file=clone_paths.pid_file, force=False
-                )
+                mock_stop.assert_called_once_with(pid_file=clone_paths.pid_file, force=False)
         finally:
             set_clone_name(None)
 
@@ -430,10 +437,11 @@ class TestConductorRestartWithClone:
         set_clone_name("restart-test")
         try:
             clone_paths = resolve_clone_paths("restart-test")
-            with patch("marianne.daemon.process.stop_conductor") as mock_stop, \
-                 patch("marianne.daemon.process.wait_for_conductor_exit", return_value=True), \
-                 patch("marianne.daemon.process.start_conductor") as mock_start:
-
+            with (
+                patch("marianne.daemon.process.stop_conductor") as mock_stop,
+                patch("marianne.daemon.process.wait_for_conductor_exit", return_value=True),
+                patch("marianne.daemon.process.start_conductor"),
+            ):
                 from marianne.daemon.clone import get_clone_name, is_clone_active
 
                 # Simulate restart with clone

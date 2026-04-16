@@ -79,7 +79,9 @@ class TestBuildPromptJinja2Rendering:
         """Template variables like {{ sheet_num }} are rendered."""
         sheet = _make_sheet(
             num=3,
-            prompt_template="Sheet {{ sheet_num }} of {{ total_sheets }}. Workspace: {{ workspace }}",
+            prompt_template=(
+                "Sheet {{ sheet_num }} of {{ total_sheets }}. Workspace: {{ workspace }}"
+            ),
         )
         context = _make_context()
         prompt = _build_prompt(sheet, context, total_sheets=10, total_movements=5)

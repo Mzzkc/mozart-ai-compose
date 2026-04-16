@@ -98,9 +98,7 @@ class TestGlobalStoreSingletonIsolation:
         # (We can't easily verify this without querying the DB, but the None check above
         # proves the singleton was reset)
 
-    def test_singleton_with_custom_path_recreated_on_path_change(
-        self, tmp_path: Path
-    ) -> None:
+    def test_singleton_with_custom_path_recreated_on_path_change(self, tmp_path: Path) -> None:
         """Verify singleton recreates when db_path changes."""
         # Import the module to verify internal state
         import marianne.learning.store as store_module
@@ -117,9 +115,7 @@ class TestGlobalStoreSingletonIsolation:
         # Get singleton with second custom path (should create NEW instance)
         store2 = get_global_store(db_path=custom_db2)
         assert store2.db_path == custom_db2
-        assert store2 is not store1, (
-            "Singleton should be recreated when db_path changes"
-        )
+        assert store2 is not store1, "Singleton should be recreated when db_path changes"
         assert store_module._global_store is store2
 
         # Get singleton again with first path (should create NEW instance again)
@@ -131,9 +127,7 @@ class TestGlobalStoreSingletonIsolation:
         assert store3 is not store2
         assert store_module._global_store is store3
 
-    def test_fixture_and_singleton_dont_interfere(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_fixture_and_singleton_dont_interfere(self, global_store: GlobalLearningStore) -> None:
         """Verify fixture-created store doesn't interfere with singleton.
 
         The global_store fixture creates a temp database. If we call get_global_store()
@@ -208,9 +202,7 @@ class TestF527RegressionScenario:
         )
         assert pattern_id is not None
 
-    def test_learning_test_using_fixture(
-        self, global_store: GlobalLearningStore
-    ) -> None:
+    def test_learning_test_using_fixture(self, global_store: GlobalLearningStore) -> None:
         """Simulate a global_learning.py test that uses the fixture.
 
         This test should work correctly even after test_cli_test_using_singleton
@@ -235,6 +227,5 @@ class TestF527RegressionScenario:
         # (because it's in a different database)
         cli_patterns = global_store.get_patterns(pattern_type="cli_test")
         assert len(cli_patterns) == 0, (
-            "F-527: Found patterns from previous test! "
-            "Test isolation is broken."
+            "F-527: Found patterns from previous test! Test isolation is broken."
         )

@@ -1,11 +1,11 @@
 """Tests for mzt learning-export CLI command."""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 from typer.testing import CliRunner
 
 from marianne.cli import app
@@ -95,12 +95,8 @@ def _setup_mock_store(mock_get_store: MagicMock, **overrides: object) -> MagicMo
     """Create a fully-configured mock store with sensible defaults."""
     mock_store = MagicMock()
     mock_store.get_patterns.return_value = overrides.get("patterns", [])
-    mock_store.get_drifting_patterns.return_value = overrides.get(
-        "drifting_patterns", []
-    )
-    mock_store.get_epistemic_drifting_patterns.return_value = overrides.get(
-        "epistemic_drift", []
-    )
+    mock_store.get_drifting_patterns.return_value = overrides.get("drifting_patterns", [])
+    mock_store.get_epistemic_drifting_patterns.return_value = overrides.get("epistemic_drift", [])
     mock_store.calculate_pattern_entropy.return_value = overrides.get(
         "entropy",
         MagicMock(
@@ -111,9 +107,7 @@ def _setup_mock_store(mock_get_store: MagicMock, **overrides: object) -> MagicMo
             dominant_pattern_share=0.15,
         ),
     )
-    mock_store.get_entropy_response_history.return_value = overrides.get(
-        "entropy_history", []
-    )
+    mock_store.get_entropy_response_history.return_value = overrides.get("entropy_history", [])
     mock_store.get_trajectory.return_value = overrides.get("trajectory", [])
     mock_store.get_execution_stats.return_value = overrides.get("exec_stats", {})
     mock_get_store.return_value = mock_store
@@ -124,22 +118,16 @@ class TestLearningExport:
     """Tests for learning-export command."""
 
     @patch(_GS_PATCH)
-    def test_creates_output_directory(
-        self, mock_get_store: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_creates_output_directory(self, mock_get_store: MagicMock, tmp_path: Path) -> None:
         _setup_mock_store(mock_get_store, patterns=[_make_pattern()])
 
         out_dir = tmp_path / "export"
-        result = runner.invoke(
-            app, ["learning-export", "--output-dir", str(out_dir)]
-        )
+        result = runner.invoke(app, ["learning-export", "--output-dir", str(out_dir)])
         assert result.exit_code == 0, result.stdout
         assert out_dir.exists()
 
     @patch(_GS_PATCH)
-    def test_writes_semantic_insights_file(
-        self, mock_get_store: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_writes_semantic_insights_file(self, mock_get_store: MagicMock, tmp_path: Path) -> None:
         _setup_mock_store(
             mock_get_store,
             patterns=[
@@ -149,9 +137,7 @@ class TestLearningExport:
         )
 
         out_dir = tmp_path / "export"
-        result = runner.invoke(
-            app, ["learning-export", "--output-dir", str(out_dir)]
-        )
+        result = runner.invoke(app, ["learning-export", "--output-dir", str(out_dir)])
         assert result.exit_code == 0, result.stdout
 
         insights_file = out_dir / "semantic-insights.md"
@@ -161,30 +147,20 @@ class TestLearningExport:
         assert "test_pattern" in content
 
     @patch(_GS_PATCH)
-    def test_writes_drift_report(
-        self, mock_get_store: MagicMock, tmp_path: Path
-    ) -> None:
-        _setup_mock_store(
-            mock_get_store, drifting_patterns=[_make_drift_metrics()]
-        )
+    def test_writes_drift_report(self, mock_get_store: MagicMock, tmp_path: Path) -> None:
+        _setup_mock_store(mock_get_store, drifting_patterns=[_make_drift_metrics()])
 
         out_dir = tmp_path / "export"
-        result = runner.invoke(
-            app, ["learning-export", "--output-dir", str(out_dir)]
-        )
+        result = runner.invoke(app, ["learning-export", "--output-dir", str(out_dir)])
         assert result.exit_code == 0, result.stdout
         assert (out_dir / "drift-report.md").exists()
 
     @patch(_GS_PATCH)
-    def test_writes_all_six_files(
-        self, mock_get_store: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_writes_all_six_files(self, mock_get_store: MagicMock, tmp_path: Path) -> None:
         _setup_mock_store(mock_get_store)
 
         out_dir = tmp_path / "export"
-        result = runner.invoke(
-            app, ["learning-export", "--output-dir", str(out_dir)]
-        )
+        result = runner.invoke(app, ["learning-export", "--output-dir", str(out_dir)])
         assert result.exit_code == 0, result.stdout
 
         expected_files = [
@@ -211,9 +187,7 @@ class TestLearningExport:
         )
 
         out_dir = tmp_path / "export"
-        result = runner.invoke(
-            app, ["learning-export", "--output-dir", str(out_dir)]
-        )
+        result = runner.invoke(app, ["learning-export", "--output-dir", str(out_dir)])
         assert result.exit_code == 0, result.stdout
 
         content = (out_dir / "evolution-history.md").read_text()
@@ -221,9 +195,7 @@ class TestLearningExport:
         assert "24" in content
 
     @patch(_GS_PATCH)
-    def test_json_format_writes_json_files(
-        self, mock_get_store: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_json_format_writes_json_files(self, mock_get_store: MagicMock, tmp_path: Path) -> None:
         _setup_mock_store(mock_get_store, patterns=[_make_pattern()])
 
         out_dir = tmp_path / "export"
@@ -242,9 +214,7 @@ class TestLearningRecordEvolution:
     """Tests for learning-record-evolution command."""
 
     @patch(_GS_PATCH)
-    def test_records_evolution_entry(
-        self, mock_get_store: MagicMock
-    ) -> None:
+    def test_records_evolution_entry(self, mock_get_store: MagicMock) -> None:
         mock_store = MagicMock()
         mock_store.record_evolution_entry.return_value = "uuid-123"
         mock_get_store.return_value = mock_store
@@ -253,25 +223,26 @@ class TestLearningRecordEvolution:
             app,
             [
                 "learning-record-evolution",
-                "--cycle", "26",
-                "--evolutions-completed", "2",
-                "--issue-classes", "infrastructure_activation,testing_depth",
-                "--implementation-loc", "150",
-                "--test-loc", "200",
+                "--cycle",
+                "26",
+                "--evolutions-completed",
+                "2",
+                "--issue-classes",
+                "infrastructure_activation,testing_depth",
+                "--implementation-loc",
+                "150",
+                "--test-loc",
+                "200",
             ],
         )
         assert result.exit_code == 0, result.stdout
         mock_store.record_evolution_entry.assert_called_once()
 
     @patch(_GS_PATCH)
-    def test_rejects_missing_required_fields(
-        self, mock_get_store: MagicMock
-    ) -> None:
+    def test_rejects_missing_required_fields(self, mock_get_store: MagicMock) -> None:
         mock_store = MagicMock()
         mock_get_store.return_value = mock_store
 
-        result = runner.invoke(
-            app, ["learning-record-evolution", "--cycle", "26"]
-        )
+        result = runner.invoke(app, ["learning-record-evolution", "--cycle", "26"])
         # Should fail due to missing required options
         assert result.exit_code != 0

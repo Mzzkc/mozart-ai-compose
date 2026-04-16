@@ -10,10 +10,6 @@ TDD: Tests written before implementation. Red first, then green.
 
 from __future__ import annotations
 
-import asyncio
-import time
-from unittest.mock import AsyncMock, MagicMock, patch
-
 import pytest
 
 from marianne.daemon.baton.core import BatonCore
@@ -24,19 +20,14 @@ from marianne.daemon.baton.events import (
 )
 from marianne.daemon.baton.state import (
     BatonSheetStatus,
-    InstrumentState,
     SheetExecutionState,
 )
-from marianne.daemon.baton.timer import TimerWheel
 
 
-def _make_sheets(
-    count: int = 3, instrument: str = "claude-code"
-) -> dict[int, SheetExecutionState]:
+def _make_sheets(count: int = 3, instrument: str = "claude-code") -> dict[int, SheetExecutionState]:
     """Create a set of sheet execution states."""
     return {
-        i: SheetExecutionState(sheet_num=i, instrument_name=instrument)
-        for i in range(1, count + 1)
+        i: SheetExecutionState(sheet_num=i, instrument_name=instrument) for i in range(1, count + 1)
     }
 
 

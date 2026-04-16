@@ -13,8 +13,9 @@ import structlog
 
 def strip_ansi(text: str) -> str:
     """Remove ANSI escape codes from text for assertion matching."""
-    ansi_pattern = re.compile(r'\x1b\[[0-9;]*m')
-    return ansi_pattern.sub('', text)
+    ansi_pattern = re.compile(r"\x1b\[[0-9;]*m")
+    return ansi_pattern.sub("", text)
+
 
 from marianne.core.config import LogConfig
 from marianne.core.logging import (
@@ -1459,8 +1460,7 @@ class TestConfigureLoggingWithCompression:
         # Verify handler is CompressingRotatingFileHandler
         root_logger = logging.getLogger()
         file_handlers = [
-            h for h in root_logger.handlers
-            if isinstance(h, CompressingRotatingFileHandler)
+            h for h in root_logger.handlers if isinstance(h, CompressingRotatingFileHandler)
         ]
         assert len(file_handlers) == 1
 
@@ -1480,9 +1480,10 @@ class TestConfigureLoggingWithCompression:
         # Verify handler is plain RotatingFileHandler (not compressing)
         root_logger = logging.getLogger()
         rotating_handlers = [
-            h for h in root_logger.handlers
-            if isinstance(h, RotatingFileHandler) and
-            not isinstance(h, CompressingRotatingFileHandler)
+            h
+            for h in root_logger.handlers
+            if isinstance(h, RotatingFileHandler)
+            and not isinstance(h, CompressingRotatingFileHandler)
         ]
         assert len(rotating_handlers) == 1
 
@@ -1648,10 +1649,7 @@ class TestLogsCLI:
 
         assert result.exit_code == 0
         # Output should be valid JSON
-        output_lines = [
-            line for line in result.output.strip().split("\n")
-            if line.startswith("{")
-        ]
+        output_lines = [line for line in result.output.strip().split("\n") if line.startswith("{")]
         assert len(output_lines) >= 1
         parsed = json.loads(output_lines[0])
         assert parsed["event"] == "test_event"
@@ -1700,10 +1698,7 @@ class TestLogsCLI:
         log_file = log_dir / "marianne.log"
 
         # Write 10 entries
-        entries = [
-            {"event": f"event_{i}", "level": "INFO"}
-            for i in range(10)
-        ]
+        entries = [{"event": f"event_{i}", "level": "INFO"} for i in range(10)]
         log_file.write_text("\n".join(json.dumps(e) for e in entries))
 
         monkeypatch.chdir(tmp_path)

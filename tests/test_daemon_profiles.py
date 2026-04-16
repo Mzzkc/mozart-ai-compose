@@ -5,7 +5,6 @@ Covers profile loading, deep merging, resolution order, and error handling.
 
 from __future__ import annotations
 
-import textwrap
 from pathlib import Path
 
 import pytest
@@ -18,7 +17,6 @@ from marianne.daemon.profiles import (
     get_profile,
     list_profiles,
 )
-
 
 # ── Built-in profile discovery ────────────────────────────────────────
 
@@ -216,7 +214,9 @@ class TestProfileResolution:
 class TestLoadConfigWithProfile:
     """Test _load_config integration with profiles."""
 
-    def test_load_config_no_file_no_profile(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_load_config_no_file_no_profile(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Without config file or profile, returns defaults."""
         from marianne.daemon.process import _load_config
 
@@ -224,7 +224,9 @@ class TestLoadConfigWithProfile:
         config = _load_config(None, profile=None)
         assert config.max_concurrent_jobs == 15  # new default
 
-    def test_load_config_with_profile(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_load_config_with_profile(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Profile without config file applies over defaults."""
         from marianne.daemon.process import _load_config
 
@@ -238,10 +240,14 @@ class TestLoadConfigWithProfile:
         from marianne.daemon.process import _load_config
 
         config_file = tmp_path / "conductor.yaml"
-        config_file.write_text(yaml.dump({
-            "max_concurrent_jobs": 10,
-            "job_timeout_seconds": 7200,
-        }))
+        config_file.write_text(
+            yaml.dump(
+                {
+                    "max_concurrent_jobs": 10,
+                    "job_timeout_seconds": 7200,
+                }
+            )
+        )
 
         config = _load_config(config_file, profile="dev")
         # Profile overrides max_concurrent_jobs
@@ -251,7 +257,9 @@ class TestLoadConfigWithProfile:
         # Profile sets log_level
         assert config.log_level == "debug"
 
-    def test_load_config_unknown_profile_raises(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_load_config_unknown_profile_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Unknown profile name raises FileNotFoundError."""
         from marianne.daemon.process import _load_config
 

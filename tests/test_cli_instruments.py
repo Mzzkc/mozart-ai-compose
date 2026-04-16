@@ -7,8 +7,6 @@ Tests cover:
 
 from __future__ import annotations
 
-import shutil
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -57,7 +55,10 @@ def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
     """Prevent CLI tests from routing through a real conductor."""
 
     async def _fake_route(
-        method: str, params: dict, *, socket_path=None  # noqa: ANN001
+        method: str,
+        params: dict,
+        *,
+        socket_path=None,  # noqa: ANN001
     ) -> tuple[bool, None]:
         return False, None
 
@@ -80,10 +81,13 @@ class TestInstrumentsList:
         profiles = {
             "claude-code": _make_cli_profile("claude-code", "Claude Code", "claude"),
         }
-        with patch(
-            "marianne.cli.commands.instruments._load_all_profiles",
-            return_value=profiles,
-        ), patch("shutil.which", return_value="/usr/bin/claude"):
+        with (
+            patch(
+                "marianne.cli.commands.instruments._load_all_profiles",
+                return_value=profiles,
+            ),
+            patch("shutil.which", return_value="/usr/bin/claude"),
+        ):
             result = runner.invoke(app, ["instruments", "list"])
 
         assert result.exit_code == 0
@@ -97,10 +101,13 @@ class TestInstrumentsList:
             "claude-code": _make_cli_profile("claude-code", "Claude Code", "claude"),
             "gemini-cli": _make_cli_profile("gemini-cli", "Gemini CLI", "gemini"),
         }
-        with patch(
-            "marianne.cli.commands.instruments._load_all_profiles",
-            return_value=profiles,
-        ), patch("shutil.which", return_value=None):
+        with (
+            patch(
+                "marianne.cli.commands.instruments._load_all_profiles",
+                return_value=profiles,
+            ),
+            patch("shutil.which", return_value=None),
+        ):
             result = runner.invoke(app, ["instruments", "list"])
 
         assert result.exit_code == 0
@@ -112,10 +119,13 @@ class TestInstrumentsList:
         profiles = {
             "claude-code": _make_cli_profile("claude-code", "Claude Code", "claude"),
         }
-        with patch(
-            "marianne.cli.commands.instruments._load_all_profiles",
-            return_value=profiles,
-        ), patch("shutil.which", return_value="/usr/bin/claude"):
+        with (
+            patch(
+                "marianne.cli.commands.instruments._load_all_profiles",
+                return_value=profiles,
+            ),
+            patch("shutil.which", return_value="/usr/bin/claude"),
+        ):
             result = runner.invoke(app, ["instruments", "list"])
 
         assert result.exit_code == 0
@@ -126,10 +136,13 @@ class TestInstrumentsList:
         profiles = {
             "codex-cli": _make_cli_profile("codex-cli", "Codex CLI", "codex"),
         }
-        with patch(
-            "marianne.cli.commands.instruments._load_all_profiles",
-            return_value=profiles,
-        ), patch("shutil.which", return_value=None):
+        with (
+            patch(
+                "marianne.cli.commands.instruments._load_all_profiles",
+                return_value=profiles,
+            ),
+            patch("shutil.which", return_value=None),
+        ):
             result = runner.invoke(app, ["instruments", "list"])
 
         assert result.exit_code == 0
@@ -142,10 +155,13 @@ class TestInstrumentsList:
                 "gemini-cli", "Gemini CLI", "gemini", default_model="gemini-2.5-pro"
             ),
         }
-        with patch(
-            "marianne.cli.commands.instruments._load_all_profiles",
-            return_value=profiles,
-        ), patch("shutil.which", return_value="/usr/bin/gemini"):
+        with (
+            patch(
+                "marianne.cli.commands.instruments._load_all_profiles",
+                return_value=profiles,
+            ),
+            patch("shutil.which", return_value="/usr/bin/gemini"),
+        ):
             result = runner.invoke(app, ["instruments", "list"])
 
         assert result.exit_code == 0
@@ -158,10 +174,13 @@ class TestInstrumentsList:
                 "claude-code", "Claude Code", "claude", default_model=None
             ),
         }
-        with patch(
-            "marianne.cli.commands.instruments._load_all_profiles",
-            return_value=profiles,
-        ), patch("shutil.which", return_value="/usr/bin/claude"):
+        with (
+            patch(
+                "marianne.cli.commands.instruments._load_all_profiles",
+                return_value=profiles,
+            ),
+            patch("shutil.which", return_value="/usr/bin/claude"),
+        ):
             result = runner.invoke(app, ["instruments", "list"])
 
         assert result.exit_code == 0
@@ -189,10 +208,13 @@ class TestInstrumentsList:
         def _selective_which(exe: str) -> str | None:
             return "/usr/bin/claude" if exe == "claude" else None
 
-        with patch(
-            "marianne.cli.commands.instruments._load_all_profiles",
-            return_value=profiles,
-        ), patch("shutil.which", side_effect=_selective_which):
+        with (
+            patch(
+                "marianne.cli.commands.instruments._load_all_profiles",
+                return_value=profiles,
+            ),
+            patch("shutil.which", side_effect=_selective_which),
+        ):
             result = runner.invoke(app, ["instruments", "list"])
 
         assert result.exit_code == 0
@@ -204,10 +226,13 @@ class TestInstrumentsList:
         profiles = {
             "claude-code": _make_cli_profile("claude-code", "Claude Code", "claude"),
         }
-        with patch(
-            "marianne.cli.commands.instruments._load_all_profiles",
-            return_value=profiles,
-        ), patch("shutil.which", return_value="/usr/bin/claude"):
+        with (
+            patch(
+                "marianne.cli.commands.instruments._load_all_profiles",
+                return_value=profiles,
+            ),
+            patch("shutil.which", return_value="/usr/bin/claude"),
+        ):
             result = runner.invoke(app, ["instruments", "list", "--json"])
 
         assert result.exit_code == 0
@@ -224,10 +249,13 @@ class TestInstrumentsList:
         profiles = {
             "claude-code": _make_cli_profile("claude-code", "Claude Code", "claude"),
         }
-        with patch(
-            "marianne.cli.commands.instruments._load_all_profiles",
-            return_value=profiles,
-        ), patch("shutil.which", return_value="/usr/bin/claude"):
+        with (
+            patch(
+                "marianne.cli.commands.instruments._load_all_profiles",
+                return_value=profiles,
+            ),
+            patch("shutil.which", return_value="/usr/bin/claude"),
+        ):
             result = runner.invoke(app, ["instruments", "list"])
 
         assert result.exit_code == 0
@@ -247,10 +275,13 @@ class TestInstrumentsCheck:
         profiles = {
             "claude-code": _make_cli_profile("claude-code", "Claude Code", "claude"),
         }
-        with patch(
-            "marianne.cli.commands.instruments._load_all_profiles",
-            return_value=profiles,
-        ), patch("shutil.which", return_value="/usr/bin/claude"):
+        with (
+            patch(
+                "marianne.cli.commands.instruments._load_all_profiles",
+                return_value=profiles,
+            ),
+            patch("shutil.which", return_value="/usr/bin/claude"),
+        ):
             result = runner.invoke(app, ["instruments", "check", "claude-code"])
 
         assert result.exit_code == 0
@@ -262,10 +293,13 @@ class TestInstrumentsCheck:
         profiles = {
             "codex-cli": _make_cli_profile("codex-cli", "Codex CLI", "codex"),
         }
-        with patch(
-            "marianne.cli.commands.instruments._load_all_profiles",
-            return_value=profiles,
-        ), patch("shutil.which", return_value=None):
+        with (
+            patch(
+                "marianne.cli.commands.instruments._load_all_profiles",
+                return_value=profiles,
+            ),
+            patch("shutil.which", return_value=None),
+        ):
             result = runner.invoke(app, ["instruments", "check", "codex-cli"])
 
         assert result.exit_code == 1
@@ -287,10 +321,13 @@ class TestInstrumentsCheck:
         profiles = {
             "claude-code": _make_cli_profile("claude-code", "Claude Code", "claude"),
         }
-        with patch(
-            "marianne.cli.commands.instruments._load_all_profiles",
-            return_value=profiles,
-        ), patch("shutil.which", return_value="/usr/bin/claude"):
+        with (
+            patch(
+                "marianne.cli.commands.instruments._load_all_profiles",
+                return_value=profiles,
+            ),
+            patch("shutil.which", return_value="/usr/bin/claude"),
+        ):
             result = runner.invoke(app, ["instruments", "check", "claude-code"])
 
         assert result.exit_code == 0
@@ -303,10 +340,13 @@ class TestInstrumentsCheck:
                 "gemini-cli", "Gemini CLI", "gemini", default_model="gemini-2.5-pro"
             ),
         }
-        with patch(
-            "marianne.cli.commands.instruments._load_all_profiles",
-            return_value=profiles,
-        ), patch("shutil.which", return_value="/usr/bin/gemini"):
+        with (
+            patch(
+                "marianne.cli.commands.instruments._load_all_profiles",
+                return_value=profiles,
+            ),
+            patch("shutil.which", return_value="/usr/bin/gemini"),
+        ):
             result = runner.invoke(app, ["instruments", "check", "gemini-cli"])
 
         assert result.exit_code == 0
@@ -317,13 +357,14 @@ class TestInstrumentsCheck:
         profiles = {
             "claude-code": _make_cli_profile("claude-code", "Claude Code", "claude"),
         }
-        with patch(
-            "marianne.cli.commands.instruments._load_all_profiles",
-            return_value=profiles,
-        ), patch("shutil.which", return_value="/usr/bin/claude"):
-            result = runner.invoke(
-                app, ["instruments", "check", "claude-code", "--json"]
-            )
+        with (
+            patch(
+                "marianne.cli.commands.instruments._load_all_profiles",
+                return_value=profiles,
+            ),
+            patch("shutil.which", return_value="/usr/bin/claude"),
+        ):
+            result = runner.invoke(app, ["instruments", "check", "claude-code", "--json"])
 
         assert result.exit_code == 0
         import json

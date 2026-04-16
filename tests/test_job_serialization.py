@@ -75,25 +75,29 @@ class TestPreludeBugFix:
         Prelude belongs under sheet:, not at the top level.
         """
         with pytest.raises(ValidationError, match="extra_forbidden"):
-            JobConfig.model_validate({
-                "name": "test",
-                "sheet": {"size": 1, "total_items": 1},
-                "prompt": {"template": "test"},
-                "prelude": [{"file": "test.md", "as": "context"}],
-            })
+            JobConfig.model_validate(
+                {
+                    "name": "test",
+                    "sheet": {"size": 1, "total_items": 1},
+                    "prompt": {"template": "test"},
+                    "prelude": [{"file": "test.md", "as": "context"}],
+                }
+            )
 
     @pytest.mark.adversarial
     def test_prelude_correct_nesting_works(self):
         """Prelude under sheet: is correctly parsed."""
-        config = JobConfig.model_validate({
-            "name": "test",
-            "sheet": {
-                "size": 1,
-                "total_items": 1,
-                "prelude": [{"file": "context.md", "as": "context"}],
-            },
-            "prompt": {"template": "test"},
-        })
+        config = JobConfig.model_validate(
+            {
+                "name": "test",
+                "sheet": {
+                    "size": 1,
+                    "total_items": 1,
+                    "prelude": [{"file": "context.md", "as": "context"}],
+                },
+                "prompt": {"template": "test"},
+            }
+        )
         assert len(config.sheet.prelude) == 1
         assert config.sheet.prelude[0].file == "context.md"
         assert config.sheet.prelude[0].as_ == InjectionCategory.CONTEXT
@@ -116,8 +120,7 @@ class TestPreludeBugFix:
                     f"'{list(item.keys())}' instead of 'file'"
                 )
                 assert "path" not in item, (
-                    f"{example_path.name}: prelude item {i} uses 'path' "
-                    f"instead of 'file' (the bug)"
+                    f"{example_path.name}: prelude item {i} uses 'path' instead of 'file' (the bug)"
                 )
 
 
@@ -131,11 +134,13 @@ class TestToYamlRoundTrip:
     @pytest.mark.smoke
     def test_minimal_config_roundtrip(self):
         """Minimal config survives to_yaml -> from_yaml_string roundtrip."""
-        original = JobConfig.model_validate({
-            "name": "minimal",
-            "sheet": {"size": 5, "total_items": 10},
-            "prompt": {"template": "{{ sheet_num }}"},
-        })
+        original = JobConfig.model_validate(
+            {
+                "name": "minimal",
+                "sheet": {"size": 5, "total_items": 10},
+                "prompt": {"template": "{{ sheet_num }}"},
+            }
+        )
         yaml_str = original.to_yaml()
         restored = JobConfig.from_yaml_string(yaml_str)
         assert original.model_dump() == restored.model_dump()
@@ -143,29 +148,34 @@ class TestToYamlRoundTrip:
     @pytest.mark.smoke
     def test_to_yaml_produces_valid_yaml(self):
         """to_yaml() output must be parseable YAML."""
-        config = JobConfig.model_validate({
-            "name": "yaml-validity",
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "test"},
-        })
+        config = JobConfig.model_validate(
+            {
+                "name": "yaml-validity",
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "test"},
+            }
+        )
         yaml_str = config.to_yaml()
         parsed = yaml.safe_load(yaml_str)
         assert isinstance(parsed, dict)
         assert parsed["name"] == "yaml-validity"
 
     @pytest.mark.smoke
-    @pytest.mark.parametrize("example_name", [
-        "simple-sheet",
-        "prelude-cadenza-example",
-        "cross-sheet-test",
-        "quality-continuous",
-        "dinner-party",
-        "worldbuilder",
-        "dialectic",
-        "nonfiction-book",
-        "api-backend",
-        "strategic-plan",
-    ])
+    @pytest.mark.parametrize(
+        "example_name",
+        [
+            "simple-sheet",
+            "prelude-cadenza-example",
+            "cross-sheet-test",
+            "quality-continuous",
+            "dinner-party",
+            "worldbuilder",
+            "dialectic",
+            "nonfiction-book",
+            "api-backend",
+            "strategic-plan",
+        ],
+    )
     def test_example_score_roundtrip(self, example_name: str):
         """Example scores survive to_yaml -> from_yaml_string roundtrip."""
         example_path = Path(f"examples/{example_name}.yaml")
@@ -179,15 +189,17 @@ class TestToYamlRoundTrip:
     @pytest.mark.adversarial
     def test_jinja2_template_preserved(self):
         """Jinja2 {{ }} syntax in templates must survive round-trip."""
-        original = JobConfig.model_validate({
-            "name": "jinja-test",
-            "sheet": {"size": 1, "total_items": 3},
-            "prompt": {
-                "template": "Process {{ sheet_num }} of {{ total_sheets }}.\n"
-                            "Workspace: {{ workspace }}\n"
-                            "Items: {{ start_item }}-{{ end_item }}",
-            },
-        })
+        original = JobConfig.model_validate(
+            {
+                "name": "jinja-test",
+                "sheet": {"size": 1, "total_items": 3},
+                "prompt": {
+                    "template": "Process {{ sheet_num }} of {{ total_sheets }}.\n"
+                    "Workspace: {{ workspace }}\n"
+                    "Items: {{ start_item }}-{{ end_item }}",
+                },
+            }
+        )
         yaml_str = original.to_yaml()
         restored = JobConfig.from_yaml_string(yaml_str)
         assert restored.prompt.template == original.prompt.template
@@ -202,11 +214,13 @@ class TestToYamlRoundTrip:
             "Line 2: This is a detailed instruction.\n"
             "Line 3: Write output to {{ workspace }}/result.md\n"
         )
-        original = JobConfig.model_validate({
-            "name": "multiline-test",
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": template},
-        })
+        original = JobConfig.model_validate(
+            {
+                "name": "multiline-test",
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": template},
+            }
+        )
         yaml_str = original.to_yaml()
         restored = JobConfig.from_yaml_string(yaml_str)
         assert restored.prompt.template == original.prompt.template
@@ -214,15 +228,17 @@ class TestToYamlRoundTrip:
     @pytest.mark.adversarial
     def test_injection_item_alias_serialized_correctly(self):
         """InjectionItem 'as_' field must serialize as 'as' in YAML output."""
-        original = JobConfig.model_validate({
-            "name": "alias-test",
-            "sheet": {
-                "size": 1,
-                "total_items": 1,
-                "prelude": [{"file": "context.md", "as": "context"}],
-            },
-            "prompt": {"template": "test"},
-        })
+        original = JobConfig.model_validate(
+            {
+                "name": "alias-test",
+                "sheet": {
+                    "size": 1,
+                    "total_items": 1,
+                    "prelude": [{"file": "context.md", "as": "context"}],
+                },
+                "prompt": {"template": "test"},
+            }
+        )
         yaml_str = original.to_yaml()
         assert "as_:" not in yaml_str, "InjectionItem alias not applied — 'as_' in output"
         restored = JobConfig.from_yaml_string(yaml_str)
@@ -231,12 +247,14 @@ class TestToYamlRoundTrip:
     @pytest.mark.adversarial
     def test_path_fields_serialized_as_strings(self):
         """Path objects must become strings in YAML output."""
-        original = JobConfig.model_validate({
-            "name": "path-test",
-            "workspace": "/tmp/test-workspace",
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "test"},
-        })
+        original = JobConfig.model_validate(
+            {
+                "name": "path-test",
+                "workspace": "/tmp/test-workspace",
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "test"},
+            }
+        )
         yaml_str = original.to_yaml()
         assert "!!python" not in yaml_str, "YAML output contains Python-specific tags"
         restored = JobConfig.from_yaml_string(yaml_str)
@@ -245,16 +263,18 @@ class TestToYamlRoundTrip:
     @pytest.mark.adversarial
     def test_enum_fields_serialized_as_values(self):
         """Enum fields must serialize as their string values, not enum repr."""
-        original = JobConfig.model_validate({
-            "name": "enum-test",
-            "sheet": {
-                "size": 1,
-                "total_items": 1,
-                "prelude": [{"file": "test.md", "as": "skill"}],
-            },
-            "prompt": {"template": "test"},
-            "conductor": {"role": "ai"},
-        })
+        original = JobConfig.model_validate(
+            {
+                "name": "enum-test",
+                "sheet": {
+                    "size": 1,
+                    "total_items": 1,
+                    "prelude": [{"file": "test.md", "as": "skill"}],
+                },
+                "prompt": {"template": "test"},
+                "conductor": {"role": "ai"},
+            }
+        )
         yaml_str = original.to_yaml()
         assert "InjectionCategory" not in yaml_str
         assert "ConductorRole" not in yaml_str
@@ -264,11 +284,13 @@ class TestToYamlRoundTrip:
     @pytest.mark.adversarial
     def test_none_fields_roundtrip(self):
         """Fields with None values must survive round-trip correctly."""
-        original = JobConfig.model_validate({
-            "name": "null-test",
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "test"},
-        })
+        original = JobConfig.model_validate(
+            {
+                "name": "null-test",
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "test"},
+            }
+        )
         assert original.state_path is None
         assert original.bridge is None
         yaml_str = original.to_yaml()
@@ -279,11 +301,13 @@ class TestToYamlRoundTrip:
     @pytest.mark.adversarial
     def test_exclude_defaults_produces_valid_yaml(self):
         """to_yaml(exclude_defaults=True) produces valid, parseable YAML."""
-        original = JobConfig.model_validate({
-            "name": "exclude-defaults",
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "test"},
-        })
+        original = JobConfig.model_validate(
+            {
+                "name": "exclude-defaults",
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "test"},
+            }
+        )
         yaml_str = original.to_yaml(exclude_defaults=True)
         restored = JobConfig.from_yaml_string(yaml_str)
         assert restored.name == "exclude-defaults"
@@ -291,12 +315,14 @@ class TestToYamlRoundTrip:
     @pytest.mark.adversarial
     def test_special_characters_in_strings(self):
         """Strings with special characters must survive round-trip."""
-        original = JobConfig.model_validate({
-            "name": "special-chars",
-            "description": 'Contains: colons, #hashes, [brackets], {braces}, "quotes"',
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "test"},
-        })
+        original = JobConfig.model_validate(
+            {
+                "name": "special-chars",
+                "description": 'Contains: colons, #hashes, [brackets], {braces}, "quotes"',
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "test"},
+            }
+        )
         yaml_str = original.to_yaml()
         restored = JobConfig.from_yaml_string(yaml_str)
         assert restored.description == original.description
@@ -304,12 +330,14 @@ class TestToYamlRoundTrip:
     @pytest.mark.adversarial
     def test_unicode_in_strings(self):
         """Unicode characters must survive round-trip."""
-        original = JobConfig.model_validate({
-            "name": "unicode-test",
-            "description": "Supports: caf\u00e9, \u2603, \u2764\ufe0f, \u65e5\u672c\u8a9e",
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "test"},
-        })
+        original = JobConfig.model_validate(
+            {
+                "name": "unicode-test",
+                "description": "Supports: caf\u00e9, \u2603, \u2764\ufe0f, \u65e5\u672c\u8a9e",
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "test"},
+            }
+        )
         yaml_str = original.to_yaml()
         restored = JobConfig.from_yaml_string(yaml_str)
         assert restored.description == original.description
@@ -317,11 +345,13 @@ class TestToYamlRoundTrip:
     @pytest.mark.adversarial
     def test_empty_sheets_roundtrip(self):
         """Config with minimal sheet (size=1, total_items=1) survives."""
-        original = JobConfig.model_validate({
-            "name": "min-sheets",
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "{{ sheet_num }}"},
-        })
+        original = JobConfig.model_validate(
+            {
+                "name": "min-sheets",
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "{{ sheet_num }}"},
+            }
+        )
         yaml_str = original.to_yaml()
         restored = JobConfig.from_yaml_string(yaml_str)
         assert restored.sheet.total_sheets == 1
@@ -329,18 +359,20 @@ class TestToYamlRoundTrip:
     @pytest.mark.adversarial
     def test_concert_config_roundtrip(self):
         """Concert/on_success sections survive round-trip."""
-        original = JobConfig.model_validate({
-            "name": "concert-test",
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "test"},
-            "on_success": [
-                {
-                    "type": "run_job",
-                    "job_path": "{workspace}/next-score.yaml",
-                    "description": "Chain to next phase",
-                },
-            ],
-        })
+        original = JobConfig.model_validate(
+            {
+                "name": "concert-test",
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "test"},
+                "on_success": [
+                    {
+                        "type": "run_job",
+                        "job_path": "{workspace}/next-score.yaml",
+                        "description": "Chain to next phase",
+                    },
+                ],
+            }
+        )
         yaml_str = original.to_yaml()
         restored = JobConfig.from_yaml_string(yaml_str)
         assert len(restored.on_success) == 1
@@ -349,24 +381,26 @@ class TestToYamlRoundTrip:
     @pytest.mark.adversarial
     def test_validation_rules_roundtrip(self):
         """Validation rules survive round-trip."""
-        original = JobConfig.model_validate({
-            "name": "validations-rt",
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "test"},
-            "validations": [
-                {
-                    "type": "file_exists",
-                    "path": "{workspace}/output.txt",
-                    "description": "Output file exists",
-                },
-                {
-                    "type": "content_contains",
-                    "path": "{workspace}/log.txt",
-                    "pattern": "SUCCESS",
-                    "description": "Success marker",
-                },
-            ],
-        })
+        original = JobConfig.model_validate(
+            {
+                "name": "validations-rt",
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "test"},
+                "validations": [
+                    {
+                        "type": "file_exists",
+                        "path": "{workspace}/output.txt",
+                        "description": "Output file exists",
+                    },
+                    {
+                        "type": "content_contains",
+                        "path": "{workspace}/log.txt",
+                        "pattern": "SUCCESS",
+                        "description": "Success marker",
+                    },
+                ],
+            }
+        )
         yaml_str = original.to_yaml()
         restored = JobConfig.from_yaml_string(yaml_str)
         assert len(restored.validations) == 2

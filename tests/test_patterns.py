@@ -3,7 +3,7 @@
 Tests the Priority 1 Evolution: Close the Learning Loop.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -92,7 +92,7 @@ def multiple_outcomes(
     for i in range(3):
         outcomes.append(
             SheetOutcome(
-                sheet_id=f"job1-sheet{i+4}",
+                sheet_id=f"job1-sheet{i + 4}",
                 job_id="job1",
                 validation_results=[
                     {"rule_type": "file_exists", "passed": False, "confidence": 1.0},
@@ -110,7 +110,7 @@ def multiple_outcomes(
     for i in range(4):
         outcomes.append(
             SheetOutcome(
-                sheet_id=f"job1-sheet{i+7}",
+                sheet_id=f"job1-sheet{i + 7}",
                 job_id="job1",
                 validation_results=[
                     {"rule_type": "file_exists", "passed": True, "confidence": 1.0},
@@ -173,9 +173,7 @@ class TestPatternDetector:
         detector = PatternDetector(outcomes)
         patterns = detector.detect_all()
 
-        retry_patterns = [
-            p for p in patterns if p.pattern_type == PatternType.RETRY_SUCCESS
-        ]
+        retry_patterns = [p for p in patterns if p.pattern_type == PatternType.RETRY_SUCCESS]
         assert len(retry_patterns) >= 1
 
     def test_empty_outcomes_returns_empty(self) -> None:
@@ -221,9 +219,7 @@ class TestPatternDetector:
         detector = PatternDetector(outcomes)
         patterns = detector.detect_all()
 
-        completion_patterns = [
-            p for p in patterns if p.pattern_type == PatternType.COMPLETION_MODE
-        ]
+        completion_patterns = [p for p in patterns if p.pattern_type == PatternType.COMPLETION_MODE]
         assert len(completion_patterns) >= 1
 
     def test_detect_low_confidence_patterns(self) -> None:
@@ -249,9 +245,7 @@ class TestPatternDetector:
         detector = PatternDetector(outcomes)
         patterns = detector.detect_all()
 
-        low_conf_patterns = [
-            p for p in patterns if p.pattern_type == PatternType.LOW_CONFIDENCE
-        ]
+        low_conf_patterns = [p for p in patterns if p.pattern_type == PatternType.LOW_CONFIDENCE]
         # Should detect low confidence pattern (6 low-confidence validations)
         assert len(low_conf_patterns) >= 1
 
@@ -303,9 +297,7 @@ class TestPatternMatcher:
 
         # Should include the file_exists pattern
         assert len(matched) >= 1
-        file_exists_matched = any(
-            "file_exists" in p.description for p in matched
-        )
+        file_exists_matched = any("file_exists" in p.description for p in matched)
         assert file_exists_matched
 
     def test_relevance_scoring(self, sample_patterns: list[DetectedPattern]) -> None:
@@ -342,14 +334,14 @@ class TestPatternMatcher:
             description="Recent pattern",
             frequency=1,
             confidence=0.5,
-            last_seen=datetime.now(tz=timezone.utc),
+            last_seen=datetime.now(tz=UTC),
         )
         old = DetectedPattern(
             pattern_type=PatternType.RETRY_SUCCESS,
             description="Old pattern",
             frequency=1,
             confidence=0.5,
-            last_seen=datetime.now(tz=timezone.utc) - timedelta(days=30),
+            last_seen=datetime.now(tz=UTC) - timedelta(days=30),
         )
 
         matcher = PatternMatcher([old, recent])
@@ -551,9 +543,7 @@ class TestSemanticPatterns:
         detector = PatternDetector(outcomes)
         patterns = detector.detect_all()
 
-        semantic_patterns = [
-            p for p in patterns if p.pattern_type == PatternType.SEMANTIC_FAILURE
-        ]
+        semantic_patterns = [p for p in patterns if p.pattern_type == PatternType.SEMANTIC_FAILURE]
         assert len(semantic_patterns) >= 1
 
         # Should detect 'missing' category pattern
@@ -594,9 +584,7 @@ class TestSemanticPatterns:
         detector = PatternDetector(outcomes)
         patterns = detector.detect_all()
 
-        semantic_patterns = [
-            p for p in patterns if p.pattern_type == PatternType.SEMANTIC_FAILURE
-        ]
+        semantic_patterns = [p for p in patterns if p.pattern_type == PatternType.SEMANTIC_FAILURE]
         assert len(semantic_patterns) >= 1
 
         # Should detect 'pattern not found' reason pattern (normalized form)
@@ -636,9 +624,7 @@ class TestSemanticPatterns:
         detector = PatternDetector(outcomes)
         patterns = detector.detect_all()
 
-        semantic_patterns = [
-            p for p in patterns if p.pattern_type == PatternType.SEMANTIC_FAILURE
-        ]
+        semantic_patterns = [p for p in patterns if p.pattern_type == PatternType.SEMANTIC_FAILURE]
 
         # Should detect fix suggestion pattern
         fix_pattern = next(
@@ -706,9 +692,7 @@ class TestSemanticPatterns:
         assert detector._normalize_failure_reason(long_reason) == ""
 
         # Test that long strings WITH keywords extract the keyword (Issue #8 fix)
-        long_with_timeout = (
-            "connection to database at localhost:5432 failed with timeout after 30s"
-        )
+        long_with_timeout = "connection to database at localhost:5432 failed with timeout after 30s"
         assert detector._normalize_failure_reason(long_with_timeout) == "timeout"
 
         long_with_rate_limit = (
@@ -718,15 +702,13 @@ class TestSemanticPatterns:
         assert detector._normalize_failure_reason(long_with_rate_limit) == "rate limit"
 
         long_with_connection = (
-            "Unable to establish connection to the remote server"
-            " at https://api.example.com"
+            "Unable to establish connection to the remote server at https://api.example.com"
         )
         assert detector._normalize_failure_reason(long_with_connection) == "connection"
 
         # Test new keywords added in Issue #8 fix
         assert (
-            detector._normalize_failure_reason("connection refused by host")
-            == "connection refused"
+            detector._normalize_failure_reason("connection refused by host") == "connection refused"
         )
         assert detector._normalize_failure_reason("authentication required") == "authentication"
         assert detector._normalize_failure_reason("access denied for user") == "access denied"
@@ -765,9 +747,7 @@ class TestSemanticPatterns:
         detector = PatternDetector(outcomes)
         patterns = detector.detect_all()
 
-        semantic_patterns = [
-            p for p in patterns if p.pattern_type == PatternType.SEMANTIC_FAILURE
-        ]
+        semantic_patterns = [p for p in patterns if p.pattern_type == PatternType.SEMANTIC_FAILURE]
         assert len(semantic_patterns) >= 1
 
         # Should detect 'stale' pattern from pre-aggregated counts (3+2=5)
@@ -856,9 +836,7 @@ class TestPatternEffectiveness:
             SheetOutcome(
                 sheet_id="job1-sheet1",
                 job_id="job1",
-                validation_results=[
-                    {"rule_type": "file_exists", "passed": False}
-                ],
+                validation_results=[{"rule_type": "file_exists", "passed": False}],
                 execution_duration=30.0,
                 retry_count=0,
                 completion_mode_used=False,
@@ -871,9 +849,7 @@ class TestPatternEffectiveness:
             SheetOutcome(
                 sheet_id="job1-sheet2",
                 job_id="job1",
-                validation_results=[
-                    {"rule_type": "file_exists", "passed": False}
-                ],
+                validation_results=[{"rule_type": "file_exists", "passed": False}],
                 execution_duration=30.0,
                 retry_count=0,
                 completion_mode_used=False,
@@ -886,9 +862,7 @@ class TestPatternEffectiveness:
             SheetOutcome(
                 sheet_id="job1-sheet3",
                 job_id="job1",
-                validation_results=[
-                    {"rule_type": "file_exists", "passed": False}
-                ],
+                validation_results=[{"rule_type": "file_exists", "passed": False}],
                 execution_duration=30.0,
                 retry_count=1,
                 completion_mode_used=False,
@@ -901,9 +875,7 @@ class TestPatternEffectiveness:
             SheetOutcome(
                 sheet_id="job1-sheet4",
                 job_id="job1",
-                validation_results=[
-                    {"rule_type": "file_exists", "passed": False}
-                ],
+                validation_results=[{"rule_type": "file_exists", "passed": False}],
                 execution_duration=30.0,
                 retry_count=0,
                 completion_mode_used=False,

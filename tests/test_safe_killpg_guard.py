@@ -99,9 +99,10 @@ class TestSafeKillpgGuardAllows:
         swallow every cleanup call when getpgid is broken.
         """
         fake_pgid = 999999
-        with patch("marianne.backends.claude_cli.os.getpgid",
-                   side_effect=OSError("mocked")), \
-                patch("marianne.backends.claude_cli.os.killpg") as mock_killpg:
+        with (
+            patch("marianne.backends.claude_cli.os.getpgid", side_effect=OSError("mocked")),
+            patch("marianne.backends.claude_cli.os.killpg") as mock_killpg,
+        ):
             result = _safe_killpg(fake_pgid, signal.SIGKILL, context="test")
 
         assert result is True
@@ -111,12 +112,15 @@ class TestSafeKillpgGuardAllows:
 class TestSafeKillpgGuardSignalTypes:
     """Guard must apply to all signals, not just SIGKILL."""
 
-    @pytest.mark.parametrize("sig", [
-        signal.SIGTERM,
-        signal.SIGKILL,
-        signal.SIGINT,
-        signal.SIGHUP,
-    ])
+    @pytest.mark.parametrize(
+        "sig",
+        [
+            signal.SIGTERM,
+            signal.SIGKILL,
+            signal.SIGINT,
+            signal.SIGHUP,
+        ],
+    )
     def test_all_signals_blocked_on_pgid_one(self, sig: signal.Signals) -> None:
         """pgid=1 must be blocked regardless of signal — any signal to pgid=1
         translates to kill(-1, sig) which affects every process in the session."""

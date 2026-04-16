@@ -16,12 +16,12 @@ from marianne.execution.grounding import (
 
 def _make_context(**overrides: object) -> GroundingContext:
     """Create a minimal GroundingContext for testing."""
-    defaults = dict(
-        job_id="test-job",
-        sheet_num=0,
-        prompt="test",
-        output="test output",
-    )
+    defaults = {
+        "job_id": "test-job",
+        "sheet_num": 0,
+        "prompt": "test",
+        "output": "test output",
+    }
     defaults.update(overrides)
     return GroundingContext(**defaults)  # type: ignore[arg-type]
 
@@ -69,6 +69,7 @@ class TestChecksumPathValidation:
         test_file.write_text("hello world")
 
         import hashlib
+
         expected = hashlib.sha256(b"hello world").hexdigest()
 
         hook = FileChecksumGroundingHook(
@@ -77,6 +78,7 @@ class TestChecksumPathValidation:
         )
         # Change cwd to tmp_path so the file resolves correctly
         import os
+
         old_cwd = os.getcwd()
         os.chdir(tmp_path)
         try:

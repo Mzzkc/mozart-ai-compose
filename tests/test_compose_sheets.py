@@ -77,7 +77,8 @@ class TestSheetComposer:
         """Prelude includes the agent's L1 identity."""
         composer = SheetComposer()
         result = composer.compose(
-            _make_agent_def(), _make_defaults(),
+            _make_agent_def(),
+            _make_defaults(),
             agents_dir=Path("/test/agents"),
         )
 
@@ -140,7 +141,7 @@ class TestSheetComposer:
 
     def test_cli_sheets(self) -> None:
         """CLI sheets are correctly identified."""
-        assert 4 in CLI_SHEETS   # Temperature check
+        assert 4 in CLI_SHEETS  # Temperature check
         assert 11 in CLI_SHEETS  # Maturity check
         assert 3 not in CLI_SHEETS  # Work is not CLI
 

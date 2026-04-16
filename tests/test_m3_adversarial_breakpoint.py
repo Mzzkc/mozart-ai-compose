@@ -24,19 +24,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from marianne.daemon.baton.core import _JobRecord
 from marianne.daemon.baton.events import (
     RateLimitExpired,
     RateLimitHit,
     SheetAttemptResult,
 )
-from marianne.daemon.baton.core import _JobRecord
 from marianne.daemon.baton.state import (
+    _TERMINAL_BATON_STATUSES,
     BatonSheetStatus,
     InstrumentState,
     SheetExecutionState,
-    _TERMINAL_BATON_STATUSES,
 )
-
 
 # =========================================================================
 # Helpers — minimal fakes for testing without real infrastructure

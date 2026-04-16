@@ -165,7 +165,7 @@ class TestFrequencyFactor:
         values = [weighter.calculate_frequency_factor(n) for n in [1, 50, 100, 500, 1000]]
         for i in range(len(values) - 1):
             assert values[i] <= values[i + 1], (
-                f"freq({[1, 50, 100, 500, 1000][i+1]})={values[i+1]} "
+                f"freq({[1, 50, 100, 500, 1000][i + 1]})={values[i + 1]} "
                 f"should be >= freq({[1, 50, 100, 500, 1000][i]})={values[i]}"
             )
 

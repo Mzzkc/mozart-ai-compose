@@ -17,7 +17,6 @@ No happy paths. No polite inputs. The real world is not polite.
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -30,14 +29,13 @@ from marianne.daemon.baton.adapter import (
 )
 from marianne.daemon.baton.events import (
     DispatchRetry,
-    SheetAttemptResult,
-    SheetSkipped,
 )
 from marianne.daemon.baton.state import BatonSheetStatus
 
 # =========================================================================
 # Helpers
 # =========================================================================
+
 
 def _make_sheet(
     num: int = 1,
@@ -61,6 +59,7 @@ def _make_sheet(
         cadenza=[],
     )
 
+
 def _make_checkpoint(
     sheets: dict[int, SheetState] | None = None,
     total_sheets: int = 3,
@@ -73,6 +72,7 @@ def _make_checkpoint(
         total_sheets=total_sheets,
         sheets=sheets or {},
     )
+
 
 def _make_sheet_state(
     num: int,
@@ -88,9 +88,11 @@ def _make_sheet_state(
         completion_attempts=completion_attempts,
     )
 
+
 # =========================================================================
 # 1. Restart Recovery Adversarial Tests (Step 29)
 # =========================================================================
+
 
 class TestRecoverJobAdversarial:
     """Adversarial tests for adapter.recover_job() — the critical restart
@@ -104,20 +106,20 @@ class TestRecoverJobAdversarial:
         sheets = [_make_sheet(num=i) for i in range(1, 4)]
         deps: dict[int, list[int]] = {}
 
-        cp = _make_checkpoint(sheets={
-            1: _make_sheet_state(1, SheetStatus.COMPLETED, attempt_count=1),
-            2: _make_sheet_state(2, SheetStatus.FAILED, attempt_count=5),
-            3: _make_sheet_state(3, SheetStatus.SKIPPED),
-        })
+        cp = _make_checkpoint(
+            sheets={
+                1: _make_sheet_state(1, SheetStatus.COMPLETED, attempt_count=1),
+                2: _make_sheet_state(2, SheetStatus.FAILED, attempt_count=5),
+                3: _make_sheet_state(3, SheetStatus.SKIPPED),
+            }
+        )
 
         adapter.recover_job("test-job", sheets, deps, cp, max_retries=3)
 
         for num in [1, 2, 3]:
             state = adapter._baton.get_sheet_state("test-job", num)
             assert state is not None
-            assert state.status.is_terminal, (
-                f"Sheet {num} should be terminal after recovery"
-            )
+            assert state.status.is_terminal, f"Sheet {num} should be terminal after recovery"
 
     def test_recover_in_progress_resets_to_pending(self) -> None:
         """In-progress sheets MUST be reset to PENDING because the musician
@@ -125,9 +127,11 @@ class TestRecoverJobAdversarial:
         adapter = BatonAdapter()
 
         sheets = [_make_sheet(num=1)]
-        cp = _make_checkpoint(sheets={
-            1: _make_sheet_state(1, SheetStatus.IN_PROGRESS, attempt_count=2),
-        })
+        cp = _make_checkpoint(
+            sheets={
+                1: _make_sheet_state(1, SheetStatus.IN_PROGRESS, attempt_count=2),
+            }
+        )
 
         adapter.recover_job("test-job", sheets, {}, cp, max_retries=5)
 
@@ -143,20 +147,22 @@ class TestRecoverJobAdversarial:
         adapter = BatonAdapter()
 
         sheets = [_make_sheet(num=1)]
-        cp = _make_checkpoint(sheets={
-            1: _make_sheet_state(
-                1, SheetStatus.IN_PROGRESS,
-                attempt_count=4, completion_attempts=2,
-            ),
-        })
+        cp = _make_checkpoint(
+            sheets={
+                1: _make_sheet_state(
+                    1,
+                    SheetStatus.IN_PROGRESS,
+                    attempt_count=4,
+                    completion_attempts=2,
+                ),
+            }
+        )
 
         adapter.recover_job("test-job", sheets, {}, cp, max_retries=5)
 
         state = adapter._baton.get_sheet_state("test-job", 1)
         assert state is not None
-        assert state.normal_attempts == 4, (
-            "Normal attempts must carry forward from checkpoint"
-        )
+        assert state.normal_attempts == 4, "Normal attempts must carry forward from checkpoint"
         assert state.completion_attempts == 2, (
             "Completion attempts must carry forward from checkpoint"
         )
@@ -167,9 +173,11 @@ class TestRecoverJobAdversarial:
         adapter = BatonAdapter()
 
         sheets = [_make_sheet(num=1), _make_sheet(num=2)]
-        cp = _make_checkpoint(sheets={
-            1: _make_sheet_state(1, SheetStatus.COMPLETED, attempt_count=1),
-        })
+        cp = _make_checkpoint(
+            sheets={
+                1: _make_sheet_state(1, SheetStatus.COMPLETED, attempt_count=1),
+            }
+        )
 
         adapter.recover_job("test-job", sheets, {}, cp, max_retries=3)
 
@@ -187,11 +195,15 @@ class TestRecoverJobAdversarial:
         adapter = BatonAdapter()
 
         sheets = [_make_sheet(num=1)]
-        cp = _make_checkpoint(sheets={
-            1: _make_sheet_state(
-                1, SheetStatus.IN_PROGRESS, attempt_count=5,
-            ),
-        })
+        cp = _make_checkpoint(
+            sheets={
+                1: _make_sheet_state(
+                    1,
+                    SheetStatus.IN_PROGRESS,
+                    attempt_count=5,
+                ),
+            }
+        )
 
         adapter.recover_job("test-job", sheets, {}, cp, max_retries=5)
 
@@ -200,9 +212,7 @@ class TestRecoverJobAdversarial:
         assert state.status == BatonSheetStatus.PENDING
         assert state.normal_attempts == 5
         # can_retry should be False since normal_attempts == max_retries
-        assert not state.can_retry, (
-            "Sheet with max retries exhausted should have can_retry=False"
-        )
+        assert not state.can_retry, "Sheet with max retries exhausted should have can_retry=False"
 
     def test_recover_cost_limit_wired(self) -> None:
         """When max_cost_usd is provided, it must be wired to baton
@@ -210,13 +220,19 @@ class TestRecoverJobAdversarial:
         adapter = BatonAdapter()
 
         sheets = [_make_sheet(num=1)]
-        cp = _make_checkpoint(sheets={
-            1: _make_sheet_state(1, SheetStatus.PENDING),
-        })
+        cp = _make_checkpoint(
+            sheets={
+                1: _make_sheet_state(1, SheetStatus.PENDING),
+            }
+        )
 
         adapter.recover_job(
-            "test-job", sheets, {}, cp,
-            max_cost_usd=10.0, max_retries=3,
+            "test-job",
+            sheets,
+            {},
+            cp,
+            max_cost_usd=10.0,
+            max_retries=3,
         )
 
         # Cost limits stored in baton._job_cost_limits dict
@@ -231,9 +247,11 @@ class TestRecoverJobAdversarial:
         adapter = BatonAdapter()
 
         sheets = [_make_sheet(num=1)]
-        cp = _make_checkpoint(sheets={
-            1: _make_sheet_state(1, SheetStatus.PENDING),
-        })
+        cp = _make_checkpoint(
+            sheets={
+                1: _make_sheet_state(1, SheetStatus.PENDING),
+            }
+        )
 
         adapter.recover_job("test-job", sheets, {}, cp, max_retries=3)
 
@@ -249,11 +267,13 @@ class TestRecoverJobAdversarial:
 
         sheets = [_make_sheet(num=i) for i in range(1, 4)]
         deps = {2: [1], 3: [1, 2]}
-        cp = _make_checkpoint(sheets={
-            1: _make_sheet_state(1, SheetStatus.COMPLETED, attempt_count=1),
-            2: _make_sheet_state(2, SheetStatus.PENDING),
-            3: _make_sheet_state(3, SheetStatus.PENDING),
-        })
+        cp = _make_checkpoint(
+            sheets={
+                1: _make_sheet_state(1, SheetStatus.COMPLETED, attempt_count=1),
+                2: _make_sheet_state(2, SheetStatus.PENDING),
+                3: _make_sheet_state(3, SheetStatus.PENDING),
+            }
+        )
 
         adapter.recover_job("test-job", sheets, deps, cp, max_retries=3)
 
@@ -283,18 +303,25 @@ class TestRecoverJobAdversarial:
         adapter = BatonAdapter()
 
         sheets = [_make_sheet(num=1)]
-        cp = _make_checkpoint(sheets={
-            1: _make_sheet_state(1, SheetStatus.PENDING),
-        })
+        cp = _make_checkpoint(
+            sheets={
+                1: _make_sheet_state(1, SheetStatus.PENDING),
+            }
+        )
 
         adapter.recover_job(
-            "test-job", sheets, {}, cp,
-            max_cost_usd=None, max_retries=3,
+            "test-job",
+            sheets,
+            {},
+            cp,
+            max_cost_usd=None,
+            max_retries=3,
         )
 
         assert "test-job" not in adapter._baton._job_cost_limits, (
             "None max_cost_usd should not set any cost limit"
         )
+
 
 # =========================================================================
 # 2. State Sync Callback Adversarial Tests
@@ -303,6 +330,7 @@ class TestRecoverJobAdversarial:
 # =========================================================================
 # 3. Credential Redaction in Exception Path (F-135)
 # =========================================================================
+
 
 class TestMusicianCredentialRedactionAdversarial:
     """Adversarial tests for credential redaction in the musician exception
@@ -323,7 +351,10 @@ class TestMusicianCredentialRedactionAdversarial:
             ("Bearer eyJhbGciOiJIUzI1NiJ9.test", "Bearer"),  # 20+ chars after Bearer
             ("ghp_1234567890abcdef1234567890abcdef1234ab", "GitHub PAT"),  # 36+ chars after ghp_
             ("gho_1234567890abcdef1234567890abcdef1234ab", "GitHub OAuth"),  # 36+ chars after gho_
-            ("github_pat_1234567890abcdef1234567890abcdef1234ab", "GitHub fine-grained"),  # 36+ after github_pat_
+            (
+                "github_pat_1234567890abcdef1234567890abcdef1234ab",
+                "GitHub fine-grained",
+            ),  # 36+ after github_pat_
             ("xoxb-12345-67890-deadbeefcafe", "Slack bot"),  # 20+ chars after xoxb-
             ("xoxp-12345-67890-deadbeefcafe", "Slack user"),
             ("xapp-12345-67890-deadbeefcafe", "Slack app"),
@@ -389,6 +420,7 @@ class TestMusicianCredentialRedactionAdversarial:
             "Short credential-like strings below pattern threshold must pass through"
         )
 
+
 # =========================================================================
 # 4. Parallel Rate Limit Extraction (F-111)
 # =========================================================================
@@ -406,6 +438,7 @@ class TestMusicianCredentialRedactionAdversarial:
 # =========================================================================
 # 6. Cost Limit Field Correctness (F-134)
 # =========================================================================
+
 
 class TestCostLimitFieldCorrectness:
     """Adversarial tests verifying the F-134 fix — both baton paths must
@@ -440,9 +473,11 @@ class TestCostLimitFieldCorrectness:
         assert config.max_cost_per_job is None
         assert config.enabled is False
 
+
 # =========================================================================
 # 7. Checkpoint Status Mapping Boundary Tests
 # =========================================================================
+
 
 class TestCheckpointStatusMappingBoundary:
     """Adversarial tests for the checkpoint ↔ baton status mapping tables."""
@@ -494,9 +529,11 @@ class TestCheckpointStatusMappingBoundary:
         assert baton_to_checkpoint_status(BatonSheetStatus.RETRY_SCHEDULED) == "retry_scheduled"
         assert baton_to_checkpoint_status(BatonSheetStatus.FERMATA) == "fermata"
 
+
 # =========================================================================
 # 8. Completion Signaling Edge Cases
 # =========================================================================
+
 
 class TestCompletionSignalingAdversarial:
     """Adversarial tests for _check_completions."""
@@ -577,6 +614,7 @@ class TestCompletionSignalingAdversarial:
         adapter._check_completions()
         assert adapter._completion_results.get("test-job") is True
 
+
 # =========================================================================
 # 9. ParallelBatchResult Exceptions Field (F-111 regression)
 # =========================================================================
@@ -587,6 +625,7 @@ class TestCompletionSignalingAdversarial:
 # =========================================================================
 # 10. Recovery + Dependency Interaction (Step 29 Boundary)
 # =========================================================================
+
 
 class TestRecoveryDependencyInteraction:
     """When recovery rebuilds from a checkpoint where some sheets failed
@@ -600,10 +639,12 @@ class TestRecoveryDependencyInteraction:
 
         sheets = [_make_sheet(num=1), _make_sheet(num=2)]
         deps = {2: [1]}
-        cp = _make_checkpoint(sheets={
-            1: _make_sheet_state(1, SheetStatus.FAILED, attempt_count=3),
-            2: _make_sheet_state(2, SheetStatus.IN_PROGRESS, attempt_count=1),
-        })
+        cp = _make_checkpoint(
+            sheets={
+                1: _make_sheet_state(1, SheetStatus.FAILED, attempt_count=3),
+                2: _make_sheet_state(2, SheetStatus.IN_PROGRESS, attempt_count=1),
+            }
+        )
 
         adapter.recover_job("test-job", sheets, deps, cp, max_retries=3)
 
@@ -621,10 +662,12 @@ class TestRecoveryDependencyInteraction:
 
         sheets = [_make_sheet(num=1), _make_sheet(num=2)]
         deps = {2: [1]}
-        cp = _make_checkpoint(sheets={
-            1: _make_sheet_state(1, SheetStatus.COMPLETED, attempt_count=1),
-            2: _make_sheet_state(2, SheetStatus.IN_PROGRESS, attempt_count=2),
-        })
+        cp = _make_checkpoint(
+            sheets={
+                1: _make_sheet_state(1, SheetStatus.COMPLETED, attempt_count=1),
+                2: _make_sheet_state(2, SheetStatus.IN_PROGRESS, attempt_count=2),
+            }
+        )
 
         adapter.recover_job("test-job", sheets, deps, cp, max_retries=3)
 
@@ -672,9 +715,11 @@ class TestRecoveryDependencyInteraction:
             "Sheet 4 should be SKIPPED (blocked by failed dependency 2)"
         )
 
+
 # =========================================================================
 # 11. Credential Redaction Boundary Cases (F-135/F-136)
 # =========================================================================
+
 
 class TestCredentialRedactionBoundaryCases:
     """Boundary tests for credential redaction edge cases."""
@@ -752,9 +797,11 @@ class TestCredentialRedactionBoundaryCases:
         assert result is not None
         assert "sk-ant-api03-embedded1234567890" not in result
 
+
 # =========================================================================
 # 12. Score-Level Instrument Resolution Adversarial
 # =========================================================================
+
 
 class TestScoreLevelInstrumentAdversarial:
     """Adversarial tests for instrument resolution through build_sheets()."""
@@ -844,11 +891,13 @@ class TestScoreLevelInstrumentAdversarial:
 
     def test_instrument_def_requires_profile(self) -> None:
         """InstrumentDef must require profile field — no implicit defaults."""
-        from marianne.core.config.job import InstrumentDef
         import pydantic
+
+        from marianne.core.config.job import InstrumentDef
 
         with pytest.raises(pydantic.ValidationError):
             InstrumentDef(config={"model": "opus"})  # type: ignore[call-arg]
+
 
 # =========================================================================
 # 13. Failure Propagation Edge Cases (F-113 extended)

@@ -25,10 +25,9 @@ from marianne.core.checkpoint import CheckpointState, SheetState, SheetStatus
 from marianne.core.config.job import InstrumentDef, JobConfig, MovementDef
 from marianne.core.sheet import Sheet, build_sheets
 from marianne.daemon.baton.adapter import BatonAdapter
-from marianne.daemon.baton.events import DispatchRetry, SheetAttemptResult
+from marianne.daemon.baton.events import DispatchRetry
 from marianne.daemon.baton.state import BatonSheetStatus
 from marianne.utils.credential_scanner import redact_credentials
-
 
 # =========================================================================
 # Helpers
@@ -139,7 +138,7 @@ class TestDanaScoreLevelInstruments:
         sheets = build_sheets(config)
         # First 3 sheets should resolve to gemini-cli
         for i in range(3):
-            assert sheets[i].instrument_name == "gemini-cli", f"Sheet {i+1}"
+            assert sheets[i].instrument_name == "gemini-cli", f"Sheet {i + 1}"
         # Sheet 4 falls through to score-level default
         assert sheets[3].instrument_name == "claude-code"
 

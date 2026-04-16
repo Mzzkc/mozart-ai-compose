@@ -63,112 +63,132 @@ _compound_condition_strategy = st.one_of(
     ),
 )
 
-_condition_context_strategy = st.fixed_dictionaries({
-    "sheet_num": st.integers(min_value=1, max_value=100),
-    "start_item": st.integers(min_value=1, max_value=1000),
-    "end_item": st.integers(min_value=1, max_value=1000),
-    "stage": st.integers(min_value=1, max_value=10),
-    "instance": st.integers(min_value=1, max_value=10),
-    "fan_count": st.integers(min_value=1, max_value=10),
-    "total_sheets": st.integers(min_value=1, max_value=100),
-    "total_stages": st.integers(min_value=1, max_value=10),
-})
+_condition_context_strategy = st.fixed_dictionaries(
+    {
+        "sheet_num": st.integers(min_value=1, max_value=100),
+        "start_item": st.integers(min_value=1, max_value=1000),
+        "end_item": st.integers(min_value=1, max_value=1000),
+        "stage": st.integers(min_value=1, max_value=10),
+        "instance": st.integers(min_value=1, max_value=10),
+        "fan_count": st.integers(min_value=1, max_value=10),
+        "total_sheets": st.integers(min_value=1, max_value=100),
+        "total_stages": st.integers(min_value=1, max_value=10),
+    }
+)
 
 
 def _full_validation_rule_strategy() -> st.SearchStrategy[dict[str, Any]]:
     """Strategy that generates all five validation rule types with valid fields."""
     return st.one_of(
         # file_exists
-        st.fixed_dictionaries({
-            "type": st.just("file_exists"),
-            "path": st.just("{workspace}/output.txt"),
-            "stage": st.integers(min_value=1, max_value=10),
-            "retry_count": st.integers(min_value=0, max_value=10),
-            "retry_delay_ms": st.integers(min_value=0, max_value=5000),
-            "condition": _condition_strategy,
-            "description": st.one_of(st.none(), _short_text),
-        }),
+        st.fixed_dictionaries(
+            {
+                "type": st.just("file_exists"),
+                "path": st.just("{workspace}/output.txt"),
+                "stage": st.integers(min_value=1, max_value=10),
+                "retry_count": st.integers(min_value=0, max_value=10),
+                "retry_delay_ms": st.integers(min_value=0, max_value=5000),
+                "condition": _condition_strategy,
+                "description": st.one_of(st.none(), _short_text),
+            }
+        ),
         # file_modified
-        st.fixed_dictionaries({
-            "type": st.just("file_modified"),
-            "path": st.just("{workspace}/output.txt"),
-            "stage": st.integers(min_value=1, max_value=10),
-            "retry_count": st.integers(min_value=0, max_value=10),
-            "retry_delay_ms": st.integers(min_value=0, max_value=5000),
-            "condition": _condition_strategy,
-            "description": st.one_of(st.none(), _short_text),
-        }),
+        st.fixed_dictionaries(
+            {
+                "type": st.just("file_modified"),
+                "path": st.just("{workspace}/output.txt"),
+                "stage": st.integers(min_value=1, max_value=10),
+                "retry_count": st.integers(min_value=0, max_value=10),
+                "retry_delay_ms": st.integers(min_value=0, max_value=5000),
+                "condition": _condition_strategy,
+                "description": st.one_of(st.none(), _short_text),
+            }
+        ),
         # content_contains
-        st.fixed_dictionaries({
-            "type": st.just("content_contains"),
-            "path": st.just("{workspace}/output.txt"),
-            "pattern": _short_text,
-            "stage": st.integers(min_value=1, max_value=10),
-            "retry_count": st.integers(min_value=0, max_value=10),
-            "retry_delay_ms": st.integers(min_value=0, max_value=5000),
-            "condition": _condition_strategy,
-            "description": st.one_of(st.none(), _short_text),
-        }),
+        st.fixed_dictionaries(
+            {
+                "type": st.just("content_contains"),
+                "path": st.just("{workspace}/output.txt"),
+                "pattern": _short_text,
+                "stage": st.integers(min_value=1, max_value=10),
+                "retry_count": st.integers(min_value=0, max_value=10),
+                "retry_delay_ms": st.integers(min_value=0, max_value=5000),
+                "condition": _condition_strategy,
+                "description": st.one_of(st.none(), _short_text),
+            }
+        ),
         # content_regex (only valid regex patterns)
-        st.fixed_dictionaries({
-            "type": st.just("content_regex"),
-            "path": st.just("{workspace}/output.txt"),
-            "pattern": st.sampled_from([r"\d+", r"[a-z]+", r"^DONE$", r"pass(ed)?", r"\w+"]),
-            "stage": st.integers(min_value=1, max_value=10),
-            "retry_count": st.integers(min_value=0, max_value=10),
-            "retry_delay_ms": st.integers(min_value=0, max_value=5000),
-            "condition": _condition_strategy,
-            "description": st.one_of(st.none(), _short_text),
-        }),
+        st.fixed_dictionaries(
+            {
+                "type": st.just("content_regex"),
+                "path": st.just("{workspace}/output.txt"),
+                "pattern": st.sampled_from([r"\d+", r"[a-z]+", r"^DONE$", r"pass(ed)?", r"\w+"]),
+                "stage": st.integers(min_value=1, max_value=10),
+                "retry_count": st.integers(min_value=0, max_value=10),
+                "retry_delay_ms": st.integers(min_value=0, max_value=5000),
+                "condition": _condition_strategy,
+                "description": st.one_of(st.none(), _short_text),
+            }
+        ),
         # command_succeeds
-        st.fixed_dictionaries({
-            "type": st.just("command_succeeds"),
-            "command": st.sampled_from(["echo ok", "true", "test -f /dev/null"]),
-            "stage": st.integers(min_value=1, max_value=10),
-            "retry_count": st.integers(min_value=0, max_value=10),
-            "retry_delay_ms": st.integers(min_value=0, max_value=5000),
-            "condition": _condition_strategy,
-            "description": st.one_of(st.none(), _short_text),
-            "working_directory": st.one_of(st.none(), st.just("/tmp")),
-        }),
+        st.fixed_dictionaries(
+            {
+                "type": st.just("command_succeeds"),
+                "command": st.sampled_from(["echo ok", "true", "test -f /dev/null"]),
+                "stage": st.integers(min_value=1, max_value=10),
+                "retry_count": st.integers(min_value=0, max_value=10),
+                "retry_delay_ms": st.integers(min_value=0, max_value=5000),
+                "condition": _condition_strategy,
+                "description": st.one_of(st.none(), _short_text),
+                "working_directory": st.one_of(st.none(), st.just("/tmp")),
+            }
+        ),
     )
 
 
 def _validation_issue_strategy() -> st.SearchStrategy[dict[str, Any]]:
     """Strategy for constructing ValidationIssue kwargs."""
-    return st.fixed_dictionaries({
-        "check_id": st.from_regex(r"V[0-9]{3}", fullmatch=True),
-        "severity": _severity_strategy,
-        "message": _short_text,
-        "line": st.one_of(st.none(), st.integers(min_value=1, max_value=1000)),
-        "column": st.one_of(st.none(), st.integers(min_value=1, max_value=200)),
-        "context": st.one_of(st.none(), _short_text),
-        "suggestion": st.one_of(st.none(), _short_text),
-        "auto_fixable": st.booleans(),
-    })
+    return st.fixed_dictionaries(
+        {
+            "check_id": st.from_regex(r"V[0-9]{3}", fullmatch=True),
+            "severity": _severity_strategy,
+            "message": _short_text,
+            "line": st.one_of(st.none(), st.integers(min_value=1, max_value=1000)),
+            "column": st.one_of(st.none(), st.integers(min_value=1, max_value=200)),
+            "context": st.one_of(st.none(), _short_text),
+            "suggestion": st.one_of(st.none(), _short_text),
+            "auto_fixable": st.booleans(),
+        }
+    )
 
 
 def _diagnosis_strategy() -> st.SearchStrategy[dict[str, Any]]:
     """Strategy for constructing Diagnosis kwargs."""
-    return st.fixed_dictionaries({
-        "error_code": st.from_regex(r"E[0-9]{3}", fullmatch=True),
-        "issue": _short_text,
-        "explanation": _short_text,
-        "suggestion": _short_text,
-        "confidence": _unit_float,
-        "remedy_name": st.one_of(st.none(), _short_text),
-        "requires_confirmation": st.booleans(),
-    })
+    return st.fixed_dictionaries(
+        {
+            "error_code": st.from_regex(r"E[0-9]{3}", fullmatch=True),
+            "issue": _short_text,
+            "explanation": _short_text,
+            "suggestion": _short_text,
+            "confidence": _unit_float,
+            "remedy_name": st.one_of(st.none(), _short_text),
+            "requires_confirmation": st.booleans(),
+        }
+    )
 
 
 def _healing_report_context_strategy() -> st.SearchStrategy[dict[str, Any]]:
     """Strategy for constructing minimal ErrorContext kwargs for HealingReport."""
-    return st.fixed_dictionaries({
-        "error_code": st.from_regex(r"E[0-9]{3}", fullmatch=True),
-        "error_message": _short_text,
-        "error_category": st.sampled_from(["preflight", "configuration", "execution", "process"]),
-        "sheet_number": st.integers(min_value=0, max_value=100),
-    })
+    return st.fixed_dictionaries(
+        {
+            "error_code": st.from_regex(r"E[0-9]{3}", fullmatch=True),
+            "error_message": _short_text,
+            "error_category": st.sampled_from(
+                ["preflight", "configuration", "execution", "process"]
+            ),
+            "sheet_number": st.integers(min_value=0, max_value=100),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -403,9 +423,9 @@ def test_runner_severity_sorting(issues: list[dict[str, Any]]) -> None:
     """ValidationRunner.validate sorts issues: ERROR < WARNING < INFO."""
     from unittest.mock import MagicMock
 
+    from marianne.core.config.job import JobConfig
     from marianne.validation.base import ValidationCheck, ValidationIssue, ValidationSeverity
     from marianne.validation.runner import ValidationRunner
-    from marianne.core.config.job import JobConfig
 
     issue_objects = []
     for data in issues:
@@ -427,7 +447,10 @@ def test_runner_severity_sorting(issues: list[dict[str, Any]]) -> None:
         ValidationSeverity.INFO: 2,
     }
     for i in range(len(sorted_issues) - 1):
-        assert severity_order[sorted_issues[i].severity] <= severity_order[sorted_issues[i + 1].severity]
+        assert (
+            severity_order[sorted_issues[i].severity]
+            <= severity_order[sorted_issues[i + 1].severity]
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -533,9 +556,7 @@ def test_healing_report_properties(
         (f"remedy_{i}", RemedyResult(success=s, message="msg", action_taken="act"))
         for i, s in enumerate(action_successes)
     ]
-    diagnostic_outputs = [
-        (f"diag_{i}", f"Guidance for issue {i}") for i in range(n_diagnostics)
-    ]
+    diagnostic_outputs = [(f"diag_{i}", f"Guidance for issue {i}") for i in range(n_diagnostics)]
 
     report = HealingReport(
         error_context=context,
@@ -587,19 +608,19 @@ def test_healing_report_format_never_crashes(
 
 @pytest.mark.property_based
 @given(
-    template=st.sampled_from([
-        "{workspace}/output.txt",
-        "{workspace}/{sheet_num}/result.json",
-        "{workspace}/stage-{stage}/instance-{instance}.txt",
-        "no-placeholders-here.txt",
-    ]),
+    template=st.sampled_from(
+        [
+            "{workspace}/output.txt",
+            "{workspace}/{sheet_num}/result.json",
+            "{workspace}/stage-{stage}/instance-{instance}.txt",
+            "no-placeholders-here.txt",
+        ]
+    ),
     workspace=st.just("/tmp/test-workspace"),
     sheet_num=st.integers(min_value=1, max_value=100),
 )
 @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
-def test_expand_path_idempotent(
-    template: str, workspace: str, sheet_num: int
-) -> None:
+def test_expand_path_idempotent(template: str, workspace: str, sheet_num: int) -> None:
     """After full expansion, applying _expand_path again has no effect."""
     from marianne.validation.rendering import _expand_path
 
@@ -685,6 +706,7 @@ def test_skip_when_sheet_range_invariant(
     """∀ k in skip_when.keys(): (1 ≤ k ≤ total_sheets) ↔ no V212 warning."""
     from pathlib import Path
     from unittest.mock import MagicMock
+
     from marianne.core.config.job import JobConfig, SheetConfig
     from marianne.validation.checks.best_practices import SkipWhenSheetRangeCheck
 
@@ -692,7 +714,7 @@ def test_skip_when_sheet_range_invariant(
     config = MagicMock(spec=JobConfig)
     config.sheet = MagicMock(spec=SheetConfig)
     config.sheet.total_sheets = total_sheets
-    config.sheet.skip_when = {k: "True" for k in skip_keys}
+    config.sheet.skip_when = dict.fromkeys(skip_keys, "True")
     config.sheet.skip_when_command = {}
 
     issues = check.check(config, Path("/tmp/score.yaml"), "")
@@ -705,7 +727,9 @@ def test_skip_when_sheet_range_invariant(
     for k in skip_keys:
         in_range = 1 <= k <= total_sheets
         if in_range:
-            assert k not in fired_keys, f"V212 wrongly fired for in-range key {k} (total={total_sheets})"
+            assert k not in fired_keys, (
+                f"V212 wrongly fired for in-range key {k} (total={total_sheets})"
+            )
         else:
             assert k in fired_keys, f"V212 missed out-of-range key {k} (total={total_sheets})"
 
@@ -905,7 +929,13 @@ def test_backend_config_models_roundtrip(data: dict[str, Any]) -> None:
         SheetBackendOverride,
     )
 
-    for ModelClass in [BackendConfig, BridgeConfig, OllamaConfig, RecursiveLightConfig, SheetBackendOverride]:
+    for ModelClass in [
+        BackendConfig,
+        BridgeConfig,
+        OllamaConfig,
+        RecursiveLightConfig,
+        SheetBackendOverride,
+    ]:
         obj = ModelClass.model_validate(data)
         dumped = obj.model_dump()
         restored = ModelClass.model_validate(dumped)
@@ -914,7 +944,11 @@ def test_backend_config_models_roundtrip(data: dict[str, Any]) -> None:
 
 @pytest.mark.property_based
 @given(
-    name=st.text(min_size=1, max_size=20, alphabet=st.characters(whitelist_categories=("Ll", "Lu", "Nd"), whitelist_characters="-_")),
+    name=st.text(
+        min_size=1,
+        max_size=20,
+        alphabet=st.characters(whitelist_categories=("Ll", "Lu", "Nd"), whitelist_characters="-_"),
+    ),
 )
 @settings(max_examples=3, suppress_health_check=[HealthCheck.too_slow])
 def test_mcp_server_config_roundtrip(name: str) -> None:
@@ -940,9 +974,10 @@ def test_mcp_server_config_roundtrip(name: str) -> None:
 @settings(max_examples=3, suppress_health_check=[HealthCheck.too_slow])
 def test_sheet_config_prompt_config_roundtrip(size: int, total_items: int) -> None:
     """SheetConfig and PromptConfig survive round-trip."""
+    import warnings
+
     from marianne.core.config.job import PromptConfig, SheetConfig
 
-    import warnings
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         sheet = SheetConfig.model_validate({"size": size, "total_items": total_items})
@@ -1010,11 +1045,16 @@ def test_checkpoint_models_roundtrip(sheet_num: int, total_sheets: int) -> None:
 
 
 @pytest.mark.property_based
-@given(name=st.from_regex(r"[a-z][a-z0-9-]{2,19}", fullmatch=True))
+@given(
+    name=st.from_regex(r"[a-z][a-z0-9-]{2,19}", fullmatch=True).filter(
+        lambda s: s not in {"off", "on", "yes", "no", "true", "false", "null", "y", "n"}
+    )
+)
 @settings(max_examples=5, suppress_health_check=[HealthCheck.too_slow])
 def test_job_config_roundtrip_via_yaml_string(name: str) -> None:
     """JobConfig survives round-trip through to_yaml / from_yaml_string."""
     import warnings
+
     from marianne.core.config import JobConfig
 
     yaml_str = f"name: {name}\nsheet:\n  size: 1\n  total_items: 1\nprompt:\n  template: 'test'\n"
@@ -1054,7 +1094,7 @@ def test_property_based_tests_exist(
     config = MagicMock(spec=JobConfig)
     config.sheet = MagicMock(spec=SheetConfig)
     config.sheet.total_sheets = total_sheets
-    config.sheet.skip_when = {k: "True" for k in skip_keys}
+    config.sheet.skip_when = dict.fromkeys(skip_keys, "True")
     config.sheet.skip_when_command = {}
 
     issues = check.check(config, Path("/tmp/score.yaml"), "")
@@ -1071,6 +1111,4 @@ def test_property_based_tests_exist(
                 f"V212 wrongly fired for in-range key {k} (total={total_sheets})"
             )
         else:
-            assert k in fired_keys, (
-                f"V212 missed out-of-range key {k} (total={total_sheets})"
-            )
+            assert k in fired_keys, f"V212 missed out-of-range key {k} (total={total_sheets})"

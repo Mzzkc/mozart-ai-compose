@@ -23,7 +23,6 @@ import pytest
 
 from marianne.core.config import JobConfig
 
-
 # =============================================================================
 # Helpers
 # =============================================================================
@@ -53,32 +52,32 @@ class TestCreateBackendFromConfig:
     """Tests for create_backend_from_config()."""
 
     def test_claude_cli_backend(self) -> None:
-        from marianne.execution.setup import create_backend_from_config
         from marianne.core.config.backend import BackendConfig
+        from marianne.execution.setup import create_backend_from_config
 
         config = BackendConfig(type="claude_cli", skip_permissions=True)
         backend = create_backend_from_config(config)
         assert backend is not None
 
     def test_anthropic_api_backend(self) -> None:
-        from marianne.execution.setup import create_backend_from_config
         from marianne.core.config.backend import BackendConfig
+        from marianne.execution.setup import create_backend_from_config
 
         config = BackendConfig(type="anthropic_api", model="claude-sonnet-4-5-20250929")
         backend = create_backend_from_config(config)
         assert backend is not None
 
     def test_recursive_light_backend(self) -> None:
-        from marianne.execution.setup import create_backend_from_config
         from marianne.core.config.backend import BackendConfig
+        from marianne.execution.setup import create_backend_from_config
 
         config = BackendConfig(type="recursive_light")
         backend = create_backend_from_config(config)
         assert backend is not None
 
     def test_ollama_backend(self) -> None:
-        from marianne.execution.setup import create_backend_from_config
         from marianne.core.config.backend import BackendConfig
+        from marianne.execution.setup import create_backend_from_config
 
         config = BackendConfig(type="ollama", model="llama3")
         backend = create_backend_from_config(config)
@@ -1277,13 +1276,13 @@ class TestAdaptiveRetryStrategy:
     def test_cascading_errors_detected(self) -> None:
         import time as time_mod
 
+        from marianne.core.errors import ErrorCategory, ErrorCode
         from marianne.execution.retry_strategy import (
             AdaptiveRetryStrategy,
             ErrorRecord,
             RetryPattern,
             RetryStrategyConfig,
         )
-        from marianne.core.errors import ErrorCategory, ErrorCode
 
         # Use a short rapid_failure_window so that errors outside it
         # are not detected as rapid failures
@@ -1322,12 +1321,12 @@ class TestAdaptiveRetryStrategy:
     def test_cascading_errors_abort_with_many_types(self) -> None:
         import time as time_mod
 
+        from marianne.core.errors import ErrorCategory, ErrorCode
         from marianne.execution.retry_strategy import (
             AdaptiveRetryStrategy,
             ErrorRecord,
             RetryStrategyConfig,
         )
-        from marianne.core.errors import ErrorCategory, ErrorCode
 
         config = RetryStrategyConfig(rapid_failure_window=0.001)
         strategy = AdaptiveRetryStrategy(config=config)
@@ -1862,7 +1861,7 @@ class TestValidationEngine:
     def test_check_command_with_working_directory(self, tmp_path: Path) -> None:
         from marianne.core.config import ValidationRule
 
-        engine = self._make_engine(tmp_path)
+        self._make_engine(tmp_path)
         rule = ValidationRule(
             type="command_succeeds",
             command="pwd",
@@ -1966,8 +1965,8 @@ class TestGroundingTypes:
         assert hook.name == "hash_check"
 
     def test_create_hook_from_config_file_checksum(self) -> None:
-        from marianne.execution.grounding import create_hook_from_config
         from marianne.core.config import GroundingHookConfig
+        from marianne.execution.grounding import create_hook_from_config
 
         config = GroundingHookConfig(
             type="file_checksum",
@@ -2141,12 +2140,12 @@ class TestGroundingEngineRun:
         assert len(results) == 1
 
     async def test_run_hooks_timeout(self) -> None:
+        from marianne.core.config import GroundingConfig
         from marianne.execution.grounding import (
             GroundingContext,
             GroundingEngine,
             GroundingPhase,
         )
-        from marianne.core.config import GroundingConfig
 
         async def slow_validate(ctx: Any) -> Any:
             await asyncio.sleep(10)

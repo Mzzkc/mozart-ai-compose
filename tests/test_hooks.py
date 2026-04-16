@@ -194,31 +194,35 @@ class TestHookExecutor:
     @pytest.fixture
     def minimal_config(self) -> JobConfig:
         """Create minimal JobConfig for testing."""
-        return JobConfig.model_validate({
-            "name": "test-job",
-            "description": "Test job",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 10, "total_items": 10},
-            "prompt": {"template": "Test prompt"},
-        })
+        return JobConfig.model_validate(
+            {
+                "name": "test-job",
+                "description": "Test job",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 10, "total_items": 10},
+                "prompt": {"template": "Test prompt"},
+            }
+        )
 
     @pytest.fixture
     def config_with_hooks(self) -> JobConfig:
         """Create JobConfig with hooks configured."""
-        return JobConfig.model_validate({
-            "name": "hook-test-job",
-            "description": "Job with hooks",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 10, "total_items": 10},
-            "prompt": {"template": "Test"},
-            "on_success": [
-                {
-                    "type": "run_command",
-                    "command": "echo 'Success!'",
-                    "description": "Echo success",
-                },
-            ],
-        })
+        return JobConfig.model_validate(
+            {
+                "name": "hook-test-job",
+                "description": "Job with hooks",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 10, "total_items": 10},
+                "prompt": {"template": "Test"},
+                "on_success": [
+                    {
+                        "type": "run_command",
+                        "command": "echo 'Success!'",
+                        "description": "Echo success",
+                    },
+                ],
+            }
+        )
 
     def test_expand_hook_variables(self, minimal_config: JobConfig) -> None:
         """_expand_hook_variables should substitute workspace and job variables."""
@@ -243,7 +247,8 @@ class TestHookExecutor:
         assert result == "Processed 1 sheets"
 
     def test_expand_hook_variables_for_shell_quotes_workspace(
-        self, minimal_config: JobConfig,
+        self,
+        minimal_config: JobConfig,
     ) -> None:
         """for_shell=True should apply shlex.quote to workspace (F-020 fix)."""
         executor = HookExecutor(
@@ -251,12 +256,14 @@ class TestHookExecutor:
             workspace=Path("/path with spaces/work"),
         )
         result = executor._expand_hook_variables(
-            "ls {workspace}", for_shell=True,
+            "ls {workspace}",
+            for_shell=True,
         )
         assert result == "ls '/path with spaces/work'"
 
     def test_expand_hook_variables_for_shell_quotes_job_id(
-        self, minimal_config: JobConfig,
+        self,
+        minimal_config: JobConfig,
     ) -> None:
         """for_shell=True should apply shlex.quote to job_id (F-020 fix)."""
         executor = HookExecutor(
@@ -264,13 +271,15 @@ class TestHookExecutor:
             workspace=Path("/work"),
         )
         result = executor._expand_hook_variables(
-            "echo {job_id}", for_shell=True,
+            "echo {job_id}",
+            for_shell=True,
         )
         # job_id is "test-job" — shlex.quote only adds quotes if needed
         assert "test-job" in result
 
     def test_expand_hook_variables_for_shell_prevents_injection(
-        self, minimal_config: JobConfig,
+        self,
+        minimal_config: JobConfig,
     ) -> None:
         """for_shell=True must prevent shell metacharacter injection (F-020)."""
         # A workspace path with shell metacharacters
@@ -279,16 +288,19 @@ class TestHookExecutor:
             workspace=Path("/tmp/$(whoami)/workspace"),
         )
         result = executor._expand_hook_variables(
-            "ls {workspace}", for_shell=True,
+            "ls {workspace}",
+            for_shell=True,
         )
         # The $() must be neutralized by quoting
         assert "$(whoami)" not in result or "'" in result
         # Verify quoting actually protects
         import shlex
+
         assert shlex.quote("/tmp/$(whoami)/workspace") in result
 
     def test_expand_hook_variables_without_for_shell_no_quotes(
-        self, minimal_config: JobConfig,
+        self,
+        minimal_config: JobConfig,
     ) -> None:
         """Without for_shell, workspace should NOT be quoted (path usage)."""
         executor = HookExecutor(
@@ -300,7 +312,8 @@ class TestHookExecutor:
         assert result == "/path with spaces/work/output.json"
 
     def test_expand_hook_variables_for_shell_semicolon_injection(
-        self, minimal_config: JobConfig,
+        self,
+        minimal_config: JobConfig,
     ) -> None:
         """for_shell must neutralize semicolon-based command injection (F-020)."""
         executor = HookExecutor(
@@ -308,10 +321,12 @@ class TestHookExecutor:
             workspace=Path("/tmp; rm -rf /; echo"),
         )
         result = executor._expand_hook_variables(
-            "ls {workspace}", for_shell=True,
+            "ls {workspace}",
+            for_shell=True,
         )
         # The semicolons must be inside quotes — not interpreted by shell
         import shlex
+
         assert shlex.quote("/tmp; rm -rf /; echo") in result
 
     @pytest.mark.asyncio
@@ -345,20 +360,22 @@ class TestHookExecutor:
     @pytest.mark.asyncio
     async def test_hook_failure_tracking(self) -> None:
         """Failed hooks should have error information."""
-        config = JobConfig.model_validate({
-            "name": "fail-test",
-            "description": "Test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "Test"},
-            "on_success": [
-                {
-                    "type": "run_command",
-                    "command": "exit 42",  # Intentional failure
-                    "description": "Failing command",
-                },
-            ],
-        })
+        config = JobConfig.model_validate(
+            {
+                "name": "fail-test",
+                "description": "Test",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "Test"},
+                "on_success": [
+                    {
+                        "type": "run_command",
+                        "command": "exit 42",  # Intentional failure
+                        "description": "Failing command",
+                    },
+                ],
+            }
+        )
 
         executor = HookExecutor(config=config, workspace=Path("/tmp"))
         results = await executor.execute_hooks()
@@ -370,20 +387,22 @@ class TestHookExecutor:
     @pytest.mark.asyncio
     async def test_run_job_missing_path(self) -> None:
         """run_job hook should fail gracefully for missing job_path."""
-        config = JobConfig.model_validate({
-            "name": "run-job-test",
-            "description": "Test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "Test"},
-            "on_success": [
-                {
-                    "type": "run_job",
-                    "job_path": "/nonexistent/job.yaml",
-                    "description": "Chain to missing job",
-                },
-            ],
-        })
+        config = JobConfig.model_validate(
+            {
+                "name": "run-job-test",
+                "description": "Test",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "Test"},
+                "on_success": [
+                    {
+                        "type": "run_job",
+                        "job_path": "/nonexistent/job.yaml",
+                        "description": "Chain to missing job",
+                    },
+                ],
+            }
+        )
 
         executor = HookExecutor(config=config, workspace=Path("/tmp"))
         results = await executor.execute_hooks()
@@ -396,13 +415,15 @@ class TestHookExecutor:
     @pytest.mark.asyncio
     async def test_unknown_hook_type(self) -> None:
         """Unknown hook types should fail gracefully."""
-        config = JobConfig.model_validate({
-            "name": "unknown-hook-test",
-            "description": "Test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "Test"},
-        })
+        config = JobConfig.model_validate(
+            {
+                "name": "unknown-hook-test",
+                "description": "Test",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "Test"},
+            }
+        )
         # Manually add a hook and modify its type attribute after creation
         hook = PostSuccessHookConfig(
             type="run_command",  # Valid type for construction
@@ -462,24 +483,26 @@ class TestConcertLimits:
         job_config = tmp_path / "next-job.yaml"
         job_config.write_text("name: next-job\nbackend:\n  type: claude_cli\n")
 
-        config = JobConfig.model_validate({
-            "name": "depth-test",
-            "description": "Test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "Test"},
-            "concert": {
-                "enabled": True,
-                "max_chain_depth": 2,
-            },
-            "on_success": [
-                {
-                    "type": "run_job",
-                    "job_path": str(job_config),
-                    "description": "Chained job",
+        config = JobConfig.model_validate(
+            {
+                "name": "depth-test",
+                "description": "Test",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "Test"},
+                "concert": {
+                    "enabled": True,
+                    "max_chain_depth": 2,
                 },
-            ],
-        })
+                "on_success": [
+                    {
+                        "type": "run_job",
+                        "job_path": str(job_config),
+                        "description": "Chained job",
+                    },
+                ],
+            }
+        )
 
         # Create context at depth limit
         concert_ctx = ConcertContext(
@@ -507,26 +530,28 @@ class TestHookErrorPaths:
     @pytest.mark.asyncio
     async def test_abort_on_failure_stops_remaining_hooks(self) -> None:
         """When on_failure='abort', remaining hooks should not execute."""
-        config = JobConfig.model_validate({
-            "name": "abort-test",
-            "description": "Test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "Test"},
-            "on_success": [
-                {
-                    "type": "run_command",
-                    "command": "exit 1",
-                    "description": "Failing hook",
-                    "on_failure": "abort",
-                },
-                {
-                    "type": "run_command",
-                    "command": "echo 'should not run'",
-                    "description": "Should be skipped",
-                },
-            ],
-        })
+        config = JobConfig.model_validate(
+            {
+                "name": "abort-test",
+                "description": "Test",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "Test"},
+                "on_success": [
+                    {
+                        "type": "run_command",
+                        "command": "exit 1",
+                        "description": "Failing hook",
+                        "on_failure": "abort",
+                    },
+                    {
+                        "type": "run_command",
+                        "command": "echo 'should not run'",
+                        "description": "Should be skipped",
+                    },
+                ],
+            }
+        )
 
         executor = HookExecutor(config=config, workspace=Path("/tmp"))
         results = await executor.execute_hooks()
@@ -539,26 +564,28 @@ class TestHookErrorPaths:
     @pytest.mark.asyncio
     async def test_continue_on_failure_runs_remaining_hooks(self) -> None:
         """When on_failure='continue' (default), remaining hooks should execute."""
-        config = JobConfig.model_validate({
-            "name": "continue-test",
-            "description": "Test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "Test"},
-            "on_success": [
-                {
-                    "type": "run_command",
-                    "command": "exit 1",
-                    "description": "Failing hook",
-                    "on_failure": "continue",
-                },
-                {
-                    "type": "run_command",
-                    "command": "echo 'still runs'",
-                    "description": "Should still run",
-                },
-            ],
-        })
+        config = JobConfig.model_validate(
+            {
+                "name": "continue-test",
+                "description": "Test",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "Test"},
+                "on_success": [
+                    {
+                        "type": "run_command",
+                        "command": "exit 1",
+                        "description": "Failing hook",
+                        "on_failure": "continue",
+                    },
+                    {
+                        "type": "run_command",
+                        "command": "echo 'still runs'",
+                        "description": "Should still run",
+                    },
+                ],
+            }
+        )
 
         executor = HookExecutor(config=config, workspace=Path("/tmp"))
         results = await executor.execute_hooks()
@@ -570,29 +597,31 @@ class TestHookErrorPaths:
     @pytest.mark.asyncio
     async def test_concert_abort_on_hook_failure(self) -> None:
         """abort_concert_on_hook_failure should stop remaining hooks."""
-        config = JobConfig.model_validate({
-            "name": "concert-abort-test",
-            "description": "Test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "Test"},
-            "concert": {
-                "enabled": True,
-                "abort_concert_on_hook_failure": True,
-            },
-            "on_success": [
-                {
-                    "type": "run_command",
-                    "command": "exit 1",
-                    "description": "Failing hook",
+        config = JobConfig.model_validate(
+            {
+                "name": "concert-abort-test",
+                "description": "Test",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "Test"},
+                "concert": {
+                    "enabled": True,
+                    "abort_concert_on_hook_failure": True,
                 },
-                {
-                    "type": "run_command",
-                    "command": "echo 'should not run'",
-                    "description": "Should be skipped",
-                },
-            ],
-        })
+                "on_success": [
+                    {
+                        "type": "run_command",
+                        "command": "exit 1",
+                        "description": "Failing hook",
+                    },
+                    {
+                        "type": "run_command",
+                        "command": "echo 'should not run'",
+                        "description": "Should be skipped",
+                    },
+                ],
+            }
+        )
 
         executor = HookExecutor(config=config, workspace=Path("/tmp"))
         results = await executor.execute_hooks()
@@ -608,22 +637,24 @@ class TestHookErrorPaths:
         Uses a subprocess that creates its own process group so kill() works
         properly (shell subprocesses don't propagate SIGKILL to children).
         """
-        config = JobConfig.model_validate({
-            "name": "timeout-test",
-            "description": "Test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "Test"},
-            "on_success": [
-                {
-                    "type": "run_command",
-                    # Use exec to replace the shell process so kill() reaches it
-                    "command": "exec sleep 60",
-                    "description": "Slow hook",
-                    "timeout_seconds": 0.5,
-                },
-            ],
-        })
+        config = JobConfig.model_validate(
+            {
+                "name": "timeout-test",
+                "description": "Test",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "Test"},
+                "on_success": [
+                    {
+                        "type": "run_command",
+                        # Use exec to replace the shell process so kill() reaches it
+                        "command": "exec sleep 60",
+                        "description": "Slow hook",
+                        "timeout_seconds": 0.5,
+                    },
+                ],
+            }
+        )
 
         executor = HookExecutor(config=config, workspace=Path("/tmp"))
         results = await executor.execute_hooks()
@@ -642,22 +673,24 @@ class TestHookErrorPaths:
         """
         import sys
 
-        config = JobConfig.model_validate({
-            "name": "script-timeout-test",
-            "description": "Test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "Test"},
-            "on_success": [
-                {
-                    "type": "run_script",
-                    # Use python -c for a direct process (no shell children)
-                    "command": f"{sys.executable} -c 'import time; time.sleep(60)'",
-                    "description": "Slow script",
-                    "timeout_seconds": 0.5,
-                },
-            ],
-        })
+        config = JobConfig.model_validate(
+            {
+                "name": "script-timeout-test",
+                "description": "Test",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "Test"},
+                "on_success": [
+                    {
+                        "type": "run_script",
+                        # Use python -c for a direct process (no shell children)
+                        "command": f"{sys.executable} -c 'import time; time.sleep(60)'",
+                        "description": "Slow script",
+                        "timeout_seconds": 0.5,
+                    },
+                ],
+            }
+        )
 
         executor = HookExecutor(config=config, workspace=Path("/tmp"))
         results = await executor.execute_hooks()
@@ -694,20 +727,22 @@ class TestHookErrorPaths:
     @pytest.mark.asyncio
     async def test_hook_exception_captured_as_failure(self) -> None:
         """Exceptions during hook execution should be captured, not raised."""
-        config = JobConfig.model_validate({
-            "name": "exception-test",
-            "description": "Test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "Test"},
-            "on_success": [
-                {
-                    "type": "run_script",
-                    "command": "",  # Will cause shlex.split to succeed but empty args
-                    "description": "Exception hook",
-                },
-            ],
-        })
+        config = JobConfig.model_validate(
+            {
+                "name": "exception-test",
+                "description": "Test",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "Test"},
+                "on_success": [
+                    {
+                        "type": "run_script",
+                        "command": "",  # Will cause shlex.split to succeed but empty args
+                        "description": "Exception hook",
+                    },
+                ],
+            }
+        )
 
         executor = HookExecutor(config=config, workspace=Path("/tmp"))
         results = await executor.execute_hooks()
@@ -719,26 +754,28 @@ class TestHookErrorPaths:
     @pytest.mark.asyncio
     async def test_exception_with_abort_stops_remaining(self) -> None:
         """Exception in hook with on_failure='abort' should stop remaining hooks."""
-        config = JobConfig.model_validate({
-            "name": "exc-abort-test",
-            "description": "Test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "Test"},
-            "on_success": [
-                {
-                    "type": "run_script",
-                    "command": "/nonexistent/binary/xyzabc123",
-                    "description": "Will throw FileNotFoundError",
-                    "on_failure": "abort",
-                },
-                {
-                    "type": "run_command",
-                    "command": "echo 'should not run'",
-                    "description": "Should be skipped",
-                },
-            ],
-        })
+        config = JobConfig.model_validate(
+            {
+                "name": "exc-abort-test",
+                "description": "Test",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "Test"},
+                "on_success": [
+                    {
+                        "type": "run_script",
+                        "command": "/nonexistent/binary/xyzabc123",
+                        "description": "Will throw FileNotFoundError",
+                        "on_failure": "abort",
+                    },
+                    {
+                        "type": "run_command",
+                        "command": "echo 'should not run'",
+                        "description": "Should be skipped",
+                    },
+                ],
+            }
+        )
 
         executor = HookExecutor(config=config, workspace=Path("/tmp"))
         results = await executor.execute_hooks()
@@ -759,18 +796,20 @@ class TestHookErrorPaths:
         job_config = tmp_path / "next-job.yaml"
         job_config.write_text("name: next-job\nbackend:\n  type: claude_cli\n")
 
-        config = JobConfig.model_validate({
-            "name": "depth-ok-test",
-            "description": "Test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "Test"},
-            "concert": {
-                "enabled": True,
-                "max_chain_depth": 5,
-                "cooldown_between_jobs_seconds": 0,
-            },
-        })
+        config = JobConfig.model_validate(
+            {
+                "name": "depth-ok-test",
+                "description": "Test",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "Test"},
+                "concert": {
+                    "enabled": True,
+                    "max_chain_depth": 5,
+                    "cooldown_between_jobs_seconds": 0,
+                },
+            }
+        )
 
         hook = PostSuccessHookConfig(
             type="run_job",
@@ -800,20 +839,22 @@ class TestHookErrorPaths:
     @pytest.mark.asyncio
     async def test_hook_duration_tracked(self) -> None:
         """Hook execution should track duration_seconds."""
-        config = JobConfig.model_validate({
-            "name": "duration-test",
-            "description": "Test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "Test"},
-            "on_success": [
-                {
-                    "type": "run_command",
-                    "command": "echo done",
-                    "description": "Quick hook",
-                },
-            ],
-        })
+        config = JobConfig.model_validate(
+            {
+                "name": "duration-test",
+                "description": "Test",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "Test"},
+                "on_success": [
+                    {
+                        "type": "run_command",
+                        "command": "echo done",
+                        "description": "Quick hook",
+                    },
+                ],
+            }
+        )
 
         executor = HookExecutor(config=config, workspace=Path("/tmp"))
         results = await executor.execute_hooks()
@@ -847,25 +888,27 @@ class TestDetachedChildSurvival:
             "prompt:\n  template: Test\n"
         )
 
-        config = JobConfig.model_validate({
-            "name": "detach-survival-test",
-            "description": "Test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "Test"},
-            "concert": {
-                "enabled": True,
-                "cooldown_between_jobs_seconds": 0,
-            },
-            "on_success": [
-                {
-                    "type": "run_job",
-                    "job_path": str(job_config),
-                    "description": "Detached chain test",
-                    "detached": True,
+        config = JobConfig.model_validate(
+            {
+                "name": "detach-survival-test",
+                "description": "Test",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "Test"},
+                "concert": {
+                    "enabled": True,
+                    "cooldown_between_jobs_seconds": 0,
                 },
-            ],
-        })
+                "on_success": [
+                    {
+                        "type": "run_job",
+                        "job_path": str(job_config),
+                        "description": "Detached chain test",
+                        "detached": True,
+                    },
+                ],
+            }
+        )
 
         # Patch Popen to spawn a real `sleep 30` instead of `mzt run ...`
         # (marianne may not be in PATH in test environments). We capture the
@@ -882,8 +925,10 @@ class TestDetachedChildSurvival:
         executor = HookExecutor(config=config, workspace=tmp_path)
 
         try:
-            with patch("marianne.execution.hooks._try_daemon_submit", return_value=(False, None)), \
-                 patch("marianne.execution.hooks._subprocess.Popen", side_effect=capturing_popen):
+            with (
+                patch("marianne.execution.hooks._try_daemon_submit", return_value=(False, None)),
+                patch("marianne.execution.hooks._subprocess.Popen", side_effect=capturing_popen),
+            ):
                 results = await executor.execute_hooks()
 
             # Hook should report success
@@ -917,25 +962,27 @@ class TestDetachedChildSurvival:
             "prompt:\n  template: Test\n"
         )
 
-        config = JobConfig.model_validate({
-            "name": "detach-fallback-test",
-            "description": "Test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "Test"},
-            "concert": {
-                "enabled": True,
-                "cooldown_between_jobs_seconds": 0,
-            },
-            "on_success": [
-                {
-                    "type": "run_job",
-                    "job_path": str(job_config),
-                    "description": "Fallback test",
-                    "detached": True,
+        config = JobConfig.model_validate(
+            {
+                "name": "detach-fallback-test",
+                "description": "Test",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "Test"},
+                "concert": {
+                    "enabled": True,
+                    "cooldown_between_jobs_seconds": 0,
                 },
-            ],
-        })
+                "on_success": [
+                    {
+                        "type": "run_job",
+                        "job_path": str(job_config),
+                        "description": "Fallback test",
+                        "detached": True,
+                    },
+                ],
+            }
+        )
 
         spawned_pids: list[int] = []
         original_popen = _subprocess.Popen
@@ -949,8 +996,10 @@ class TestDetachedChildSurvival:
 
         try:
             # _try_daemon_submit returns (False, None) → daemon unavailable
-            with patch("marianne.execution.hooks._try_daemon_submit", return_value=(False, None)), \
-                 patch("marianne.execution.hooks._subprocess.Popen", side_effect=capturing_popen):
+            with (
+                patch("marianne.execution.hooks._try_daemon_submit", return_value=(False, None)),
+                patch("marianne.execution.hooks._subprocess.Popen", side_effect=capturing_popen),
+            ):
                 results = await executor.execute_hooks()
 
             assert len(results) == 1
@@ -979,25 +1028,27 @@ class TestDetachedChildSurvival:
             "prompt:\n  template: Test\n"
         )
 
-        config = JobConfig.model_validate({
-            "name": "detach-dead-test",
-            "description": "Test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "Test"},
-            "concert": {
-                "enabled": True,
-                "cooldown_between_jobs_seconds": 0,
-            },
-            "on_success": [
-                {
-                    "type": "run_job",
-                    "job_path": str(job_config),
-                    "description": "Detached dead child test",
-                    "detached": True,
+        config = JobConfig.model_validate(
+            {
+                "name": "detach-dead-test",
+                "description": "Test",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "Test"},
+                "concert": {
+                    "enabled": True,
+                    "cooldown_between_jobs_seconds": 0,
                 },
-            ],
-        })
+                "on_success": [
+                    {
+                        "type": "run_job",
+                        "job_path": str(job_config),
+                        "description": "Detached dead child test",
+                        "detached": True,
+                    },
+                ],
+            }
+        )
 
         # Spawn a child that exits immediately (exit 0 completes before
         # the 200ms liveness check)
@@ -1009,8 +1060,10 @@ class TestDetachedChildSurvival:
 
         executor = HookExecutor(config=config, workspace=tmp_path)
 
-        with patch("marianne.execution.hooks._try_daemon_submit", return_value=(False, None)), \
-             patch("marianne.execution.hooks._subprocess.Popen", side_effect=dying_popen):
+        with (
+            patch("marianne.execution.hooks._try_daemon_submit", return_value=(False, None)),
+            patch("marianne.execution.hooks._subprocess.Popen", side_effect=dying_popen),
+        ):
             results = await executor.execute_hooks()
 
         assert len(results) == 1
@@ -1041,29 +1094,33 @@ class TestDaemonAwareChaining:
 
     def _make_config(self, job_config_file: Path, *, detached: bool = True) -> JobConfig:
         """Build a JobConfig with a run_job hook."""
-        return JobConfig.model_validate({
-            "name": "daemon-chain-test",
-            "description": "Test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "Test"},
-            "concert": {
-                "enabled": True,
-                "cooldown_between_jobs_seconds": 0,
-            },
-            "on_success": [
-                {
-                    "type": "run_job",
-                    "job_path": str(job_config_file),
-                    "description": "Daemon chaining test",
-                    "detached": detached,
+        return JobConfig.model_validate(
+            {
+                "name": "daemon-chain-test",
+                "description": "Test",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 1, "total_items": 1},
+                "prompt": {"template": "Test"},
+                "concert": {
+                    "enabled": True,
+                    "cooldown_between_jobs_seconds": 0,
                 },
-            ],
-        })
+                "on_success": [
+                    {
+                        "type": "run_job",
+                        "job_path": str(job_config_file),
+                        "description": "Daemon chaining test",
+                        "detached": detached,
+                    },
+                ],
+            }
+        )
 
     @pytest.mark.asyncio
     async def test_daemon_available_submits_via_ipc(
-        self, tmp_path: Path, job_config_file: Path,
+        self,
+        tmp_path: Path,
+        job_config_file: Path,
     ) -> None:
         """When daemon is available and accepts, Popen should NOT be called."""
         config = self._make_config(job_config_file)
@@ -1073,11 +1130,13 @@ class TestDaemonAwareChaining:
             concert_context=ConcertContext(concert_id="test", chain_depth=0),
         )
 
-        with patch(
-            "marianne.execution.hooks._try_daemon_submit",
-            return_value=(True, "daemon-job-123"),
-        ) as mock_submit, \
-             patch("marianne.execution.hooks._subprocess.Popen") as mock_popen:
+        with (
+            patch(
+                "marianne.execution.hooks._try_daemon_submit",
+                return_value=(True, "daemon-job-123"),
+            ) as mock_submit,
+            patch("marianne.execution.hooks._subprocess.Popen") as mock_popen,
+        ):
             results = await executor.execute_hooks()
 
         assert len(results) == 1
@@ -1092,7 +1151,9 @@ class TestDaemonAwareChaining:
 
     @pytest.mark.asyncio
     async def test_daemon_unavailable_falls_back_to_popen(
-        self, tmp_path: Path, job_config_file: Path,
+        self,
+        tmp_path: Path,
+        job_config_file: Path,
     ) -> None:
         """When daemon is unavailable, hook should fall back to Popen."""
         config = self._make_config(job_config_file)
@@ -1111,12 +1172,15 @@ class TestDaemonAwareChaining:
             return proc
 
         try:
-            with patch(
-                "marianne.execution.hooks._try_daemon_submit",
-                return_value=(False, None),
-            ), patch(
-                "marianne.execution.hooks._subprocess.Popen",
-                side_effect=capturing_popen,
+            with (
+                patch(
+                    "marianne.execution.hooks._try_daemon_submit",
+                    return_value=(False, None),
+                ),
+                patch(
+                    "marianne.execution.hooks._subprocess.Popen",
+                    side_effect=capturing_popen,
+                ),
             ):
                 results = await executor.execute_hooks()
 
@@ -1137,7 +1201,9 @@ class TestDaemonAwareChaining:
 
     @pytest.mark.asyncio
     async def test_daemon_submission_error_falls_back_to_popen(
-        self, tmp_path: Path, job_config_file: Path,
+        self,
+        tmp_path: Path,
+        job_config_file: Path,
     ) -> None:
         """When _try_daemon_submit raises, hook should fall back to Popen.
 
@@ -1162,12 +1228,15 @@ class TestDaemonAwareChaining:
         try:
             # Simulate _try_daemon_submit returning failure (it catches
             # exceptions internally and returns (False, None))
-            with patch(
-                "marianne.execution.hooks._try_daemon_submit",
-                return_value=(False, None),
-            ), patch(
-                "marianne.execution.hooks._subprocess.Popen",
-                side_effect=capturing_popen,
+            with (
+                patch(
+                    "marianne.execution.hooks._try_daemon_submit",
+                    return_value=(False, None),
+                ),
+                patch(
+                    "marianne.execution.hooks._subprocess.Popen",
+                    side_effect=capturing_popen,
+                ),
             ):
                 results = await executor.execute_hooks()
 
@@ -1184,7 +1253,9 @@ class TestDaemonAwareChaining:
 
     @pytest.mark.asyncio
     async def test_chain_depth_propagated_in_daemon_submit(
-        self, tmp_path: Path, job_config_file: Path,
+        self,
+        tmp_path: Path,
+        job_config_file: Path,
     ) -> None:
         """chain_depth from ConcertContext should be incremented and passed."""
         config = self._make_config(job_config_file)
@@ -1198,12 +1269,14 @@ class TestDaemonAwareChaining:
         captured_args: list[dict] = []
 
         async def capturing_submit(job_path, workspace, fresh, chain_depth):
-            captured_args.append({
-                "job_path": job_path,
-                "workspace": workspace,
-                "fresh": fresh,
-                "chain_depth": chain_depth,
-            })
+            captured_args.append(
+                {
+                    "job_path": job_path,
+                    "workspace": workspace,
+                    "fresh": fresh,
+                    "chain_depth": chain_depth,
+                }
+            )
             return True, "daemon-job-depth"
 
         with patch(
@@ -1220,7 +1293,9 @@ class TestDaemonAwareChaining:
 
     @pytest.mark.asyncio
     async def test_non_detached_hooks_skip_daemon_path(
-        self, tmp_path: Path, job_config_file: Path,
+        self,
+        tmp_path: Path,
+        job_config_file: Path,
     ) -> None:
         """Non-detached run_job hooks should NOT attempt daemon submission."""
         config = self._make_config(job_config_file, detached=False)
@@ -1258,12 +1333,16 @@ class TestTryDaemonSubmitUnit:
         from marianne.execution.hooks import _try_daemon_submit
 
         mock_response = JobResponse(
-            job_id="test-job-42", status="accepted", message="OK",
+            job_id="test-job-42",
+            status="accepted",
+            message="OK",
         )
 
         mock_is_available = AsyncMock(return_value=True)
-        with patch("marianne.daemon.detect.is_daemon_available", mock_is_available), \
-             patch("marianne.daemon.ipc.client.DaemonClient") as MockClient:
+        with (
+            patch("marianne.daemon.detect.is_daemon_available", mock_is_available),
+            patch("marianne.daemon.ipc.client.DaemonClient") as MockClient,
+        ):
             MockClient.return_value.submit_job = AsyncMock(return_value=mock_response)
             ok, job_id = await _try_daemon_submit(
                 job_path=Path("/config/test.yaml"),
@@ -1282,12 +1361,16 @@ class TestTryDaemonSubmitUnit:
         from marianne.execution.hooks import _try_daemon_submit
 
         mock_response = JobResponse(
-            job_id="", status="rejected", message="Under pressure",
+            job_id="",
+            status="rejected",
+            message="Under pressure",
         )
 
         mock_is_available = AsyncMock(return_value=True)
-        with patch("marianne.daemon.detect.is_daemon_available", mock_is_available), \
-             patch("marianne.daemon.ipc.client.DaemonClient") as MockClient:
+        with (
+            patch("marianne.daemon.detect.is_daemon_available", mock_is_available),
+            patch("marianne.daemon.ipc.client.DaemonClient") as MockClient,
+        ):
             MockClient.return_value.submit_job = AsyncMock(return_value=mock_response)
             ok, job_id = await _try_daemon_submit(
                 job_path=Path("/config/test.yaml"),
@@ -1322,8 +1405,10 @@ class TestTryDaemonSubmitUnit:
         from marianne.execution.hooks import _try_daemon_submit
 
         mock_is_available = AsyncMock(return_value=True)
-        with patch("marianne.daemon.detect.is_daemon_available", mock_is_available), \
-             patch("marianne.daemon.ipc.client.DaemonClient") as MockClient:
+        with (
+            patch("marianne.daemon.detect.is_daemon_available", mock_is_available),
+            patch("marianne.daemon.ipc.client.DaemonClient") as MockClient,
+        ):
             MockClient.return_value.submit_job = AsyncMock(
                 side_effect=ConnectionRefusedError("Socket gone"),
             )
@@ -1344,7 +1429,9 @@ class TestTryDaemonSubmitUnit:
         from marianne.execution.hooks import _try_daemon_submit
 
         mock_response = JobResponse(
-            job_id="chained-42", status="accepted", message="OK",
+            job_id="chained-42",
+            status="accepted",
+            message="OK",
         )
         captured_requests = []
 
@@ -1353,8 +1440,10 @@ class TestTryDaemonSubmitUnit:
             return mock_response
 
         mock_is_available = AsyncMock(return_value=True)
-        with patch("marianne.daemon.detect.is_daemon_available", mock_is_available), \
-             patch("marianne.daemon.ipc.client.DaemonClient") as MockClient:
+        with (
+            patch("marianne.daemon.detect.is_daemon_available", mock_is_available),
+            patch("marianne.daemon.ipc.client.DaemonClient") as MockClient,
+        ):
             MockClient.return_value.submit_job = AsyncMock(side_effect=capture_submit)
             await _try_daemon_submit(
                 job_path=Path("/config/test.yaml"),

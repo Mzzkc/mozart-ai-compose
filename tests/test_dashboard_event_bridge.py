@@ -8,7 +8,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -151,7 +151,6 @@ class TestDaemonEventBridgeStreaming:
 
     async def test_job_events_yields_events(self, bridge: DaemonEventBridge) -> None:
         """job_events() yields events from the per-job queue."""
-        events_received: list[dict[str, Any]] = []
 
         async def _produce():
             queue = bridge._job_queues.get("job-1", [])

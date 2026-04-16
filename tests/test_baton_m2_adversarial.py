@@ -45,7 +45,6 @@ from marianne.daemon.baton.state import (
     SheetExecutionState,
 )
 
-
 # =============================================================================
 # Helpers
 # =============================================================================
@@ -156,7 +155,9 @@ class TestExhaustionDecisionTree:
         baton = BatonCore()
         sheets = _make_sheets(1, max_retries=1)
         baton.register_job(
-            "j1", sheets, {},
+            "j1",
+            sheets,
+            {},
             self_healing_enabled=True,
             escalation_enabled=True,
         )
@@ -176,7 +177,9 @@ class TestExhaustionDecisionTree:
         baton = BatonCore()
         sheets = _make_sheets(1, max_retries=1)
         baton.register_job(
-            "j1", sheets, {},
+            "j1",
+            sheets,
+            {},
             self_healing_enabled=True,
             escalation_enabled=True,
         )
@@ -219,8 +222,7 @@ class TestExhaustionDecisionTree:
         should still be marked FAILED (not crash)."""
         baton = BatonCore()
         sheets = _make_sheets(1, max_retries=0)
-        baton.register_job("j1", sheets, {},
-                           self_healing_enabled=True)
+        baton.register_job("j1", sheets, {}, self_healing_enabled=True)
 
         # Deregister the job manually
         baton.deregister_job("j1")
@@ -319,25 +321,17 @@ class TestCostEnforcementAdversarial:
     async def test_multi_job_cost_isolation(self) -> None:
         """Cost on job A must NOT affect cost limit on job B."""
         baton = BatonCore()
-        sheets_a = {1: SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code"
-        )}
-        sheets_b = {1: SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code"
-        )}
+        sheets_a = {1: SheetExecutionState(sheet_num=1, instrument_name="claude-code")}
+        sheets_b = {1: SheetExecutionState(sheet_num=1, instrument_name="claude-code")}
         baton.register_job("a", sheets_a, {})
         baton.register_job("b", sheets_b, {})
         baton.set_job_cost_limit("a", 1.0)
         baton.set_job_cost_limit("b", 1.0)
 
         # Job A spends $2.00
-        await baton.handle_event(_success_event(
-            job_id="a", cost=2.0
-        ))
+        await baton.handle_event(_success_event(job_id="a", cost=2.0))
         # Job B spends $0.50
-        await baton.handle_event(_success_event(
-            job_id="b", cost=0.50
-        ))
+        await baton.handle_event(_success_event(job_id="b", cost=0.50))
 
         # Only job A should be paused
         assert baton.is_job_paused("a")
@@ -352,9 +346,7 @@ class TestCostEnforcementAdversarial:
         baton.set_job_cost_limit("j1", 1.0)
 
         # Sheet 1 succeeds but costs $1.50
-        await baton.handle_event(
-            _success_event(sheet_num=1, cost=1.50)
-        )
+        await baton.handle_event(_success_event(sheet_num=1, cost=1.50))
 
         # Job should be paused even though sheet succeeded
         assert baton.is_job_paused("j1")
@@ -416,10 +408,14 @@ class TestCompletionModeAdversarial:
     async def test_completion_mode_exhaustion_goes_to_handler(self) -> None:
         """When completion budget runs out, the exhaustion handler runs."""
         baton = BatonCore()
-        sheets = {1: SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
-            max_retries=1, max_completion=2,
-        )}
+        sheets = {
+            1: SheetExecutionState(
+                sheet_num=1,
+                instrument_name="claude-code",
+                max_retries=1,
+                max_completion=2,
+            )
+        }
         baton.register_job("j1", sheets, {})
 
         # Exhaust retry budget first
@@ -432,10 +428,14 @@ class TestCompletionModeAdversarial:
     async def test_partial_pass_enters_completion_mode(self) -> None:
         """50% pass rate with execution success enters completion mode."""
         baton = BatonCore()
-        sheets = {1: SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
-            max_retries=3, max_completion=5,
-        )}
+        sheets = {
+            1: SheetExecutionState(
+                sheet_num=1,
+                instrument_name="claude-code",
+                max_retries=3,
+                max_completion=5,
+            )
+        }
         baton.register_job("j1", sheets, {})
 
         await baton.handle_event(_partial_success_event())
@@ -450,12 +450,18 @@ class TestCompletionModeAdversarial:
     async def test_completion_exhaustion_then_escalation(self) -> None:
         """Completion budget exhausted → escalation (if enabled)."""
         baton = BatonCore()
-        sheets = {1: SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
-            max_retries=3, max_completion=2,
-        )}
+        sheets = {
+            1: SheetExecutionState(
+                sheet_num=1,
+                instrument_name="claude-code",
+                max_retries=3,
+                max_completion=2,
+            )
+        }
         baton.register_job(
-            "j1", sheets, {},
+            "j1",
+            sheets,
+            {},
             escalation_enabled=True,
         )
 
@@ -475,10 +481,14 @@ class TestCompletionModeAdversarial:
     async def test_completion_mode_does_not_consume_retry_budget(self) -> None:
         """Partial success attempts should not consume normal retry budget."""
         baton = BatonCore()
-        sheets = {1: SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
-            max_retries=3, max_completion=5,
-        )}
+        sheets = {
+            1: SheetExecutionState(
+                sheet_num=1,
+                instrument_name="claude-code",
+                max_retries=3,
+                max_completion=5,
+            )
+        }
         baton.register_job("j1", sheets, {})
 
         # 3 partial successes
@@ -496,10 +506,14 @@ class TestCompletionModeAdversarial:
     async def test_completion_then_full_success(self) -> None:
         """Partial success → re-dispatch → full success completes sheet."""
         baton = BatonCore()
-        sheets = {1: SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
-            max_retries=3, max_completion=5,
-        )}
+        sheets = {
+            1: SheetExecutionState(
+                sheet_num=1,
+                instrument_name="claude-code",
+                max_retries=3,
+                max_completion=5,
+            )
+        }
         baton.register_job("j1", sheets, {})
 
         # First: partial success → completion mode (scheduled for retry with backoff)
@@ -521,10 +535,14 @@ class TestCompletionModeAdversarial:
         validations_total>0 means all validations failed — should retry,
         NOT enter completion mode."""
         baton = BatonCore()
-        sheets = {1: SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code",
-            max_retries=3, max_completion=5,
-        )}
+        sheets = {
+            1: SheetExecutionState(
+                sheet_num=1,
+                instrument_name="claude-code",
+                max_retries=3,
+                max_completion=5,
+            )
+        }
         baton.register_job("j1", sheets, {})
 
         event = SheetAttemptResult(
@@ -718,9 +736,7 @@ class TestProcessCrashExhaustion:
         sheet.status = BatonSheetStatus.DISPATCHED
 
         # Crash — this increments normal_attempts to 1, matching max_retries
-        await baton.handle_event(ProcessExited(
-            job_id="j1", sheet_num=1, pid=12345, exit_code=137
-        ))
+        await baton.handle_event(ProcessExited(job_id="j1", sheet_num=1, pid=12345, exit_code=137))
 
         assert sheet.status == BatonSheetStatus.FAILED
 
@@ -730,7 +746,9 @@ class TestProcessCrashExhaustion:
         baton = BatonCore()
         sheets = _make_sheets(1, max_retries=1)
         baton.register_job(
-            "j1", sheets, {},
+            "j1",
+            sheets,
+            {},
             self_healing_enabled=True,
         )
 
@@ -738,9 +756,7 @@ class TestProcessCrashExhaustion:
         assert sheet is not None
         sheet.status = BatonSheetStatus.DISPATCHED
 
-        await baton.handle_event(ProcessExited(
-            job_id="j1", sheet_num=1, pid=12345, exit_code=137
-        ))
+        await baton.handle_event(ProcessExited(job_id="j1", sheet_num=1, pid=12345, exit_code=137))
 
         # Should go to healing (RETRY_SCHEDULED) not FAILED
         assert sheet.status == BatonSheetStatus.RETRY_SCHEDULED
@@ -757,9 +773,7 @@ class TestProcessCrashExhaustion:
         assert sheet is not None
         assert sheet.status == BatonSheetStatus.PENDING
 
-        await baton.handle_event(ProcessExited(
-            job_id="j1", sheet_num=1, pid=12345, exit_code=1
-        ))
+        await baton.handle_event(ProcessExited(job_id="j1", sheet_num=1, pid=12345, exit_code=1))
 
         # Should remain pending — crash only affects dispatched sheets
         assert sheet.status == BatonSheetStatus.PENDING
@@ -776,9 +790,7 @@ class TestProcessCrashExhaustion:
         assert sheet1 is not None
         sheet1.status = BatonSheetStatus.DISPATCHED
 
-        await baton.handle_event(ProcessExited(
-            job_id="j1", sheet_num=1, pid=12345, exit_code=137
-        ))
+        await baton.handle_event(ProcessExited(job_id="j1", sheet_num=1, pid=12345, exit_code=137))
 
         assert sheet1.status == BatonSheetStatus.FAILED
         sheet2 = baton.get_sheet_state("j1", 2)
@@ -803,7 +815,9 @@ class TestConcurrentEventRaces:
         baton = BatonCore()
         sheets = _make_sheets(1)
         baton.register_job(
-            "j1", sheets, {},
+            "j1",
+            sheets,
+            {},
             escalation_enabled=True,
         )
 
@@ -811,9 +825,7 @@ class TestConcurrentEventRaces:
         await baton.handle_event(CancelJob(job_id="j1"))
 
         # Late escalation resolution — job is gone
-        await baton.handle_event(EscalationResolved(
-            job_id="j1", sheet_num=1, decision="retry"
-        ))
+        await baton.handle_event(EscalationResolved(job_id="j1", sheet_num=1, decision="retry"))
         # No crash = success. The job doesn't exist anymore.
 
     @pytest.mark.asyncio
@@ -848,9 +860,7 @@ class TestConcurrentEventRaces:
         baton.set_job_cost_limit("j1", 1.0)
 
         # Sheet 1 succeeds, triggers cost pause
-        await baton.handle_event(_success_event(
-            sheet_num=1, cost=2.0
-        ))
+        await baton.handle_event(_success_event(sheet_num=1, cost=2.0))
         assert baton.is_job_paused("j1")
 
         # User also explicitly pauses
@@ -880,9 +890,9 @@ class TestConcurrentEventRaces:
         assert sheet.status == BatonSheetStatus.RETRY_SCHEDULED
 
         # Skip event arrives
-        await baton.handle_event(SheetSkipped(
-            job_id="j1", sheet_num=1, reason="skip_when condition met"
-        ))
+        await baton.handle_event(
+            SheetSkipped(job_id="j1", sheet_num=1, reason="skip_when condition met")
+        )
 
         assert sheet.status == BatonSheetStatus.SKIPPED
 
@@ -892,16 +902,13 @@ class TestConcurrentEventRaces:
         Should transition to FERMATA since WAITING is not terminal."""
         baton = BatonCore()
         sheets = _make_sheets(1)
-        baton.register_job("j1", sheets, {},
-                           escalation_enabled=True)
+        baton.register_job("j1", sheets, {}, escalation_enabled=True)
 
         sheet = baton.get_sheet_state("j1", 1)
         assert sheet is not None
         sheet.status = BatonSheetStatus.WAITING
 
-        await baton.handle_event(EscalationNeeded(
-            job_id="j1", sheet_num=1, reason="manual"
-        ))
+        await baton.handle_event(EscalationNeeded(job_id="j1", sheet_num=1, reason="manual"))
 
         assert sheet.status == BatonSheetStatus.FERMATA
         assert baton.is_job_paused("j1")
@@ -1103,12 +1110,8 @@ class TestInstrumentStateBridgeAdversarial:
     async def test_rate_limit_across_multiple_jobs(self) -> None:
         """Rate limit on an instrument affects ALL jobs using it."""
         baton = BatonCore()
-        sheets_a = {1: SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code"
-        )}
-        sheets_b = {1: SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code"
-        )}
+        sheets_a = {1: SheetExecutionState(sheet_num=1, instrument_name="claude-code")}
+        sheets_b = {1: SheetExecutionState(sheet_num=1, instrument_name="claude-code")}
         baton.register_job("a", sheets_a, {})
         baton.register_job("b", sheets_b, {})
 
@@ -1121,10 +1124,14 @@ class TestInstrumentStateBridgeAdversarial:
         b1.status = BatonSheetStatus.DISPATCHED
 
         # Rate limit claude-code (triggered by job a, sheet 1)
-        await baton.handle_event(RateLimitHit(
-            instrument="claude-code", wait_seconds=60.0,
-            job_id="a", sheet_num=1,
-        ))
+        await baton.handle_event(
+            RateLimitHit(
+                instrument="claude-code",
+                wait_seconds=60.0,
+                job_id="a",
+                sheet_num=1,
+            )
+        )
 
         # Both should be WAITING
         assert a1.status == BatonSheetStatus.WAITING
@@ -1239,16 +1246,13 @@ class TestEscalationDecisionVariants:
         """Decision 'accept' → COMPLETED (even though validations failed)."""
         baton = BatonCore()
         sheets = _make_sheets(1)
-        baton.register_job("j1", sheets, {},
-                           escalation_enabled=True)
+        baton.register_job("j1", sheets, {}, escalation_enabled=True)
 
         sheet = baton.get_sheet_state("j1", 1)
         assert sheet is not None
         sheet.status = BatonSheetStatus.FERMATA
 
-        await baton.handle_event(EscalationResolved(
-            job_id="j1", sheet_num=1, decision="accept"
-        ))
+        await baton.handle_event(EscalationResolved(job_id="j1", sheet_num=1, decision="accept"))
         assert sheet.status == BatonSheetStatus.COMPLETED
 
     @pytest.mark.asyncio
@@ -1256,16 +1260,13 @@ class TestEscalationDecisionVariants:
         """Decision 'skip' → SKIPPED."""
         baton = BatonCore()
         sheets = _make_sheets(1)
-        baton.register_job("j1", sheets, {},
-                           escalation_enabled=True)
+        baton.register_job("j1", sheets, {}, escalation_enabled=True)
 
         sheet = baton.get_sheet_state("j1", 1)
         assert sheet is not None
         sheet.status = BatonSheetStatus.FERMATA
 
-        await baton.handle_event(EscalationResolved(
-            job_id="j1", sheet_num=1, decision="skip"
-        ))
+        await baton.handle_event(EscalationResolved(job_id="j1", sheet_num=1, decision="skip"))
         assert sheet.status == BatonSheetStatus.SKIPPED
 
     @pytest.mark.asyncio
@@ -1273,16 +1274,13 @@ class TestEscalationDecisionVariants:
         """Decision 'retry' → PENDING."""
         baton = BatonCore()
         sheets = _make_sheets(1)
-        baton.register_job("j1", sheets, {},
-                           escalation_enabled=True)
+        baton.register_job("j1", sheets, {}, escalation_enabled=True)
 
         sheet = baton.get_sheet_state("j1", 1)
         assert sheet is not None
         sheet.status = BatonSheetStatus.FERMATA
 
-        await baton.handle_event(EscalationResolved(
-            job_id="j1", sheet_num=1, decision="retry"
-        ))
+        await baton.handle_event(EscalationResolved(job_id="j1", sheet_num=1, decision="retry"))
         assert sheet.status == BatonSheetStatus.PENDING
 
     @pytest.mark.asyncio
@@ -1291,16 +1289,13 @@ class TestEscalationDecisionVariants:
         baton = BatonCore()
         sheets = _make_sheets(2)
         deps = {2: [1]}
-        baton.register_job("j1", sheets, deps,
-                           escalation_enabled=True)
+        baton.register_job("j1", sheets, deps, escalation_enabled=True)
 
         sheet1 = baton.get_sheet_state("j1", 1)
         assert sheet1 is not None
         sheet1.status = BatonSheetStatus.FERMATA
 
-        await baton.handle_event(EscalationResolved(
-            job_id="j1", sheet_num=1, decision="fail"
-        ))
+        await baton.handle_event(EscalationResolved(job_id="j1", sheet_num=1, decision="fail"))
 
         assert sheet1.status == BatonSheetStatus.FAILED
         sheet2 = baton.get_sheet_state("j1", 2)
@@ -1314,17 +1309,14 @@ class TestEscalationDecisionVariants:
         """Resolution for a sheet not in FERMATA does nothing to the sheet."""
         baton = BatonCore()
         sheets = _make_sheets(1)
-        baton.register_job("j1", sheets, {},
-                           escalation_enabled=True)
+        baton.register_job("j1", sheets, {}, escalation_enabled=True)
 
         sheet = baton.get_sheet_state("j1", 1)
         assert sheet is not None
         # Sheet is PENDING, not FERMATA
         assert sheet.status == BatonSheetStatus.PENDING
 
-        await baton.handle_event(EscalationResolved(
-            job_id="j1", sheet_num=1, decision="retry"
-        ))
+        await baton.handle_event(EscalationResolved(job_id="j1", sheet_num=1, decision="retry"))
         # Status unchanged — resolution only works on FERMATA sheets
         # BUT: job pause state is still updated by the handler
         assert sheet.status == BatonSheetStatus.PENDING

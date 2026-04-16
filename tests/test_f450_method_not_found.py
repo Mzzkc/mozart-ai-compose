@@ -131,9 +131,7 @@ class TestTryDaemonRouteMethodNotFound:
             client = MockClient.return_value
             client.is_daemon_running = AsyncMock(return_value=True)
             client.call = AsyncMock(
-                side_effect=MethodNotFoundError(
-                    "Method not found: daemon.new_feature"
-                )
+                side_effect=MethodNotFoundError("Method not found: daemon.new_feature")
             )
 
             with pytest.raises(MethodNotFoundError, match="does not support") as exc_info:
@@ -159,15 +157,11 @@ class TestTryDaemonRouteMethodNotFound:
         with patch(_CLIENT_PATH) as MockClient:
             client = MockClient.return_value
             client.is_daemon_running = AsyncMock(return_value=True)
-            client.call = AsyncMock(
-                side_effect=MethodNotFoundError("Method not found: x")
-            )
+            client.call = AsyncMock(side_effect=MethodNotFoundError("Method not found: x"))
 
             # Must raise, not return (False, None)
             with pytest.raises(MethodNotFoundError):
-                await try_daemon_route(
-                    "x", {}, socket_path=Path("/tmp/test.sock")
-                )
+                await try_daemon_route("x", {}, socket_path=Path("/tmp/test.sock"))
 
     async def test_job_submission_error_still_reraises(self):
         """JobSubmissionError still re-raises (existing behavior preserved)."""
@@ -176,14 +170,10 @@ class TestTryDaemonRouteMethodNotFound:
         with patch(_CLIENT_PATH) as MockClient:
             client = MockClient.return_value
             client.is_daemon_running = AsyncMock(return_value=True)
-            client.call = AsyncMock(
-                side_effect=JobSubmissionError("job not found")
-            )
+            client.call = AsyncMock(side_effect=JobSubmissionError("job not found"))
 
             with pytest.raises(JobSubmissionError):
-                await try_daemon_route(
-                    "job.status", {}, socket_path=Path("/tmp/test.sock")
-                )
+                await try_daemon_route("job.status", {}, socket_path=Path("/tmp/test.sock"))
 
     async def test_resource_exhausted_still_reraises(self):
         """ResourceExhaustedError still re-raises (existing behavior preserved)."""
@@ -192,14 +182,10 @@ class TestTryDaemonRouteMethodNotFound:
         with patch(_CLIENT_PATH) as MockClient:
             client = MockClient.return_value
             client.is_daemon_running = AsyncMock(return_value=True)
-            client.call = AsyncMock(
-                side_effect=ResourceExhaustedError("rate limited")
-            )
+            client.call = AsyncMock(side_effect=ResourceExhaustedError("rate limited"))
 
             with pytest.raises(ResourceExhaustedError):
-                await try_daemon_route(
-                    "job.submit", {}, socket_path=Path("/tmp/test.sock")
-                )
+                await try_daemon_route("job.submit", {}, socket_path=Path("/tmp/test.sock"))
 
     async def test_generic_daemon_error_still_returns_false(self):
         """Generic DaemonError (not a specific subclass) still returns (False, None).
@@ -212,9 +198,7 @@ class TestTryDaemonRouteMethodNotFound:
         with patch(_CLIENT_PATH) as MockClient:
             client = MockClient.return_value
             client.is_daemon_running = AsyncMock(return_value=True)
-            client.call = AsyncMock(
-                side_effect=DaemonError("shutting down")
-            )
+            client.call = AsyncMock(side_effect=DaemonError("shutting down"))
 
             routed, result = await try_daemon_route(
                 "job.status", {}, socket_path=Path("/tmp/test.sock")
@@ -234,9 +218,7 @@ class TestTryDaemonRouteMethodNotFound:
         with patch(_CLIENT_PATH) as MockClient:
             client = MockClient.return_value
             client.is_daemon_running = AsyncMock(return_value=True)
-            client.call = AsyncMock(
-                side_effect=DaemonAlreadyRunningError("already running")
-            )
+            client.call = AsyncMock(side_effect=DaemonAlreadyRunningError("already running"))
 
             routed, result = await try_daemon_route(
                 "conductor.start", {}, socket_path=Path("/tmp/test.sock")

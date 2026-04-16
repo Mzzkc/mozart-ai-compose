@@ -34,7 +34,6 @@ import pytest
 
 from marianne.backends.anthropic_api import AnthropicApiBackend
 
-
 # ============================================================================
 # Helper: create a mock API response
 # ============================================================================
@@ -72,7 +71,9 @@ def _backend_with_key(monkeypatch: pytest.MonkeyPatch) -> AnthropicApiBackend:
     return AnthropicApiBackend()
 
 
-def _mock_client(response: MagicMock | None = None, side_effect: Exception | None = None) -> AsyncMock:
+def _mock_client(
+    response: MagicMock | None = None, side_effect: Exception | None = None
+) -> AsyncMock:
     """Create a mock AsyncAnthropic client with optional response or error."""
     client = AsyncMock()
     client.messages.create = AsyncMock(side_effect=side_effect, return_value=response)
@@ -89,7 +90,8 @@ class TestGetClient:
 
     @pytest.mark.asyncio
     async def test_lazy_creates_client_on_first_call(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Client is created lazily on first _get_client() call."""
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
@@ -107,7 +109,8 @@ class TestGetClient:
 
     @pytest.mark.asyncio
     async def test_reuses_existing_client(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Subsequent calls reuse the same client instance."""
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
@@ -126,7 +129,8 @@ class TestGetClient:
 
     @pytest.mark.asyncio
     async def test_concurrent_calls_create_single_client(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Multiple concurrent _get_client() calls produce exactly one client instance."""
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
@@ -139,7 +143,9 @@ class TestGetClient:
             call_count += 1
             return mock_instance
 
-        with patch("marianne.backends.anthropic_api.anthropic.AsyncAnthropic", side_effect=counting_factory):
+        with patch(
+            "marianne.backends.anthropic_api.anthropic.AsyncAnthropic", side_effect=counting_factory
+        ):
             # Fire 5 concurrent _get_client() calls
             results = await asyncio.gather(*[backend._get_client() for _ in range(5)])
 
@@ -161,7 +167,8 @@ class TestAPIStatusError:
 
     @pytest.mark.asyncio
     async def test_api_status_error_non_rate_limited(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """APIStatusError with non-rate-limit message returns api_error type."""
         backend = _backend_with_key(monkeypatch)
@@ -186,7 +193,8 @@ class TestAPIStatusError:
 
     @pytest.mark.asyncio
     async def test_api_status_error_rate_limited_by_status_code(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """APIStatusError with 429 status code triggers rate limit detection."""
         backend = _backend_with_key(monkeypatch)
@@ -211,7 +219,8 @@ class TestAPIStatusError:
 
     @pytest.mark.asyncio
     async def test_api_status_error_rate_limited_by_message(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """APIStatusError with rate limit text in message triggers detection."""
         backend = _backend_with_key(monkeypatch)
@@ -235,7 +244,8 @@ class TestAPIStatusError:
 
     @pytest.mark.asyncio
     async def test_api_status_error_missing_status_code_attr(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """APIStatusError without status_code attribute defaults to 500."""
         backend = _backend_with_key(monkeypatch)
@@ -270,20 +280,25 @@ class TestGenericExceptionHandler:
 
     @pytest.mark.asyncio
     async def test_unexpected_exception_reraises(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Unexpected exceptions (not anthropic errors) are re-raised."""
         backend = _backend_with_key(monkeypatch)
 
         client = _mock_client(side_effect=ValueError("totally unexpected"))
 
-        with patch.object(backend, "_get_client", return_value=client):
-            with pytest.raises(ValueError, match="totally unexpected"):
-                await backend.execute("test")
+        with (
+            patch.object(backend, "_get_client", return_value=client),
+            pytest.raises(ValueError, match="totally unexpected"),
+        ):
+            await backend.execute("test")
 
     @pytest.mark.asyncio
     async def test_unexpected_exception_writes_stderr_log(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         """Unexpected exception writes error to stderr log file before re-raising."""
         backend = _backend_with_key(monkeypatch)
@@ -291,9 +306,8 @@ class TestGenericExceptionHandler:
 
         client = _mock_client(side_effect=TypeError("bad type"))
 
-        with patch.object(backend, "_get_client", return_value=client):
-            with pytest.raises(TypeError):
-                await backend.execute("test")
+        with patch.object(backend, "_get_client", return_value=client), pytest.raises(TypeError):
+            await backend.execute("test")
 
         stderr_path = tmp_path / "sheet-1.stderr.log"
         assert stderr_path.exists()
@@ -454,7 +468,9 @@ class TestOutputLogPath:
 
     @pytest.mark.asyncio
     async def test_execute_writes_response_to_stdout_log(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         """Successful execute() writes response text to stdout log file."""
         backend = _backend_with_key(monkeypatch)
@@ -472,7 +488,9 @@ class TestOutputLogPath:
 
     @pytest.mark.asyncio
     async def test_execute_writes_error_to_stderr_log(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         """Error during execute() writes error message to stderr log file."""
         backend = _backend_with_key(monkeypatch)
@@ -506,7 +524,8 @@ class TestResponseContentExtraction:
 
     @pytest.mark.asyncio
     async def test_multiple_text_blocks_concatenated(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Multiple text blocks in response are concatenated."""
         backend = _backend_with_key(monkeypatch)
@@ -526,7 +545,8 @@ class TestResponseContentExtraction:
 
     @pytest.mark.asyncio
     async def test_non_text_blocks_skipped(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Content blocks without .text attribute are skipped."""
         backend = _backend_with_key(monkeypatch)
@@ -547,7 +567,8 @@ class TestResponseContentExtraction:
 
     @pytest.mark.asyncio
     async def test_empty_content_blocks(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Empty content blocks list produces empty stdout."""
         backend = _backend_with_key(monkeypatch)
@@ -572,7 +593,8 @@ class TestTokenTracking:
 
     @pytest.mark.asyncio
     async def test_tokens_used_is_sum_of_input_output(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """tokens_used = input_tokens + output_tokens for backwards compat."""
         backend = _backend_with_key(monkeypatch)
@@ -589,7 +611,8 @@ class TestTokenTracking:
 
     @pytest.mark.asyncio
     async def test_no_usage_in_response(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """When response.usage is None, all token fields are None."""
         backend = _backend_with_key(monkeypatch)
@@ -606,7 +629,8 @@ class TestTokenTracking:
 
     @pytest.mark.asyncio
     async def test_error_results_have_no_token_counts(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Error results do not include token counts."""
         backend = _backend_with_key(monkeypatch)
@@ -615,7 +639,9 @@ class TestTokenTracking:
         mock_resp.status_code = 400
         client = _mock_client(
             side_effect=anthropic.BadRequestError(
-                message="Invalid request", response=mock_resp, body=None,
+                message="Invalid request",
+                response=mock_resp,
+                body=None,
             )
         )
 
@@ -628,7 +654,8 @@ class TestTokenTracking:
 
     @pytest.mark.asyncio
     async def test_model_field_on_success(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Successful result includes the model name."""
         backend = _backend_with_key(monkeypatch)
@@ -644,7 +671,8 @@ class TestTokenTracking:
 
     @pytest.mark.asyncio
     async def test_model_field_on_error(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Error results also include the model name for diagnostics."""
         backend = _backend_with_key(monkeypatch)
@@ -654,7 +682,9 @@ class TestTokenTracking:
         mock_resp.status_code = 429
         client = _mock_client(
             side_effect=anthropic.RateLimitError(
-                message="Rate limited", response=mock_resp, body=None,
+                message="Rate limited",
+                response=mock_resp,
+                body=None,
             )
         )
 
@@ -674,7 +704,8 @@ class TestTimeoutOverride:
 
     @pytest.mark.asyncio
     async def test_timeout_override_logged_but_not_enforced(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Passing timeout_seconds to execute() does not change API behavior."""
         backend = _backend_with_key(monkeypatch)
@@ -691,7 +722,8 @@ class TestTimeoutOverride:
 
     @pytest.mark.asyncio
     async def test_no_timeout_override_no_log(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Not passing timeout_seconds skips the override log."""
         backend = _backend_with_key(monkeypatch)
@@ -764,7 +796,8 @@ class TestDurationTracking:
 
     @pytest.mark.asyncio
     async def test_success_has_duration(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Successful execution has a positive duration."""
         backend = _backend_with_key(monkeypatch)
@@ -778,7 +811,8 @@ class TestDurationTracking:
 
     @pytest.mark.asyncio
     async def test_rate_limit_error_has_duration(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Rate limit error result has a positive duration."""
         backend = _backend_with_key(monkeypatch)
@@ -786,7 +820,9 @@ class TestDurationTracking:
         mock_resp.status_code = 429
         client = _mock_client(
             side_effect=anthropic.RateLimitError(
-                message="Rate limited", response=mock_resp, body=None,
+                message="Rate limited",
+                response=mock_resp,
+                body=None,
             )
         )
 
@@ -797,13 +833,12 @@ class TestDurationTracking:
 
     @pytest.mark.asyncio
     async def test_timeout_error_has_duration(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Timeout error result has a positive duration."""
         backend = _backend_with_key(monkeypatch)
-        client = _mock_client(
-            side_effect=anthropic.APITimeoutError(request=MagicMock())
-        )
+        client = _mock_client(side_effect=anthropic.APITimeoutError(request=MagicMock()))
 
         with patch.object(backend, "_get_client", return_value=client):
             result = await backend.execute("test")
@@ -812,13 +847,12 @@ class TestDurationTracking:
 
     @pytest.mark.asyncio
     async def test_connection_error_has_duration(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Connection error result has a positive duration."""
         backend = _backend_with_key(monkeypatch)
-        client = _mock_client(
-            side_effect=anthropic.APIConnectionError(request=MagicMock())
-        )
+        client = _mock_client(side_effect=anthropic.APIConnectionError(request=MagicMock()))
 
         with patch.object(backend, "_get_client", return_value=client):
             result = await backend.execute("test")
@@ -843,7 +877,8 @@ class TestErrorResultFields:
 
     @pytest.mark.asyncio
     async def test_rate_limit_error_fields(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Rate limit error sets exit_code=429, rate_limited=True, error_type='rate_limit'."""
         backend = _backend_with_key(monkeypatch)
@@ -851,7 +886,9 @@ class TestErrorResultFields:
         mock_resp.status_code = 429
         client = _mock_client(
             side_effect=anthropic.RateLimitError(
-                message="Rate limited", response=mock_resp, body=None,
+                message="Rate limited",
+                response=mock_resp,
+                body=None,
             )
         )
 
@@ -868,7 +905,8 @@ class TestErrorResultFields:
 
     @pytest.mark.asyncio
     async def test_auth_error_fields(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Auth error sets exit_code=401, error_type='authentication'."""
         backend = _backend_with_key(monkeypatch)
@@ -876,7 +914,9 @@ class TestErrorResultFields:
         mock_resp.status_code = 401
         client = _mock_client(
             side_effect=anthropic.AuthenticationError(
-                message="Invalid key", response=mock_resp, body=None,
+                message="Invalid key",
+                response=mock_resp,
+                body=None,
             )
         )
 
@@ -891,7 +931,8 @@ class TestErrorResultFields:
 
     @pytest.mark.asyncio
     async def test_bad_request_error_fields(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Bad request error sets exit_code=400, error_type='bad_request'."""
         backend = _backend_with_key(monkeypatch)
@@ -899,7 +940,9 @@ class TestErrorResultFields:
         mock_resp.status_code = 400
         client = _mock_client(
             side_effect=anthropic.BadRequestError(
-                message="Invalid params", response=mock_resp, body=None,
+                message="Invalid params",
+                response=mock_resp,
+                body=None,
             )
         )
 
@@ -912,13 +955,12 @@ class TestErrorResultFields:
 
     @pytest.mark.asyncio
     async def test_timeout_error_fields(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Timeout error sets exit_code=408, error_type='timeout'."""
         backend = _backend_with_key(monkeypatch)
-        client = _mock_client(
-            side_effect=anthropic.APITimeoutError(request=MagicMock())
-        )
+        client = _mock_client(side_effect=anthropic.APITimeoutError(request=MagicMock()))
 
         with patch.object(backend, "_get_client", return_value=client):
             result = await backend.execute("test")
@@ -931,13 +973,12 @@ class TestErrorResultFields:
 
     @pytest.mark.asyncio
     async def test_connection_error_fields(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Connection error sets exit_code=503, error_type='connection'."""
         backend = _backend_with_key(monkeypatch)
-        client = _mock_client(
-            side_effect=anthropic.APIConnectionError(request=MagicMock())
-        )
+        client = _mock_client(side_effect=anthropic.APIConnectionError(request=MagicMock()))
 
         with patch.object(backend, "_get_client", return_value=client):
             result = await backend.execute("test")
@@ -981,7 +1022,9 @@ class TestStderrLogWriting:
 
     @pytest.fixture
     def backend_with_logs(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> tuple[AnthropicApiBackend, Path]:
         """Create backend with output log path configured."""
         backend = _backend_with_key(monkeypatch)
@@ -991,14 +1034,17 @@ class TestStderrLogWriting:
 
     @pytest.mark.asyncio
     async def test_auth_error_writes_stderr(
-        self, backend_with_logs: tuple[AnthropicApiBackend, Path],
+        self,
+        backend_with_logs: tuple[AnthropicApiBackend, Path],
     ) -> None:
         backend, tmp_path = backend_with_logs
         mock_resp = MagicMock()
         mock_resp.status_code = 401
         client = _mock_client(
             side_effect=anthropic.AuthenticationError(
-                message="Invalid API key", response=mock_resp, body=None,
+                message="Invalid API key",
+                response=mock_resp,
+                body=None,
             )
         )
         with patch.object(backend, "_get_client", return_value=client):
@@ -1007,14 +1053,17 @@ class TestStderrLogWriting:
 
     @pytest.mark.asyncio
     async def test_bad_request_writes_stderr(
-        self, backend_with_logs: tuple[AnthropicApiBackend, Path],
+        self,
+        backend_with_logs: tuple[AnthropicApiBackend, Path],
     ) -> None:
         backend, tmp_path = backend_with_logs
         mock_resp = MagicMock()
         mock_resp.status_code = 400
         client = _mock_client(
             side_effect=anthropic.BadRequestError(
-                message="Bad request", response=mock_resp, body=None,
+                message="Bad request",
+                response=mock_resp,
+                body=None,
             )
         )
         with patch.object(backend, "_get_client", return_value=client):
@@ -1023,38 +1072,39 @@ class TestStderrLogWriting:
 
     @pytest.mark.asyncio
     async def test_timeout_writes_stderr(
-        self, backend_with_logs: tuple[AnthropicApiBackend, Path],
+        self,
+        backend_with_logs: tuple[AnthropicApiBackend, Path],
     ) -> None:
         backend, tmp_path = backend_with_logs
-        client = _mock_client(
-            side_effect=anthropic.APITimeoutError(request=MagicMock())
-        )
+        client = _mock_client(side_effect=anthropic.APITimeoutError(request=MagicMock()))
         with patch.object(backend, "_get_client", return_value=client):
             await backend.execute("test")
         assert (tmp_path / "sheet-1.stderr.log").exists()
 
     @pytest.mark.asyncio
     async def test_connection_error_writes_stderr(
-        self, backend_with_logs: tuple[AnthropicApiBackend, Path],
+        self,
+        backend_with_logs: tuple[AnthropicApiBackend, Path],
     ) -> None:
         backend, tmp_path = backend_with_logs
-        client = _mock_client(
-            side_effect=anthropic.APIConnectionError(request=MagicMock())
-        )
+        client = _mock_client(side_effect=anthropic.APIConnectionError(request=MagicMock()))
         with patch.object(backend, "_get_client", return_value=client):
             await backend.execute("test")
         assert (tmp_path / "sheet-1.stderr.log").exists()
 
     @pytest.mark.asyncio
     async def test_api_status_error_writes_stderr(
-        self, backend_with_logs: tuple[AnthropicApiBackend, Path],
+        self,
+        backend_with_logs: tuple[AnthropicApiBackend, Path],
     ) -> None:
         backend, tmp_path = backend_with_logs
         mock_resp = MagicMock()
         mock_resp.status_code = 500
         client = _mock_client(
             side_effect=anthropic.APIStatusError(
-                message="Server error", response=mock_resp, body=None,
+                message="Server error",
+                response=mock_resp,
+                body=None,
             )
         )
         with patch.object(backend, "_get_client", return_value=client):
@@ -1063,7 +1113,8 @@ class TestStderrLogWriting:
 
     @pytest.mark.asyncio
     async def test_config_error_writes_stderr(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Configuration error (missing key) writes to stderr log."""
         backend = AnthropicApiBackend(api_key_env="NO_KEY_HERE")

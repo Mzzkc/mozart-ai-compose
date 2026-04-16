@@ -17,7 +17,6 @@ import pytest
 from marianne.core.config.fleet import FleetConfig, FleetGroupConfig, FleetScoreEntry
 from marianne.daemon.registry import DaemonJobStatus
 
-
 # ─── Fleet Detection Tests ──────────────────────────────────────────
 
 
@@ -28,9 +27,7 @@ class TestIsFleetConfig:
         from marianne.daemon.fleet import is_fleet_config
 
         fleet_yaml = tmp_path / "fleet.yaml"
-        fleet_yaml.write_text(
-            "name: test-fleet\ntype: fleet\nscores:\n  - path: a.yaml\n"
-        )
+        fleet_yaml.write_text("name: test-fleet\ntype: fleet\nscores:\n  - path: a.yaml\n")
         assert is_fleet_config(fleet_yaml) is True
 
     def test_rejects_normal_config(self, tmp_path: Path) -> None:
@@ -182,10 +179,12 @@ class TestFleetSubmission:
         # Mock manager
         manager = MagicMock()
         manager._fleet_records = {}
-        manager.submit_job = AsyncMock(side_effect=[
-            JobResponse(job_id="agent-a", status="accepted", message="ok"),
-            JobResponse(job_id="agent-b", status="accepted", message="ok"),
-        ])
+        manager.submit_job = AsyncMock(
+            side_effect=[
+                JobResponse(job_id="agent-a", status="accepted", message="ok"),
+                JobResponse(job_id="agent-b", status="accepted", message="ok"),
+            ]
+        )
 
         response = await submit_fleet(manager, fleet_path, fleet_config)
 
@@ -207,7 +206,9 @@ class TestFleetSubmission:
         manager.submit_job = AsyncMock()
 
         response = await submit_fleet(
-            manager, tmp_path / "fleet.yaml", fleet_config,
+            manager,
+            tmp_path / "fleet.yaml",
+            fleet_config,
         )
 
         # The fleet should still complete (with partial failure)

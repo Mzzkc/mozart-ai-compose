@@ -32,7 +32,6 @@ from marianne.daemon.baton.state import (
     SheetExecutionState,
 )
 
-
 # =============================================================================
 # InstrumentFallback Event
 # =============================================================================
@@ -185,12 +184,14 @@ class TestSheetExecutionStateFallbackFields:
             current_instrument_index=1,
             fallback_attempts={"claude-code": 3, "gemini-cli": 1},
         )
-        state.instrument_fallback_history.append({
-            "from": "claude-code",
-            "to": "gemini-cli",
-            "reason": "rate_limit_exhausted",
-            "timestamp": "2026-04-06T00:00:00",
-        })
+        state.instrument_fallback_history.append(
+            {
+                "from": "claude-code",
+                "to": "gemini-cli",
+                "reason": "rate_limit_exhausted",
+                "timestamp": "2026-04-06T00:00:00",
+            }
+        )
         d = state.to_dict()
         restored = SheetExecutionState.from_dict(d)
         assert restored.fallback_chain == ["gemini-cli", "ollama"]
@@ -266,14 +267,16 @@ class TestBatonCoreFallbackOnExhaustion:
         baton.register_job("j1", {1: sheet}, {})
 
         # Simulate failed attempt that exhausts retry budget
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1",
-            sheet_num=1,
-            instrument_name="claude-code",
-            attempt=1,
-            execution_success=False,
-            error_message="backend crashed",
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=False,
+                error_message="backend crashed",
+            )
+        )
 
         # Sheet should have fallen back to gemini-cli, not FAILED
         restored_sheet = baton._jobs["j1"].sheets[1]
@@ -292,13 +295,15 @@ class TestBatonCoreFallbackOnExhaustion:
         )
         baton.register_job("j1", {1: sheet}, {})
 
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1",
-            sheet_num=1,
-            instrument_name="claude-code",
-            attempt=1,
-            execution_success=False,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=False,
+            )
+        )
 
         restored_sheet = baton._jobs["j1"].sheets[1]
         assert restored_sheet.status == BatonSheetStatus.FAILED
@@ -315,13 +320,15 @@ class TestBatonCoreFallbackOnExhaustion:
         baton.register_job("j1", {1: sheet}, {})
 
         # First instrument exhausted → fallback
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1",
-            sheet_num=1,
-            instrument_name="claude-code",
-            attempt=1,
-            execution_success=False,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=False,
+            )
+        )
 
         s = baton._jobs["j1"].sheets[1]
         assert s.instrument_name == "gemini-cli"
@@ -329,13 +336,15 @@ class TestBatonCoreFallbackOnExhaustion:
 
         # Simulate second instrument also failing — set to RUNNING first
         s.status = BatonSheetStatus.IN_PROGRESS
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1",
-            sheet_num=1,
-            instrument_name="gemini-cli",
-            attempt=1,
-            execution_success=False,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="gemini-cli",
+                attempt=1,
+                execution_success=False,
+            )
+        )
 
         s = baton._jobs["j1"].sheets[1]
         assert s.status == BatonSheetStatus.FAILED
@@ -352,13 +361,15 @@ class TestBatonCoreFallbackOnExhaustion:
         baton.register_job("j1", {1: sheet}, {})
 
         # First attempt fails (1 of 2) — should NOT fallback yet
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1",
-            sheet_num=1,
-            instrument_name="claude-code",
-            attempt=1,
-            execution_success=False,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=False,
+            )
+        )
         s = baton._jobs["j1"].sheets[1]
         assert s.instrument_name == "claude-code"
         assert s.normal_attempts == 1
@@ -374,16 +385,18 @@ class TestBatonCoreFallbackOnExhaustion:
         )
         baton.register_job("j1", {1: sheet}, {})
 
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1",
-            sheet_num=1,
-            instrument_name="claude-code",
-            attempt=1,
-            execution_success=True,
-            validations_passed=0,
-            validations_total=5,
-            validation_pass_rate=0.0,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=True,
+                validations_passed=0,
+                validations_total=5,
+                validation_pass_rate=0.0,
+            )
+        )
 
         s = baton._jobs["j1"].sheets[1]
         # Should retry on same instrument (validation failure, not instrument failure)
@@ -408,13 +421,15 @@ class TestBatonCoreFallbackHistory:
         )
         baton.register_job("j1", {1: sheet}, {})
 
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1",
-            sheet_num=1,
-            instrument_name="claude-code",
-            attempt=1,
-            execution_success=False,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=False,
+            )
+        )
 
         s = baton._jobs["j1"].sheets[1]
         assert len(s.instrument_fallback_history) == 1

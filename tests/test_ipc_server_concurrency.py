@@ -16,7 +16,6 @@ import pytest
 from marianne.daemon.ipc.handler import RequestHandler
 from marianne.daemon.ipc.server import DaemonServer
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

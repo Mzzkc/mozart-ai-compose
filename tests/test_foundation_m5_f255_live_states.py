@@ -74,8 +74,11 @@ class TestBatonLiveStatesPopulation:
             patch("marianne.core.sheet.build_sheets", return_value=[mock_sheet_1, mock_sheet_2]),
             patch("marianne.daemon.baton.adapter.extract_dependencies", return_value={}),
         ):
-            result = await JobManager._run_via_baton(
-                manager, "test-job", mock_config, mock_request,
+            await JobManager._run_via_baton(
+                manager,
+                "test-job",
+                mock_config,
+                mock_request,
             )
 
         # The critical assertion: _live_states must be populated
@@ -127,13 +130,14 @@ class TestBatonLiveStatesPopulation:
             patch("marianne.daemon.baton.adapter.extract_dependencies", return_value={}),
         ):
             await JobManager._run_via_baton(
-                manager, "test-job", mock_config, mock_request,
+                manager,
+                "test-job",
+                mock_config,
+                mock_request,
             )
 
         live = manager._live_states["test-job"]
-        assert isinstance(live, CheckpointState), (
-            "Live state must be a CheckpointState instance"
-        )
+        assert isinstance(live, CheckpointState), "Live state must be a CheckpointState instance"
         assert live.job_id == "test-job"
         assert live.job_name == "test-score"
         assert live.total_sheets == 2
@@ -185,7 +189,10 @@ class TestBatonLiveStatesPopulation:
             patch("marianne.daemon.baton.adapter.extract_dependencies", return_value={}),
         ):
             await JobManager._run_via_baton(
-                manager, "test-job", mock_config, mock_request,
+                manager,
+                "test-job",
+                mock_config,
+                mock_request,
             )
 
         live = manager._live_states["test-job"]
@@ -316,8 +323,10 @@ class TestBatonResumeLiveStates:
             patch("marianne.core.sheet.build_sheets", return_value=[mock_sheet_1, mock_sheet_2]),
             patch("marianne.daemon.baton.adapter.extract_dependencies", return_value={}),
         ):
-            result = await JobManager._resume_via_baton(
-                manager, "test-job", Path("/tmp/workspace"),
+            await JobManager._resume_via_baton(
+                manager,
+                "test-job",
+                Path("/tmp/workspace"),
             )
 
         assert "test-job" in manager._live_states, (

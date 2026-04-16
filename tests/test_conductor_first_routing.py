@@ -117,8 +117,7 @@ class TestStatusRoutesThruConductor:
             result = runner.invoke(app, ["status", "test-job"])
 
         assert result.exit_code == 1
-        assert "conductor is not running" in result.output.lower() or \
-               "mzt start" in result.output
+        assert "conductor is not running" in result.output.lower() or "mzt start" in result.output
 
     def test_status_succeeds_via_conductor(self):
         """Status command works when conductor returns state."""
@@ -169,7 +168,8 @@ class TestStatusRoutesThruConductor:
             ),
         ):
             result = runner.invoke(
-                app, ["status", "test-job", "--workspace", str(tmp_path)],
+                app,
+                ["status", "test-job", "--workspace", str(tmp_path)],
             )
 
         assert result.exit_code == 0
@@ -188,8 +188,7 @@ class TestPauseRoutesThruConductor:
             result = runner.invoke(app, ["pause", "test-job"])
 
         assert result.exit_code == 1
-        assert "conductor is not running" in result.output.lower() or \
-               "mzt start" in result.output
+        assert "conductor is not running" in result.output.lower() or "mzt start" in result.output
 
     def test_pause_succeeds_via_conductor(self):
         """Pause command works when conductor acknowledges."""
@@ -228,8 +227,7 @@ class TestResumeRoutesThruConductor:
             result = runner.invoke(app, ["resume", "test-job"])
 
         assert result.exit_code == 1
-        assert "conductor is not running" in result.output.lower() or \
-               "mzt start" in result.output
+        assert "conductor is not running" in result.output.lower() or "mzt start" in result.output
 
     def test_resume_succeeds_via_conductor(self):
         """Resume command works when conductor accepts."""
@@ -260,8 +258,7 @@ class TestErrorsRoutesThruConductor:
             result = runner.invoke(app, ["errors", "test-job"])
 
         assert result.exit_code == 1
-        assert "conductor is not running" in result.output.lower() or \
-               "mzt start" in result.output
+        assert "conductor is not running" in result.output.lower() or "mzt start" in result.output
 
     def test_errors_succeeds_via_conductor(self):
         """Errors command works via conductor."""
@@ -292,8 +289,7 @@ class TestDiagnoseRoutesThruConductor:
             result = runner.invoke(app, ["diagnose", "test-job"])
 
         assert result.exit_code == 1
-        assert "conductor is not running" in result.output.lower() or \
-               "mzt start" in result.output
+        assert "conductor is not running" in result.output.lower() or "mzt start" in result.output
 
     def test_diagnose_succeeds_via_conductor(self):
         """Diagnose command works via conductor."""
@@ -323,19 +319,21 @@ class TestHistoryRoutesThruConductor:
             result = runner.invoke(app, ["history", "test-job"])
 
         assert result.exit_code == 1
-        assert "conductor is not running" in result.output.lower() or \
-               "mzt start" in result.output
+        assert "conductor is not running" in result.output.lower() or "mzt start" in result.output
 
     def test_history_succeeds_via_conductor(self):
         """History command works via conductor."""
         with patch(
             "marianne.daemon.detect.try_daemon_route",
             new_callable=AsyncMock,
-            return_value=(True, {
-                "job_id": "test-job",
-                "records": [],
-                "has_history": True,
-            }),
+            return_value=(
+                True,
+                {
+                    "job_id": "test-job",
+                    "records": [],
+                    "has_history": True,
+                },
+            ),
         ):
             result = runner.invoke(app, ["history", "test-job"])
 
@@ -548,6 +546,7 @@ class TestConductorErrorMessages:
             pass
         # The function prints to console, not returns — check the source
         import inspect
+
         source = inspect.getsource(require_conductor)
         assert "mzt start" in source
         assert "marianned" not in source
@@ -617,7 +616,8 @@ class TestTryDaemonRouteSafety:
                 "marianne.daemon.ipc.client.DaemonClient.call",
                 new_callable=AsyncMock,
                 side_effect=JobSubmissionError("Job not found"),
-            ),pytest.raises(JobSubmissionError)
+            ),
+            pytest.raises(JobSubmissionError),
         ):
             await try_daemon_route("job.status", {"job_id": "x"})
 
@@ -665,24 +665,27 @@ class TestDocumentationConsistency:
         doc = Path(__file__).parent.parent / "docs" / "daemon-guide.md"
         if doc.exists():
             content = doc.read_text()
-            assert "marianned" not in content.lower(), \
+            assert "marianned" not in content.lower(), (
                 "daemon-guide.md should use 'mzt start' not 'marianned'"
+            )
 
     def test_no_marianned_in_getting_started(self):
         """getting-started.md should not reference marianned."""
         doc = Path(__file__).parent.parent / "docs" / "getting-started.md"
         if doc.exists():
             content = doc.read_text()
-            assert "marianned" not in content.lower(), \
+            assert "marianned" not in content.lower(), (
                 "getting-started.md should use 'mzt start' not 'marianned'"
+            )
 
     def test_no_marianned_in_cli_reference(self):
         """cli-reference.md should not reference marianned."""
         doc = Path(__file__).parent.parent / "docs" / "cli-reference.md"
         if doc.exists():
             content = doc.read_text()
-            assert "marianned" not in content.lower(), \
+            assert "marianned" not in content.lower(), (
                 "cli-reference.md should use 'mzt start' not 'marianned'"
+            )
 
     def test_no_marianned_in_source_code(self):
         """No marianned references should remain in the src/ directory."""
@@ -698,5 +701,5 @@ class TestDocumentationConsistency:
                     if stripped.startswith("#") or stripped.startswith('"""'):
                         continue
                     raise AssertionError(
-                        f"marianned reference in {py_file}:{i+1}: {line.strip()}"
+                        f"marianned reference in {py_file}:{i + 1}: {line.strip()}"
                     )

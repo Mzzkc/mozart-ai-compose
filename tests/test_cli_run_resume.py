@@ -89,9 +89,7 @@ class TestRunCommandExecution:
 
     def test_run_dry_run_json_output(self, sample_yaml_config: Path) -> None:
         """Dry run with --json should output machine-parseable JSON."""
-        result = runner.invoke(
-            app, ["run", str(sample_yaml_config), "--dry-run", "--json"]
-        )
+        result = runner.invoke(app, ["run", str(sample_yaml_config), "--dry-run", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.stdout)
         assert data["dry_run"] is True
@@ -119,7 +117,10 @@ class TestRunCommandExecution:
             ["run", str(sample_yaml_config), "--escalation"],
         )
         assert result.exit_code == 1
-        assert "not available in daemon mode" in result.stdout or "not currently supported" in result.stdout
+        assert (
+            "not available in daemon mode" in result.stdout
+            or "not currently supported" in result.stdout
+        )
 
     def test_run_escalation_json_error(self, sample_yaml_config: Path) -> None:
         """--escalation with --json should produce JSON-shaped error."""
@@ -135,9 +136,7 @@ class TestRunCommandExecution:
 
     def test_run_shows_config_panel(self, sample_yaml_config: Path) -> None:
         """Run command should display configuration panel."""
-        result = runner.invoke(
-            app, ["run", str(sample_yaml_config), "--dry-run"]
-        )
+        result = runner.invoke(app, ["run", str(sample_yaml_config), "--dry-run"])
         assert result.exit_code == 0
         assert "Score Configuration" in result.stdout
         assert "test-job" in result.stdout
@@ -148,16 +147,21 @@ class TestRunCommandExecution:
         assert result.exit_code != 0
 
     def test_run_workspace_override(
-        self, sample_yaml_config: Path, tmp_path: Path,
+        self,
+        sample_yaml_config: Path,
+        tmp_path: Path,
     ) -> None:
         """--workspace should override config workspace throughout the job."""
         custom_ws = tmp_path / "custom-workspace"
         result = runner.invoke(
             app,
             [
-                "run", str(sample_yaml_config),
-                "--dry-run", "--json",
-                "-w", str(custom_ws),
+                "run",
+                str(sample_yaml_config),
+                "--dry-run",
+                "--json",
+                "-w",
+                str(custom_ws),
             ],
         )
         assert result.exit_code == 0
@@ -165,12 +169,11 @@ class TestRunCommandExecution:
         assert data["workspace"] == str(custom_ws.resolve())
 
     def test_run_shows_cost_warning_when_disabled(
-        self, sample_yaml_config: Path,
+        self,
+        sample_yaml_config: Path,
     ) -> None:
         """When cost_limits.enabled is false, run shows a cost warning."""
-        result = runner.invoke(
-            app, ["run", str(sample_yaml_config), "--dry-run"]
-        )
+        result = runner.invoke(app, ["run", str(sample_yaml_config), "--dry-run"])
         assert result.exit_code == 0
         assert "Cost tracking is disabled" in result.stdout
 
@@ -192,29 +195,25 @@ class TestRunCommandExecution:
         with open(config_path, "w") as f:
             yaml.dump(config, f)
 
-        result = runner.invoke(
-            app, ["run", str(config_path), "--dry-run"]
-        )
+        result = runner.invoke(app, ["run", str(config_path), "--dry-run"])
         assert result.exit_code == 0
         assert "Cost tracking is disabled" not in result.stdout
 
     def test_run_no_cost_warning_in_json_mode(
-        self, sample_yaml_config: Path,
+        self,
+        sample_yaml_config: Path,
     ) -> None:
         """JSON output mode suppresses the cost warning."""
-        result = runner.invoke(
-            app, ["run", str(sample_yaml_config), "--dry-run", "--json"]
-        )
+        result = runner.invoke(app, ["run", str(sample_yaml_config), "--dry-run", "--json"])
         assert result.exit_code == 0
         assert "Cost tracking is disabled" not in result.stdout
 
     def test_run_config_panel_shows_instrument(
-        self, sample_yaml_config: Path,
+        self,
+        sample_yaml_config: Path,
     ) -> None:
         """Config panel shows instrument (not just 'Backend')."""
-        result = runner.invoke(
-            app, ["run", str(sample_yaml_config), "--dry-run"]
-        )
+        result = runner.invoke(app, ["run", str(sample_yaml_config), "--dry-run"])
         assert result.exit_code == 0
         assert "Instrument:" in result.stdout
 
@@ -253,18 +252,24 @@ class TestRunDaemonRequired:
 
     def test_run_routes_through_daemon(self, sample_yaml_config: Path) -> None:
         """Successful daemon submission should report acceptance."""
-        with patch(
-            "marianne.daemon.detect.is_daemon_available",
-            new_callable=AsyncMock,
-            return_value=True,
-        ), patch(
-            "marianne.daemon.detect.try_daemon_route",
-            new_callable=AsyncMock,
-            return_value=(True, {
-                "job_id": "test-job-abc123",
-                "status": "accepted",
-                "message": "Job queued",
-            }),
+        with (
+            patch(
+                "marianne.daemon.detect.is_daemon_available",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "marianne.daemon.detect.try_daemon_route",
+                new_callable=AsyncMock,
+                return_value=(
+                    True,
+                    {
+                        "job_id": "test-job-abc123",
+                        "status": "accepted",
+                        "message": "Job queued",
+                    },
+                ),
+            ),
         ):
             result = runner.invoke(
                 app,
@@ -281,13 +286,16 @@ class TestRunDaemonRequired:
             captured_params.update(params)
             return (True, {"job_id": "x", "status": "accepted", "message": ""})
 
-        with patch(
-            "marianne.daemon.detect.is_daemon_available",
-            new_callable=AsyncMock,
-            return_value=True,
-        ), patch(
-            "marianne.daemon.detect.try_daemon_route",
-            side_effect=_mock_route,
+        with (
+            patch(
+                "marianne.daemon.detect.is_daemon_available",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "marianne.daemon.detect.try_daemon_route",
+                side_effect=_mock_route,
+            ),
         ):
             result = runner.invoke(
                 app,
@@ -304,13 +312,16 @@ class TestRunDaemonRequired:
             captured_params.update(params)
             return (True, {"job_id": "x", "status": "accepted", "message": ""})
 
-        with patch(
-            "marianne.daemon.detect.is_daemon_available",
-            new_callable=AsyncMock,
-            return_value=True,
-        ), patch(
-            "marianne.daemon.detect.try_daemon_route",
-            side_effect=_mock_route,
+        with (
+            patch(
+                "marianne.daemon.detect.is_daemon_available",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "marianne.daemon.detect.try_daemon_route",
+                side_effect=_mock_route,
+            ),
         ):
             result = runner.invoke(
                 app,
@@ -393,11 +404,14 @@ class TestFindJobState:
             last_completed_sheet=3,
         )
 
-        with patch(
-            "marianne.cli.commands.resume.require_job_state",
-            new_callable=AsyncMock,
-            return_value=(state, AsyncMock()),
-        ), pytest.raises(typer.Exit):
+        with (
+            patch(
+                "marianne.cli.commands.resume.require_job_state",
+                new_callable=AsyncMock,
+                return_value=(state, AsyncMock()),
+            ),
+            pytest.raises(typer.Exit),
+        ):
             await _find_job_state("completed-job", force=False)
 
     @pytest.mark.asyncio
@@ -414,11 +428,14 @@ class TestFindJobState:
             total_sheets=3,
         )
 
-        with patch(
-            "marianne.cli.commands.resume.require_job_state",
-            new_callable=AsyncMock,
-            return_value=(state, AsyncMock()),
-        ), pytest.raises(typer.Exit):
+        with (
+            patch(
+                "marianne.cli.commands.resume.require_job_state",
+                new_callable=AsyncMock,
+                return_value=(state, AsyncMock()),
+            ),
+            pytest.raises(typer.Exit),
+        ):
             await _find_job_state("pending-job", force=False)
 
     @pytest.mark.asyncio
@@ -440,9 +457,7 @@ class TestFindJobState:
             new_callable=AsyncMock,
             return_value=(state, mock_backend),
         ):
-            found_state, _ = await _find_job_state(
-                "paused-job", force=False
-            )
+            found_state, _ = await _find_job_state("paused-job", force=False)
             assert found_state.job_id == "paused-job"
             assert found_state.status == JobStatus.PAUSED
 
@@ -455,12 +470,16 @@ class TestReconstructConfig:
         from marianne.cli.commands.resume import _reconstruct_config
 
         state = CheckpointState(
-            job_id="test", job_name="Test", total_sheets=3,
+            job_id="test",
+            job_name="Test",
+            total_sheets=3,
             config_snapshot={"name": "snapshot-config"},
             config_path="/some/other/path.yaml",
         )
         config, was_reloaded = _reconstruct_config(
-            state, config_file=sample_yaml_config, no_reload=False,
+            state,
+            config_file=sample_yaml_config,
+            no_reload=False,
         )
         assert config.name == "test-job"
         assert was_reloaded is True
@@ -470,12 +489,16 @@ class TestReconstructConfig:
         from marianne.cli.commands.resume import _reconstruct_config
 
         state = CheckpointState(
-            job_id="test", job_name="Test", total_sheets=3,
+            job_id="test",
+            job_name="Test",
+            total_sheets=3,
             config_snapshot={"name": "old-snapshot"},
             config_path=str(sample_yaml_config),
         )
         config, was_reloaded = _reconstruct_config(
-            state, config_file=None, no_reload=False,
+            state,
+            config_file=None,
+            no_reload=False,
         )
         assert config.name == "test-job"  # from YAML, not snapshot
         assert was_reloaded is True
@@ -491,12 +514,16 @@ class TestReconstructConfig:
             "prompt": {"template": "Test {{ sheet_num }}"},
         }
         state = CheckpointState(
-            job_id="test", job_name="Test", total_sheets=3,
+            job_id="test",
+            job_name="Test",
+            total_sheets=3,
             config_snapshot=snapshot,
             config_path=str(tmp_path / "deleted.yaml"),
         )
         config, was_reloaded = _reconstruct_config(
-            state, config_file=None, no_reload=False,
+            state,
+            config_file=None,
+            no_reload=False,
         )
         assert config.name == "snapshot-job"
         assert was_reloaded is False
@@ -512,12 +539,16 @@ class TestReconstructConfig:
             "prompt": {"template": "Test {{ sheet_num }}"},
         }
         state = CheckpointState(
-            job_id="test", job_name="Test", total_sheets=3,
+            job_id="test",
+            job_name="Test",
+            total_sheets=3,
             config_snapshot=snapshot,
             config_path=None,
         )
         config, was_reloaded = _reconstruct_config(
-            state, config_file=None, no_reload=False,
+            state,
+            config_file=None,
+            no_reload=False,
         )
         assert config.name == "snapshot-job"
         assert was_reloaded is False
@@ -533,12 +564,16 @@ class TestReconstructConfig:
             "prompt": {"template": "Test {{ sheet_num }}"},
         }
         state = CheckpointState(
-            job_id="test", job_name="Test", total_sheets=3,
+            job_id="test",
+            job_name="Test",
+            total_sheets=3,
             config_snapshot=snapshot,
             config_path=str(sample_yaml_config),
         )
         config, was_reloaded = _reconstruct_config(
-            state, config_file=None, no_reload=True,
+            state,
+            config_file=None,
+            no_reload=True,
         )
         assert config.name == "snapshot-job"  # snapshot, NOT yaml file
         assert was_reloaded is False
@@ -550,8 +585,11 @@ class TestReconstructConfig:
         from marianne.cli.commands.resume import _reconstruct_config
 
         state = CheckpointState(
-            job_id="test", job_name="Test", total_sheets=3,
-            config_snapshot=None, config_path=None,
+            job_id="test",
+            job_name="Test",
+            total_sheets=3,
+            config_snapshot=None,
+            config_path=None,
         )
         with pytest.raises(typer.Exit):
             _reconstruct_config(state, config_file=None, no_reload=False)
@@ -561,11 +599,15 @@ class TestReconstructConfig:
         from marianne.cli.commands.resume import _reconstruct_config
 
         state = CheckpointState(
-            job_id="test", job_name="Test", total_sheets=3,
+            job_id="test",
+            job_name="Test",
+            total_sheets=3,
             config_snapshot={"name": "snapshot"},
         )
         config, was_reloaded = _reconstruct_config(
-            state, config_file=sample_yaml_config, no_reload=True,
+            state,
+            config_file=sample_yaml_config,
+            no_reload=True,
         )
         assert config.name == "test-job"  # explicit file wins
         assert was_reloaded is True
@@ -590,6 +632,7 @@ class TestSharedHelpers:
 
         backend = create_backend(config)
         from marianne.backends.claude_cli import ClaudeCliBackend
+
         assert isinstance(backend, ClaudeCliBackend)
 
     def test_create_progress_bar_default(self) -> None:
@@ -743,13 +786,15 @@ class TestResumeErrorMessages:
 
         import typer
 
-        with patch(
-            "marianne.cli.commands.resume.require_job_state",
-            new_callable=AsyncMock,
-            return_value=(state, AsyncMock()),
-        ), patch(
-            "marianne.cli.commands.resume.output_error"
-        ) as mock_err, pytest.raises(typer.Exit):
+        with (
+            patch(
+                "marianne.cli.commands.resume.require_job_state",
+                new_callable=AsyncMock,
+                return_value=(state, AsyncMock()),
+            ),
+            patch("marianne.cli.commands.resume.output_error") as mock_err,
+            pytest.raises(typer.Exit),
+        ):
             await _find_job_state("done-job", force=False)
 
         mock_err.assert_called_once()
@@ -772,13 +817,15 @@ class TestResumeErrorMessages:
 
         import typer
 
-        with patch(
-            "marianne.cli.commands.resume.require_job_state",
-            new_callable=AsyncMock,
-            return_value=(state, AsyncMock()),
-        ), patch(
-            "marianne.cli.commands.resume.output_error"
-        ) as mock_err, pytest.raises(typer.Exit):
+        with (
+            patch(
+                "marianne.cli.commands.resume.require_job_state",
+                new_callable=AsyncMock,
+                return_value=(state, AsyncMock()),
+            ),
+            patch("marianne.cli.commands.resume.output_error") as mock_err,
+            pytest.raises(typer.Exit),
+        ):
             await _find_job_state("pending-job", force=False)
 
         mock_err.assert_called_once()
@@ -813,16 +860,16 @@ class TestResumeRejectedHints:
 
         import typer
 
-        with patch(
-            "marianne.daemon.detect.try_daemon_route",
-            new_callable=AsyncMock,
-            return_value=(True, result_dict),
-        ), patch(
-            "marianne.cli.commands.resume.output_error"
-        ) as mock_err, pytest.raises(typer.Exit):
-            await _resume_job(
-                "nonexistent", None, False, False, False, False, False
-            )
+        with (
+            patch(
+                "marianne.daemon.detect.try_daemon_route",
+                new_callable=AsyncMock,
+                return_value=(True, result_dict),
+            ),
+            patch("marianne.cli.commands.resume.output_error") as mock_err,
+            pytest.raises(typer.Exit),
+        ):
+            await _resume_job("nonexistent", None, False, False, False, False, False)
 
         mock_err.assert_called_once()
         call_args = mock_err.call_args
@@ -845,16 +892,16 @@ class TestResumeRejectedHints:
 
         import typer
 
-        with patch(
-            "marianne.daemon.detect.try_daemon_route",
-            new_callable=AsyncMock,
-            return_value=(True, result_dict),
-        ), patch(
-            "marianne.cli.commands.resume.output_error"
-        ) as mock_err, pytest.raises(typer.Exit):
-            await _resume_job(
-                "my-job", None, False, False, False, False, False
-            )
+        with (
+            patch(
+                "marianne.daemon.detect.try_daemon_route",
+                new_callable=AsyncMock,
+                return_value=(True, result_dict),
+            ),
+            patch("marianne.cli.commands.resume.output_error") as mock_err,
+            pytest.raises(typer.Exit),
+        ):
+            await _resume_job("my-job", None, False, False, False, False, False)
 
         mock_err.assert_called_once()
         call_args = mock_err.call_args
@@ -879,16 +926,15 @@ class TestResumeScoreTerminology:
             "job_id": "my-score",
         }
 
-        with patch(
-            "marianne.daemon.detect.try_daemon_route",
-            new_callable=AsyncMock,
-            return_value=(True, result_dict),
-        ), patch(
-            "marianne.cli.commands.resume.console"
-        ) as mock_console:
-            await _resume_job(
-                "my-score", None, False, False, False, False, False
-            )
+        with (
+            patch(
+                "marianne.daemon.detect.try_daemon_route",
+                new_callable=AsyncMock,
+                return_value=(True, result_dict),
+            ),
+            patch("marianne.cli.commands.resume.console") as mock_console,
+        ):
+            await _resume_job("my-score", None, False, False, False, False, False)
 
         # Check that the success message uses "score" not "job"
         all_prints = " ".join(str(c) for c in mock_console.print.call_args_list)

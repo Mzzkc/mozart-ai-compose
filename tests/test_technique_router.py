@@ -14,12 +14,8 @@ from __future__ import annotations
 import pytest
 
 from marianne.daemon.technique_router import (
-    A2ARoutingRequest,
-    ClassifiedOutput,
-    CodeBlock,
     OutputKind,
     TechniqueRouter,
-    ToolCallRequest,
 )
 
 
@@ -359,19 +355,21 @@ class TestEdgeCases:
             assert result.a2a_requests[0].target_agent == "pattern"
 
     def test_code_fence_with_backtick_in_content(
-        self, router: TechniqueRouter,
+        self,
+        router: TechniqueRouter,
     ) -> None:
         """Code content with backticks doesn't break parsing."""
-        text = '''```python
+        text = """```python
 x = "`hello`"
 print(x)
-```'''
+```"""
         result = router.classify(text)
         assert result.kind == OutputKind.CODE_BLOCK
         assert '"`hello`"' in result.code_blocks[0].code
 
     def test_classified_output_preserves_raw(
-        self, router: TechniqueRouter,
+        self,
+        router: TechniqueRouter,
     ) -> None:
         """ClassifiedOutput always preserves the raw output."""
         text = "@delegate forge: Build it"

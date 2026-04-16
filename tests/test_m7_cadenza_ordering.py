@@ -72,9 +72,7 @@ class TestCadenzaOrderingForCaching:
         assert tools_pos < template_pos, "Tools must come before template (for caching)"
         assert context_pos < template_pos, "Context must come before template (for caching)"
 
-    def test_full_assembly_order_with_caching_optimization(
-        self, workspace: Path
-    ) -> None:
+    def test_full_assembly_order_with_caching_optimization(self, workspace: Path) -> None:
         """All sections in cache-optimized order."""
         config = PromptConfig(
             template="## Template\n\nDynamic content here.",

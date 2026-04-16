@@ -18,7 +18,6 @@ from marianne.learning.store.base import (
     WhereBuilder,
 )
 
-
 # ---------------------------------------------------------------------------
 # WhereBuilder
 # ---------------------------------------------------------------------------
@@ -108,9 +107,7 @@ class TestWhereBuilder:
         wb.add("score >= ?", 0.4)
         wb.add("name != ?", "a")
         where_sql, params = wb.build()
-        rows = conn.execute(
-            f"SELECT name FROM t WHERE {where_sql}", params
-        ).fetchall()
+        rows = conn.execute(f"SELECT name FROM t WHERE {where_sql}", params).fetchall()
         conn.close()
 
         assert len(rows) == 1
@@ -145,7 +142,7 @@ class TestInitialization:
 
     def test_default_db_path(self):
         """DEFAULT_GLOBAL_STORE_PATH points to ~/.marianne/global-learning.db."""
-        assert DEFAULT_GLOBAL_STORE_PATH == Path.home() / ".marianne" / "global-learning.db"
+        assert Path.home() / ".marianne" / "global-learning.db" == DEFAULT_GLOBAL_STORE_PATH
 
     def test_custom_db_path(self, tmp_path: Path):
         """Custom db_path is stored on the instance."""
@@ -210,9 +207,7 @@ class TestSchemaCreation:
     def test_all_tables_created(self, store: GlobalLearningStoreBase):
         """All expected tables exist after initialization."""
         with store._get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-            )
+            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
             tables = {row["name"] for row in cursor.fetchall()}
 
         for table in self.EXPECTED_TABLES:
@@ -221,9 +216,7 @@ class TestSchemaCreation:
     def test_indexes_created(self, store: GlobalLearningStoreBase):
         """Key indexes exist after initialization."""
         with store._get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='index'"
-            )
+            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='index'")
             indexes = {row["name"] for row in cursor.fetchall()}
 
         # Spot-check a few important indexes
@@ -249,10 +242,20 @@ class TestSchemaCreation:
             cols = store._get_existing_columns(conn, "executions")
         assert cols is not None
         expected = {
-            "id", "workspace_hash", "job_hash", "sheet_num",
-            "started_at", "completed_at", "duration_seconds",
-            "status", "retry_count", "success_without_retry",
-            "validation_pass_rate", "confidence_score", "model", "error_codes",
+            "id",
+            "workspace_hash",
+            "job_hash",
+            "sheet_num",
+            "started_at",
+            "completed_at",
+            "duration_seconds",
+            "status",
+            "retry_count",
+            "success_without_retry",
+            "validation_pass_rate",
+            "confidence_score",
+            "model",
+            "error_codes",
         }
         assert expected.issubset(cols)
 
@@ -262,10 +265,16 @@ class TestSchemaCreation:
             cols = store._get_existing_columns(conn, "patterns")
         assert cols is not None
         quarantine_cols = {
-            "quarantine_status", "provenance_job_hash", "provenance_sheet_num",
-            "quarantined_at", "validated_at", "quarantine_reason",
-            "trust_score", "trust_calculation_date",
-            "success_factors", "success_factors_updated_at",
+            "quarantine_status",
+            "provenance_job_hash",
+            "provenance_sheet_num",
+            "quarantined_at",
+            "validated_at",
+            "quarantine_reason",
+            "trust_score",
+            "trust_calculation_date",
+            "success_factors",
+            "success_factors_updated_at",
         }
         assert quarantine_cols.issubset(cols)
 
@@ -449,9 +458,7 @@ class TestConnectionManagement:
             )
         # Verify data persists in a new connection
         with store._get_connection() as conn:
-            row = conn.execute(
-                "SELECT * FROM patterns WHERE id = 'commit_test'"
-            ).fetchone()
+            row = conn.execute("SELECT * FROM patterns WHERE id = 'commit_test'").fetchone()
         assert row is not None
 
     def test_connection_rollback_on_error(self, store: GlobalLearningStoreBase):
@@ -469,9 +476,7 @@ class TestConnectionManagement:
 
         # Data should not have been committed
         with store._get_connection() as conn:
-            row = conn.execute(
-                "SELECT * FROM patterns WHERE id = 'rollback_test'"
-            ).fetchone()
+            row = conn.execute("SELECT * FROM patterns WHERE id = 'rollback_test'").fetchone()
         assert row is None
 
     def test_batch_connection_reused(self, store: GlobalLearningStoreBase):
@@ -521,9 +526,7 @@ class TestConnectionManagement:
             pass
 
         with store._get_connection() as conn:
-            row = conn.execute(
-                "SELECT * FROM patterns WHERE id = 'batch_fail'"
-            ).fetchone()
+            row = conn.execute("SELECT * FROM patterns WHERE id = 'batch_fail'").fetchone()
         assert row is None
 
     def test_batch_connection_does_not_leak(self, store: GlobalLearningStoreBase):
@@ -613,7 +616,7 @@ class TestHashUtilities:
 
     def test_hash_job_matches_expected_algorithm(self):
         """hash_job uses sha256 of 'name:config_hash'."""
-        expected = hashlib.sha256("my-job:cfg".encode()).hexdigest()[:16]
+        expected = hashlib.sha256(b"my-job:cfg").hexdigest()[:16]
         actual = GlobalLearningStoreBase.hash_job("my-job", config_hash="cfg")
         assert actual == expected
 
@@ -647,10 +650,17 @@ class TestClearAll:
         store.clear_all()
 
         with store._get_connection() as conn:
-            for table in ["patterns", "executions", "error_recoveries",
-                          "pattern_applications", "workspace_clusters",
-                          "rate_limit_events", "escalation_decisions",
-                          "pattern_discovery_events", "evolution_trajectory"]:
+            for table in [
+                "patterns",
+                "executions",
+                "error_recoveries",
+                "pattern_applications",
+                "workspace_clusters",
+                "rate_limit_events",
+                "escalation_decisions",
+                "pattern_discovery_events",
+                "evolution_trajectory",
+            ]:
                 count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
                 assert count == 0, f"Table {table} should be empty after clear_all"
 

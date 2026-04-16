@@ -22,7 +22,8 @@ class TestSheetConditionPrecedence:
     def test_condition_alone_preserved(self) -> None:
         """Explicit condition is preserved as-is."""
         rule = ValidationRule(
-            type="file_exists", path="{workspace}/out.txt",
+            type="file_exists",
+            path="{workspace}/out.txt",
             condition="sheet_num >= 5",
         )
         assert rule.condition == "sheet_num >= 5"
@@ -30,8 +31,10 @@ class TestSheetConditionPrecedence:
     def test_both_set_condition_wins(self) -> None:
         """When both sheet and condition are set, condition takes precedence."""
         rule = ValidationRule(
-            type="file_exists", path="{workspace}/out.txt",
-            sheet=3, condition="sheet_num >= 5",
+            type="file_exists",
+            path="{workspace}/out.txt",
+            sheet=3,
+            condition="sheet_num >= 5",
         )
         # condition was already set, so sheet shorthand does NOT overwrite it
         assert rule.condition == "sheet_num >= 5"

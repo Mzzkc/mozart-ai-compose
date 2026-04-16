@@ -1,4 +1,5 @@
 """Tests for agent identity bootstrapper."""
+
 import subprocess
 import sys
 from pathlib import Path
@@ -25,11 +26,16 @@ def run_bootstrap(
         [
             sys.executable,
             "scripts/bootstrap-agent-identity.py",
-            "--agents-dir", str(agent_dir),
-            "--name", name,
-            "--voice", voice,
-            "--focus", focus,
-            "--role", role,
+            "--agents-dir",
+            str(agent_dir),
+            "--name",
+            name,
+            "--voice",
+            voice,
+            "--focus",
+            focus,
+            "--role",
+            role,
         ],
         capture_output=True,
         text=True,

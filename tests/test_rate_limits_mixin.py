@@ -179,7 +179,7 @@ class TestCleanupExpiredRateLimits:
         """Active (unexpired) events are preserved."""
         store.record_rate_limit_event("E101", 300.0, "job-1")
 
-        deleted = store.cleanup_expired_rate_limits()
+        store.cleanup_expired_rate_limits()
         # The active event should not be deleted
         events = store.get_active_rate_limits()
         assert len(events) == 1

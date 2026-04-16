@@ -24,13 +24,13 @@ runner = CliRunner()
 @pytest.fixture(autouse=True)
 def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
     """Prevent smoke tests from reaching a real conductor."""
-    async def _fake_route(
-        method: str, params: dict, *, socket_path=None
-    ) -> tuple[bool, None]:
+
+    async def _fake_route(method: str, params: dict, *, socket_path=None) -> tuple[bool, None]:
         return False, None
 
     monkeypatch.setattr(
-        "marianne.daemon.detect.try_daemon_route", _fake_route,
+        "marianne.daemon.detect.try_daemon_route",
+        _fake_route,
     )
 
 
@@ -289,9 +289,7 @@ class TestCommandErrorHandling:
         """Test status with nonexistent job returns error."""
         workspace = tmp_path / "empty_ws"
         workspace.mkdir()
-        result = runner.invoke(
-            app, ["status", "nonexistent-job", "--workspace", str(workspace)]
-        )
+        result = runner.invoke(app, ["status", "nonexistent-job", "--workspace", str(workspace)])
         assert result.exit_code != 0
 
     def test_errors_no_args(self) -> None:
@@ -356,6 +354,7 @@ class TestLogFollower:
     def test_parse_line_json(self, tmp_path: Path) -> None:
         """JSON lines are parsed into dicts."""
         from marianne.cli.commands.diagnose import LogFollower
+
         follower = LogFollower(log_path=tmp_path / "test.log")
         entry = follower.parse_line('{"event": "started", "level": "INFO"}')
         assert entry is not None
@@ -365,6 +364,7 @@ class TestLogFollower:
     def test_parse_line_plain_text(self, tmp_path: Path) -> None:
         """Non-JSON lines are wrapped in a dict with _raw flag."""
         from marianne.cli.commands.diagnose import LogFollower
+
         follower = LogFollower(log_path=tmp_path / "test.log")
         entry = follower.parse_line("plain text log line")
         assert entry is not None
@@ -374,6 +374,7 @@ class TestLogFollower:
     def test_parse_line_empty(self, tmp_path: Path) -> None:
         """Empty lines return None."""
         from marianne.cli.commands.diagnose import LogFollower
+
         follower = LogFollower(log_path=tmp_path / "test.log")
         assert follower.parse_line("") is None
         assert follower.parse_line("   ") is None
@@ -381,6 +382,7 @@ class TestLogFollower:
     def test_should_include_no_filters(self, tmp_path: Path) -> None:
         """With no filters, all entries pass."""
         from marianne.cli.commands.diagnose import LogFollower
+
         follower = LogFollower(log_path=tmp_path / "test.log")
         assert follower.should_include({"event": "x", "level": "DEBUG"}) is True
         assert follower.should_include({"event": "x", "level": "ERROR"}) is True
@@ -388,6 +390,7 @@ class TestLogFollower:
     def test_should_include_level_filter(self, tmp_path: Path) -> None:
         """Level filter excludes entries below threshold."""
         from marianne.cli.commands.diagnose import LogFollower
+
         follower = LogFollower(log_path=tmp_path / "test.log", min_level=2)  # WARNING
         assert follower.should_include({"event": "x", "level": "DEBUG"}) is False
         assert follower.should_include({"event": "x", "level": "INFO"}) is False
@@ -397,6 +400,7 @@ class TestLogFollower:
     def test_should_include_job_filter(self, tmp_path: Path) -> None:
         """Job ID filter excludes non-matching entries."""
         from marianne.cli.commands.diagnose import LogFollower
+
         follower = LogFollower(log_path=tmp_path / "test.log", job_id="my-job")
         assert follower.should_include({"event": "x", "job_id": "my-job"}) is True
         assert follower.should_include({"event": "x", "job_id": "other"}) is False
@@ -405,8 +409,10 @@ class TestLogFollower:
     def test_format_entry_json_mode(self, tmp_path: Path) -> None:
         """JSON output mode returns raw JSON string."""
         from marianne.cli.commands.diagnose import LogFollower
+
         follower = LogFollower(log_path=tmp_path / "test.log", json_output=True)
         import json
+
         entry = {"event": "test", "level": "INFO"}
         result = follower.format_entry(entry)
         assert json.loads(result) == entry
@@ -414,6 +420,7 @@ class TestLogFollower:
     def test_format_entry_raw_line(self, tmp_path: Path) -> None:
         """Raw lines are returned as-is."""
         from marianne.cli.commands.diagnose import LogFollower
+
         follower = LogFollower(log_path=tmp_path / "test.log")
         result = follower.format_entry({"event": "plain text", "_raw": True})
         assert result == "plain text"
@@ -421,6 +428,7 @@ class TestLogFollower:
     def test_format_entry_structured(self, tmp_path: Path) -> None:
         """Structured entries include level, component, and event."""
         from marianne.cli.commands.diagnose import LogFollower
+
         follower = LogFollower(log_path=tmp_path / "test.log")
         entry = {
             "timestamp": "2026-01-01T10:30:00+00:00",
@@ -439,6 +447,7 @@ class TestLogFollower:
     def test_read_lines_from_file(self, tmp_path: Path) -> None:
         """Reading lines from a real file works."""
         from marianne.cli.commands.diagnose import LogFollower
+
         log_file = tmp_path / "test.log"
         log_file.write_text("line1\nline2\nline3\n")
         follower = LogFollower(log_path=log_file)
@@ -448,6 +457,7 @@ class TestLogFollower:
     def test_read_lines_with_limit(self, tmp_path: Path) -> None:
         """Line limit returns only the last N lines."""
         from marianne.cli.commands.diagnose import LogFollower
+
         log_file = tmp_path / "test.log"
         log_file.write_text("line1\nline2\nline3\nline4\nline5\n")
         follower = LogFollower(log_path=log_file)
@@ -459,6 +469,7 @@ class TestLogFollower:
     def test_read_lines_nonexistent_file(self, tmp_path: Path) -> None:
         """Reading from nonexistent file returns empty list."""
         from marianne.cli.commands.diagnose import LogFollower
+
         follower = LogFollower(log_path=tmp_path / "missing.log")
         lines = follower.read_lines()
         assert lines == []

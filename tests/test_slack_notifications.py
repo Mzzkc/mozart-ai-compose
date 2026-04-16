@@ -172,7 +172,9 @@ class TestBuildPayload:
         assert "color" in attachment
         assert attachment["color"] == "#36a64f"  # green for JOB_COMPLETE
 
-    def test_attachment_has_emoji_title(self, notifier: SlackNotifier, context: NotificationContext):
+    def test_attachment_has_emoji_title(
+        self, notifier: SlackNotifier, context: NotificationContext
+    ):
         payload = notifier._build_payload(context)
         attachment = payload["attachments"][0]
         assert ":white_check_mark:" in attachment["title"]
@@ -180,8 +182,10 @@ class TestBuildPayload:
     def test_progress_field(self, notifier: SlackNotifier):
         ctx = NotificationContext(
             event=NotificationEvent.SHEET_COMPLETE,
-            job_id="j1", job_name="test",
-            sheet_num=3, total_sheets=10,
+            job_id="j1",
+            job_name="test",
+            sheet_num=3,
+            total_sheets=10,
         )
         payload = notifier._build_payload(ctx)
         fields = payload["attachments"][0].get("fields", [])
@@ -193,7 +197,9 @@ class TestBuildPayload:
         # Under 1 minute
         ctx = NotificationContext(
             event=NotificationEvent.JOB_COMPLETE,
-            job_id="j", job_name="t", duration_seconds=30.5,
+            job_id="j",
+            job_name="t",
+            duration_seconds=30.5,
         )
         payload = notifier._build_payload(ctx)
         fields = payload["attachments"][0].get("fields", [])
@@ -203,7 +209,9 @@ class TestBuildPayload:
     def test_duration_minutes(self, notifier: SlackNotifier):
         ctx = NotificationContext(
             event=NotificationEvent.JOB_COMPLETE,
-            job_id="j", job_name="t", duration_seconds=300.0,
+            job_id="j",
+            job_name="t",
+            duration_seconds=300.0,
         )
         payload = notifier._build_payload(ctx)
         fields = payload["attachments"][0].get("fields", [])
@@ -213,7 +221,9 @@ class TestBuildPayload:
     def test_duration_hours(self, notifier: SlackNotifier):
         ctx = NotificationContext(
             event=NotificationEvent.JOB_COMPLETE,
-            job_id="j", job_name="t", duration_seconds=7200.0,
+            job_id="j",
+            job_name="t",
+            duration_seconds=7200.0,
         )
         payload = notifier._build_payload(ctx)
         fields = payload["attachments"][0].get("fields", [])
@@ -223,7 +233,8 @@ class TestBuildPayload:
     def test_error_field_truncated(self, notifier: SlackNotifier):
         ctx = NotificationContext(
             event=NotificationEvent.JOB_FAILED,
-            job_id="j", job_name="t",
+            job_id="j",
+            job_name="t",
             error_message="x" * 300,
         )
         payload = notifier._build_payload(ctx)
@@ -236,7 +247,8 @@ class TestBuildPayload:
         n = SlackNotifier(webhook_url="https://test", channel="#custom")
         ctx = NotificationContext(
             event=NotificationEvent.JOB_COMPLETE,
-            job_id="j", job_name="t",
+            job_id="j",
+            job_name="t",
         )
         payload = n._build_payload(ctx)
         assert payload.get("channel") == "#custom"
@@ -244,7 +256,8 @@ class TestBuildPayload:
     def test_no_channel_by_default(self, notifier: SlackNotifier):
         ctx = NotificationContext(
             event=NotificationEvent.JOB_COMPLETE,
-            job_id="j", job_name="t",
+            job_id="j",
+            job_name="t",
         )
         payload = notifier._build_payload(ctx)
         assert "channel" not in payload
@@ -252,7 +265,8 @@ class TestBuildPayload:
     def test_none_values_removed_from_attachment(self, notifier: SlackNotifier):
         ctx = NotificationContext(
             event=NotificationEvent.JOB_START,
-            job_id="j", job_name="t",
+            job_id="j",
+            job_name="t",
         )
         payload = notifier._build_payload(ctx)
         attachment = payload["attachments"][0]
@@ -288,7 +302,8 @@ class TestSend:
         )
         ctx = NotificationContext(
             event=NotificationEvent.JOB_COMPLETE,
-            job_id="t", job_name="t",
+            job_id="t",
+            job_name="t",
         )
         assert await n.send(ctx)
 

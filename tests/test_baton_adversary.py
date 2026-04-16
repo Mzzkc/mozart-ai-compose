@@ -24,7 +24,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from marianne.daemon.baton.core import BatonCore
-from marianne.daemon.baton.state import BatonSheetStatus, SheetExecutionState
 from marianne.daemon.baton.dispatch import DispatchConfig, dispatch_ready
 from marianne.daemon.baton.events import (
     CancelJob,
@@ -42,11 +41,13 @@ from marianne.daemon.baton.events import (
     SheetSkipped,
     ShutdownRequested,
 )
+from marianne.daemon.baton.state import BatonSheetStatus, SheetExecutionState
 from marianne.daemon.baton.timer import TimerWheel
 
 # =====================================================================
 # Helpers
 # =====================================================================
+
 
 def _make_baton_with_job(
     job_id: str = "test-job",
@@ -123,9 +124,7 @@ class TestSheetSkippedTerminalGuard:
         assert baton.get_sheet_state("test-job", 1).status == "completed"
 
         # Late skip arrives — should be a no-op
-        await baton.handle_event(SheetSkipped(
-            job_id="test-job", sheet_num=1, reason="late skip"
-        ))
+        await baton.handle_event(SheetSkipped(job_id="test-job", sheet_num=1, reason="late skip"))
 
         assert baton.get_sheet_state("test-job", 1).status == "completed"
 
@@ -138,9 +137,7 @@ class TestSheetSkippedTerminalGuard:
         assert baton.get_sheet_state("test-job", 1).status == "failed"
 
         # Skip arrives after failure — should be a no-op
-        await baton.handle_event(SheetSkipped(
-            job_id="test-job", sheet_num=1, reason="late skip"
-        ))
+        await baton.handle_event(SheetSkipped(job_id="test-job", sheet_num=1, reason="late skip"))
 
         assert baton.get_sheet_state("test-job", 1).status == "failed"
 
@@ -153,9 +150,7 @@ class TestSheetSkippedTerminalGuard:
         assert baton.get_sheet_state("test-job", 1).status == "cancelled"
 
         # Skip arrives after cancellation — should be a no-op
-        await baton.handle_event(SheetSkipped(
-            job_id="test-job", sheet_num=1, reason="late skip"
-        ))
+        await baton.handle_event(SheetSkipped(job_id="test-job", sheet_num=1, reason="late skip"))
 
         assert baton.get_sheet_state("test-job", 1).status == "cancelled"
 
@@ -187,10 +182,14 @@ class TestCancelLatEventOrdering:
         baton = _make_baton_with_job()
         await baton.handle_event(CancelJob(job_id="test-job"))
 
-        await baton.handle_event(RateLimitHit(
-            job_id="test-job", sheet_num=1,
-            instrument="claude-code", wait_seconds=60,
-        ))
+        await baton.handle_event(
+            RateLimitHit(
+                job_id="test-job",
+                sheet_num=1,
+                instrument="claude-code",
+                wait_seconds=60,
+            )
+        )
         # No crash
 
     async def test_cancel_then_process_exited(self) -> None:
@@ -198,37 +197,53 @@ class TestCancelLatEventOrdering:
         baton = _make_baton_with_job()
         await baton.handle_event(CancelJob(job_id="test-job"))
 
-        await baton.handle_event(ProcessExited(
-            job_id="test-job", sheet_num=1, pid=12345, exit_code=1,
-        ))
+        await baton.handle_event(
+            ProcessExited(
+                job_id="test-job",
+                sheet_num=1,
+                pid=12345,
+                exit_code=1,
+            )
+        )
 
     async def test_cancel_then_escalation_needed(self) -> None:
         """EscalationNeeded for a deregistered job should be safe."""
         baton = _make_baton_with_job()
         await baton.handle_event(CancelJob(job_id="test-job"))
 
-        await baton.handle_event(EscalationNeeded(
-            job_id="test-job", sheet_num=1,
-            reason="test", options=["retry", "skip"],
-        ))
+        await baton.handle_event(
+            EscalationNeeded(
+                job_id="test-job",
+                sheet_num=1,
+                reason="test",
+                options=["retry", "skip"],
+            )
+        )
 
     async def test_cancel_then_retry_due(self) -> None:
         """RetryDue for a deregistered job should be safe."""
         baton = _make_baton_with_job()
         await baton.handle_event(CancelJob(job_id="test-job"))
 
-        await baton.handle_event(RetryDue(
-            job_id="test-job", sheet_num=1,
-        ))
+        await baton.handle_event(
+            RetryDue(
+                job_id="test-job",
+                sheet_num=1,
+            )
+        )
 
     async def test_cancel_then_sheet_skipped(self) -> None:
         """SheetSkipped for a deregistered job should be safe."""
         baton = _make_baton_with_job()
         await baton.handle_event(CancelJob(job_id="test-job"))
 
-        await baton.handle_event(SheetSkipped(
-            job_id="test-job", sheet_num=1, reason="too late",
-        ))
+        await baton.handle_event(
+            SheetSkipped(
+                job_id="test-job",
+                sheet_num=1,
+                reason="too late",
+            )
+        )
 
 
 # =====================================================================
@@ -243,9 +258,15 @@ class TestRateLimitExpiredEdgeCases:
         """Only sheets on the expired instrument should move."""
         baton = BatonCore()
         sheets = {
-            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.WAITING),
-            2: SheetExecutionState(sheet_num=2, instrument_name="gemini-cli", status=BatonSheetStatus.WAITING),
-            3: SheetExecutionState(sheet_num=3, instrument_name="claude-code", status=BatonSheetStatus.WAITING),
+            1: SheetExecutionState(
+                sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.WAITING
+            ),
+            2: SheetExecutionState(
+                sheet_num=2, instrument_name="gemini-cli", status=BatonSheetStatus.WAITING
+            ),
+            3: SheetExecutionState(
+                sheet_num=3, instrument_name="claude-code", status=BatonSheetStatus.WAITING
+            ),
         }
         baton.register_job("j1", sheets, {})
 
@@ -287,10 +308,14 @@ class TestRateLimitExpiredEdgeCases:
         baton = _make_baton_with_job()
         assert baton.get_sheet_state("test-job", 1).status == "pending"
 
-        await baton.handle_event(RateLimitHit(
-            job_id="test-job", sheet_num=1,
-            instrument="claude-code", wait_seconds=60,
-        ))
+        await baton.handle_event(
+            RateLimitHit(
+                job_id="test-job",
+                sheet_num=1,
+                instrument="claude-code",
+                wait_seconds=60,
+            )
+        )
         # The guard requires "dispatched" or "running" — pending doesn't qualify
         assert baton.get_sheet_state("test-job", 1).status == "pending"
 
@@ -350,7 +375,9 @@ class TestDependencyPropagationComplex:
         baton = BatonCore()
         sheets = {
             1: SheetExecutionState(sheet_num=1, instrument_name="x", max_retries=1),
-            2: SheetExecutionState(sheet_num=2, instrument_name="x", status=BatonSheetStatus.COMPLETED),
+            2: SheetExecutionState(
+                sheet_num=2, instrument_name="x", status=BatonSheetStatus.COMPLETED
+            ),
             3: SheetExecutionState(sheet_num=3, instrument_name="x"),
         }
         deps = {2: [1], 3: [1]}
@@ -437,10 +464,14 @@ class TestEscalationEdgeCases:
         baton.get_sheet_state("test-job", 1).status = BatonSheetStatus.DISPATCHED
 
         # Enter fermata
-        await baton.handle_event(EscalationNeeded(
-            job_id="test-job", sheet_num=1,
-            reason="test", options=["retry"],
-        ))
+        await baton.handle_event(
+            EscalationNeeded(
+                job_id="test-job",
+                sheet_num=1,
+                reason="test",
+                options=["retry"],
+            )
+        )
         assert baton.get_sheet_state("test-job", 1).status == "fermata"
         assert baton.is_job_paused("test-job")
 
@@ -462,9 +493,13 @@ class TestEscalationEdgeCases:
         assert baton.get_sheet_state("test-job", 1).status == "cancelled"
 
         # Late resolution arrives — sheet is cancelled, not fermata
-        await baton.handle_event(EscalationResolved(
-            job_id="test-job", sheet_num=1, decision="retry",
-        ))
+        await baton.handle_event(
+            EscalationResolved(
+                job_id="test-job",
+                sheet_num=1,
+                decision="retry",
+            )
+        )
         # Status should remain cancelled (fermata guard)
         assert baton.get_sheet_state("test-job", 1).status == "cancelled"
 
@@ -474,10 +509,14 @@ class TestEscalationEdgeCases:
         baton.get_sheet_state("test-job", 1).status = BatonSheetStatus.DISPATCHED
 
         # Escalation pauses the job
-        await baton.handle_event(EscalationNeeded(
-            job_id="test-job", sheet_num=1,
-            reason="test", options=["retry"],
-        ))
+        await baton.handle_event(
+            EscalationNeeded(
+                job_id="test-job",
+                sheet_num=1,
+                reason="test",
+                options=["retry"],
+            )
+        )
         assert baton.is_job_paused("test-job")
 
         # User also pauses
@@ -485,9 +524,13 @@ class TestEscalationEdgeCases:
         assert baton._jobs["test-job"].user_paused is True
 
         # Resolve escalation — job should STAY paused (user pause)
-        await baton.handle_event(EscalationResolved(
-            job_id="test-job", sheet_num=1, decision="retry",
-        ))
+        await baton.handle_event(
+            EscalationResolved(
+                job_id="test-job",
+                sheet_num=1,
+                decision="retry",
+            )
+        )
         assert baton.is_job_paused("test-job")  # user pause persists
 
         # User resumes
@@ -501,22 +544,34 @@ class TestEscalationEdgeCases:
         baton.get_sheet_state("test-job", 2).status = BatonSheetStatus.DISPATCHED
 
         # Both escalate
-        await baton.handle_event(EscalationNeeded(
-            job_id="test-job", sheet_num=1,
-            reason="test1", options=["retry"],
-        ))
-        await baton.handle_event(EscalationNeeded(
-            job_id="test-job", sheet_num=2,
-            reason="test2", options=["retry"],
-        ))
+        await baton.handle_event(
+            EscalationNeeded(
+                job_id="test-job",
+                sheet_num=1,
+                reason="test1",
+                options=["retry"],
+            )
+        )
+        await baton.handle_event(
+            EscalationNeeded(
+                job_id="test-job",
+                sheet_num=2,
+                reason="test2",
+                options=["retry"],
+            )
+        )
 
         assert baton.get_sheet_state("test-job", 1).status == "fermata"
         assert baton.get_sheet_state("test-job", 2).status == "fermata"
 
         # Resolve first
-        await baton.handle_event(EscalationResolved(
-            job_id="test-job", sheet_num=1, decision="retry",
-        ))
+        await baton.handle_event(
+            EscalationResolved(
+                job_id="test-job",
+                sheet_num=1,
+                decision="retry",
+            )
+        )
         assert baton.get_sheet_state("test-job", 1).status == "pending"
         # Job still paused — second escalation unresolved
         # Note: the current implementation unpauses after first resolution
@@ -532,15 +587,22 @@ class TestEscalationEdgeCases:
         await baton.handle_event(PauseJob(job_id="test-job"))
 
         # Then escalation happens
-        await baton.handle_event(EscalationNeeded(
-            job_id="test-job", sheet_num=1,
-            reason="test", options=["retry"],
-        ))
+        await baton.handle_event(
+            EscalationNeeded(
+                job_id="test-job",
+                sheet_num=1,
+                reason="test",
+                options=["retry"],
+            )
+        )
 
         # Timeout fires
-        await baton.handle_event(EscalationTimeout(
-            job_id="test-job", sheet_num=1,
-        ))
+        await baton.handle_event(
+            EscalationTimeout(
+                job_id="test-job",
+                sheet_num=1,
+            )
+        )
 
         # Job should remain paused (user pause)
         assert baton.is_job_paused("test-job")
@@ -612,10 +674,7 @@ class TestDispatchEdgeCases:
     async def test_dispatch_per_instrument_limit(self) -> None:
         """Per-instrument concurrency limit should prevent over-dispatch."""
         baton = BatonCore()
-        sheets = {
-            i: SheetExecutionState(sheet_num=i, instrument_name="x")
-            for i in range(1, 6)
-        }
+        sheets = {i: SheetExecutionState(sheet_num=i, instrument_name="x") for i in range(1, 6)}
         baton.register_job("j", sheets, {})
 
         config = DispatchConfig(instrument_concurrency={"x": 2})
@@ -725,10 +784,7 @@ class TestTimerWheelEdgeCases:
         inbox = asyncio.Queue()
         wheel = TimerWheel(inbox)
 
-        handles = [
-            wheel.schedule(10.0, RetryDue(job_id="j", sheet_num=i))
-            for i in range(5)
-        ]
+        handles = [wheel.schedule(10.0, RetryDue(job_id="j", sheet_num=i)) for i in range(5)]
         for h in handles:
             wheel.cancel(h)
 
@@ -898,13 +954,24 @@ class TestProcessExitEdgeCases:
         """Process exit for pending/completed/failed sheets is a no-op."""
         baton = _make_baton_with_job()
 
-        for status in [BatonSheetStatus.PENDING, BatonSheetStatus.COMPLETED, BatonSheetStatus.FAILED, BatonSheetStatus.WAITING, BatonSheetStatus.RETRY_SCHEDULED]:
+        for status in [
+            BatonSheetStatus.PENDING,
+            BatonSheetStatus.COMPLETED,
+            BatonSheetStatus.FAILED,
+            BatonSheetStatus.WAITING,
+            BatonSheetStatus.RETRY_SCHEDULED,
+        ]:
             baton.get_sheet_state("test-job", 1).status = status
             baton.get_sheet_state("test-job", 1).normal_attempts = 0
 
-            await baton.handle_event(ProcessExited(
-                job_id="test-job", sheet_num=1, pid=123, exit_code=1,
-            ))
+            await baton.handle_event(
+                ProcessExited(
+                    job_id="test-job",
+                    sheet_num=1,
+                    pid=123,
+                    exit_code=1,
+                )
+            )
 
             # Status should not change
             assert baton.get_sheet_state("test-job", 1).status == status
@@ -914,9 +981,14 @@ class TestProcessExitEdgeCases:
         baton = _make_baton_with_job(max_retries=1)
         baton.get_sheet_state("test-job", 1).status = BatonSheetStatus.DISPATCHED
 
-        await baton.handle_event(ProcessExited(
-            job_id="test-job", sheet_num=1, pid=123, exit_code=137,
-        ))
+        await baton.handle_event(
+            ProcessExited(
+                job_id="test-job",
+                sheet_num=1,
+                pid=123,
+                exit_code=137,
+            )
+        )
 
         assert baton.get_sheet_state("test-job", 1).status == "failed"
 
@@ -925,9 +997,14 @@ class TestProcessExitEdgeCases:
         baton = _make_baton_with_job(max_retries=3)
         baton.get_sheet_state("test-job", 1).status = BatonSheetStatus.DISPATCHED
 
-        await baton.handle_event(ProcessExited(
-            job_id="test-job", sheet_num=1, pid=123, exit_code=1,
-        ))
+        await baton.handle_event(
+            ProcessExited(
+                job_id="test-job",
+                sheet_num=1,
+                pid=123,
+                exit_code=1,
+            )
+        )
 
         assert baton.get_sheet_state("test-job", 1).status == "retry_scheduled"
         assert baton.get_sheet_state("test-job", 1).normal_attempts == 1
@@ -956,13 +1033,18 @@ class TestDiagnosticsEdgeCases:
         """Diagnostics should count every possible status."""
         baton = BatonCore()
         statuses = [
-            BatonSheetStatus.PENDING, BatonSheetStatus.DISPATCHED, BatonSheetStatus.COMPLETED, BatonSheetStatus.FAILED, BatonSheetStatus.SKIPPED,
-            BatonSheetStatus.CANCELLED, BatonSheetStatus.WAITING, BatonSheetStatus.RETRY_SCHEDULED, BatonSheetStatus.FERMATA,
+            BatonSheetStatus.PENDING,
+            BatonSheetStatus.DISPATCHED,
+            BatonSheetStatus.COMPLETED,
+            BatonSheetStatus.FAILED,
+            BatonSheetStatus.SKIPPED,
+            BatonSheetStatus.CANCELLED,
+            BatonSheetStatus.WAITING,
+            BatonSheetStatus.RETRY_SCHEDULED,
+            BatonSheetStatus.FERMATA,
         ]
         sheets = {
-            i + 1: SheetExecutionState(
-                sheet_num=i + 1, instrument_name="x", status=s
-            )
+            i + 1: SheetExecutionState(sheet_num=i + 1, instrument_name="x", status=s)
             for i, s in enumerate(statuses)
         }
         baton.register_job("j", sheets, {})

@@ -31,7 +31,6 @@ from marianne.daemon.baton.state import (
 )
 from marianne.daemon.baton.timer import TimerWheel
 
-
 # ============================================================================
 # Helpers
 # ============================================================================
@@ -221,7 +220,7 @@ class TestBackoffCalculation:
         baton._max_retry_delay = 1000.0
 
         delay = baton.calculate_retry_delay(attempt=2)
-        assert delay == pytest.approx(5.0 * (3.0 ** 2))  # 45.0
+        assert delay == pytest.approx(5.0 * (3.0**2))  # 45.0
 
     def test_backoff_attempt_zero_is_base_delay(self) -> None:
         """First retry (attempt=0) uses exactly the base delay."""
@@ -273,12 +272,8 @@ class TestEscalationAfterExhaustion:
     async def test_escalation_does_not_propagate_failure(self) -> None:
         """Fermata is NOT terminal — dependents are NOT failed."""
         baton, _ = _make_baton()
-        sheet1 = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code", max_retries=1
-        )
-        sheet2 = SheetExecutionState(
-            sheet_num=2, instrument_name="claude-code", max_retries=3
-        )
+        sheet1 = SheetExecutionState(sheet_num=1, instrument_name="claude-code", max_retries=1)
+        sheet2 = SheetExecutionState(sheet_num=2, instrument_name="claude-code", max_retries=3)
         baton.register_job(
             "j1",
             {1: sheet1, 2: sheet2},
@@ -299,37 +294,39 @@ class TestEscalationAfterExhaustion:
         baton, _ = _make_baton()
         # max_completion=2: first increment allows re-dispatch (1<2),
         # second increment exhausts (2<2 = False)
-        _register_simple_job(
-            baton, max_retries=3, max_completion=2, escalation_enabled=True
-        )
+        _register_simple_job(baton, max_retries=3, max_completion=2, escalation_enabled=True)
 
         # First partial pass → completion mode, re-dispatched
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1",
-            sheet_num=1,
-            instrument_name="claude-code",
-            attempt=1,
-            execution_success=True,
-            validation_pass_rate=50.0,
-            validations_passed=1,
-            validations_total=2,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=True,
+                validation_pass_rate=50.0,
+                validations_passed=1,
+                validations_total=2,
+            )
+        )
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
         assert state.status == BatonSheetStatus.RETRY_SCHEDULED
         assert state.completion_attempts == 1
 
         # Second partial pass — completion budget exhausted → escalation
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1",
-            sheet_num=1,
-            instrument_name="claude-code",
-            attempt=2,
-            execution_success=True,
-            validation_pass_rate=50.0,
-            validations_passed=1,
-            validations_total=2,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=2,
+                execution_success=True,
+                validation_pass_rate=50.0,
+                validations_passed=1,
+                validations_total=2,
+            )
+        )
         assert state.status == BatonSheetStatus.FERMATA
 
 
@@ -345,9 +342,7 @@ class TestSelfHealingAfterExhaustion:
         """Retry exhaustion + self_healing_enabled → healing attempt scheduled."""
         baton, timer = _make_baton()
         assert timer is not None
-        _register_simple_job(
-            baton, max_retries=1, self_healing_enabled=True
-        )
+        _register_simple_job(baton, max_retries=1, self_healing_enabled=True)
 
         await baton.handle_event(_fail_event(attempt=1))
 
@@ -439,15 +434,17 @@ class TestPerSheetCostEnforcement:
         _register_simple_job(baton, max_retries=5, sheet_cost_limit=1.00)
 
         # First attempt: $0.80 — under limit
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1",
-            sheet_num=1,
-            instrument_name="claude-code",
-            attempt=1,
-            execution_success=False,
-            error_classification="EXECUTION_ERROR",
-            cost_usd=0.80,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=False,
+                error_classification="EXECUTION_ERROR",
+                cost_usd=0.80,
+            )
+        )
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
         assert state.status == BatonSheetStatus.RETRY_SCHEDULED
@@ -456,15 +453,17 @@ class TestPerSheetCostEnforcement:
         await baton.handle_event(RetryDue(job_id="j1", sheet_num=1))
 
         # Second attempt: $0.30 — cumulative $1.10, over limit
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1",
-            sheet_num=1,
-            instrument_name="claude-code",
-            attempt=2,
-            execution_success=False,
-            error_classification="EXECUTION_ERROR",
-            cost_usd=0.30,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=2,
+                execution_success=False,
+                error_classification="EXECUTION_ERROR",
+                cost_usd=0.30,
+            )
+        )
         assert state.status == BatonSheetStatus.FAILED
         assert state.total_cost_usd == pytest.approx(1.10)
 
@@ -473,15 +472,17 @@ class TestPerSheetCostEnforcement:
         baton, _ = _make_baton()
         _register_simple_job(baton, max_retries=5, sheet_cost_limit=5.00)
 
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1",
-            sheet_num=1,
-            instrument_name="claude-code",
-            attempt=1,
-            execution_success=False,
-            error_classification="EXECUTION_ERROR",
-            cost_usd=0.50,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=False,
+                error_classification="EXECUTION_ERROR",
+                cost_usd=0.50,
+            )
+        )
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
         assert state.status == BatonSheetStatus.RETRY_SCHEDULED
@@ -489,24 +490,22 @@ class TestPerSheetCostEnforcement:
     async def test_sheet_cost_limit_propagates_failure(self) -> None:
         """Cost-exceeded failure propagates to dependents."""
         baton, _ = _make_baton()
-        sheet1 = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code", max_retries=5
-        )
-        sheet2 = SheetExecutionState(
-            sheet_num=2, instrument_name="claude-code", max_retries=3
-        )
+        sheet1 = SheetExecutionState(sheet_num=1, instrument_name="claude-code", max_retries=5)
+        sheet2 = SheetExecutionState(sheet_num=2, instrument_name="claude-code", max_retries=3)
         baton.register_job("j1", {1: sheet1, 2: sheet2}, {2: [1]})
         baton.set_sheet_cost_limit("j1", 1, 0.50)
 
-        await baton.handle_event(SheetAttemptResult(
-            job_id="j1",
-            sheet_num=1,
-            instrument_name="claude-code",
-            attempt=1,
-            execution_success=False,
-            error_classification="EXECUTION_ERROR",
-            cost_usd=0.60,
-        ))
+        await baton.handle_event(
+            SheetAttemptResult(
+                job_id="j1",
+                sheet_num=1,
+                instrument_name="claude-code",
+                attempt=1,
+                execution_success=False,
+                error_classification="EXECUTION_ERROR",
+                cost_usd=0.60,
+            )
+        )
 
         state2 = baton.get_sheet_state("j1", 2)
         assert state2 is not None
@@ -531,9 +530,7 @@ class TestProcessExitRecovery:
         # Simulate dispatch (set to DISPATCHED)
         sheet.status = BatonSheetStatus.DISPATCHED
 
-        await baton.handle_event(ProcessExited(
-            job_id="j1", sheet_num=1, pid=12345, exit_code=137
-        ))
+        await baton.handle_event(ProcessExited(job_id="j1", sheet_num=1, pid=12345, exit_code=137))
 
         assert sheet.normal_attempts == 1
         assert sheet.status == BatonSheetStatus.RETRY_SCHEDULED
@@ -545,9 +542,7 @@ class TestProcessExitRecovery:
         sheet = _register_simple_job(baton, max_retries=3)
         sheet.status = BatonSheetStatus.DISPATCHED
 
-        await baton.handle_event(ProcessExited(
-            job_id="j1", sheet_num=1, pid=12345, exit_code=137
-        ))
+        await baton.handle_event(ProcessExited(job_id="j1", sheet_num=1, pid=12345, exit_code=137))
 
         assert sheet.status == BatonSheetStatus.RETRY_SCHEDULED
         assert timer.pending_count == 1
@@ -555,14 +550,10 @@ class TestProcessExitRecovery:
     async def test_process_exit_exhaustion_with_escalation(self) -> None:
         """Process crashes can also trigger escalation when retries exhaust."""
         baton, _ = _make_baton()
-        sheet = _register_simple_job(
-            baton, max_retries=1, escalation_enabled=True
-        )
+        sheet = _register_simple_job(baton, max_retries=1, escalation_enabled=True)
         sheet.status = BatonSheetStatus.DISPATCHED
 
-        await baton.handle_event(ProcessExited(
-            job_id="j1", sheet_num=1, pid=12345, exit_code=137
-        ))
+        await baton.handle_event(ProcessExited(job_id="j1", sheet_num=1, pid=12345, exit_code=137))
 
         assert sheet.status == BatonSheetStatus.FERMATA
 
@@ -578,9 +569,7 @@ class TestRetryConfiguration:
     async def test_register_job_with_retry_params(self) -> None:
         """register_job accepts retry configuration parameters."""
         baton, _ = _make_baton()
-        sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code", max_retries=5
-        )
+        sheet = SheetExecutionState(sheet_num=1, instrument_name="claude-code", max_retries=5)
         baton.register_job(
             "j1",
             {1: sheet},
@@ -597,9 +586,7 @@ class TestRetryConfiguration:
     async def test_register_job_defaults_flags_to_false(self) -> None:
         """By default, escalation and healing are disabled."""
         baton, _ = _make_baton()
-        sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code", max_retries=3
-        )
+        sheet = SheetExecutionState(sheet_num=1, instrument_name="claude-code", max_retries=3)
         baton.register_job("j1", {1: sheet}, {})
 
         job = baton._jobs.get("j1")

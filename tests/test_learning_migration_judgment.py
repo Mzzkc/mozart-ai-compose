@@ -63,10 +63,12 @@ class TestOutcomeMigrator:
         store = MagicMock()
         store.hash_workspace = MagicMock(return_value="hash-123")
         store.record_outcome = MagicMock()
-        store.get_execution_stats = MagicMock(return_value={
-            "total_executions": 10,
-            "total_patterns": 3,
-        })
+        store.get_execution_stats = MagicMock(
+            return_value={
+                "total_executions": 10,
+                "total_patterns": 3,
+            }
+        )
         return store
 
     def test_migrate_workspace_no_outcomes_file(self, mock_store, tmp_path: Path) -> None:
@@ -170,11 +172,19 @@ class TestOutcomeMigrator:
         workspace = tmp_path / "my-workspace"
         workspace.mkdir()
         outcomes_file = workspace / ".marianne-outcomes.json"
-        outcomes_file.write_text(json.dumps({
-            "outcomes": [
-                {"sheet_id": "s1", "final_status": "completed", "timestamp": "2024-01-15T10:00:00"},
-            ]
-        }))
+        outcomes_file.write_text(
+            json.dumps(
+                {
+                    "outcomes": [
+                        {
+                            "sheet_id": "s1",
+                            "final_status": "completed",
+                            "timestamp": "2024-01-15T10:00:00",
+                        },
+                    ]
+                }
+            )
+        )
 
         migrator = OutcomeMigrator(mock_store)
         # Use non-matching scan pattern (empty list is falsy → falls back to defaults)
@@ -197,11 +207,19 @@ class TestOutcomeMigrator:
         workspace = tmp_path / "ws"
         workspace.mkdir()
         outcomes_file = workspace / ".marianne-outcomes.json"
-        outcomes_file.write_text(json.dumps({
-            "outcomes": [
-                {"sheet_id": "s1", "final_status": "completed", "timestamp": "2024-01-15T10:00:00"},
-            ]
-        }))
+        outcomes_file.write_text(
+            json.dumps(
+                {
+                    "outcomes": [
+                        {
+                            "sheet_id": "s1",
+                            "final_status": "completed",
+                            "timestamp": "2024-01-15T10:00:00",
+                        },
+                    ]
+                }
+            )
+        )
 
         migrator = OutcomeMigrator(mock_store, aggregator=mock_aggregator)
         # Use a non-matching scan pattern to avoid scanning real workspaces
@@ -221,6 +239,7 @@ class TestParseOutcome:
     @pytest.fixture
     def migrator(self):
         from marianne.learning.migration import OutcomeMigrator
+
         return OutcomeMigrator(MagicMock())
 
     def test_parse_outcome_complete(self, migrator) -> None:
@@ -562,8 +581,13 @@ class TestJudgmentClient:
 
         client = JudgmentClient("http://localhost:99999")
         query = JudgmentQuery(
-            job_id="test", sheet_num=1, validation_results=[],
-            execution_history=[], error_patterns=[], retry_count=0, confidence=0.5,
+            job_id="test",
+            sheet_num=1,
+            validation_results=[],
+            execution_history=[],
+            error_patterns=[],
+            retry_count=0,
+            confidence=0.5,
         )
 
         response = await client.get_judgment(query)
@@ -584,6 +608,7 @@ class TestLocalJudgmentClient:
     @pytest.fixture
     def client(self):
         from marianne.learning.judgment import LocalJudgmentClient
+
         return LocalJudgmentClient(
             proceed_threshold=0.7,
             retry_threshold=0.4,
@@ -598,6 +623,7 @@ class TestLocalJudgmentClient:
         sheet_num: int = 1,
     ):
         from marianne.learning.judgment import JudgmentQuery
+
         return JudgmentQuery(
             job_id="test",
             sheet_num=sheet_num,
@@ -685,18 +711,22 @@ class TestLocalJudgmentClient:
 
     def test_calculate_pass_rate_all_passed(self, client) -> None:
         """All passed should return 1.0."""
-        rate = client._calculate_pass_rate([
-            {"passed": True},
-            {"passed": True},
-        ])
+        rate = client._calculate_pass_rate(
+            [
+                {"passed": True},
+                {"passed": True},
+            ]
+        )
         assert rate == 1.0
 
     def test_calculate_pass_rate_mixed(self, client) -> None:
         """Mixed results should return correct ratio."""
-        rate = client._calculate_pass_rate([
-            {"passed": True},
-            {"passed": False},
-            {"passed": True},
-            {"passed": False},
-        ])
+        rate = client._calculate_pass_rate(
+            [
+                {"passed": True},
+                {"passed": False},
+                {"passed": True},
+                {"passed": False},
+            ]
+        )
         assert rate == 0.5

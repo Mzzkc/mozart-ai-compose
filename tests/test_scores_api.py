@@ -1,4 +1,5 @@
 """Tests for score validation API endpoints."""
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -93,11 +94,7 @@ class TestValidationAPI:
     def test_validate_valid_config(self, client, valid_yaml_config):
         """Test validation of a completely valid configuration."""
         response = client.post(
-            "/api/scores/validate",
-            json={
-                "content": valid_yaml_config,
-                "filename": "test.yaml"
-            }
+            "/api/scores/validate", json={"content": valid_yaml_config, "filename": "test.yaml"}
         )
 
         assert response.status_code == 200
@@ -129,10 +126,7 @@ class TestValidationAPI:
         """Test validation of config with YAML syntax error."""
         response = client.post(
             "/api/scores/validate",
-            json={
-                "content": invalid_yaml_syntax,
-                "filename": "invalid.yaml"
-            }
+            json={"content": invalid_yaml_syntax, "filename": "invalid.yaml"},
         )
 
         assert response.status_code == 200
@@ -157,10 +151,7 @@ class TestValidationAPI:
         """Test validation of config with schema validation error."""
         response = client.post(
             "/api/scores/validate",
-            json={
-                "content": invalid_schema_config,
-                "filename": "schema_invalid.yaml"
-            }
+            json={"content": invalid_schema_config, "filename": "schema_invalid.yaml"},
         )
 
         assert response.status_code == 200
@@ -188,10 +179,7 @@ class TestValidationAPI:
         """Test validation with extended validation warnings and errors."""
         response = client.post(
             "/api/scores/validate",
-            json={
-                "content": config_with_validation_warnings,
-                "filename": "warnings.yaml"
-            }
+            json={"content": config_with_validation_warnings, "filename": "warnings.yaml"},
         )
 
         assert response.status_code == 200
@@ -209,10 +197,7 @@ class TestValidationAPI:
         """Test that validation issues have correct structure."""
         response = client.post(
             "/api/scores/validate",
-            json={
-                "content": config_with_validation_warnings,
-                "filename": "test.yaml"
-            }
+            json={"content": config_with_validation_warnings, "filename": "test.yaml"},
         )
 
         assert response.status_code == 200
@@ -240,8 +225,8 @@ class TestValidationAPI:
             json={
                 "content": valid_yaml_config,
                 "filename": "config.yaml",
-                "workspace_path": "/tmp/test-workspace"
-            }
+                "workspace_path": "/tmp/test-workspace",
+            },
         )
 
         assert response.status_code == 200
@@ -254,11 +239,7 @@ class TestValidationAPI:
     def test_validate_empty_content(self, client):
         """Test validation with empty content."""
         response = client.post(
-            "/api/scores/validate",
-            json={
-                "content": "",
-                "filename": "empty.yaml"
-            }
+            "/api/scores/validate", json={"content": "", "filename": "empty.yaml"}
         )
 
         assert response.status_code == 200
@@ -283,11 +264,7 @@ prompt:
 """
 
         response = client.post(
-            "/api/scores/validate",
-            json={
-                "content": minimal_config,
-                "filename": "minimal.yaml"
-            }
+            "/api/scores/validate", json={"content": minimal_config, "filename": "minimal.yaml"}
         )
 
         assert response.status_code == 200
@@ -312,7 +289,7 @@ prompt:
             json={
                 "filename": "test.yaml"
                 # missing content field
-            }
+            },
         )
 
         assert response.status_code == 422  # FastAPI validation error
@@ -355,11 +332,7 @@ isolation:
 """
 
         response = client.post(
-            "/api/scores/validate",
-            json={
-                "content": complex_config,
-                "filename": "complex.yaml"
-            }
+            "/api/scores/validate", json={"content": complex_config, "filename": "complex.yaml"}
         )
 
         assert response.status_code == 200
@@ -390,6 +363,7 @@ class TestTemplateAPI:
     def client(self):
         """Create test client."""
         from marianne.dashboard.app import create_app
+
         app = create_app()
         return TestClient(app)
 
@@ -443,8 +417,8 @@ class TestTemplateAPI:
         for template in data["templates"]:
             search_term = "task"
             assert (
-                search_term.lower() in template["title"].lower() or
-                search_term.lower() in template["description"].lower()
+                search_term.lower() in template["title"].lower()
+                or search_term.lower() in template["description"].lower()
             )
 
     def test_get_template_success(self, client):
@@ -491,8 +465,10 @@ class TestTemplateAPI:
 
             assert response.status_code == 200
             # Should be YAML content type
-            assert "yaml" in response.headers.get("content-type", "").lower() or \
-                   "text/plain" in response.headers.get("content-type", "").lower()
+            assert (
+                "yaml" in response.headers.get("content-type", "").lower()
+                or "text/plain" in response.headers.get("content-type", "").lower()
+            )
             # Should have content-disposition for download
             assert "attachment" in response.headers.get("content-disposition", "").lower()
         else:
@@ -513,8 +489,7 @@ class TestTemplateAPI:
         if templates:
             template_name = templates[0]["name"]
             response = client.post(
-                f"/api/scores/templates/{template_name}/use",
-                follow_redirects=False
+                f"/api/scores/templates/{template_name}/use", follow_redirects=False
             )
 
             # Should redirect to editor
@@ -526,10 +501,7 @@ class TestTemplateAPI:
 
     def test_use_template_not_found(self, client):
         """Test using a non-existent template."""
-        response = client.post(
-            "/api/scores/templates/non-existent-xyz/use",
-            follow_redirects=False
-        )
+        response = client.post("/api/scores/templates/non-existent-xyz/use", follow_redirects=False)
 
         assert response.status_code == 404
 

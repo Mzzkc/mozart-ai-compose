@@ -5,7 +5,7 @@ workspace clustering, and helper methods provided by the ExecutionMixin.
 Uses real temp SQLite databases via GlobalLearningStore which composes all mixins.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -60,11 +60,14 @@ def _make_outcome(
 # record_outcome tests
 # =========================================================================
 
+
 class TestRecordOutcome:
     """Tests for ExecutionMixin.record_outcome()."""
 
     def test_record_outcome_returns_uuid(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         outcome = _make_outcome()
         exec_id = store.record_outcome(outcome, workspace_path)
@@ -72,7 +75,9 @@ class TestRecordOutcome:
         assert len(exec_id) == 36  # UUID format
 
     def test_record_outcome_persists_to_db(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         outcome = _make_outcome(
             sheet_id="job-sheet3",
@@ -97,17 +102,23 @@ class TestRecordOutcome:
         assert rec.model == "claude-3"
 
     def test_record_outcome_with_error_codes(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         outcome = _make_outcome()
         store.record_outcome(
-            outcome, workspace_path, error_codes=["E101", "E201"],
+            outcome,
+            workspace_path,
+            error_codes=["E101", "E201"],
         )
         records = store.get_recent_executions(limit=1)
         assert records[0].error_codes == ["E101", "E201"]
 
     def test_record_outcome_without_error_codes_stores_empty_list(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         outcome = _make_outcome()
         store.record_outcome(outcome, workspace_path)
@@ -115,7 +126,9 @@ class TestRecordOutcome:
         assert records[0].error_codes == []
 
     def test_record_multiple_outcomes(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         for i in range(5):
             outcome = _make_outcome(sheet_id=f"job-sheet{i}")
@@ -125,7 +138,9 @@ class TestRecordOutcome:
         assert len(records) == 5
 
     def test_record_outcome_workspace_hash_consistency(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         """Same workspace path produces the same hash across records."""
         for i in range(3):
@@ -137,7 +152,9 @@ class TestRecordOutcome:
         assert len(hashes) == 1  # all same workspace hash
 
     def test_record_outcome_job_hash_consistency(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         """Same job_id produces the same job hash across records."""
         for i in range(3):
@@ -149,7 +166,9 @@ class TestRecordOutcome:
         assert len(hashes) == 1
 
     def test_record_outcome_model_none_by_default(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         outcome = _make_outcome()
         store.record_outcome(outcome, workspace_path)
@@ -161,11 +180,13 @@ class TestRecordOutcome:
 # get_execution_stats tests
 # =========================================================================
 
+
 class TestGetExecutionStats:
     """Tests for ExecutionMixin.get_execution_stats()."""
 
     def test_empty_store_returns_zero_stats(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         stats = store.get_execution_stats()
         assert stats["total_executions"] == 0
@@ -176,7 +197,9 @@ class TestGetExecutionStats:
         assert stats["unique_workspaces"] == 0
 
     def test_stats_after_recording_executions(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         # 3 success_without_retry, 2 not
         for i in range(3):
@@ -200,7 +223,9 @@ class TestGetExecutionStats:
         assert stats["unique_workspaces"] == 1
 
     def test_stats_unique_workspaces_counts_distinct(
-        self, store: GlobalLearningStore, tmp_path: Path,
+        self,
+        store: GlobalLearningStore,
+        tmp_path: Path,
     ) -> None:
         ws1 = tmp_path / "ws1"
         ws1.mkdir()
@@ -214,7 +239,9 @@ class TestGetExecutionStats:
         assert stats["unique_workspaces"] == 2
 
     def test_stats_includes_error_recovery_count(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         store.record_error_recovery(
             error_code="E101",
@@ -230,17 +257,21 @@ class TestGetExecutionStats:
 # get_recent_executions tests
 # =========================================================================
 
+
 class TestGetRecentExecutions:
     """Tests for ExecutionMixin.get_recent_executions()."""
 
     def test_empty_store_returns_empty_list(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         records = store.get_recent_executions()
         assert records == []
 
     def test_returns_execution_records(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         outcome = _make_outcome()
         store.record_outcome(outcome, workspace_path, model="opus")
@@ -253,22 +284,28 @@ class TestGetRecentExecutions:
         assert rec.status == "completed"
 
     def test_respects_limit(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         for i in range(10):
             store.record_outcome(
-                _make_outcome(sheet_id=f"job-sheet{i}"), workspace_path,
+                _make_outcome(sheet_id=f"job-sheet{i}"),
+                workspace_path,
             )
 
         records = store.get_recent_executions(limit=3)
         assert len(records) == 3
 
     def test_ordered_by_completed_at_descending(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         for i in range(5):
             store.record_outcome(
-                _make_outcome(sheet_id=f"job-sheet{i}"), workspace_path,
+                _make_outcome(sheet_id=f"job-sheet{i}"),
+                workspace_path,
             )
 
         records = store.get_recent_executions(limit=5)
@@ -279,7 +316,9 @@ class TestGetRecentExecutions:
         assert non_none_times == sorted(non_none_times, reverse=True)
 
     def test_filter_by_workspace_hash(
-        self, store: GlobalLearningStore, tmp_path: Path,
+        self,
+        store: GlobalLearningStore,
+        tmp_path: Path,
     ) -> None:
         ws1 = tmp_path / "ws1"
         ws1.mkdir()
@@ -297,14 +336,18 @@ class TestGetRecentExecutions:
             assert rec.workspace_hash == ws1_hash
 
     def test_filter_by_workspace_hash_no_match(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         store.record_outcome(_make_outcome(), workspace_path)
         records = store.get_recent_executions(workspace_hash="nonexistenthash")
         assert records == []
 
     def test_record_fields_round_trip(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         """Verify all ExecutionRecord fields survive a write-read round trip."""
         outcome = _make_outcome(
@@ -316,7 +359,10 @@ class TestGetRecentExecutions:
             success_without_retry=False,
         )
         exec_id = store.record_outcome(
-            outcome, workspace_path, model="test-model", error_codes=["E101"],
+            outcome,
+            workspace_path,
+            model="test-model",
+            error_codes=["E101"],
         )
 
         records = store.get_recent_executions(limit=1)
@@ -340,17 +386,21 @@ class TestGetRecentExecutions:
 # get_similar_executions tests
 # =========================================================================
 
+
 class TestGetSimilarExecutions:
     """Tests for ExecutionMixin.get_similar_executions()."""
 
     def test_empty_store_returns_empty(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         records = store.get_similar_executions(job_hash="abc")
         assert records == []
 
     def test_filter_by_job_hash(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         outcome_a = _make_outcome(job_id="job-alpha", sheet_id="job-alpha-sheet1")
         outcome_b = _make_outcome(job_id="job-beta", sheet_id="job-beta-sheet1")
@@ -363,7 +413,9 @@ class TestGetSimilarExecutions:
         assert records[0].job_hash == job_hash_a
 
     def test_filter_by_workspace_hash(
-        self, store: GlobalLearningStore, tmp_path: Path,
+        self,
+        store: GlobalLearningStore,
+        tmp_path: Path,
     ) -> None:
         ws1 = tmp_path / "ws1"
         ws1.mkdir()
@@ -379,16 +431,21 @@ class TestGetSimilarExecutions:
         assert records[0].workspace_hash == ws1_hash
 
     def test_filter_by_sheet_num(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         store.record_outcome(
-            _make_outcome(sheet_id="job-sheet1"), workspace_path,
+            _make_outcome(sheet_id="job-sheet1"),
+            workspace_path,
         )
         store.record_outcome(
-            _make_outcome(sheet_id="job-sheet2"), workspace_path,
+            _make_outcome(sheet_id="job-sheet2"),
+            workspace_path,
         )
         store.record_outcome(
-            _make_outcome(sheet_id="job-sheet1a", job_id="other"), workspace_path,
+            _make_outcome(sheet_id="job-sheet1a", job_id="other"),
+            workspace_path,
         )
 
         # sheet_id "job-sheet1" -> sheet_num 1, "job-sheet1a" -> sheet_num 0 (no trailing digit match? let me check)
@@ -400,16 +457,21 @@ class TestGetSimilarExecutions:
         assert records[0].sheet_num == 1
 
     def test_combined_filters(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         store.record_outcome(
-            _make_outcome(sheet_id="job-sheet1", job_id="alpha"), workspace_path,
+            _make_outcome(sheet_id="job-sheet1", job_id="alpha"),
+            workspace_path,
         )
         store.record_outcome(
-            _make_outcome(sheet_id="job-sheet2", job_id="alpha"), workspace_path,
+            _make_outcome(sheet_id="job-sheet2", job_id="alpha"),
+            workspace_path,
         )
         store.record_outcome(
-            _make_outcome(sheet_id="job-sheet1", job_id="beta"), workspace_path,
+            _make_outcome(sheet_id="job-sheet1", job_id="beta"),
+            workspace_path,
         )
 
         job_hash = GlobalLearningStore.hash_job("alpha")
@@ -417,22 +479,28 @@ class TestGetSimilarExecutions:
         assert len(records) == 1
 
     def test_no_filters_returns_all(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         for i in range(4):
             store.record_outcome(
-                _make_outcome(sheet_id=f"job-sheet{i}"), workspace_path,
+                _make_outcome(sheet_id=f"job-sheet{i}"),
+                workspace_path,
             )
 
         records = store.get_similar_executions()
         assert len(records) == 4
 
     def test_respects_limit(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         for i in range(10):
             store.record_outcome(
-                _make_outcome(sheet_id=f"job-sheet{i}"), workspace_path,
+                _make_outcome(sheet_id=f"job-sheet{i}"),
+                workspace_path,
             )
 
         records = store.get_similar_executions(limit=3)
@@ -443,11 +511,13 @@ class TestGetSimilarExecutions:
 # get_optimal_execution_window tests
 # =========================================================================
 
+
 class TestGetOptimalExecutionWindow:
     """Tests for ExecutionMixin.get_optimal_execution_window()."""
 
     def test_empty_store_returns_empty_window(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         result = store.get_optimal_execution_window()
         assert result["optimal_hours"] == []
@@ -456,7 +526,8 @@ class TestGetOptimalExecutionWindow:
         assert result["sample_count"] == 0
 
     def test_optimal_hours_from_high_success_recoveries(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """Hours with >= 70% success rate and >= 3 samples are optimal."""
         # Record 4 successful recoveries at hour 10 (time_of_day stored as hour)
@@ -464,6 +535,7 @@ class TestGetOptimalExecutionWindow:
         # record_error_recovery uses datetime.now().hour, so we insert directly.
         with store._get_connection() as conn:
             import uuid
+
             for _ in range(4):
                 conn.execute(
                     """
@@ -472,8 +544,16 @@ class TestGetOptimalExecutionWindow:
                      recovery_success, recorded_at, model, time_of_day)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (str(uuid.uuid4()), "E101", 30.0, 25.0,
-                     True, datetime.now(tz=UTC).isoformat(), None, 10),
+                    (
+                        str(uuid.uuid4()),
+                        "E101",
+                        30.0,
+                        25.0,
+                        True,
+                        datetime.now(tz=UTC).isoformat(),
+                        None,
+                        10,
+                    ),
                 )
 
         result = store.get_optimal_execution_window()
@@ -481,10 +561,12 @@ class TestGetOptimalExecutionWindow:
         assert result["sample_count"] == 4
 
     def test_avoid_hours_from_low_success_recoveries(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """Hours with <= 30% success rate and >= 3 samples should be avoided."""
         import uuid
+
         with store._get_connection() as conn:
             # 4 recoveries at hour 14: 1 success, 3 failures => 25% success
             for i in range(4):
@@ -495,19 +577,28 @@ class TestGetOptimalExecutionWindow:
                      recovery_success, recorded_at, model, time_of_day)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (str(uuid.uuid4()), "E101", 30.0, 25.0,
-                     i == 0,  # only first is success
-                     datetime.now(tz=UTC).isoformat(), None, 14),
+                    (
+                        str(uuid.uuid4()),
+                        "E101",
+                        30.0,
+                        25.0,
+                        i == 0,  # only first is success
+                        datetime.now(tz=UTC).isoformat(),
+                        None,
+                        14,
+                    ),
                 )
 
         result = store.get_optimal_execution_window()
         assert 14 in result["avoid_hours"]
 
     def test_hours_with_insufficient_samples_ignored(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """Hours with < 3 samples are not classified."""
         import uuid
+
         with store._get_connection() as conn:
             # Only 2 samples at hour 8 -- not enough for classification
             for _ in range(2):
@@ -518,8 +609,16 @@ class TestGetOptimalExecutionWindow:
                      recovery_success, recorded_at, model, time_of_day)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (str(uuid.uuid4()), "E101", 30.0, 25.0,
-                     True, datetime.now(tz=UTC).isoformat(), None, 8),
+                    (
+                        str(uuid.uuid4()),
+                        "E101",
+                        30.0,
+                        25.0,
+                        True,
+                        datetime.now(tz=UTC).isoformat(),
+                        None,
+                        8,
+                    ),
                 )
 
         result = store.get_optimal_execution_window()
@@ -527,9 +626,11 @@ class TestGetOptimalExecutionWindow:
         assert 8 not in result["avoid_hours"]
 
     def test_filter_by_error_code(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         import uuid
+
         with store._get_connection() as conn:
             # 4 successful at hour 10 for E101
             for _ in range(4):
@@ -540,8 +641,16 @@ class TestGetOptimalExecutionWindow:
                      recovery_success, recorded_at, model, time_of_day)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (str(uuid.uuid4()), "E101", 30.0, 25.0,
-                     True, datetime.now(tz=UTC).isoformat(), None, 10),
+                    (
+                        str(uuid.uuid4()),
+                        "E101",
+                        30.0,
+                        25.0,
+                        True,
+                        datetime.now(tz=UTC).isoformat(),
+                        None,
+                        10,
+                    ),
                 )
             # 4 failed at hour 10 for E202
             for _ in range(4):
@@ -552,8 +661,16 @@ class TestGetOptimalExecutionWindow:
                      recovery_success, recorded_at, model, time_of_day)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (str(uuid.uuid4()), "E202", 30.0, 25.0,
-                     False, datetime.now(tz=UTC).isoformat(), None, 10),
+                    (
+                        str(uuid.uuid4()),
+                        "E202",
+                        30.0,
+                        25.0,
+                        False,
+                        datetime.now(tz=UTC).isoformat(),
+                        None,
+                        10,
+                    ),
                 )
 
         # With E101 filter: hour 10 should be optimal
@@ -565,10 +682,12 @@ class TestGetOptimalExecutionWindow:
         assert 10 in result_e202["avoid_hours"]
 
     def test_confidence_scales_with_sample_count(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """Confidence = min(total_samples / 50, 1.0)."""
         import uuid
+
         with store._get_connection() as conn:
             for _ in range(25):
                 conn.execute(
@@ -578,8 +697,16 @@ class TestGetOptimalExecutionWindow:
                      recovery_success, recorded_at, model, time_of_day)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (str(uuid.uuid4()), "E101", 30.0, 25.0,
-                     True, datetime.now(tz=UTC).isoformat(), None, 10),
+                    (
+                        str(uuid.uuid4()),
+                        "E101",
+                        30.0,
+                        25.0,
+                        True,
+                        datetime.now(tz=UTC).isoformat(),
+                        None,
+                        10,
+                    ),
                 )
 
         result = store.get_optimal_execution_window()
@@ -591,23 +718,27 @@ class TestGetOptimalExecutionWindow:
 # Workspace clustering tests
 # =========================================================================
 
+
 class TestWorkspaceClustering:
     """Tests for workspace clustering methods."""
 
     def test_get_workspace_cluster_returns_none_for_unknown(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         assert store.get_workspace_cluster("unknown_hash") is None
 
     def test_assign_and_get_workspace_cluster(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         store.assign_workspace_cluster("ws_hash_1", "cluster-A")
         result = store.get_workspace_cluster("ws_hash_1")
         assert result == "cluster-A"
 
     def test_reassign_workspace_cluster(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         store.assign_workspace_cluster("ws_hash_1", "cluster-A")
         store.assign_workspace_cluster("ws_hash_1", "cluster-B")
@@ -615,7 +746,8 @@ class TestWorkspaceClustering:
         assert result == "cluster-B"
 
     def test_get_similar_workspaces(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         store.assign_workspace_cluster("ws1", "cluster-X")
         store.assign_workspace_cluster("ws2", "cluster-X")
@@ -625,13 +757,15 @@ class TestWorkspaceClustering:
         assert set(similar) == {"ws1", "ws2"}
 
     def test_get_similar_workspaces_empty_cluster(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         result = store.get_similar_workspaces("nonexistent-cluster")
         assert result == []
 
     def test_get_similar_workspaces_respects_limit(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         for i in range(10):
             store.assign_workspace_cluster(f"ws{i}", "big-cluster")
@@ -640,10 +774,12 @@ class TestWorkspaceClustering:
         assert len(result) == 3
 
     def test_get_similar_workspaces_ordered_by_assigned_at_desc(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """Most recently assigned workspaces should come first."""
         import time
+
         store.assign_workspace_cluster("ws_old", "cluster-Z")
         time.sleep(0.01)  # small delay to ensure different timestamps
         store.assign_workspace_cluster("ws_new", "cluster-Z")
@@ -653,7 +789,9 @@ class TestWorkspaceClustering:
         assert result[1] == "ws_old"
 
     def test_workspace_cluster_with_real_hashes(
-        self, store: GlobalLearningStore, tmp_path: Path,
+        self,
+        store: GlobalLearningStore,
+        tmp_path: Path,
     ) -> None:
         """Integration test using real workspace hash values."""
         ws1 = tmp_path / "project-a"
@@ -675,6 +813,7 @@ class TestWorkspaceClustering:
 # =========================================================================
 # _extract_sheet_num tests
 # =========================================================================
+
 
 class TestExtractSheetNum:
     """Tests for ExecutionMixin._extract_sheet_num() helper."""
@@ -715,11 +854,13 @@ class TestExtractSheetNum:
 # _calculate_confidence tests
 # =========================================================================
 
+
 class TestCalculateConfidence:
     """Tests for ExecutionMixin._calculate_confidence() helper."""
 
     def test_perfect_outcome_high_confidence(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         outcome = _make_outcome(
             validation_pass_rate=1.0,
@@ -731,7 +872,8 @@ class TestCalculateConfidence:
         assert confidence == pytest.approx(1.0)
 
     def test_high_retry_count_penalizes_confidence(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         outcome = _make_outcome(
             validation_pass_rate=1.0,
@@ -743,7 +885,8 @@ class TestCalculateConfidence:
         assert confidence == pytest.approx(0.5)
 
     def test_retry_penalty_capped_at_five(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """Retry penalty is capped at min(retry_count, 5) * 0.1."""
         outcome = _make_outcome(
@@ -756,7 +899,8 @@ class TestCalculateConfidence:
         assert confidence == pytest.approx(0.5)
 
     def test_success_without_retry_boosts_confidence(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         outcome = _make_outcome(
             validation_pass_rate=0.8,
@@ -768,7 +912,8 @@ class TestCalculateConfidence:
         assert confidence == pytest.approx(0.9)
 
     def test_zero_validation_with_retries_gives_zero(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         outcome = _make_outcome(
             validation_pass_rate=0.0,
@@ -780,22 +925,28 @@ class TestCalculateConfidence:
         assert confidence == pytest.approx(0.0)
 
     def test_confidence_clamped_between_zero_and_one(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         # Very low outcome
         low = _make_outcome(
-            validation_pass_rate=0.0, retry_count=10, success_without_retry=False,
+            validation_pass_rate=0.0,
+            retry_count=10,
+            success_without_retry=False,
         )
         assert store._calculate_confidence(low) >= 0.0
 
         # Very high outcome
         high = _make_outcome(
-            validation_pass_rate=1.0, retry_count=0, success_without_retry=True,
+            validation_pass_rate=1.0,
+            retry_count=0,
+            success_without_retry=True,
         )
         assert store._calculate_confidence(high) <= 1.0
 
     def test_medium_validation_no_retry(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         outcome = _make_outcome(
             validation_pass_rate=0.5,
@@ -807,7 +958,8 @@ class TestCalculateConfidence:
         assert confidence == pytest.approx(0.5)
 
     def test_partial_validation_with_some_retries(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         outcome = _make_outcome(
             validation_pass_rate=0.75,
@@ -823,11 +975,13 @@ class TestCalculateConfidence:
 # Error recovery methods (also in ExecutionMixin)
 # =========================================================================
 
+
 class TestErrorRecoveryMethods:
     """Tests for error recovery recording and learned wait times."""
 
     def test_record_error_recovery_returns_id(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         record_id = store.record_error_recovery(
             error_code="E101",
@@ -839,7 +993,8 @@ class TestErrorRecoveryMethods:
         assert len(record_id) == 36
 
     def test_get_learned_wait_time_insufficient_samples(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """Returns None when fewer than min_samples successful recoveries."""
         store.record_error_recovery("E101", 30.0, 25.0, True)
@@ -849,7 +1004,8 @@ class TestErrorRecoveryMethods:
         assert result is None
 
     def test_get_learned_wait_time_with_enough_samples(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         for wait in [20.0, 25.0, 30.0]:
             store.record_error_recovery("E101", 30.0, wait, True)
@@ -860,7 +1016,8 @@ class TestErrorRecoveryMethods:
         assert result == pytest.approx(22.5)
 
     def test_get_learned_wait_time_ignores_failures(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """Only successful recoveries contribute to learned wait time."""
         store.record_error_recovery("E101", 30.0, 10.0, True)
@@ -874,18 +1031,21 @@ class TestErrorRecoveryMethods:
         assert result == pytest.approx(12.5)
 
     def test_get_learned_wait_time_with_fallback_static(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """Falls back to static delay when no data available."""
         delay, confidence, strategy = store.get_learned_wait_time_with_fallback(
-            error_code="E999", static_delay=60.0,
+            error_code="E999",
+            static_delay=60.0,
         )
         assert delay == 60.0
         assert confidence == 0.0
         assert strategy == "static_fallback"
 
     def test_get_learned_wait_time_with_fallback_high_confidence(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """Uses learned delay when confidence is high enough."""
         # Record 10 successful recoveries for high confidence (10/10 = 1.0)
@@ -893,7 +1053,8 @@ class TestErrorRecoveryMethods:
             store.record_error_recovery("E101", 60.0, 25.0, True)
 
         delay, confidence, strategy = store.get_learned_wait_time_with_fallback(
-            error_code="E101", static_delay=60.0,
+            error_code="E101",
+            static_delay=60.0,
         )
         assert strategy == "global_learned"
         assert confidence == pytest.approx(1.0)
@@ -902,7 +1063,8 @@ class TestErrorRecoveryMethods:
         assert delay == pytest.approx(30.0)
 
     def test_get_error_recovery_sample_count(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         store.record_error_recovery("E101", 30.0, 25.0, True)
         store.record_error_recovery("E101", 30.0, 20.0, True)
@@ -916,11 +1078,14 @@ class TestErrorRecoveryMethods:
 # Integration / edge case tests
 # =========================================================================
 
+
 class TestIntegration:
     """Integration and edge-case tests combining multiple execution methods."""
 
     def test_record_and_query_round_trip(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         """Full cycle: record an outcome, get stats, query recent, find similar."""
         outcome = _make_outcome(
@@ -949,7 +1114,9 @@ class TestIntegration:
         assert similar[0].sheet_num == 5
 
     def test_different_workspaces_different_hashes(
-        self, store: GlobalLearningStore, tmp_path: Path,
+        self,
+        store: GlobalLearningStore,
+        tmp_path: Path,
     ) -> None:
         ws1 = tmp_path / "workspace-alpha"
         ws1.mkdir()
@@ -964,12 +1131,15 @@ class TestIntegration:
         assert len(hashes) == 2
 
     def test_large_batch_of_records(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         """Verify the store handles many records efficiently."""
         for i in range(50):
             store.record_outcome(
-                _make_outcome(sheet_id=f"job-sheet{i}"), workspace_path,
+                _make_outcome(sheet_id=f"job-sheet{i}"),
+                workspace_path,
             )
 
         stats = store.get_execution_stats()
@@ -979,7 +1149,9 @@ class TestIntegration:
         assert len(recent) == 10
 
     def test_clear_all_removes_executions(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         store.record_outcome(_make_outcome(), workspace_path)
         assert store.get_execution_stats()["total_executions"] == 1
@@ -988,7 +1160,9 @@ class TestIntegration:
         assert store.get_execution_stats()["total_executions"] == 0
 
     def test_cluster_and_execution_combined_workflow(
-        self, store: GlobalLearningStore, workspace_path: Path,
+        self,
+        store: GlobalLearningStore,
+        workspace_path: Path,
     ) -> None:
         """Assign workspaces to clusters and query executions by workspace hash."""
         ws_hash = GlobalLearningStore.hash_workspace(workspace_path)

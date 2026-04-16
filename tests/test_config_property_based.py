@@ -20,19 +20,22 @@ from marianne.core.config.spec import SpecCorpusConfig, SpecFragment
 
 # Strategy for valid SpecFragment names (non-empty, non-whitespace)
 _spec_name = st.text(
-    min_size=1, max_size=50,
+    min_size=1,
+    max_size=50,
     alphabet=st.characters(categories=("L", "N")),
 ).filter(lambda s: s.strip())
 
 # Strategy for valid SpecFragment content (non-empty)
 _spec_content = st.text(
-    min_size=1, max_size=200,
+    min_size=1,
+    max_size=200,
     alphabet=st.characters(categories=("L", "N", "P", "Z")),
 ).filter(lambda s: s.strip())
 
 _spec_tags = st.lists(
     st.text(min_size=1, max_size=20, alphabet=st.characters(categories=("L",))),
-    min_size=0, max_size=5,
+    min_size=0,
+    max_size=5,
 )
 
 
@@ -64,12 +67,14 @@ class TestSpecCorpusConfigProperties:
                 content=_spec_content,
                 tags=_spec_tags,
             ),
-            min_size=0, max_size=5,
+            min_size=0,
+            max_size=5,
         ),
     )
     @settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow])
     def test_speccorpusconfig_corpus_hash_deterministic(
-        self, fragments: list[SpecFragment],
+        self,
+        fragments: list[SpecFragment],
     ) -> None:
         """SpecCorpusConfig.corpus_hash is deterministic for same fragments."""
         config = SpecCorpusConfig(fragments=fragments)
@@ -79,10 +84,14 @@ class TestSpecCorpusConfigProperties:
 class TestPreflightConfigProperties:
     """Property-based tests for PreflightConfig invariants."""
 
-    @given(data=st.fixed_dictionaries({
-        "token_warning_threshold": st.integers(min_value=0, max_value=500_000),
-        "token_error_threshold": st.integers(min_value=0, max_value=1_000_000),
-    }))
+    @given(
+        data=st.fixed_dictionaries(
+            {
+                "token_warning_threshold": st.integers(min_value=0, max_value=500_000),
+                "token_error_threshold": st.integers(min_value=0, max_value=1_000_000),
+            }
+        )
+    )
     @settings(max_examples=50)
     def test_preflight_config_threshold_validation(self, data: dict[str, int]) -> None:
         """PreflightConfig rejects warning >= error when both are nonzero."""

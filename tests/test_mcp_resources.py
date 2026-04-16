@@ -54,7 +54,7 @@ class TestConfigResources:
                     completed_at=datetime(2025, 1, 1, 10, 30, 0),
                     attempt_count=1,
                     stdout_tail="Sheet 1 completed successfully",
-                    stderr_tail=""
+                    stderr_tail="",
                 ),
                 2: SheetState(
                     sheet_num=2,
@@ -63,9 +63,9 @@ class TestConfigResources:
                     attempt_count=3,
                     stdout_tail="Sheet 2 failed",
                     stderr_tail="Validation error",
-                    error_message="Output validation failed"
-                )
-            }
+                    error_message="Output validation failed",
+                ),
+            },
         )
 
     @pytest.fixture
@@ -90,7 +90,7 @@ class TestConfigResources:
             "config://validation-types",
             "config://learning-options",
             "marianne://jobs",
-            "marianne://templates"
+            "marianne://templates",
         ]
 
         for expected in expected_uris:
@@ -206,7 +206,10 @@ class TestConfigResources:
         assert "state backend" in response["error"]
 
     async def test_get_jobs_overview_with_backend(
-        self, config_resources_with_backend, mock_state_backend, sample_job_state,
+        self,
+        config_resources_with_backend,
+        mock_state_backend,
+        sample_job_state,
     ):
         """Test jobs overview with state backend."""
         # Mock the state backend to return our sample state
@@ -235,7 +238,10 @@ class TestConfigResources:
         assert "state backend" in response["error"]
 
     async def test_get_job_details_with_backend(
-        self, config_resources_with_backend, mock_state_backend, sample_job_state,
+        self,
+        config_resources_with_backend,
+        mock_state_backend,
+        sample_job_state,
     ):
         """Test job details with state backend."""
         mock_state_backend.load.return_value = sample_job_state
@@ -262,7 +268,9 @@ class TestConfigResources:
         assert "failed_sheets" in progress
 
     async def test_get_job_details_not_found(
-        self, config_resources_with_backend, mock_state_backend,
+        self,
+        config_resources_with_backend,
+        mock_state_backend,
     ):
         """Test job details for non-existent job."""
         mock_state_backend.load.return_value = None
@@ -335,7 +343,10 @@ class TestConfigResources:
         assert "jobs" in jobs or "error" in jobs  # Either jobs list or error message
 
     async def test_read_resource_job_detail(
-        self, config_resources_with_backend, mock_state_backend, sample_job_state,
+        self,
+        config_resources_with_backend,
+        mock_state_backend,
+        sample_job_state,
     ):
         """Test reading specific job detail resource."""
         mock_state_backend.load.return_value = sample_job_state
@@ -365,7 +376,9 @@ class TestConfigResources:
         assert "Error reading resource" in content["text"]
 
     async def test_read_resource_error_handling(
-        self, config_resources_with_backend, mock_state_backend,
+        self,
+        config_resources_with_backend,
+        mock_state_backend,
     ):
         """Test error handling in resource reading."""
         # Make state backend raise an exception

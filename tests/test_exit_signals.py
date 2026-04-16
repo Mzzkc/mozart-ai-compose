@@ -252,9 +252,7 @@ class TestClaudeCliBackendSignalDetection:
     @pytest.mark.asyncio
     async def test_file_not_found(self, backend: ClaudeCliBackend) -> None:
         """Test FileNotFoundError produces error exit reason."""
-        with patch(
-            "asyncio.create_subprocess_exec", side_effect=FileNotFoundError("not found")
-        ):
+        with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError("not found")):
             result = await backend.execute("test")
 
         assert result.success is False
@@ -265,9 +263,7 @@ class TestClaudeCliBackendSignalDetection:
     @pytest.mark.asyncio
     async def test_general_exception(self, backend: ClaudeCliBackend) -> None:
         """Test general exception produces error exit reason."""
-        with patch(
-            "asyncio.create_subprocess_exec", side_effect=RuntimeError("unexpected")
-        ):
+        with patch("asyncio.create_subprocess_exec", side_effect=RuntimeError("unexpected")):
             result = await backend.execute("test")
 
         assert result.success is False
@@ -318,7 +314,10 @@ class TestErrorClassifierSignalHandling:
         ],
     )
     def test_fatal_signals(
-        self, classifier: ErrorClassifier, sig: int, expected_name: str,
+        self,
+        classifier: ErrorClassifier,
+        sig: int,
+        expected_name: str,
     ) -> None:
         """Test fatal signals are classified as FATAL and non-retriable."""
         result = classifier.classify(
@@ -364,7 +363,9 @@ class TestErrorClassifierSignalHandling:
         ],
     )
     def test_sigkill_with_oom_indicator(
-        self, classifier: ErrorClassifier, oom_message: str,
+        self,
+        classifier: ErrorClassifier,
+        oom_message: str,
     ) -> None:
         """Test SIGKILL with OOM indicator is FATAL."""
         result = classifier.classify(
@@ -428,14 +429,16 @@ class TestErrorClassifierBackwardsCompatibility:
         [
             (
                 {"stdout": "Error: rate limit exceeded", "exit_code": 1},
-                ErrorCategory.RATE_LIMIT, True,
+                ErrorCategory.RATE_LIMIT,
+                True,
             ),
             ({"stderr": "401 Unauthorized", "exit_code": 1}, ErrorCategory.AUTH, False),
             ({"stderr": "connection refused", "exit_code": 1}, ErrorCategory.NETWORK, True),
             ({"exit_code": 124}, ErrorCategory.TIMEOUT, True),
             (
                 {"stderr": "ENOENT: no such file or directory", "exit_code": 1},
-                ErrorCategory.CONFIGURATION, True,
+                ErrorCategory.CONFIGURATION,
+                True,
             ),
         ],
         ids=["rate_limit", "auth", "network", "timeout_124", "enoent"],

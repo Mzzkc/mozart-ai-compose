@@ -19,11 +19,10 @@ import pytest
 
 from marianne.core.checkpoint import SheetState
 from marianne.core.config import JobConfig
-from marianne.core.config.job import MovementDef, SheetConfig
-from marianne.core.sheet import Sheet, build_sheets
+from marianne.core.config.job import MovementDef
+from marianne.core.sheet import build_sheets
 from marianne.validation.base import ValidationSeverity
 from marianne.validation.checks.config import InstrumentFallbackCheck
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -75,7 +74,8 @@ class TestJobConfigFallbacks:
 
     def test_default_is_empty_list(self) -> None:
         """Existing scores without fallbacks work unchanged."""
-        config = JobConfig.from_yaml_string(dedent("""
+        config = JobConfig.from_yaml_string(
+            dedent("""
             name: no-fallbacks
             instrument: claude-code
             sheet:
@@ -83,12 +83,14 @@ class TestJobConfigFallbacks:
               total_items: 3
             prompt:
               template: "Work"
-        """).strip())
+        """).strip()
+        )
         assert config.instrument_fallbacks == []
 
     def test_score_level_fallbacks_parsed(self) -> None:
         """Score-level instrument_fallbacks parses correctly."""
-        config = JobConfig.from_yaml_string(dedent("""
+        config = JobConfig.from_yaml_string(
+            dedent("""
             name: with-fallbacks
             instrument: claude-code
             instrument_fallbacks:
@@ -99,12 +101,14 @@ class TestJobConfigFallbacks:
               total_items: 3
             prompt:
               template: "Work"
-        """).strip())
+        """).strip()
+        )
         assert config.instrument_fallbacks == ["gemini-cli", "ollama"]
 
     def test_single_fallback(self) -> None:
         """A single fallback entry works."""
-        config = JobConfig.from_yaml_string(dedent("""
+        config = JobConfig.from_yaml_string(
+            dedent("""
             name: one-fallback
             instrument: claude-code
             instrument_fallbacks:
@@ -114,12 +118,14 @@ class TestJobConfigFallbacks:
               total_items: 3
             prompt:
               template: "Work"
-        """).strip())
+        """).strip()
+        )
         assert config.instrument_fallbacks == ["gemini-cli"]
 
     def test_empty_fallback_list(self) -> None:
         """Explicitly empty fallback list parses correctly."""
-        config = JobConfig.from_yaml_string(dedent("""
+        config = JobConfig.from_yaml_string(
+            dedent("""
             name: empty-fallbacks
             instrument: claude-code
             instrument_fallbacks: []
@@ -128,7 +134,8 @@ class TestJobConfigFallbacks:
               total_items: 3
             prompt:
               template: "Work"
-        """).strip())
+        """).strip()
+        )
         assert config.instrument_fallbacks == []
 
 
@@ -140,7 +147,8 @@ class TestMovementDefFallbacks:
         assert mov.instrument_fallbacks == []
 
     def test_movement_level_fallbacks_parsed(self) -> None:
-        config = JobConfig.from_yaml_string(dedent("""
+        config = JobConfig.from_yaml_string(
+            dedent("""
             name: movement-fallbacks
             instrument: claude-code
             movements:
@@ -158,7 +166,8 @@ class TestMovementDefFallbacks:
               total_items: 4
             prompt:
               template: "Work"
-        """).strip())
+        """).strip()
+        )
         assert config.movements[1].instrument_fallbacks == ["claude-code", "ollama"]
         assert config.movements[2].instrument_fallbacks == []
 
@@ -167,7 +176,8 @@ class TestSheetConfigFallbacks:
     """instrument_fallbacks on SheetConfig (per-sheet level)."""
 
     def test_per_sheet_fallbacks_parsed(self) -> None:
-        config = JobConfig.from_yaml_string(dedent("""
+        config = JobConfig.from_yaml_string(
+            dedent("""
             name: per-sheet-fallbacks
             instrument: claude-code
             sheet:
@@ -181,14 +191,16 @@ class TestSheetConfigFallbacks:
                   - codex-cli
             prompt:
               template: "Work"
-        """).strip())
+        """).strip()
+        )
         assert config.sheet.per_sheet_fallbacks == {
             2: ["gemini-cli", "ollama"],
             3: ["codex-cli"],
         }
 
     def test_default_is_empty_dict(self) -> None:
-        config = JobConfig.from_yaml_string(dedent("""
+        config = JobConfig.from_yaml_string(
+            dedent("""
             name: no-per-sheet
             instrument: claude-code
             sheet:
@@ -196,12 +208,14 @@ class TestSheetConfigFallbacks:
               total_items: 3
             prompt:
               template: "Work"
-        """).strip())
+        """).strip()
+        )
         assert config.sheet.per_sheet_fallbacks == {}
 
     def test_per_sheet_fallback_empty_list(self) -> None:
         """Per-sheet empty list means 'no fallbacks for this sheet'."""
-        config = JobConfig.from_yaml_string(dedent("""
+        config = JobConfig.from_yaml_string(
+            dedent("""
             name: empty-per-sheet
             instrument: claude-code
             instrument_fallbacks:
@@ -213,13 +227,15 @@ class TestSheetConfigFallbacks:
                 1: []
             prompt:
               template: "Work"
-        """).strip())
+        """).strip()
+        )
         assert config.sheet.per_sheet_fallbacks[1] == []
 
     def test_per_sheet_fallback_invalid_key_rejected(self) -> None:
         """Sheet number must be positive integer."""
         with pytest.raises(Exception):
-            JobConfig.from_yaml_string(dedent("""
+            JobConfig.from_yaml_string(
+                dedent("""
                 name: invalid-key
                 instrument: claude-code
                 sheet:
@@ -230,7 +246,8 @@ class TestSheetConfigFallbacks:
                       - gemini-cli
                 prompt:
                   template: "Work"
-            """).strip())
+            """).strip()
+            )
 
 
 # ===========================================================================
@@ -243,7 +260,8 @@ class TestBuildSheetsFallbackResolution:
 
     def test_score_level_fallbacks_inherited(self) -> None:
         """All sheets inherit score-level fallbacks."""
-        config = JobConfig.from_yaml_string(dedent("""
+        config = JobConfig.from_yaml_string(
+            dedent("""
             name: inherit-fallbacks
             instrument: claude-code
             instrument_fallbacks:
@@ -254,14 +272,16 @@ class TestBuildSheetsFallbackResolution:
               total_items: 3
             prompt:
               template: "Work"
-        """).strip())
+        """).strip()
+        )
         sheets = build_sheets(config)
         for s in sheets:
             assert s.instrument_fallbacks == ["gemini-cli", "ollama"]
 
     def test_movement_level_overrides_score_level(self) -> None:
         """Movement-level fallbacks replace score-level for sheets in that movement."""
-        config = JobConfig.from_yaml_string(dedent("""
+        config = JobConfig.from_yaml_string(
+            dedent("""
             name: movement-override
             instrument: claude-code
             instrument_fallbacks:
@@ -276,7 +296,8 @@ class TestBuildSheetsFallbackResolution:
               total_items: 3
             prompt:
               template: "Work"
-        """).strip())
+        """).strip()
+        )
         sheets = build_sheets(config)
         # Sheet 1 is movement 1 — inherits score-level
         assert sheets[0].instrument_fallbacks == ["ollama"]
@@ -287,7 +308,8 @@ class TestBuildSheetsFallbackResolution:
 
     def test_per_sheet_overrides_everything(self) -> None:
         """Per-sheet fallbacks replace both score and movement level."""
-        config = JobConfig.from_yaml_string(dedent("""
+        config = JobConfig.from_yaml_string(
+            dedent("""
             name: per-sheet-override
             instrument: claude-code
             instrument_fallbacks:
@@ -304,7 +326,8 @@ class TestBuildSheetsFallbackResolution:
                   - codex-cli
             prompt:
               template: "Work"
-        """).strip())
+        """).strip()
+        )
         sheets = build_sheets(config)
         # Sheet 1 (movement 1) — per-sheet overrides movement overrides score
         assert sheets[0].instrument_fallbacks == ["codex-cli"]
@@ -315,7 +338,8 @@ class TestBuildSheetsFallbackResolution:
 
     def test_per_sheet_empty_list_means_no_fallbacks(self) -> None:
         """Per-sheet empty list explicitly disables fallbacks for that sheet."""
-        config = JobConfig.from_yaml_string(dedent("""
+        config = JobConfig.from_yaml_string(
+            dedent("""
             name: disable-fallbacks
             instrument: claude-code
             instrument_fallbacks:
@@ -327,14 +351,16 @@ class TestBuildSheetsFallbackResolution:
                 1: []
             prompt:
               template: "Work"
-        """).strip())
+        """).strip()
+        )
         sheets = build_sheets(config)
         assert sheets[0].instrument_fallbacks == []
         assert sheets[1].instrument_fallbacks == ["gemini-cli"]
 
     def test_no_fallbacks_at_any_level(self) -> None:
         """Default: no fallbacks produces empty list."""
-        config = JobConfig.from_yaml_string(dedent("""
+        config = JobConfig.from_yaml_string(
+            dedent("""
             name: no-fallbacks
             instrument: claude-code
             sheet:
@@ -342,14 +368,16 @@ class TestBuildSheetsFallbackResolution:
               total_items: 2
             prompt:
               template: "Work"
-        """).strip())
+        """).strip()
+        )
         sheets = build_sheets(config)
         for s in sheets:
             assert s.instrument_fallbacks == []
 
     def test_fan_out_inherits_fallbacks(self) -> None:
         """Fan-out instances inherit fallbacks from movement/score level."""
-        config = JobConfig.from_yaml_string(dedent("""
+        config = JobConfig.from_yaml_string(
+            dedent("""
             name: fanout-fallbacks
             instrument: claude-code
             instrument_fallbacks:
@@ -361,7 +389,8 @@ class TestBuildSheetsFallbackResolution:
                 2: 3
             prompt:
               template: "Work"
-        """).strip())
+        """).strip()
+        )
         sheets = build_sheets(config)
         # All sheets (including fan-out instances) inherit score-level
         for s in sheets:
@@ -382,12 +411,14 @@ class TestSheetStateFallbackHistory:
 
     def test_append_fallback_event(self) -> None:
         state = SheetState(sheet_num=1)
-        state.instrument_fallback_history.append({
-            "from": "claude-code",
-            "to": "gemini-cli",
-            "reason": "rate_limit_exhausted",
-            "timestamp": "2026-04-05T10:00:00Z",
-        })
+        state.instrument_fallback_history.append(
+            {
+                "from": "claude-code",
+                "to": "gemini-cli",
+                "reason": "rate_limit_exhausted",
+                "timestamp": "2026-04-05T10:00:00Z",
+            }
+        )
         assert len(state.instrument_fallback_history) == 1
         assert state.instrument_fallback_history[0]["from"] == "claude-code"
         assert state.instrument_fallback_history[0]["to"] == "gemini-cli"
@@ -395,31 +426,35 @@ class TestSheetStateFallbackHistory:
 
     def test_multiple_fallback_events(self) -> None:
         state = SheetState(sheet_num=1)
-        state.instrument_fallback_history.extend([
-            {
-                "from": "claude-code",
-                "to": "gemini-cli",
-                "reason": "unavailable",
-                "timestamp": "2026-04-05T10:00:00Z",
-            },
-            {
-                "from": "gemini-cli",
-                "to": "ollama",
-                "reason": "rate_limit_exhausted",
-                "timestamp": "2026-04-05T10:05:00Z",
-            },
-        ])
+        state.instrument_fallback_history.extend(
+            [
+                {
+                    "from": "claude-code",
+                    "to": "gemini-cli",
+                    "reason": "unavailable",
+                    "timestamp": "2026-04-05T10:00:00Z",
+                },
+                {
+                    "from": "gemini-cli",
+                    "to": "ollama",
+                    "reason": "rate_limit_exhausted",
+                    "timestamp": "2026-04-05T10:05:00Z",
+                },
+            ]
+        )
         assert len(state.instrument_fallback_history) == 2
 
     def test_serialization_roundtrip(self) -> None:
         """Fallback history survives JSON serialization (resume support)."""
         state = SheetState(sheet_num=1)
-        state.instrument_fallback_history.append({
-            "from": "claude-code",
-            "to": "gemini-cli",
-            "reason": "unavailable",
-            "timestamp": "2026-04-05T10:00:00Z",
-        })
+        state.instrument_fallback_history.append(
+            {
+                "from": "claude-code",
+                "to": "gemini-cli",
+                "reason": "unavailable",
+                "timestamp": "2026-04-05T10:00:00Z",
+            }
+        )
         dumped = state.model_dump()
         restored = SheetState.model_validate(dumped)
         assert restored.instrument_fallback_history == state.instrument_fallback_history

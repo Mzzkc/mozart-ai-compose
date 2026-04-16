@@ -201,9 +201,7 @@ class TestDispatchFallbackEventEmission:
 
         dispatched: list[tuple[str, int]] = []
 
-        async def track(
-            job_id: str, sheet_num: int, state: SheetExecutionState
-        ) -> None:
+        async def track(job_id: str, sheet_num: int, state: SheetExecutionState) -> None:
             dispatched.append((job_id, sheet_num))
 
         config = DispatchConfig(open_circuit_breakers={"claude-code"})

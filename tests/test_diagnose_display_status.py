@@ -40,9 +40,7 @@ def _make_job(
             )
             for i in range(1, total_sheets + 1)
         }
-    last_completed = sum(
-        1 for s in sheets.values() if s.status == SheetStatus.COMPLETED
-    )
+    last_completed = sum(1 for s in sheets.values() if s.status == SheetStatus.COMPLETED)
     return CheckpointState(
         job_id="test-job",
         job_name="Test Job",
@@ -90,12 +88,10 @@ class TestDiagnoseProgressCountAccuracy:
 
         progress = report["progress"]
         assert progress["completed"] == 2, (
-            "Sheet 2 (COMPLETED + validation_passed=False) should NOT count "
-            "as completed"
+            "Sheet 2 (COMPLETED + validation_passed=False) should NOT count as completed"
         )
         assert progress["failed"] == 1, (
-            "Sheet 2 (COMPLETED + validation_passed=False) should count as "
-            "failed"
+            "Sheet 2 (COMPLETED + validation_passed=False) should count as failed"
         )
 
     def test_all_display_failed_counted_correctly(self) -> None:
@@ -126,9 +122,7 @@ class TestDiagnoseProgressCountAccuracy:
 
         progress = report["progress"]
         assert progress["completed"] == 0, "No sheets truly completed"
-        assert progress["failed"] == 3, (
-            "All 3 should be failed: 2 display-failed + 1 status-failed"
-        )
+        assert progress["failed"] == 3, "All 3 should be failed: 2 display-failed + 1 status-failed"
 
     def test_progress_percent_uses_display_counts(self) -> None:
         """Progress percentage should reflect display-correct completed count."""
@@ -184,12 +178,8 @@ class TestDiagnoseProgressCountAccuracy:
 
         # Count from timeline
         timeline = report["execution_timeline"]
-        timeline_completed = sum(
-            1 for e in timeline if e["status"] == "completed"
-        )
-        timeline_failed = sum(
-            1 for e in timeline if e["status"] == "failed"
-        )
+        timeline_completed = sum(1 for e in timeline if e["status"] == "completed")
+        timeline_failed = sum(1 for e in timeline if e["status"] == "failed")
 
         # Progress counts should match
         assert report["progress"]["completed"] == timeline_completed

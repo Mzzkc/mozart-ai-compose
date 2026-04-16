@@ -14,8 +14,6 @@ from __future__ import annotations
 
 import datetime
 
-import pytest
-
 from marianne.core.checkpoint import (
     MAX_INSTRUMENT_FALLBACK_HISTORY,
     SheetState,
@@ -38,12 +36,14 @@ class TestCheckpointFallbackHistoryCap:
         """Adding fallback records within the limit retains all of them."""
         state = SheetState(sheet_num=1)
         for i in range(5):
-            state.add_fallback_to_history({
-                "from": f"instrument-{i}",
-                "to": f"instrument-{i + 1}",
-                "reason": "rate_limit_exhausted",
-                "timestamp": datetime.datetime.now(tz=datetime.UTC).isoformat(),
-            })
+            state.add_fallback_to_history(
+                {
+                    "from": f"instrument-{i}",
+                    "to": f"instrument-{i + 1}",
+                    "reason": "rate_limit_exhausted",
+                    "timestamp": datetime.datetime.now(tz=datetime.UTC).isoformat(),
+                }
+            )
         assert len(state.instrument_fallback_history) == 5
 
     def test_add_fallback_trims_at_limit(self) -> None:
@@ -51,12 +51,14 @@ class TestCheckpointFallbackHistoryCap:
         state = SheetState(sheet_num=1)
         overflow = MAX_INSTRUMENT_FALLBACK_HISTORY + 20
         for i in range(overflow):
-            state.add_fallback_to_history({
-                "from": f"instrument-{i}",
-                "to": f"instrument-{i + 1}",
-                "reason": "unavailable",
-                "timestamp": datetime.datetime.now(tz=datetime.UTC).isoformat(),
-            })
+            state.add_fallback_to_history(
+                {
+                    "from": f"instrument-{i}",
+                    "to": f"instrument-{i + 1}",
+                    "reason": "unavailable",
+                    "timestamp": datetime.datetime.now(tz=datetime.UTC).isoformat(),
+                }
+            )
         assert len(state.instrument_fallback_history) == MAX_INSTRUMENT_FALLBACK_HISTORY
         # Most recent records are preserved (FIFO trim — oldest dropped)
         last = state.instrument_fallback_history[-1]
@@ -66,12 +68,14 @@ class TestCheckpointFallbackHistoryCap:
         """Trimming keeps the newest entries, not the oldest."""
         state = SheetState(sheet_num=1)
         for i in range(MAX_INSTRUMENT_FALLBACK_HISTORY + 10):
-            state.add_fallback_to_history({
-                "from": f"inst-{i}",
-                "to": f"inst-{i + 1}",
-                "reason": "rate_limit_exhausted",
-                "timestamp": f"2026-04-05T{i:05d}",
-            })
+            state.add_fallback_to_history(
+                {
+                    "from": f"inst-{i}",
+                    "to": f"inst-{i + 1}",
+                    "reason": "rate_limit_exhausted",
+                    "timestamp": f"2026-04-05T{i:05d}",
+                }
+            )
         first = state.instrument_fallback_history[0]
         # The first 10 entries (inst-0 through inst-9) should be gone
         assert first["from"] == "inst-10"

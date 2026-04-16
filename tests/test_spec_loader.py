@@ -22,9 +22,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from marianne.core.config.spec import SpecFragment
 from marianne.spec.loader import SpecCorpusError, SpecCorpusLoader
-
 
 # --- Happy Path: Valid YAML Files ---
 
@@ -37,13 +35,15 @@ class TestLoadYamlFragments:
         spec_dir = tmp_path / "spec"
         spec_dir.mkdir()
         (spec_dir / "intent.yaml").write_text(
-            yaml.dump({
-                "name": "intent",
-                "tags": ["goals", "purpose"],
-                "kind": "structured",
-                "content": "This is the intent spec.",
-                "data": {"primary_goal": "correctness"},
-            }),
+            yaml.dump(
+                {
+                    "name": "intent",
+                    "tags": ["goals", "purpose"],
+                    "kind": "structured",
+                    "content": "This is the intent spec.",
+                    "data": {"primary_goal": "correctness"},
+                }
+            ),
             encoding="utf-8",
         )
 
@@ -98,16 +98,18 @@ class TestLoadYamlFragments:
         spec_dir = tmp_path / "spec"
         spec_dir.mkdir()
         (spec_dir / "arch.yaml").write_text(
-            yaml.dump({
-                "name": "architecture",
-                "content": "Architecture overview.",
-                "tags": ["arch"],
-                "kind": "structured",
-                "data": {
-                    "layers": ["core", "execution", "daemon"],
-                    "invariants": {"state_atomic": True},
-                },
-            }),
+            yaml.dump(
+                {
+                    "name": "architecture",
+                    "content": "Architecture overview.",
+                    "tags": ["arch"],
+                    "kind": "structured",
+                    "data": {
+                        "layers": ["core", "execution", "daemon"],
+                        "invariants": {"state_atomic": True},
+                    },
+                }
+            ),
             encoding="utf-8",
         )
 
@@ -277,9 +279,7 @@ class TestLoadErrors:
         """YAML file without 'content' field is skipped with a warning."""
         spec_dir = tmp_path / "spec"
         spec_dir.mkdir()
-        (spec_dir / "bad.yaml").write_text(
-            yaml.dump({"name": "bad"}), encoding="utf-8"
-        )
+        (spec_dir / "bad.yaml").write_text(yaml.dump({"name": "bad"}), encoding="utf-8")
 
         fragments = SpecCorpusLoader.load(spec_dir)
         assert len(fragments) == 0
@@ -304,9 +304,7 @@ class TestLoadErrors:
         """YAML file with a list (not mapping) at top level is skipped."""
         spec_dir = tmp_path / "spec"
         spec_dir.mkdir()
-        (spec_dir / "list.yaml").write_text(
-            yaml.dump(["item1", "item2"]), encoding="utf-8"
-        )
+        (spec_dir / "list.yaml").write_text(yaml.dump(["item1", "item2"]), encoding="utf-8")
 
         fragments = SpecCorpusLoader.load(spec_dir)
         assert len(fragments) == 0
@@ -342,16 +340,12 @@ class TestLoadErrors:
         """A broken file doesn't prevent loading other valid files."""
         spec_dir = tmp_path / "spec"
         spec_dir.mkdir()
-        (spec_dir / "a_bad.yaml").write_text(
-            "::not valid yaml::", encoding="utf-8"
-        )
+        (spec_dir / "a_bad.yaml").write_text("::not valid yaml::", encoding="utf-8")
         (spec_dir / "b_good.yaml").write_text(
             yaml.dump({"name": "good", "content": "Works."}),
             encoding="utf-8",
         )
-        (spec_dir / "c_good.md").write_text(
-            "# Markdown works too.", encoding="utf-8"
-        )
+        (spec_dir / "c_good.md").write_text("# Markdown works too.", encoding="utf-8")
 
         fragments = SpecCorpusLoader.load(spec_dir)
         assert len(fragments) == 2
@@ -518,10 +512,12 @@ class TestSpecLoaderAdversarial:
         spec_dir = tmp_path / "spec"
         spec_dir.mkdir()
         (spec_dir / "unicode.yaml").write_text(
-            yaml.dump({
-                "name": "unicode",
-                "content": "日本語コンテンツ — with émojis 🎵 and diacritics àéîõü",
-            }),
+            yaml.dump(
+                {
+                    "name": "unicode",
+                    "content": "日本語コンテンツ — with émojis 🎵 and diacritics àéîõü",
+                }
+            ),
             encoding="utf-8",
         )
 

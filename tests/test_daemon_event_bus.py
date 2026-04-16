@@ -9,13 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import time
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
 from marianne.daemon.event_bus import EventBus
 from marianne.daemon.types import ObserverEvent
-
 
 # ─── Helpers ──────────────────────────────────────────────────────────
 

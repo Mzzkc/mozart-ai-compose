@@ -8,19 +8,18 @@ integration with ResourceMonitor and RateLimitCoordinator.
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from marianne.daemon.backpressure import (
+    _LEVEL_DELAYS,
     BackpressureController,
     PressureLevel,
-    _LEVEL_DELAYS,
 )
 from marianne.daemon.config import ResourceLimitConfig
 from marianne.daemon.monitor import ResourceMonitor
 from marianne.daemon.rate_coordinator import RateLimitCoordinator
-
 
 # ─── Fixtures ──────────────────────────────────────────────────────────
 
@@ -96,72 +95,124 @@ class TestCurrentLevel:
 
     def test_low_memory_returns_none(self, controller: BackpressureController):
         """Below 50% memory → NONE."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=400.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=400.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.current_level() == PressureLevel.NONE
 
     def test_50_percent_memory_returns_low(self, controller: BackpressureController):
         """Between 50-70% memory → LOW."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=550.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=550.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.current_level() == PressureLevel.LOW
 
     def test_70_percent_memory_returns_medium(self, controller: BackpressureController):
         """Between 70-85% memory → MEDIUM."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=750.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=750.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.current_level() == PressureLevel.MEDIUM
 
     def test_85_percent_memory_returns_high(self, controller: BackpressureController):
         """Between 85-95% memory → HIGH."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=900.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=900.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.current_level() == PressureLevel.HIGH
 
     def test_95_percent_memory_returns_critical(self, controller: BackpressureController):
         """>95% memory → CRITICAL."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=960.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=960.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.current_level() == PressureLevel.CRITICAL
 
     def test_not_accepting_work_returns_critical(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
     ):
         """Monitor not accepting work → CRITICAL regardless of memory."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=False,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=100.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=False,
+            ),
         ):
             assert controller.current_level() == PressureLevel.CRITICAL
 
     def test_active_rate_limits_bump_to_high(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
         coordinator: RateLimitCoordinator,
     ):
         """Active rate limits → at least HIGH even with low memory."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=100.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             # Simulate an active rate limit
             import time
+
             coordinator._active_limits["claude_cli"] = time.monotonic() + 60
             assert controller.current_level() == PressureLevel.HIGH
 
@@ -174,13 +225,21 @@ class TestCanStartSheet:
 
     @pytest.mark.asyncio
     async def test_none_pressure_allows_immediately(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
     ):
         """At NONE pressure, sheet is allowed with zero delay."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=100.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             allowed, delay = await controller.can_start_sheet()
             assert allowed is True
@@ -188,13 +247,21 @@ class TestCanStartSheet:
 
     @pytest.mark.asyncio
     async def test_low_pressure_allows_with_delay(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
     ):
         """At LOW pressure, sheet is allowed with a small delay."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=550.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=550.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             allowed, delay = await controller.can_start_sheet()
             assert allowed is True
@@ -202,13 +269,21 @@ class TestCanStartSheet:
 
     @pytest.mark.asyncio
     async def test_medium_pressure_allows_with_larger_delay(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
     ):
         """At MEDIUM pressure, sheet is allowed but with a significant delay."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=750.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=750.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             allowed, delay = await controller.can_start_sheet()
             assert allowed is True
@@ -216,13 +291,21 @@ class TestCanStartSheet:
 
     @pytest.mark.asyncio
     async def test_high_pressure_allows_with_long_delay(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
     ):
         """At HIGH pressure, sheet is still allowed but with a long delay."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=900.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=900.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             allowed, delay = await controller.can_start_sheet()
             assert allowed is True
@@ -230,13 +313,21 @@ class TestCanStartSheet:
 
     @pytest.mark.asyncio
     async def test_critical_pressure_rejects(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
     ):
         """At CRITICAL pressure, sheet is rejected."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=960.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=960.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             allowed, delay = await controller.can_start_sheet()
             assert allowed is False
@@ -244,13 +335,21 @@ class TestCanStartSheet:
 
     @pytest.mark.asyncio
     async def test_returns_tuple_of_bool_float(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
     ):
         """Return type matches BackpressureChecker protocol."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=100.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             result = await controller.can_start_sheet()
             assert isinstance(result, tuple)
@@ -266,42 +365,77 @@ class TestShouldAcceptJob:
     """Tests for job-level gating."""
 
     def test_accepts_at_none(self, controller: BackpressureController):
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=100.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.should_accept_job() is True
 
     def test_accepts_at_low(self, controller: BackpressureController):
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=550.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=550.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.should_accept_job() is True
 
     def test_accepts_at_medium(self, controller: BackpressureController):
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=750.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=750.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.should_accept_job() is True
 
     def test_rejects_at_high(self, controller: BackpressureController):
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=900.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=900.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.should_accept_job() is False
 
     def test_rejects_at_critical(self, controller: BackpressureController):
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=960.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=960.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.should_accept_job() is False
 
@@ -314,10 +448,10 @@ class TestSchedulerIntegration:
 
     @pytest.mark.asyncio
     async def test_protocol_compatibility(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
     ):
         """BackpressureController can be used where BackpressureChecker is expected."""
-        from marianne.daemon.scheduler import BackpressureChecker
 
         # Protocol structural check — must have can_start_sheet
         assert hasattr(controller, "can_start_sheet")
@@ -333,7 +467,8 @@ class TestSchedulerIntegration:
         scheduler = GlobalSheetScheduler(config)
 
         resource_config = ResourceLimitConfig(
-            max_memory_mb=1000, max_processes=20,
+            max_memory_mb=1000,
+            max_processes=20,
         )
         monitor = ResourceMonitor(resource_config)
         coordinator = RateLimitCoordinator()
@@ -353,38 +488,50 @@ class TestProbeFailureBackpressure:
     def test_probe_failure_returns_critical(self, controller: BackpressureController):
         """When memory probe returns None, pressure is CRITICAL."""
         with patch.object(
-            ResourceMonitor, "current_memory_mb", return_value=None,
+            ResourceMonitor,
+            "current_memory_mb",
+            return_value=None,
         ):
             assert controller.current_level() == PressureLevel.CRITICAL
 
     def test_degraded_monitor_returns_critical(
-        self, controller: BackpressureController, monitor: ResourceMonitor,
+        self,
+        controller: BackpressureController,
+        monitor: ResourceMonitor,
     ):
         """When monitor is degraded, pressure is CRITICAL."""
         monitor._degraded = True
         with patch.object(
-            ResourceMonitor, "current_memory_mb", return_value=100.0,
+            ResourceMonitor,
+            "current_memory_mb",
+            return_value=100.0,
         ):
             assert controller.current_level() == PressureLevel.CRITICAL
         monitor._degraded = False  # cleanup
 
     @pytest.mark.asyncio
     async def test_probe_failure_rejects_sheets(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
     ):
         """Probe failure causes can_start_sheet to reject."""
         with patch.object(
-            ResourceMonitor, "current_memory_mb", return_value=None,
+            ResourceMonitor,
+            "current_memory_mb",
+            return_value=None,
         ):
             allowed, delay = await controller.can_start_sheet()
             assert allowed is False
 
     def test_probe_failure_rejects_jobs(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
     ):
         """Probe failure causes should_accept_job to reject."""
         with patch.object(
-            ResourceMonitor, "current_memory_mb", return_value=None,
+            ResourceMonitor,
+            "current_memory_mb",
+            return_value=None,
         ):
             assert controller.should_accept_job() is False
 
@@ -407,91 +554,161 @@ class TestBoundaryValues:
 
     def test_exactly_50_pct_is_none(self, controller: BackpressureController):
         """500MB is exactly 50% — should be NONE (threshold is >50%)."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=500.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=500.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.current_level() == PressureLevel.NONE
 
     def test_just_above_50_pct_is_low(self, controller: BackpressureController):
         """501MB is >50% — should be LOW."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=501.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=501.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.current_level() == PressureLevel.LOW
 
     def test_exactly_70_pct_is_low(self, controller: BackpressureController):
         """700MB is exactly 70% — should be LOW (threshold is >70%)."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=700.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=700.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.current_level() == PressureLevel.LOW
 
     def test_just_above_70_pct_is_medium(self, controller: BackpressureController):
         """701MB is >70% — should be MEDIUM."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=701.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=701.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.current_level() == PressureLevel.MEDIUM
 
     def test_exactly_85_pct_is_medium(self, controller: BackpressureController):
         """850MB is exactly 85% — should be MEDIUM (threshold is >85%)."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=850.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=850.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.current_level() == PressureLevel.MEDIUM
 
     def test_just_above_85_pct_is_high(self, controller: BackpressureController):
         """851MB is >85% — should be HIGH."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=851.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=851.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.current_level() == PressureLevel.HIGH
 
     def test_exactly_95_pct_is_high(self, controller: BackpressureController):
         """950MB is exactly 95% — should be HIGH (threshold is >95%)."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=950.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=950.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.current_level() == PressureLevel.HIGH
 
     def test_just_above_95_pct_is_critical(self, controller: BackpressureController):
         """951MB is >95% — should be CRITICAL."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=951.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=951.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.current_level() == PressureLevel.CRITICAL
 
     def test_zero_memory_is_none(self, controller: BackpressureController):
         """0MB usage — should be NONE."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=0.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=0.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.current_level() == PressureLevel.NONE
 
     def test_exactly_at_limit_is_critical(self, controller: BackpressureController):
         """1000MB (100%) — should be CRITICAL."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=1000.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=1000.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.current_level() == PressureLevel.CRITICAL
 
@@ -510,14 +727,22 @@ class TestRateCoordinatorPublicAPI:
 
     @pytest.mark.asyncio
     async def test_reported_limit_escalates_pressure(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
         coordinator: RateLimitCoordinator,
     ):
         """A rate limit reported via public API escalates pressure to HIGH."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=100.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             # Before: no limits, low memory → NONE
             assert controller.current_level() == PressureLevel.NONE
@@ -535,7 +760,8 @@ class TestRateCoordinatorPublicAPI:
 
     @pytest.mark.asyncio
     async def test_public_api_limit_does_not_block_job_submission(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
         coordinator: RateLimitCoordinator,
     ):
         """Rate limit via public API does NOT block job submission (F-149).
@@ -544,10 +770,17 @@ class TestRateCoordinatorPublicAPI:
         targeting different instruments. Job-level gating only considers
         resource pressure (memory, processes).
         """
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=100.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.should_accept_job() is True
 
@@ -575,14 +808,22 @@ class TestRateLimitExpiryTransitions:
 
     @pytest.mark.asyncio
     async def test_pressure_drops_after_limit_expires(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
         coordinator: RateLimitCoordinator,
     ):
         """After rate limit expires, pressure returns to NONE (low memory)."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=100.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             # Report a very short limit
             await coordinator.report_rate_limit(
@@ -603,7 +844,8 @@ class TestRateLimitExpiryTransitions:
 
     @pytest.mark.asyncio
     async def test_job_accepted_during_and_after_limit(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
         coordinator: RateLimitCoordinator,
     ):
         """Job submission accepted during AND after rate limit (F-149).
@@ -612,10 +854,17 @@ class TestRateLimitExpiryTransitions:
         pressure does. Jobs are accepted immediately, and per-instrument
         rate limiting is handled at the sheet dispatch level.
         """
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=100.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             await coordinator.report_rate_limit(
                 backend_type="claude_cli",
@@ -647,14 +896,22 @@ class TestRateLimitedRejection:
 
     @pytest.mark.asyncio
     async def test_rate_limit_causes_high_delay(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
         coordinator: RateLimitCoordinator,
     ):
         """Active rate limit → HIGH → can_start_sheet returns HIGH delay."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=100.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             # Report rate limit
             await coordinator.report_rate_limit(
@@ -669,24 +926,35 @@ class TestRateLimitedRejection:
             assert delay == _LEVEL_DELAYS[PressureLevel.HIGH]
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("memory_mb,expected_level", [
-        (100.0, PressureLevel.HIGH),     # Low memory + rate limit → HIGH
-        (550.0, PressureLevel.HIGH),     # LOW memory + rate limit → HIGH
-        (750.0, PressureLevel.HIGH),     # MEDIUM memory + rate limit → still HIGH
-        (900.0, PressureLevel.HIGH),     # HIGH memory + rate limit → HIGH
-        (960.0, PressureLevel.CRITICAL), # CRITICAL memory + rate limit → CRITICAL
-    ])
+    @pytest.mark.parametrize(
+        "memory_mb,expected_level",
+        [
+            (100.0, PressureLevel.HIGH),  # Low memory + rate limit → HIGH
+            (550.0, PressureLevel.HIGH),  # LOW memory + rate limit → HIGH
+            (750.0, PressureLevel.HIGH),  # MEDIUM memory + rate limit → still HIGH
+            (900.0, PressureLevel.HIGH),  # HIGH memory + rate limit → HIGH
+            (960.0, PressureLevel.CRITICAL),  # CRITICAL memory + rate limit → CRITICAL
+        ],
+    )
     async def test_rate_limit_with_various_memory_levels(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
         coordinator: RateLimitCoordinator,
         memory_mb: float,
         expected_level: PressureLevel,
     ):
         """Rate limit + various memory levels produce correct pressure."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=memory_mb,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=memory_mb,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             await coordinator.report_rate_limit(
                 backend_type="claude_cli",
@@ -698,7 +966,8 @@ class TestRateLimitedRejection:
 
     @pytest.mark.asyncio
     async def test_rate_limit_delays_sheets_but_accepts_jobs(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
         coordinator: RateLimitCoordinator,
     ):
         """At HIGH (rate-limited), sheets are delayed and jobs are accepted (F-149).
@@ -707,10 +976,17 @@ class TestRateLimitedRejection:
         but do NOT block job submissions. This allows jobs targeting
         non-rate-limited instruments to proceed immediately.
         """
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=100.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             await coordinator.report_rate_limit(
                 backend_type="claude_cli",
@@ -740,14 +1016,22 @@ class TestCombinedConditions:
 
     @pytest.mark.asyncio
     async def test_low_memory_plus_rate_limit_is_high(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
         coordinator: RateLimitCoordinator,
     ):
         """LOW memory (550MB) + active rate limit → HIGH (rate limit dominates)."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=550.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=550.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             # Without rate limit: LOW
             assert controller.current_level() == PressureLevel.LOW
@@ -765,14 +1049,22 @@ class TestCombinedConditions:
 
     @pytest.mark.asyncio
     async def test_medium_memory_plus_rate_limit_is_high(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
         coordinator: RateLimitCoordinator,
     ):
         """MEDIUM memory (750MB) + active rate limit → HIGH (rate limit escalates)."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=750.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=750.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             # Without rate limit: MEDIUM
             assert controller.current_level() == PressureLevel.MEDIUM
@@ -789,14 +1081,22 @@ class TestCombinedConditions:
 
     @pytest.mark.asyncio
     async def test_high_memory_plus_rate_limit_stays_high(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
         coordinator: RateLimitCoordinator,
     ):
         """HIGH memory (900MB) + active rate limit → still HIGH (both contribute)."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=900.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=900.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             # Without rate limit: already HIGH from memory
             assert controller.current_level() == PressureLevel.HIGH
@@ -813,14 +1113,22 @@ class TestCombinedConditions:
 
     @pytest.mark.asyncio
     async def test_critical_memory_overrides_rate_limit(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
         coordinator: RateLimitCoordinator,
     ):
         """CRITICAL memory (960MB) + active rate limit → CRITICAL (memory wins)."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=960.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=960.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             await coordinator.report_rate_limit(
                 backend_type="claude_cli",
@@ -846,48 +1154,80 @@ class TestMemoryOverflow:
     """
 
     def test_110_percent_memory_is_critical(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
     ):
         """1100MB / 1000MB max (110%) → CRITICAL."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=1100.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=1100.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.current_level() == PressureLevel.CRITICAL
 
     def test_200_percent_memory_is_critical(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
     ):
         """2000MB / 1000MB max (200%) → CRITICAL."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=2000.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=2000.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.current_level() == PressureLevel.CRITICAL
 
     @pytest.mark.asyncio
     async def test_overflow_rejects_sheets(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
     ):
         """Memory overflow → can_start_sheet rejects."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=1500.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=1500.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             allowed, delay = await controller.can_start_sheet()
             assert allowed is False
             assert delay == _LEVEL_DELAYS[PressureLevel.CRITICAL]
 
     def test_overflow_rejects_jobs(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
     ):
         """Memory overflow → should_accept_job rejects."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=1500.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=1500.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             assert controller.should_accept_job() is False

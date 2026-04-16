@@ -57,9 +57,7 @@ def _run(coro: Coroutine[Any, Any, Any]) -> Any:
 _NONNEG_INT = st.integers(min_value=0, max_value=20)
 
 # Checkpoint status strings that the adapter must handle
-_CHECKPOINT_STATUSES = st.sampled_from(
-    ["pending", "in_progress", "completed", "failed", "skipped"]
-)
+_CHECKPOINT_STATUSES = st.sampled_from(["pending", "in_progress", "completed", "failed", "skipped"])
 
 # Clone names: alphanumeric strings (after sanitization)
 _CLONE_NAMES = st.text(
@@ -355,13 +353,11 @@ class TestRecoveryDispatchReadiness:
 
         if cp_status in ("pending", "in_progress"):
             assert baton_sheet.status in _DISPATCHABLE_BATON_STATUSES, (
-                f"Recovered {cp_status} should be dispatchable, "
-                f"got {baton_sheet.status}"
+                f"Recovered {cp_status} should be dispatchable, got {baton_sheet.status}"
             )
         elif cp_status in ("completed", "failed", "skipped"):
             assert baton_sheet.status in _TERMINAL_BATON_STATUSES, (
-                f"Recovered {cp_status} should be terminal, "
-                f"got {baton_sheet.status}"
+                f"Recovered {cp_status} should be terminal, got {baton_sheet.status}"
             )
 
         adapter._baton.deregister_job("dispatch_test")
@@ -385,9 +381,7 @@ class TestClonePathMutualExclusion:
         name_b=_CLONE_NAMES,
     )
     @settings(max_examples=100)
-    def test_different_names_produce_disjoint_paths(
-        self, name_a: str, name_b: str
-    ) -> None:
+    def test_different_names_produce_disjoint_paths(self, name_a: str, name_b: str) -> None:
         """No path overlap between two different clone names."""
         assume(name_a != name_b)
 
@@ -400,9 +394,7 @@ class TestClonePathMutualExclusion:
         set_b = {paths_b.socket, paths_b.pid_file, paths_b.state_db, paths_b.log_file}
 
         overlap = set_a & set_b
-        assert overlap == set(), (
-            f"Clone names '{name_a}' and '{name_b}' share paths: {overlap}"
-        )
+        assert overlap == set(), f"Clone names '{name_a}' and '{name_b}' share paths: {overlap}"
 
     @given(name=_CLONE_NAMES)
     @settings(max_examples=50)
@@ -412,9 +404,7 @@ class TestClonePathMutualExclusion:
 
         paths = resolve_clone_paths(name)
         all_paths = [paths.socket, paths.pid_file, paths.state_db, paths.log_file]
-        assert len(set(all_paths)) == 4, (
-            f"Clone '{name}' has duplicate paths: {all_paths}"
-        )
+        assert len(set(all_paths)) == 4, f"Clone '{name}' has duplicate paths: {all_paths}"
 
     def test_default_clone_vs_named_clone_disjoint(self) -> None:
         """Default clone (name=None) and any named clone have disjoint paths."""
@@ -437,9 +427,7 @@ class TestClonePathMutualExclusion:
         }
 
         overlap = set_default & set_named
-        assert overlap == set(), (
-            f"Default and named clone share paths: {overlap}"
-        )
+        assert overlap == set(), f"Default and named clone share paths: {overlap}"
 
 
 # =============================================================================
@@ -456,9 +444,7 @@ class TestCloneConfigPathIsolation:
 
     @given(name=st.one_of(st.none(), _CLONE_NAMES))
     @settings(max_examples=50)
-    def test_clone_socket_differs_from_production(
-        self, name: str | None
-    ) -> None:
+    def test_clone_socket_differs_from_production(self, name: str | None) -> None:
         """Clone socket path is never the production default."""
         from marianne.daemon.clone import build_clone_config
         from marianne.daemon.config import DaemonConfig
@@ -472,9 +458,7 @@ class TestCloneConfigPathIsolation:
 
     @given(name=st.one_of(st.none(), _CLONE_NAMES))
     @settings(max_examples=50)
-    def test_clone_pid_file_differs_from_production(
-        self, name: str | None
-    ) -> None:
+    def test_clone_pid_file_differs_from_production(self, name: str | None) -> None:
         """Clone PID file is never the production default."""
         from marianne.daemon.clone import build_clone_config
         from marianne.daemon.config import DaemonConfig
@@ -488,9 +472,7 @@ class TestCloneConfigPathIsolation:
 
     @given(name=st.one_of(st.none(), _CLONE_NAMES))
     @settings(max_examples=50)
-    def test_clone_state_db_differs_from_production(
-        self, name: str | None
-    ) -> None:
+    def test_clone_state_db_differs_from_production(self, name: str | None) -> None:
         """Clone state DB is never the production default."""
         from marianne.daemon.clone import build_clone_config
         from marianne.daemon.config import DaemonConfig
@@ -510,12 +492,8 @@ class TestCloneConfigPathIsolation:
         base = DaemonConfig(max_concurrent_jobs=42)
         clone = build_clone_config("inherit-test", base_config=base)
 
-        assert clone.max_concurrent_jobs == 42, (
-            "Non-path field not inherited from base config"
-        )
-        assert clone.socket.path != base.socket.path, (
-            "Socket path should be overridden"
-        )
+        assert clone.max_concurrent_jobs == 42, "Non-path field not inherited from base config"
+        assert clone.socket.path != base.socket.path, "Socket path should be overridden"
 
 
 # =============================================================================
@@ -548,9 +526,7 @@ class TestCredentialRedactionTotality:
         assert credential not in result, (
             f"Credential survived redaction: '{credential}' still in result"
         )
-        assert "[REDACTED_" in result, (
-            f"No redaction marker found in result: '{result}'"
-        )
+        assert "[REDACTED_" in result, f"No redaction marker found in result: '{result}'"
 
     @given(credential=_ANY_CREDENTIAL)
     @settings(max_examples=100)
@@ -577,12 +553,8 @@ class TestCredentialRedactionTotality:
         text = f"{cred_a}{separator}{cred_b}"
         result = redact_credentials(text)
 
-        assert cred_a not in result, (
-            f"First credential survived: '{cred_a}'"
-        )
-        assert cred_b not in result, (
-            f"Second credential survived: '{cred_b}'"
-        )
+        assert cred_a not in result, f"First credential survived: '{cred_a}'"
+        assert cred_b not in result, f"Second credential survived: '{cred_b}'"
 
 
 # =============================================================================
@@ -599,9 +571,7 @@ class TestCredentialRedactionIdempotency:
 
     @given(credential=_ANY_CREDENTIAL, prefix=_SAFE_TEXT, suffix=_SAFE_TEXT)
     @settings(max_examples=100)
-    def test_redaction_is_idempotent(
-        self, credential: str, prefix: str, suffix: str
-    ) -> None:
+    def test_redaction_is_idempotent(self, credential: str, prefix: str, suffix: str) -> None:
         """Double redaction equals single redaction."""
         from marianne.utils.credential_scanner import redact_credentials
 
@@ -609,11 +579,7 @@ class TestCredentialRedactionIdempotency:
         once = redact_credentials(text)
         twice = redact_credentials(once)
 
-        assert once == twice, (
-            f"Redaction not idempotent:\n"
-            f"  once:  {once!r}\n"
-            f"  twice: {twice!r}"
-        )
+        assert once == twice, f"Redaction not idempotent:\n  once:  {once!r}\n  twice: {twice!r}"
 
     def test_redaction_marker_not_itself_redacted(self) -> None:
         """The [REDACTED_*] marker text is not mistaken for a credential."""
@@ -712,13 +678,10 @@ class TestV210InstrumentNameCheckCoverage:
             config = self._make_config(name)
             with patch(
                 "marianne.instruments.loader.load_all_profiles",
-                return_value={n: None for n in known},
+                return_value=dict.fromkeys(known),
             ):
                 issues = check.check(config, Path("test.yaml"), "")
-            instrument_issues = [
-                i for i in issues
-                if name in i.message
-            ]
+            instrument_issues = [i for i in issues if name in i.message]
             assert instrument_issues == [], (
                 f"Known instrument '{name}' produced issues: {instrument_issues}"
             )
@@ -729,9 +692,14 @@ class TestV210InstrumentNameCheckCoverage:
             max_size=20,
             alphabet=string.ascii_lowercase + "-",
         ).filter(
-            lambda n: n not in {
-                "claude-code", "gemini-cli", "codex-cli",
-                "aider", "goose", "ollama",
+            lambda n: n
+            not in {
+                "claude-code",
+                "gemini-cli",
+                "codex-cli",
+                "aider",
+                "goose",
+                "ollama",
             }
         ),
     )
@@ -749,13 +717,11 @@ class TestV210InstrumentNameCheckCoverage:
 
         with patch(
             "marianne.instruments.loader.load_all_profiles",
-            return_value={n: None for n in known},
+            return_value=dict.fromkeys(known),
         ):
             issues = check.check(config, Path("test.yaml"), "")
 
-        assert len(issues) > 0, (
-            f"Unknown instrument '{name}' produced no V210 issues"
-        )
+        assert len(issues) > 0, f"Unknown instrument '{name}' produced no V210 issues"
         assert any("V210" in i.check_id for i in issues), (
             f"Issues found but none with V210 ID: {issues}"
         )
@@ -838,8 +804,7 @@ class TestFailurePropagationPreservesTerminals:
         baton = BatonCore()
         # 1 → 2 → 3, where 2 is already COMPLETED
         sheets = {
-            i: SheetExecutionState(sheet_num=i, instrument_name="claude-code")
-            for i in range(1, 4)
+            i: SheetExecutionState(sheet_num=i, instrument_name="claude-code") for i in range(1, 4)
         }
         deps = {2: [1], 3: [2]}
         baton.register_job("j1", sheets, deps)

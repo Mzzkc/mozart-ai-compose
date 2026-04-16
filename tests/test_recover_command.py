@@ -99,17 +99,25 @@ def _no_daemon_route(monkeypatch: pytest.MonkeyPatch) -> None:
     to provide proper conductor responses. Currently all tests in this file are
     skipped pending proper conductor mock infrastructure.
     """
+
     async def _fake_route(
-        method: str, params: dict, *, socket_path=None,
+        method: str,
+        params: dict,
+        *,
+        socket_path=None,
     ) -> tuple[bool, None]:
         return False, None
 
     monkeypatch.setattr(
-        "marianne.daemon.detect.try_daemon_route", _fake_route,
+        "marianne.daemon.detect.try_daemon_route",
+        _fake_route,
     )
 
 
-@pytest.mark.skip(reason="F-532: Recover tests need conductor mock infrastructure after F-502 workspace fallback removal")
+@pytest.mark.skip(
+    reason="F-532: Recover tests need conductor mock infrastructure "
+    "after F-502 workspace fallback removal"
+)
 class TestRecoverCommand:
     """Tests for the `mzt recover` command.
 
@@ -122,9 +130,7 @@ class TestRecoverCommand:
     def test_recover_nonexistent_job(self, tmp_path: Path, monkeypatch) -> None:
         """Recover exits with error when job state not found (F-502: conductor-only)."""
         # F-502: workspace parameter removed, command routes through conductor
-        result = runner.invoke(
-            app, ["recover", "ghost-job"]
-        )
+        result = runner.invoke(app, ["recover", "ghost-job"])
         assert result.exit_code == 1
         assert "not found" in result.stdout.lower()
 
@@ -140,9 +146,7 @@ class TestRecoverCommand:
         state.status = JobStatus.COMPLETED
         _write_state(state, tmp_path)
 
-        result = runner.invoke(
-            app, ["recover", "all-good"]
-        )
+        result = runner.invoke(app, ["recover", "all-good"])
         assert result.exit_code == 0
         assert "no failed sheets" in result.stdout.lower()
 
@@ -157,9 +161,7 @@ class TestRecoverCommand:
         )
         _write_state(state, tmp_path)
 
-        result = runner.invoke(
-            app, ["recover", "no-config"]
-        )
+        result = runner.invoke(app, ["recover", "no-config"])
         assert result.exit_code == 1
         assert "config snapshot" in result.stdout.lower()
 
@@ -284,7 +286,8 @@ class TestRecoverCommand:
         assert updated["sheets"]["1"]["status"] == "failed"
 
     def test_recover_updates_last_completed_sheet(self, tmp_path: Path, monkeypatch) -> None:
-        """Recovery extends last_completed_sheet when higher sheets are recovered (F-502: conductor-only)."""
+        """Recovery extends last_completed_sheet when higher sheets
+        are recovered (F-502: conductor-only)."""
         # F-502: workspace parameter removed, command routes through conductor
         workspace = tmp_path / "ws"
         workspace.mkdir()

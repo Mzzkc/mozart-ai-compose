@@ -65,9 +65,13 @@ class TestConfigCheck:
     def test_nested_invalid_config_exits_1(self, tmp_path: Path) -> None:
         """Invalid nested config (bad resource limit) exits 1."""
         cfg = tmp_path / "nested_invalid.yaml"
-        cfg.write_text(yaml.dump({
-            "resource_limits": {"max_memory_mb": 100},  # below 512 minimum
-        }))
+        cfg.write_text(
+            yaml.dump(
+                {
+                    "resource_limits": {"max_memory_mb": 100},  # below 512 minimum
+                }
+            )
+        )
 
         result = runner.invoke(config_app, ["check", "--config", str(cfg)])
         assert result.exit_code == 1
@@ -75,11 +79,15 @@ class TestConfigCheck:
     def test_valid_nested_config_exits_0(self, tmp_path: Path) -> None:
         """Valid nested config passes."""
         cfg = tmp_path / "nested_valid.yaml"
-        cfg.write_text(yaml.dump({
-            "socket": {"path": "/tmp/custom.sock", "backlog": 10},
-            "max_concurrent_jobs": 8,
-            "resource_limits": {"max_memory_mb": 2048},
-        }))
+        cfg.write_text(
+            yaml.dump(
+                {
+                    "socket": {"path": "/tmp/custom.sock", "backlog": 10},
+                    "max_concurrent_jobs": 8,
+                    "resource_limits": {"max_memory_mb": 2048},
+                }
+            )
+        )
 
         result = runner.invoke(config_app, ["check", "--config", str(cfg)])
         assert result.exit_code == 0
@@ -106,7 +114,8 @@ class TestConfigShow:
         assert "12" in result.output
 
     def test_show_fallback_to_disk_when_conductor_offline(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """show falls back to disk config when conductor is not running."""
         cfg = tmp_path / "daemon.yaml"
@@ -117,7 +126,8 @@ class TestConfigShow:
             return_value=None,
         ):
             result = runner.invoke(
-                config_app, ["show", "--config", str(cfg)],
+                config_app,
+                ["show", "--config", str(cfg)],
             )
 
         assert result.exit_code == 0

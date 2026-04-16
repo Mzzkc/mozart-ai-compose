@@ -70,9 +70,14 @@ def _make_mock_backend() -> MagicMock:
     """Create a mock Backend for SemanticAnalyzer tests."""
     backend = MagicMock(spec=Backend)
     backend.name = "mock-backend"
-    backend.execute = AsyncMock(return_value=ExecutionResult(
-        success=True, stdout="[]", stderr="", duration_seconds=0.1,
-    ))
+    backend.execute = AsyncMock(
+        return_value=ExecutionResult(
+            success=True,
+            stdout="[]",
+            stderr="",
+            duration_seconds=0.1,
+        )
+    )
     backend.close = AsyncMock()
     return backend
 
@@ -358,18 +363,20 @@ class TestResponseParsing:
         hub = MagicMock(spec=LearningHub)
         analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, {})
 
-        response = _make_llm_response_json([
-            {
-                "insight": "Execution failed due to missing file",
-                "category": "root_cause",
-                "confidence": 0.9,
-            },
-            {
-                "insight": "Always create workspace first",
-                "category": "knowledge",
-                "confidence": 0.8,
-            },
-        ])
+        response = _make_llm_response_json(
+            [
+                {
+                    "insight": "Execution failed due to missing file",
+                    "category": "root_cause",
+                    "confidence": 0.9,
+                },
+                {
+                    "insight": "Always create workspace first",
+                    "category": "knowledge",
+                    "confidence": 0.8,
+                },
+            ]
+        )
         insights = analyzer._parse_analysis_response(response)
         assert len(insights) == 2
         assert insights[0]["category"] == "root_cause"
@@ -406,10 +413,12 @@ class TestResponseParsing:
         hub = MagicMock(spec=LearningHub)
         analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, {})
 
-        response = _make_llm_response_json([
-            {"insight": "Valid", "category": "root_cause", "confidence": 0.8},
-            {"insight": "Invalid", "category": "not_a_category", "confidence": 0.8},
-        ])
+        response = _make_llm_response_json(
+            [
+                {"insight": "Valid", "category": "root_cause", "confidence": 0.8},
+                {"insight": "Invalid", "category": "not_a_category", "confidence": 0.8},
+            ]
+        )
         insights = analyzer._parse_analysis_response(response)
         assert len(insights) == 1
         assert insights[0]["insight"] == "Valid"
@@ -420,10 +429,12 @@ class TestResponseParsing:
         hub = MagicMock(spec=LearningHub)
         analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, {})
 
-        response = _make_llm_response_json([
-            {"insight": "Too high", "category": "root_cause", "confidence": 5.0},
-            {"insight": "Too low", "category": "knowledge", "confidence": -1.0},
-        ])
+        response = _make_llm_response_json(
+            [
+                {"insight": "Too high", "category": "root_cause", "confidence": 5.0},
+                {"insight": "Too low", "category": "knowledge", "confidence": -1.0},
+            ]
+        )
         insights = analyzer._parse_analysis_response(response)
         assert insights[0]["confidence"] == 1.0
         assert insights[1]["confidence"] == 0.0
@@ -434,10 +445,12 @@ class TestResponseParsing:
         hub = MagicMock(spec=LearningHub)
         analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, {})
 
-        response = _make_llm_response_json([
-            {"category": "root_cause", "confidence": 0.8},  # No insight text
-            {"insight": "Valid", "category": "root_cause", "confidence": 0.8},
-        ])
+        response = _make_llm_response_json(
+            [
+                {"category": "root_cause", "confidence": 0.8},  # No insight text
+                {"insight": "Valid", "category": "root_cause", "confidence": 0.8},
+            ]
+        )
         insights = analyzer._parse_analysis_response(response)
         assert len(insights) == 1
 
@@ -585,11 +598,13 @@ class TestExtractSheetData:
         """Should extract data from the live CheckpointState."""
         config = SemanticLearningConfig()
         hub = MagicMock(spec=LearningHub)
-        live_states = {"test-job": _make_live_state(
-            stdout_tail="hello world",
-            stderr_tail="some error",
-            exit_code=1,
-        )}
+        live_states = {
+            "test-job": _make_live_state(
+                stdout_tail="hello world",
+                stderr_tail="some error",
+                exit_code=1,
+            )
+        }
 
         analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, live_states)
         event = _make_event()

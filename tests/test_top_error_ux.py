@@ -85,9 +85,7 @@ class TestTopHistoryTuiMissingTextual:
         ):
             import asyncio
 
-            asyncio.run(
-                top_module._history_tui(3600.0, filter_job=None)
-            )
+            asyncio.run(top_module._history_tui(3600.0, filter_job=None))
 
         mock_error.assert_called_once()
         msg = mock_error.call_args[0][0]
@@ -104,9 +102,7 @@ class TestTopNoMonitorDatabase:
 
         fake_config = MagicMock(spec=ProfilerConfig())
         fake_config.storage_path = MagicMock(spec=Path)
-        fake_config.storage_path.expanduser.return_value = (
-            tmp_path / "nonexistent.db"
-        )
+        fake_config.storage_path.expanduser.return_value = tmp_path / "nonexistent.db"
 
         with (
             patch("marianne.cli.commands.top.output_error") as mock_error,
@@ -134,9 +130,7 @@ class TestTopNoMonitorData:
 
         fake_config = MagicMock(spec=ProfilerConfig())
         fake_config.jsonl_path = MagicMock(spec=Path)
-        fake_config.jsonl_path.expanduser.return_value = (
-            tmp_path / "nonexistent.jsonl"
-        )
+        fake_config.jsonl_path.expanduser.return_value = tmp_path / "nonexistent.jsonl"
 
         with (
             patch("marianne.cli.commands.top.output_error") as mock_error,
@@ -148,11 +142,7 @@ class TestTopNoMonitorData:
         ):
             import asyncio
 
-            asyncio.run(
-                top_module._json_from_jsonl(
-                    filter_job=None, interval=2.0
-                )
-            )
+            asyncio.run(top_module._json_from_jsonl(filter_job=None, interval=2.0))
 
         mock_error.assert_called_once()
         msg = mock_error.call_args[0][0]

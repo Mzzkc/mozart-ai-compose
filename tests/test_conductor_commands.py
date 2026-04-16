@@ -124,7 +124,10 @@ class TestStopCommand:
         with (
             patch("marianne.daemon.process._pid_alive", return_value=True),
             patch("marianne.daemon.process.os.kill") as mock_kill,
-            patch("marianne.daemon.process._check_running_jobs", return_value={"running_jobs": 0, "job_ids": []}),
+            patch(
+                "marianne.daemon.process._check_running_jobs",
+                return_value={"running_jobs": 0, "job_ids": []},
+            ),
         ):
             result = runner.invoke(app, ["stop", "--pid-file", str(pid_file)])
 
@@ -221,7 +224,8 @@ class TestConductorStatusCommand:
         pid_file = tmp_path / "marianne.pid"
 
         result = runner.invoke(
-            app, ["conductor-status", "--pid-file", str(pid_file)],
+            app,
+            ["conductor-status", "--pid-file", str(pid_file)],
         )
 
         assert result.exit_code == 1
@@ -243,7 +247,13 @@ class TestConductorStatusCommand:
         ):
             result = runner.invoke(
                 app,
-                ["conductor-status", "--pid-file", str(pid_file), "--socket", str(tmp_path / "sock")],
+                [
+                    "conductor-status",
+                    "--pid-file",
+                    str(pid_file),
+                    "--socket",
+                    str(tmp_path / "sock"),
+                ],
             )
 
         assert result.exit_code == 0
@@ -308,12 +318,15 @@ class TestWaitForConductorExit:
 
         with (
             patch("marianne.daemon.process._pid_alive", return_value=True),
-            patch("marianne.daemon.process.time.monotonic", side_effect=[
-                0.0,   # Initial deadline calc: deadline = 0.0 + 0.5 = 0.5
-                0.0,   # First loop check: 0.0 < 0.5 → continue
-                0.3,   # Second loop check: 0.3 < 0.5 → continue
-                0.6,   # Third loop check: 0.6 >= 0.5 → exit
-            ]),
+            patch(
+                "marianne.daemon.process.time.monotonic",
+                side_effect=[
+                    0.0,  # Initial deadline calc: deadline = 0.0 + 0.5 = 0.5
+                    0.0,  # First loop check: 0.0 < 0.5 → continue
+                    0.3,  # Second loop check: 0.3 < 0.5 → continue
+                    0.6,  # Third loop check: 0.6 >= 0.5 → exit
+                ],
+            ),
             patch("marianne.daemon.process.time.sleep"),
         ):
             result = wait_for_conductor_exit(pid_file, timeout=0.5)

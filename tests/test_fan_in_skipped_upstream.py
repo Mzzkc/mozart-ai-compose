@@ -103,11 +103,14 @@ class TestSkippedUpstreamPlaceholder:
 
     def test_skipped_sheet_gets_placeholder(self) -> None:
         """Skipped sheets appear as [SKIPPED] in previous_outputs."""
-        state = _make_checkpoint(4, {
-            1: ("completed", "sheet 1 output"),
-            2: ("skipped", ""),
-            3: ("completed", "sheet 3 output"),
-        })
+        state = _make_checkpoint(
+            4,
+            {
+                1: ("completed", "sheet 1 output"),
+                2: ("skipped", ""),
+                3: ("completed", "sheet 3 output"),
+            },
+        )
         context = _make_context(4)
         _populate(context, state, 4)
 
@@ -117,12 +120,15 @@ class TestSkippedUpstreamPlaceholder:
 
     def test_multiple_skipped_sheets(self) -> None:
         """Multiple skipped sheets all get placeholders."""
-        state = _make_checkpoint(5, {
-            1: ("completed", "output"),
-            2: ("skipped", ""),
-            3: ("skipped", ""),
-            4: ("completed", "output 4"),
-        })
+        state = _make_checkpoint(
+            5,
+            {
+                1: ("completed", "output"),
+                2: ("skipped", ""),
+                3: ("skipped", ""),
+                4: ("completed", "output 4"),
+            },
+        )
         context = _make_context(5)
         _populate(context, state, 5)
 
@@ -132,10 +138,13 @@ class TestSkippedUpstreamPlaceholder:
 
     def test_no_skipped_no_placeholder(self) -> None:
         """When no sheets are skipped, no placeholders appear."""
-        state = _make_checkpoint(3, {
-            1: ("completed", "output 1"),
-            2: ("completed", "output 2"),
-        })
+        state = _make_checkpoint(
+            3,
+            {
+                1: ("completed", "output 1"),
+                2: ("completed", "output 2"),
+            },
+        )
         context = _make_context(3)
         _populate(context, state, 3)
 
@@ -147,21 +156,27 @@ class TestSkippedUpstreamList:
     """skipped_upstream template variable lists skipped sheet nums."""
 
     def test_skipped_sheets_listed(self) -> None:
-        state = _make_checkpoint(4, {
-            1: ("completed", "output"),
-            2: ("skipped", ""),
-            3: ("skipped", ""),
-        })
+        state = _make_checkpoint(
+            4,
+            {
+                1: ("completed", "output"),
+                2: ("skipped", ""),
+                3: ("skipped", ""),
+            },
+        )
         context = _make_context(4)
         _populate(context, state, 4)
 
         assert sorted(context.skipped_upstream) == [2, 3]
 
     def test_no_skipped_empty_list(self) -> None:
-        state = _make_checkpoint(3, {
-            1: ("completed", "output 1"),
-            2: ("completed", "output 2"),
-        })
+        state = _make_checkpoint(
+            3,
+            {
+                1: ("completed", "output 1"),
+                2: ("completed", "output 2"),
+            },
+        )
         context = _make_context(3)
         _populate(context, state, 3)
 

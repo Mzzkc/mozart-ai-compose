@@ -355,12 +355,8 @@ class TestErrorLearningHooksAuthFailure:
         """Test auth failure with insufficient samples returns not transient."""
         conn = setup_db_with_recoveries
         # Add only 2 samples (below min_samples=3)
-        conn.execute(
-            "INSERT INTO error_recoveries VALUES (1, 'E102', 60, 60, 1, 'claude-3')"
-        )
-        conn.execute(
-            "INSERT INTO error_recoveries VALUES (2, 'E102', 60, 60, 1, 'claude-3')"
-        )
+        conn.execute("INSERT INTO error_recoveries VALUES (1, 'E102', 60, 60, 1, 'claude-3')")
+        conn.execute("INSERT INTO error_recoveries VALUES (2, 'E102', 60, 60, 1, 'claude-3')")
         conn.commit()
 
         mock_store = MagicMock()
@@ -449,9 +445,7 @@ class TestErrorLearningHooksStats:
             (3, "E103", 60, 30, False, "claude-3"),
             (4, "E103", 60, 60, True, "claude-3"),
         ]
-        conn.executemany(
-            "INSERT INTO error_recoveries VALUES (?, ?, ?, ?, ?, ?)", data
-        )
+        conn.executemany("INSERT INTO error_recoveries VALUES (?, ?, ?, ?, ?, ?)", data)
         conn.commit()
         return conn
 

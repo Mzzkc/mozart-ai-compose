@@ -257,16 +257,18 @@ class TestDaemonConfig:
 
     def test_nested_dict_construction(self):
         """Test constructing DaemonConfig from nested dicts (YAML-style)."""
-        config = DaemonConfig.model_validate({
-            "socket": {
-                "path": "/tmp/custom.sock",
-                "backlog": 10,
-            },
-            "max_concurrent_jobs": 3,
-            "resource_limits": {
-                "max_memory_mb": 2048,
-            },
-        })
+        config = DaemonConfig.model_validate(
+            {
+                "socket": {
+                    "path": "/tmp/custom.sock",
+                    "backlog": 10,
+                },
+                "max_concurrent_jobs": 3,
+                "resource_limits": {
+                    "max_memory_mb": 2048,
+                },
+            }
+        )
         assert config.socket.path == Path("/tmp/custom.sock")
         assert config.socket.backlog == 10
         assert config.max_concurrent_jobs == 3
@@ -517,16 +519,18 @@ class TestSemanticLearningConfig:
 
     def test_daemon_config_learning_from_dict(self):
         """Test DaemonConfig constructs learning from nested dict (YAML-style)."""
-        config = DaemonConfig.model_validate({
-            "learning": {
-                "enabled": False,
-                "backend": {
-                    "type": "anthropic_api",
-                    "model": "claude-haiku-4-5-20251001",
+        config = DaemonConfig.model_validate(
+            {
+                "learning": {
+                    "enabled": False,
+                    "backend": {
+                        "type": "anthropic_api",
+                        "model": "claude-haiku-4-5-20251001",
+                    },
+                    "max_concurrent_analyses": 5,
                 },
-                "max_concurrent_analyses": 5,
-            },
-        })
+            }
+        )
         assert config.learning.enabled is False
         assert config.learning.backend.model == "claude-haiku-4-5-20251001"
         assert config.learning.max_concurrent_analyses == 5

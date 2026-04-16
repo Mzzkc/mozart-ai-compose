@@ -100,9 +100,9 @@ class TestSchemaErrorHintsAdversarial:
         ]
         for error in test_cases:
             hints = _schema_error_hints(error)
-            assert any(
-                "score-writing-guide" in h for h in hints
-            ), f"No guide reference for error: {error!r}"
+            assert any("score-writing-guide" in h for h in hints), (
+                f"No guide reference for error: {error!r}"
+            )
 
 
 # =============================================================================
@@ -330,9 +330,7 @@ class TestStopSafetyGuardAdversarial:
         with (
             patch("marianne.daemon.process._read_pid", return_value=12345),
             patch("marianne.daemon.process._pid_alive", return_value=True),
-            patch(
-                "marianne.daemon.process._check_running_jobs"
-            ) as mock_check,
+            patch("marianne.daemon.process._check_running_jobs") as mock_check,
             patch("marianne.daemon.process.os.kill") as mock_kill,
         ):
             stop_conductor(force=True)
@@ -447,9 +445,7 @@ class TestStalePidDetectionAdversarial:
         """ProcessLookupError means process is dead."""
         from marianne.daemon.process import _pid_alive
 
-        with patch(
-            "marianne.daemon.process.os.kill", side_effect=ProcessLookupError
-        ):
+        with patch("marianne.daemon.process.os.kill", side_effect=ProcessLookupError):
             assert _pid_alive(99999) is False
 
 
@@ -583,7 +579,8 @@ class TestValidateInstrumentDisplayAdversarial:
 
     @pytest.mark.adversarial
     def test_instrument_display_fallback_to_backend_type(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """When no instrument set, backend.type is shown under 'Instrument:'."""
         score = tmp_path / "fallback.yaml"
@@ -607,7 +604,8 @@ class TestValidateInstrumentDisplayAdversarial:
 
     @pytest.mark.adversarial
     def test_instrument_display_with_explicit_instrument(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """When instrument is set, it appears in the summary."""
         score = tmp_path / "explicit.yaml"

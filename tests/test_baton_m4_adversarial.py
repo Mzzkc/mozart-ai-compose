@@ -32,7 +32,6 @@ from marianne.daemon.baton.state import (
     BatonSheetStatus,
 )
 
-
 # =========================================================================
 # Helpers
 # =========================================================================
@@ -190,9 +189,7 @@ class TestBuildPromptAdversarial:
         suffix_pos = result.find("FINISH:")
         assert val_pos >= 0, "Validation section missing"
         assert suffix_pos >= 0, "Completion suffix missing"
-        assert suffix_pos > val_pos, (
-            "Completion suffix must come AFTER validation requirements"
-        )
+        assert suffix_pos > val_pos, "Completion suffix must come AFTER validation requirements"
 
     def test_retry_preamble_differs_from_first_attempt(self) -> None:
         """On retry, the preamble should indicate this is a retry.
@@ -639,9 +636,17 @@ class TestAdapterStateMappingAdversarial:
         from marianne.daemon.baton.adapter import _CHECKPOINT_TO_BATON
 
         known_statuses = {
-            "pending", "ready", "dispatched", "in_progress",
-            "waiting", "retry_scheduled", "fermata",
-            "completed", "failed", "skipped", "cancelled",
+            "pending",
+            "ready",
+            "dispatched",
+            "in_progress",
+            "waiting",
+            "retry_scheduled",
+            "fermata",
+            "completed",
+            "failed",
+            "skipped",
+            "cancelled",
         }
         for status in known_statuses:
             assert status in _CHECKPOINT_TO_BATON, (
@@ -665,8 +670,7 @@ class TestAdapterStateMappingAdversarial:
         for status in terminal_baton:
             mapped = _BATON_TO_CHECKPOINT[status]
             assert mapped in terminal_checkpoint, (
-                f"Terminal BatonSheetStatus.{status.name} maps to "
-                f"non-terminal '{mapped}'"
+                f"Terminal BatonSheetStatus.{status.name} maps to non-terminal '{mapped}'"
             )
 
     def test_round_trip_terminal_states_preserved(self) -> None:
@@ -697,7 +701,6 @@ class TestAdapterStateMappingAdversarial:
         from marianne.daemon.baton.adapter import (
             _BATON_TO_CHECKPOINT,
             baton_to_checkpoint_status,
-            checkpoint_to_baton_status,
         )
 
         for baton_status, expected in _BATON_TO_CHECKPOINT.items():
@@ -848,9 +851,7 @@ class TestSheetTaskAdversarial:
         inbox: asyncio.Queue[SheetAttemptResult] = asyncio.Queue()
 
         backend = AsyncMock()
-        backend.execute = AsyncMock(
-            return_value=_make_exec_result(input_tokens=0, output_tokens=0)
-        )
+        backend.execute = AsyncMock(return_value=_make_exec_result(input_tokens=0, output_tokens=0))
         backend.set_preamble = MagicMock()
 
         await sheet_task(
@@ -904,7 +905,7 @@ class TestInjectionResolutionAdversarial:
                     file="context.md",
                     as_=InjectionCategory.CONTEXT,
                 )
-            ]
+            ],
         )
 
         # The function tries to read from workspace/context.md
@@ -935,9 +936,10 @@ class TestInjectionResolutionAdversarial:
 
     def test_injection_categories_correctly_separated(self) -> None:
         """Context, skill, and tool injections go to different buckets."""
-        from marianne.daemon.baton.musician import _resolve_injections
-        import tempfile
         import os
+        import tempfile
+
+        from marianne.daemon.baton.musician import _resolve_injections
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create test files
@@ -1007,12 +1009,8 @@ class TestErrorClassifierPhase45Adversarial:
             stderr="",
             exit_code=1,
         )
-        has_rate_limit = any(
-            e.category == ErrorCategory.RATE_LIMIT for e in result.all_errors
-        )
-        assert has_rate_limit, (
-            "F-098 regression: rate limit in stdout was masked by JSON errors"
-        )
+        has_rate_limit = any(e.category == ErrorCategory.RATE_LIMIT for e in result.all_errors)
+        assert has_rate_limit, "F-098 regression: rate limit in stdout was masked by JSON errors"
 
     def test_e006_stale_detection_in_classify_execution(self) -> None:
         """F-097: Stale detection produces E006, not E001 timeout."""
@@ -1074,8 +1072,7 @@ class TestErrorClassifierPhase45Adversarial:
             exit_code=1,
         )
         rate_limit_count = sum(
-            1 for e in result.all_errors
-            if e.category == ErrorCategory.RATE_LIMIT
+            1 for e in result.all_errors if e.category == ErrorCategory.RATE_LIMIT
         )
         # At most 1 rate limit error, not 2
         assert rate_limit_count <= 2  # Could be 1 from fallback + no dup from 4.5
@@ -1087,7 +1084,7 @@ class TestErrorClassifierPhase45Adversarial:
         (e.g., "quota") gets the more specific QUOTA_EXHAUSTED code.
         """
         from marianne.core.errors.classifier import ErrorClassifier
-        from marianne.core.errors.codes import ErrorCategory, ErrorCode
+        from marianne.core.errors.codes import ErrorCode
 
         classifier = ErrorClassifier()
         # Use text that matches both rate_limit_patterns ("quota") AND
@@ -1100,9 +1097,7 @@ class TestErrorClassifierPhase45Adversarial:
             stderr="",
             exit_code=1,
         )
-        has_quota = any(
-            e.error_code == ErrorCode.QUOTA_EXHAUSTED for e in result.all_errors
-        )
+        has_quota = any(e.error_code == ErrorCode.QUOTA_EXHAUSTED for e in result.all_errors)
         assert has_quota, "Quota exhaustion in stdout should be detected by Phase 4.5"
 
     def test_quota_pattern_without_rate_limit_pattern_missed_by_phase45(self) -> None:
@@ -1133,13 +1128,9 @@ class TestErrorClassifierPhase45Adversarial:
         # This SHOULD have QUOTA_EXHAUSTED but Phase 4.5's gate prevents it.
         # Documenting this as a known gap — NOT asserting the correct behavior,
         # asserting the ACTUAL behavior so this test breaks if the fix lands.
-        has_quota = any(
-            e.error_code == ErrorCode.QUOTA_EXHAUSTED for e in result.all_errors
-        )
+        has_quota = any(e.error_code == ErrorCode.QUOTA_EXHAUSTED for e in result.all_errors)
         # Currently False — this is the gap. When fixed, flip this assertion.
-        assert not has_quota, (
-            "If this fails, F-114 was fixed — update this test to assert True"
-        )
+        assert not has_quota, "If this fails, F-114 was fixed — update this test to assert True"
 
     def test_classify_vs_classify_execution_consistency(self) -> None:
         """classify() and classify_execution() should agree on rate limits

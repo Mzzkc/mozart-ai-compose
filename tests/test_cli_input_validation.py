@@ -12,7 +12,6 @@ import typer
 
 from marianne.cli.commands._shared import validate_job_id, validate_start_sheet
 
-
 # ---------------------------------------------------------------------------
 # Job ID validation
 # ---------------------------------------------------------------------------

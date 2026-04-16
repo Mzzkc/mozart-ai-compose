@@ -15,8 +15,6 @@ TDD: Tests define the contract. Implementation fulfills it.
 
 from pathlib import Path
 
-import pytest
-
 from marianne.core.config.instruments import (
     CliCommand,
     CliOutputConfig,
@@ -110,9 +108,7 @@ class TestMcpDisableArgs:
 
         mcp_idx = cmd.index("--no-mcp")
         verbose_idx = cmd.index("--verbose")
-        assert mcp_idx < verbose_idx, (
-            "MCP disable args should come before extra_flags"
-        )
+        assert mcp_idx < verbose_idx, "MCP disable args should come before extra_flags"
 
     def test_mcp_disable_args_after_prompt(self) -> None:
         """MCP disable args appear after the prompt."""
@@ -124,9 +120,7 @@ class TestMcpDisableArgs:
 
         prompt_idx = cmd.index("test prompt")
         mcp_idx = cmd.index("--strict-mcp-config")
-        assert mcp_idx > prompt_idx, (
-            "MCP disable args should come after prompt"
-        )
+        assert mcp_idx > prompt_idx, "MCP disable args should come after prompt"
 
     def test_default_mcp_disable_args_is_empty(self) -> None:
         """mcp_disable_args defaults to empty list (backward compatible)."""

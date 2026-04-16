@@ -159,9 +159,7 @@ class TestNestedConfigModelsRejectUnknownFields:
         ],
         ids=lambda x: x if isinstance(x, str) else None,
     )
-    def test_execution_models_reject_unknown(
-        self, model_cls: type, kwargs: dict
-    ) -> None:
+    def test_execution_models_reject_unknown(self, model_cls: type, kwargs: dict) -> None:
         with pytest.raises(ValidationError, match="extra_forbidden"):
             model_cls(**kwargs)
 
@@ -182,9 +180,7 @@ class TestNestedConfigModelsRejectUnknownFields:
             pytest.param(CheckpointTriggerConfig, {"bogus": 1}, id="CheckpointTriggerConfig"),
         ],
     )
-    def test_learning_models_reject_unknown(
-        self, model_cls: type, kwargs: dict
-    ) -> None:
+    def test_learning_models_reject_unknown(self, model_cls: type, kwargs: dict) -> None:
         with pytest.raises(ValidationError, match="extra_forbidden"):
             model_cls(**kwargs)
 
@@ -207,9 +203,7 @@ class TestNestedConfigModelsRejectUnknownFields:
             ),
         ],
     )
-    def test_backend_models_reject_unknown(
-        self, model_cls: type, kwargs: dict
-    ) -> None:
+    def test_backend_models_reject_unknown(self, model_cls: type, kwargs: dict) -> None:
         with pytest.raises(ValidationError, match="extra_forbidden"):
             model_cls(**kwargs)
 
@@ -227,9 +221,7 @@ class TestNestedConfigModelsRejectUnknownFields:
             pytest.param(ConcertConfig, {"bogus": 1}, id="ConcertConfig"),
         ],
     )
-    def test_orchestration_models_reject_unknown(
-        self, model_cls: type, kwargs: dict
-    ) -> None:
+    def test_orchestration_models_reject_unknown(self, model_cls: type, kwargs: dict) -> None:
         with pytest.raises(ValidationError, match="extra_forbidden"):
             model_cls(**kwargs)
 
@@ -244,9 +236,7 @@ class TestNestedConfigModelsRejectUnknownFields:
             pytest.param(FeedbackConfig, {"bogus": 1}, id="FeedbackConfig"),
         ],
     )
-    def test_workspace_models_reject_unknown(
-        self, model_cls: type, kwargs: dict
-    ) -> None:
+    def test_workspace_models_reject_unknown(self, model_cls: type, kwargs: dict) -> None:
         with pytest.raises(ValidationError, match="extra_forbidden"):
             model_cls(**kwargs)
 
@@ -391,9 +381,7 @@ class TestLoadCheckpointDaemonRegistry:
 
         manager = MagicMock()
         manager._registry = AsyncMock()
-        manager._registry.load_checkpoint = AsyncMock(
-            return_value='{"not_a_real_field": 123}'
-        )
+        manager._registry.load_checkpoint = AsyncMock(return_value='{"not_a_real_field": 123}')
 
         from marianne.daemon.manager import JobManager
 
@@ -408,19 +396,23 @@ class TestLoadCheckpointDaemonRegistry:
         registry is the only source of truth."""
         import asyncio
         import json
-        from pathlib import Path
-        from unittest.mock import AsyncMock, MagicMock
 
         # Create a workspace with a stale checkpoint file
         import tempfile
+        from pathlib import Path
+        from unittest.mock import AsyncMock, MagicMock
 
         with tempfile.TemporaryDirectory() as tmp:
             stale_file = Path(tmp) / "test-job.json"
-            stale_file.write_text(json.dumps({
-                "job_id": "STALE-FROM-FILE",
-                "workspace": tmp,
-                "total_sheets": 999,
-            }))
+            stale_file.write_text(
+                json.dumps(
+                    {
+                        "job_id": "STALE-FROM-FILE",
+                        "workspace": tmp,
+                        "total_sheets": 999,
+                    }
+                )
+            )
 
             manager = MagicMock()
             manager._registry = AsyncMock()
@@ -429,9 +421,7 @@ class TestLoadCheckpointDaemonRegistry:
 
             from marianne.daemon.manager import JobManager
 
-            result = asyncio.run(
-                JobManager._load_checkpoint(manager, "test-job", Path(tmp))
-            )
+            result = asyncio.run(JobManager._load_checkpoint(manager, "test-job", Path(tmp)))
             # Must return None from registry, NOT the stale workspace file
             assert result is None
 

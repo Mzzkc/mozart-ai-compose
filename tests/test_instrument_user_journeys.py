@@ -27,7 +27,6 @@ from marianne.core.config.instruments import (
 from marianne.instruments.loader import InstrumentProfileLoader
 from marianne.instruments.registry import InstrumentRegistry, register_native_instruments
 
-
 # =============================================================================
 # Story 1: Discovering Instruments
 #
@@ -42,30 +41,28 @@ class TestDiscoverInstruments:
     def test_builtin_profiles_all_load_successfully(self) -> None:
         """All 6 built-in profiles parse without errors."""
         builtins_dir = (
-            Path(__file__).parent.parent
-            / "src"
-            / "marianne"
-            / "instruments"
-            / "builtins"
+            Path(__file__).parent.parent / "src" / "marianne" / "instruments" / "builtins"
         )
         profiles = InstrumentProfileLoader.load_directory(builtins_dir)
 
         # All 8 should load
         assert len(profiles) == 8
         expected_names = {
-            "claude-code", "gemini-cli", "codex-cli",
-            "cline-cli", "aider", "goose", "opencode", "crush",
+            "claude-code",
+            "gemini-cli",
+            "codex-cli",
+            "cline-cli",
+            "aider",
+            "goose",
+            "opencode",
+            "crush",
         }
         assert set(profiles.keys()) == expected_names
 
     def test_builtin_profiles_have_required_fields(self) -> None:
         """Every built-in profile has name, kind, display_name, and cli config."""
         builtins_dir = (
-            Path(__file__).parent.parent
-            / "src"
-            / "marianne"
-            / "instruments"
-            / "builtins"
+            Path(__file__).parent.parent / "src" / "marianne" / "instruments" / "builtins"
         )
         profiles = InstrumentProfileLoader.load_directory(builtins_dir)
 
@@ -79,11 +76,7 @@ class TestDiscoverInstruments:
     def test_builtin_profiles_have_at_least_one_model(self) -> None:
         """Every CLI instrument should document at least one model."""
         builtins_dir = (
-            Path(__file__).parent.parent
-            / "src"
-            / "marianne"
-            / "instruments"
-            / "builtins"
+            Path(__file__).parent.parent / "src" / "marianne" / "instruments" / "builtins"
         )
         profiles = InstrumentProfileLoader.load_directory(builtins_dir)
 
@@ -91,8 +84,7 @@ class TestDiscoverInstruments:
         # user-configured at runtime (model passed via CLI flag).
         # At least SOME profiles should have models for cost tracking.
         profiles_with_models = [
-            name for name, profile in profiles.items()
-            if len(profile.models) >= 1
+            name for name, profile in profiles.items() if len(profile.models) >= 1
         ]
         assert len(profiles_with_models) >= 2, (
             f"At least 2 profiles should declare models for cost tracking, "
@@ -115,11 +107,7 @@ class TestDiscoverInstruments:
         register_native_instruments(registry)
 
         builtins_dir = (
-            Path(__file__).parent.parent
-            / "src"
-            / "marianne"
-            / "instruments"
-            / "builtins"
+            Path(__file__).parent.parent / "src" / "marianne" / "instruments" / "builtins"
         )
         profiles = InstrumentProfileLoader.load_directory(builtins_dir)
 
@@ -287,7 +275,7 @@ kind: cli
         profile_file = tmp_path / "no-cli.yaml"
         profile_file.write_text(yaml_content)
 
-        profiles = InstrumentProfileLoader.load_directory(tmp_path)
+        InstrumentProfileLoader.load_directory(tmp_path)
         # Depends on whether the validator catches this. Either way, no crash.
         # The profile may load (cli: is optional on InstrumentProfile)
         # but will fail at execution time if cli is None.
@@ -356,9 +344,7 @@ cli:
         (venue_dir / "inst.yaml").write_text(venue_yaml)
 
         # Load org first, then venue (venue overrides)
-        profiles = InstrumentProfileLoader.load_directories(
-            [org_dir, venue_dir]
-        )
+        profiles = InstrumentProfileLoader.load_directories([org_dir, venue_dir])
         assert profiles["my-instrument"].display_name == "Venue Version"
 
 

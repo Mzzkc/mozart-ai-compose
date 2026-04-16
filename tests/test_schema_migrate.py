@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import pytest
 import aiosqlite
+import pytest
 
 from marianne.schema.migrate import apply_migrations, get_version, set_version
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -66,9 +65,7 @@ class TestApplyMigrations:
         assert await get_version(db) == 3
 
         # Verify tables were created
-        cursor = await db.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-        )
+        cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         tables = {row[0] for row in await cursor.fetchall()}
         assert tables == {"t1", "t2", "t3"}
         await db.close()
@@ -278,9 +275,7 @@ class TestMultiStatementMigrations:
         ]
         await apply_migrations(db, migrations, db_name="test")
 
-        cursor = await db.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-        )
+        cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         tables = {row[0] for row in await cursor.fetchall()}
         assert "t1" in tables
         assert "t2" in tables

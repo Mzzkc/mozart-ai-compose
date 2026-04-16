@@ -77,9 +77,7 @@ class TestPluginCliBackendMcpDisabling:
         cmd = backend._build_command("test prompt", timeout_seconds=None)
 
         has_mcp = any("mcp" in arg.lower() for arg in cmd)
-        assert not has_mcp, (
-            "No MCP args should appear when mcp_disable_args is empty"
-        )
+        assert not has_mcp, "No MCP args should appear when mcp_disable_args is empty"
 
     def test_mcp_args_before_extra_flags(self) -> None:
         """MCP disable args appear before extra_flags (extra_flags are always last)."""
@@ -92,9 +90,7 @@ class TestPluginCliBackendMcpDisabling:
 
         mcp_idx = cmd.index("--mcp-config")
         extra_idx = cmd.index("--extra-flag")
-        assert mcp_idx < extra_idx, (
-            "MCP disable args must come before extra_flags"
-        )
+        assert mcp_idx < extra_idx, "MCP disable args must come before extra_flags"
 
     def test_matches_legacy_backend_behavior(self) -> None:
         """Profile-driven MCP disabling produces the same sequence as
@@ -113,9 +109,7 @@ class TestPluginCliBackendMcpDisabling:
         config_idx = cmd.index("--mcp-config")
 
         # Same order as legacy backend
-        assert strict_idx < config_idx, (
-            "--strict-mcp-config must come before --mcp-config"
-        )
+        assert strict_idx < config_idx, "--strict-mcp-config must come before --mcp-config"
         assert cmd[config_idx + 1] == '{"mcpServers":{}}', (
             "Empty MCP config must immediately follow --mcp-config"
         )
@@ -139,9 +133,7 @@ class TestPluginCliBackendMcpDisabling:
         backend = PluginCliBackend(claude_profile)
         cmd = backend._build_command("test prompt", timeout_seconds=None)
 
-        assert "--strict-mcp-config" in cmd, (
-            "F-271: real claude-code profile must get MCP disabled"
-        )
+        assert "--strict-mcp-config" in cmd, "F-271: real claude-code profile must get MCP disabled"
         assert "--mcp-config" in cmd
         mcp_idx = cmd.index("--mcp-config")
         assert cmd[mcp_idx + 1] == '{"mcpServers":{}}'
@@ -158,9 +150,7 @@ class TestPluginCliBackendMcpDisabling:
         backend = PluginCliBackend(profile)
         cmd = backend._build_command("test prompt", timeout_seconds=None)
 
-        assert "--no-mcp" in cmd, (
-            "Custom MCP disable mechanism should be injected"
-        )
+        assert "--no-mcp" in cmd, "Custom MCP disable mechanism should be injected"
 
     def test_mcp_disable_args_default_is_empty(self) -> None:
         """CliCommand.mcp_disable_args defaults to empty list (safe default)."""

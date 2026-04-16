@@ -21,8 +21,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from marianne.daemon.profiler.anomaly import (
-    AnomalyDetector,
     FD_EXHAUSTION_THRESHOLD,
+    AnomalyDetector,
 )
 from marianne.daemon.profiler.models import (
     AnomalyConfig,
@@ -40,7 +40,6 @@ from marianne.daemon.profiler.storage import MonitorStorage
 from marianne.daemon.profiler.strace_manager import StraceManager
 from marianne.daemon.types import ObserverEvent
 from marianne.learning.patterns import PatternType
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -478,9 +477,7 @@ class TestStraceManager:
             assert 1234 in mgr.attached_pids
 
         # Now detach — set up communicate to return the summary
-        mock_proc.communicate = AsyncMock(
-            return_value=(b"", strace_output.encode())
-        )
+        mock_proc.communicate = AsyncMock(return_value=(b"", strace_output.encode()))
 
         summary = await mgr.detach(1234)
         assert summary is not None
@@ -694,9 +691,7 @@ class TestAnomalyDetector:
         current_proc2 = _make_process(pid=20, rss_mb=100.0, cpu_percent=95.0)
 
         # Process with FD exhaustion
-        current_proc3 = _make_process(
-            pid=30, rss_mb=100.0, open_fds=FD_EXHAUSTION_THRESHOLD + 1
-        )
+        current_proc3 = _make_process(pid=30, rss_mb=100.0, open_fds=FD_EXHAUSTION_THRESHOLD + 1)
         baseline_proc3 = _make_process(pid=30, rss_mb=100.0)
 
         baseline = _make_snapshot(
@@ -743,9 +738,7 @@ class TestAnomalyDetector:
 
         anomalies = detector.detect(current, [])
         pressure = [
-            a
-            for a in anomalies
-            if a.anomaly_type == AnomalyType.MEMORY_SPIKE and a.pid is None
+            a for a in anomalies if a.anomaly_type == AnomalyType.MEMORY_SPIKE and a.pid is None
         ]
         assert len(pressure) == 1
         assert pressure[0].severity == AnomalySeverity.CRITICAL
@@ -866,7 +859,8 @@ class TestProfilerCollector:
                 collector._storage, "write_snapshot", new_callable=AsyncMock, return_value=1
             ),
             patch.object(
-                collector._storage, "append_jsonl",
+                collector._storage,
+                "append_jsonl",
             ),
         ):
             # Run one iteration of the collection logic manually
@@ -1025,20 +1019,23 @@ class TestCorrelationAnalyzer:
     async def test_analyze_with_data(self, tmp_path: Path) -> None:
         """With enough enriched data, correlations are generated."""
         analyzer, storage, learning_hub = self._make_analyzer(
-            tmp_path, min_sample_size=2,
+            tmp_path,
+            min_sample_size=2,
         )
         await storage.initialize()
 
         now = time.time()
 
         # Write data for multiple jobs
-        for i, (job_id, rss, outcome) in enumerate([
-            ("job-A", 100.0, "failure"),
-            ("job-B", 500.0, "failure"),
-            ("job-C", 50.0, "success"),
-            ("job-D", 600.0, "failure"),
-            ("job-E", 40.0, "success"),
-        ]):
+        for i, (job_id, rss, _outcome) in enumerate(
+            [
+                ("job-A", 100.0, "failure"),
+                ("job-B", 500.0, "failure"),
+                ("job-C", 50.0, "success"),
+                ("job-D", 600.0, "failure"),
+                ("job-E", 40.0, "success"),
+            ]
+        ):
             proc = _make_process(pid=100 + i, rss_mb=rss, job_id=job_id, sheet_num=1)
             snap = _make_snapshot(timestamp=now + i, processes=[proc])
             await storage.write_snapshot(snap)
@@ -1048,8 +1045,11 @@ class TestCorrelationAnalyzer:
         # Mock outcome lookup — make get_patterns return patterns with outcome tags
         def mock_get_patterns(*, pattern_type, context_tags, limit, min_priority):
             job_outcomes = {
-                "job-A": "failure", "job-B": "failure", "job-C": "success",
-                "job-D": "failure", "job-E": "success",
+                "job-A": "failure",
+                "job-B": "failure",
+                "job-C": "success",
+                "job-D": "failure",
+                "job-E": "success",
             }
             for tag in context_tags or []:
                 if tag.startswith("job:"):
@@ -1224,7 +1224,11 @@ class TestSemanticAnalyzerAnomalyEvents:
             "event": "monitor.anomaly",
             "job_id": "test-job",
             "sheet_num": 1,
-            "data": {"anomaly_type": "zombie", "severity": "high", "description": "zombie detected"},
+            "data": {
+                "anomaly_type": "zombie",
+                "severity": "high",
+                "description": "zombie detected",
+            },
             "timestamp": time.time(),
         }
 
@@ -1290,9 +1294,7 @@ class TestBackpressureResourceEstimation:
         learning_hub = MagicMock()
         learning_hub.is_running = False
 
-        controller = BackpressureController(
-            MagicMock(), MagicMock(), learning_hub=learning_hub
-        )
+        controller = BackpressureController(MagicMock(), MagicMock(), learning_hub=learning_hub)
         result = await controller.estimate_job_resource_needs("hash-abc")
         assert result is None
 
@@ -1305,9 +1307,7 @@ class TestBackpressureResourceEstimation:
         learning_hub.is_running = True
         learning_hub.store.get_patterns = MagicMock(return_value=[])
 
-        controller = BackpressureController(
-            MagicMock(), MagicMock(), learning_hub=learning_hub
-        )
+        controller = BackpressureController(MagicMock(), MagicMock(), learning_hub=learning_hub)
         result = await controller.estimate_job_resource_needs("hash-abc")
         assert result is None
 
@@ -1331,9 +1331,7 @@ class TestBackpressureResourceEstimation:
         learning_hub.is_running = True
         learning_hub.store.get_patterns = MagicMock(return_value=[pattern1, pattern2])
 
-        controller = BackpressureController(
-            MagicMock(), MagicMock(), learning_hub=learning_hub
-        )
+        controller = BackpressureController(MagicMock(), MagicMock(), learning_hub=learning_hub)
         result = await controller.estimate_job_resource_needs("hash-abc")
 
         assert result is not None
@@ -1349,9 +1347,7 @@ class TestBackpressureResourceEstimation:
 class TestResourceContextEnrichment:
     """Tests for get_resource_context_for_pid and log enrichment."""
 
-    def _make_collector(
-        self, tmp_path: Path
-    ) -> tuple[Any, MagicMock, MagicMock]:
+    def _make_collector(self, tmp_path: Path) -> tuple[Any, MagicMock, MagicMock]:
         """Build a ProfilerCollector with mocked dependencies."""
         from marianne.daemon.profiler.collector import ProfilerCollector
 
@@ -1581,9 +1577,7 @@ class TestGenerateResourceReport:
 
         now = time.time()
         for i, (sheet, rss) in enumerate([(1, 512.0), (2, 768.0), (3, 1024.0)]):
-            proc = _make_process(
-                pid=100 + i, rss_mb=rss, job_id="multi-sheet", sheet_num=sheet
-            )
+            proc = _make_process(pid=100 + i, rss_mb=rss, job_id="multi-sheet", sheet_num=sheet)
             snap = _make_snapshot(timestamp=now + i, processes=[proc])
             await storage.write_snapshot(snap)
 
@@ -1623,9 +1617,7 @@ class TestGenerateResourceReport:
         await storage.write_snapshot(snap)
 
         # Write spawn and exit events
-        spawn = _make_event(
-            pid=100, event_type=EventType.SPAWN, job_id="lifecycle-job"
-        )
+        spawn = _make_event(pid=100, event_type=EventType.SPAWN, job_id="lifecycle-job")
         exit_evt = _make_event(
             pid=100, event_type=EventType.EXIT, job_id="lifecycle-job", exit_code=0
         )

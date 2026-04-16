@@ -104,8 +104,12 @@ class TestJobTools:
         assert "Marianne MCP Job Listing" in result["content"][0]["text"]
         assert "mzt list" in result["content"][0]["text"]
 
-    async def test_get_job_success(self, job_tools: JobTools, mock_state_backend: Mock,
-                                  sample_checkpoint_state: CheckpointState):
+    async def test_get_job_success(
+        self,
+        job_tools: JobTools,
+        mock_state_backend: Mock,
+        sample_checkpoint_state: CheckpointState,
+    ):
         """Test successful get_job operation."""
         # Setup mocks
         mock_state_backend.load.return_value = sample_checkpoint_state
@@ -118,7 +122,7 @@ class TestJobTools:
             process_exists=True,
             cpu_percent=5.2,
             memory_mb=128.5,
-            uptime_seconds=3600.0
+            uptime_seconds=3600.0,
         )
         job_tools.job_control.verify_process_health.return_value = health
 
@@ -169,16 +173,14 @@ sheet:
             status="running",
             workspace=temp_workspace,
             total_sheets=5,
-            pid=54321
+            pid=54321,
         )
         job_tools.job_control.start_job.return_value = start_result
 
         # Execute
-        result = await job_tools.call_tool("start_job", {
-            "config_path": str(config_file),
-            "start_sheet": 1,
-            "self_healing": True
-        })
+        result = await job_tools.call_tool(
+            "start_job", {"config_path": str(config_file), "start_sheet": 1, "self_healing": True}
+        )
 
         # Verify
         assert "content" in result
@@ -192,17 +194,12 @@ sheet:
 
         # Verify job_control.start_job was called correctly
         job_tools.job_control.start_job.assert_called_once_with(
-            config_path=config_file,
-            workspace=None,
-            start_sheet=1,
-            self_healing=True
+            config_path=config_file, workspace=None, start_sheet=1, self_healing=True
         )
 
     async def test_start_job_config_not_found(self, job_tools: JobTools):
         """Test start_job with non-existent config file."""
-        result = await job_tools.call_tool("start_job", {
-            "config_path": "/nonexistent/config.yaml"
-        })
+        result = await job_tools.call_tool("start_job", {"config_path": "/nonexistent/config.yaml"})
 
         assert "isError" in result
         assert result["isError"] is True
@@ -225,9 +222,7 @@ sheet:
         job_tools.job_control.start_job.side_effect = RuntimeError("Backend not available")
 
         # Execute
-        result = await job_tools.call_tool("start_job", {
-            "config_path": str(config_file)
-        })
+        result = await job_tools.call_tool("start_job", {"config_path": str(config_file)})
 
         # Verify
         assert "isError" in result
@@ -284,7 +279,7 @@ class TestControlTools:
             success=True,
             job_id="test-job-123",
             status="running",
-            message="Pause request sent. Job will pause at next sheet boundary."
+            message="Pause request sent. Job will pause at next sheet boundary.",
         )
         control_tools.job_control.pause_job = AsyncMock(return_value=pause_result)
 
@@ -302,10 +297,7 @@ class TestControlTools:
         """Test pause_job when operation fails."""
         # Mock failed pause
         pause_result = JobActionResult(
-            success=False,
-            job_id="test-job-123",
-            status="failed",
-            message="Job not found"
+            success=False, job_id="test-job-123", status="failed", message="Job not found"
         )
         control_tools.job_control.pause_job = AsyncMock(return_value=pause_result)
 
@@ -326,7 +318,7 @@ class TestControlTools:
             success=True,
             job_id="test-job-123",
             status="running",
-            message="Job resumed successfully"
+            message="Job resumed successfully",
         )
         control_tools.job_control.resume_job = AsyncMock(return_value=resume_result)
 
@@ -343,10 +335,7 @@ class TestControlTools:
         """Test resume_job when operation fails."""
         # Mock failed resume
         resume_result = JobActionResult(
-            success=False,
-            job_id="test-job-123",
-            status="paused",
-            message="Process not found"
+            success=False, job_id="test-job-123", status="paused", message="Process not found"
         )
         control_tools.job_control.resume_job = AsyncMock(return_value=resume_result)
 
@@ -366,7 +355,7 @@ class TestControlTools:
             success=True,
             job_id="test-job-123",
             status="cancelled",
-            message="Job cancelled successfully"
+            message="Job cancelled successfully",
         )
         control_tools.job_control.cancel_job = AsyncMock(return_value=cancel_result)
 
@@ -384,10 +373,7 @@ class TestControlTools:
         """Test cancel_job when operation fails."""
         # Mock failed cancel
         cancel_result = JobActionResult(
-            success=False,
-            job_id="test-job-123",
-            status="running",
-            message="Permission denied"
+            success=False, job_id="test-job-123", status="running", message="Permission denied"
         )
         control_tools.job_control.cancel_job = AsyncMock(return_value=cancel_result)
 
@@ -447,13 +433,15 @@ class TestArtifactTools:
             "marianne_artifact_read",
             "marianne_artifact_get_logs",
             "marianne_artifact_list_artifacts",
-            "marianne_artifact_get_artifact"
+            "marianne_artifact_get_artifact",
         ]
         for expected in expected_tools:
             assert expected in tool_names
 
     async def test_artifact_tools_still_functional(
-        self, artifact_tools: ArtifactTools, temp_workspace: Path,
+        self,
+        artifact_tools: ArtifactTools,
+        temp_workspace: Path,
     ):
         """Test that ArtifactTools are still functional after JobTools/ControlTools changes."""
         # Create a test file
@@ -462,16 +450,16 @@ class TestArtifactTools:
 
         # Test file listing
         result = await artifact_tools.call_tool(
-            "marianne_artifact_list", {"workspace": str(temp_workspace)},
+            "marianne_artifact_list",
+            {"workspace": str(temp_workspace)},
         )
         assert "content" in result
         assert "test.txt" in result["content"][0]["text"]
 
         # Test file reading
-        result = await artifact_tools.call_tool("marianne_artifact_read", {
-            "workspace": str(temp_workspace),
-            "file_path": "test.txt"
-        })
+        result = await artifact_tools.call_tool(
+            "marianne_artifact_read", {"workspace": str(temp_workspace), "file_path": "test.txt"}
+        )
         assert "content" in result
         assert "Test content" in result["content"][0]["text"]
 
@@ -517,7 +505,7 @@ sheet:
             status="running",
             workspace=temp_workspace,
             total_sheets=3,
-            pid=99999
+            pid=99999,
         )
         job_tools.job_control.start_job = AsyncMock(return_value=start_result)
 
@@ -545,10 +533,7 @@ sheet:
 
         # 3. Pause job
         pause_result = JobActionResult(
-            success=True,
-            job_id="lifecycle-job",
-            status="running",
-            message="Pause request sent"
+            success=True, job_id="lifecycle-job", status="running", message="Pause request sent"
         )
         control_tools.job_control.pause_job = AsyncMock(return_value=pause_result)
 
@@ -557,10 +542,7 @@ sheet:
 
         # 4. Resume job
         resume_result = JobActionResult(
-            success=True,
-            job_id="lifecycle-job",
-            status="running",
-            message="Job resumed"
+            success=True, job_id="lifecycle-job", status="running", message="Job resumed"
         )
         control_tools.job_control.resume_job = AsyncMock(return_value=resume_result)
 
@@ -569,10 +551,7 @@ sheet:
 
         # 5. Cancel job
         cancel_result = JobActionResult(
-            success=True,
-            job_id="lifecycle-job",
-            status="cancelled",
-            message="Job cancelled"
+            success=True, job_id="lifecycle-job", status="cancelled", message="Job cancelled"
         )
         control_tools.job_control.cancel_job = AsyncMock(return_value=cancel_result)
 

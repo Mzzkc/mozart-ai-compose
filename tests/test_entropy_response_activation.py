@@ -135,12 +135,10 @@ def test_entropy_check_triggers_response_below_threshold(
     _create_homogeneous_patterns(learning_store, pattern_count=5, dominant_apps=100)
 
     # Check if response is needed (threshold = 0.1)
-    needs_response, current_entropy, reason = (
-        learning_store.check_entropy_response_needed(
-            job_hash="test-job",
-            entropy_threshold=0.1,
-            cooldown_seconds=3600,
-        )
+    needs_response, current_entropy, reason = learning_store.check_entropy_response_needed(
+        job_hash="test-job",
+        entropy_threshold=0.1,
+        cooldown_seconds=3600,
     )
 
     assert needs_response is True, "Response should be needed when entropy < threshold"
@@ -249,9 +247,9 @@ def test_entropy_response_revisits_quarantined_patterns(
             )
             row = cursor.fetchone()
             assert row is not None
-            assert (
-                row["quarantine_status"] == QuarantineStatus.PENDING.value
-            ), "Pattern should be PENDING after revisit"
+            assert row["quarantine_status"] == QuarantineStatus.PENDING.value, (
+                "Pattern should be PENDING after revisit"
+            )
 
 
 def test_entropy_response_recorded_in_database(
@@ -457,6 +455,4 @@ def test_entropy_increases_after_exploration_injection(
 
     # Entropy should increase from 0.0 to > 0.0
     assert new_entropy.diversity_index > 0.0, "Entropy should increase after exploration"
-    assert (
-        new_entropy.effective_pattern_count > 1
-    ), "Multiple patterns should now have applications"
+    assert new_entropy.effective_pattern_count > 1, "Multiple patterns should now have applications"

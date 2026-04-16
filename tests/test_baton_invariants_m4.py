@@ -41,6 +41,7 @@ def _run(coro: Coroutine[Any, Any, Any]) -> Any:
         raise RuntimeError("Cannot _run() inside a running event loop")
     return asyncio.run(coro)
 
+
 from marianne.daemon.baton.adapter import (
     _BATON_TO_CHECKPOINT,
     _CHECKPOINT_TO_BATON,
@@ -108,19 +109,19 @@ class TestAdapterStateMappingTotality:
     def test_all_checkpoint_statuses_have_reverse_mapping(self) -> None:
         """All checkpoint status strings are in the reverse mapping."""
         from marianne.core.checkpoint import SheetStatus
+
         expected = {s.value for s in SheetStatus}
         mapped = set(_CHECKPOINT_TO_BATON.keys())
         assert expected == mapped
 
     @given(st.sampled_from(list(BatonSheetStatus)))
     @settings(max_examples=50)
-    def test_baton_to_checkpoint_returns_valid_string(
-        self, status: BatonSheetStatus
-    ) -> None:
+    def test_baton_to_checkpoint_returns_valid_string(self, status: BatonSheetStatus) -> None:
         """baton_to_checkpoint_status never raises for any valid input."""
         result = baton_to_checkpoint_status(status)
         assert isinstance(result, str)
         from marianne.core.checkpoint import SheetStatus
+
         assert result in {s.value for s in SheetStatus}
 
 
@@ -140,9 +141,7 @@ class TestTerminalStatePreservation:
 
     @given(st.sampled_from(list(_TERMINAL_BATON_STATUSES)))
     @settings(max_examples=20)
-    def test_terminal_baton_maps_to_terminal_checkpoint(
-        self, status: BatonSheetStatus
-    ) -> None:
+    def test_terminal_baton_maps_to_terminal_checkpoint(self, status: BatonSheetStatus) -> None:
         """Terminal baton states map to terminal checkpoint states."""
         checkpoint = baton_to_checkpoint_status(status)
         assert checkpoint in self._TERMINAL_CHECKPOINT, (
@@ -206,12 +205,8 @@ class TestDeregisterCleanupCompleteness:
 
         # Verify cleanup
         assert job_id not in baton._job_cost_limits
-        orphaned_sheet_keys = [
-            k for k in baton._sheet_cost_limits if k[0] == job_id
-        ]
-        assert orphaned_sheet_keys == [], (
-            f"Orphaned sheet cost limits: {orphaned_sheet_keys}"
-        )
+        orphaned_sheet_keys = [k for k in baton._sheet_cost_limits if k[0] == job_id]
+        assert orphaned_sheet_keys == [], f"Orphaned sheet cost limits: {orphaned_sheet_keys}"
 
     @given(
         num_jobs=st.integers(min_value=2, max_value=5),
@@ -330,15 +325,12 @@ class TestMultiFermataUnpauseGuard:
         }
         baton.register_job("j1", sheets, {}, escalation_enabled=True)
 
-
         # Put all sheets in FERMATA
         for i in range(1, num_escalated + 1):
             s = baton.get_sheet_state("j1", i)
             assert s is not None
             s.status = BatonSheetStatus.DISPATCHED  # Must be non-terminal first
-            _run(baton.handle_event(
-                EscalationNeeded(job_id="j1", sheet_num=i, reason="test")
-            ))
+            _run(baton.handle_event(EscalationNeeded(job_id="j1", sheet_num=i, reason="test")))
 
         # Verify all in FERMATA and job is paused
         assert baton.is_job_paused("j1")
@@ -346,21 +338,16 @@ class TestMultiFermataUnpauseGuard:
         # Resolve some (but not all) fermatas
         actual_resolve = min(resolve_count, num_escalated)
         for i in range(1, actual_resolve + 1):
-            _run(baton.handle_event(
-                EscalationResolved(job_id="j1", sheet_num=i, decision="retry")
-            ))
+            _run(baton.handle_event(EscalationResolved(job_id="j1", sheet_num=i, decision="retry")))
 
         if actual_resolve < num_escalated:
             # Some sheets still in FERMATA → job must stay paused
             assert baton.is_job_paused("j1"), (
-                f"Job unpaused with {num_escalated - actual_resolve} "
-                f"FERMATA sheets remaining"
+                f"Job unpaused with {num_escalated - actual_resolve} FERMATA sheets remaining"
             )
         else:
             # All resolved → job should be unpaused
-            assert not baton.is_job_paused("j1"), (
-                "Job still paused after all fermatas resolved"
-            )
+            assert not baton.is_job_paused("j1"), "Job still paused after all fermatas resolved"
 
 
 # =============================================================================
@@ -396,7 +383,6 @@ class TestCostRecheckAfterEscalation:
         baton.register_job("j1", sheets, {}, escalation_enabled=True)
         baton.set_job_cost_limit("j1", cost_limit)
 
-
         # Accumulate cost on sheet 1
         s1 = baton.get_sheet_state("j1", 1)
         assert s1 is not None
@@ -406,14 +392,10 @@ class TestCostRecheckAfterEscalation:
         s2 = baton.get_sheet_state("j1", 2)
         assert s2 is not None
         s2.status = BatonSheetStatus.DISPATCHED
-        _run(baton.handle_event(
-            EscalationNeeded(job_id="j1", sheet_num=2, reason="test")
-        ))
+        _run(baton.handle_event(EscalationNeeded(job_id="j1", sheet_num=2, reason="test")))
 
         # Resolve escalation — the cost re-check should keep it paused
-        _run(baton.handle_event(
-            EscalationResolved(job_id="j1", sheet_num=2, decision="retry")
-        ))
+        _run(baton.handle_event(EscalationResolved(job_id="j1", sheet_num=2, decision="retry")))
 
         # Job must still be paused due to cost
         assert baton.is_job_paused("j1"), (
@@ -435,19 +417,13 @@ class TestMusicianF018Contract:
     """
 
     @given(
-        reported_pass_rate=st.floats(
-            min_value=0.0, max_value=100.0, allow_nan=False
-        ),
+        reported_pass_rate=st.floats(min_value=0.0, max_value=100.0, allow_nan=False),
     )
     @settings(max_examples=50, suppress_health_check=[HealthCheck.function_scoped_fixture])
-    def test_no_validation_success_always_completes(
-        self, reported_pass_rate: float
-    ) -> None:
+    def test_no_validation_success_always_completes(self, reported_pass_rate: float) -> None:
         """Any pass_rate value with validations_total=0 + success → COMPLETED."""
         baton = BatonCore()
-        sheets = {
-            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code")
-        }
+        sheets = {1: SheetExecutionState(sheet_num=1, instrument_name="claude-code")}
         baton.register_job("j1", sheets, {})
 
         # Set to dispatched so handler processes it
@@ -486,20 +462,14 @@ class TestInstrumentAutoRegistration:
     """
 
     @given(
-        instruments=st.lists(
-            _INSTRUMENT, min_size=1, max_size=10
-        ),
+        instruments=st.lists(_INSTRUMENT, min_size=1, max_size=10),
     )
     @settings(max_examples=50, suppress_health_check=[HealthCheck.function_scoped_fixture])
-    def test_all_sheet_instruments_are_registered(
-        self, instruments: list[str]
-    ) -> None:
+    def test_all_sheet_instruments_are_registered(self, instruments: list[str]) -> None:
         """Every instrument referenced by sheets is auto-registered."""
         baton = BatonCore()
         sheets = {
-            i + 1: SheetExecutionState(
-                sheet_num=i + 1, instrument_name=inst
-            )
+            i + 1: SheetExecutionState(sheet_num=i + 1, instrument_name=inst)
             for i, inst in enumerate(instruments)
         }
         baton.register_job("j1", sheets, {})
@@ -507,9 +477,7 @@ class TestInstrumentAutoRegistration:
         unique_instruments = set(instruments)
         for inst_name in unique_instruments:
             state = baton.get_instrument_state(inst_name)
-            assert state is not None, (
-                f"Instrument '{inst_name}' not auto-registered"
-            )
+            assert state is not None, f"Instrument '{inst_name}' not auto-registered"
 
     def test_auto_registration_is_idempotent(self) -> None:
         """Registering a second job with the same instrument doesn't create duplicates."""
@@ -542,9 +510,7 @@ class TestCancelThenDeregisterAtomicity:
         completed_sheets=st.integers(min_value=0, max_value=5),
     )
     @settings(max_examples=50, suppress_health_check=[HealthCheck.function_scoped_fixture])
-    def test_cancel_deregisters_job(
-        self, num_sheets: int, completed_sheets: int
-    ) -> None:
+    def test_cancel_deregisters_job(self, num_sheets: int, completed_sheets: int) -> None:
         """After CancelJob, the job no longer exists in the baton."""
         baton = BatonCore()
         actual_completed = min(completed_sheets, num_sheets)
@@ -629,9 +595,7 @@ class TestPromptAssemblyStructure:
 
         assert template_pos >= 0, "Template not found in prompt"
         assert validation_pos >= 0, "Validation section not found in prompt"
-        assert validation_pos > template_pos, (
-            "Validations must come after template content"
-        )
+        assert validation_pos > template_pos, "Validations must come after template content"
 
     def test_completion_suffix_is_last(self) -> None:
         """Completion mode suffix is always the last section."""
@@ -677,9 +641,7 @@ class TestAttemptContextDefaults:
         total_movements=st.integers(min_value=1, max_value=100),
     )
     @settings(max_examples=50)
-    def test_totals_are_preserved(
-        self, total_sheets: int, total_movements: int
-    ) -> None:
+    def test_totals_are_preserved(self, total_sheets: int, total_movements: int) -> None:
         """total_sheets and total_movements are correctly stored."""
         ctx = AttemptContext(
             attempt_number=1,
@@ -725,20 +687,15 @@ class TestEscalationTimeoutF066Guard:
         }
         baton.register_job("j1", sheets, {}, escalation_enabled=True)
 
-
         # Put both sheets in FERMATA
         for i in [1, 2]:
             s = baton.get_sheet_state("j1", i)
             assert s is not None
             s.status = BatonSheetStatus.DISPATCHED
-            _run(baton.handle_event(
-                EscalationNeeded(job_id="j1", sheet_num=i, reason="test")
-            ))
+            _run(baton.handle_event(EscalationNeeded(job_id="j1", sheet_num=i, reason="test")))
 
         # Timeout on sheet 1
-        _run(baton.handle_event(
-            EscalationTimeout(job_id="j1", sheet_num=1)
-        ))
+        _run(baton.handle_event(EscalationTimeout(job_id="j1", sheet_num=1)))
 
         # Sheet 1 → FAILED, sheet 2 still FERMATA → job stays paused
         s1 = baton.get_sheet_state("j1", 1)
@@ -762,9 +719,7 @@ class TestUserPauseSurvivesEscalation:
 
     @given(decision=st.sampled_from(["retry", "skip", "accept", "fail"]))
     @settings(max_examples=20, suppress_health_check=[HealthCheck.function_scoped_fixture])
-    def test_user_pause_preserved_after_escalation_resolve(
-        self, decision: str
-    ) -> None:
+    def test_user_pause_preserved_after_escalation_resolve(self, decision: str) -> None:
         """User pause persists regardless of escalation decision."""
         baton = BatonCore()
         sheets = {
@@ -772,22 +727,17 @@ class TestUserPauseSurvivesEscalation:
         }
         baton.register_job("j1", sheets, {}, escalation_enabled=True)
 
-
         # Put sheet in FERMATA
         s = baton.get_sheet_state("j1", 1)
         assert s is not None
         s.status = BatonSheetStatus.DISPATCHED
-        _run(baton.handle_event(
-            EscalationNeeded(job_id="j1", sheet_num=1, reason="test")
-        ))
+        _run(baton.handle_event(EscalationNeeded(job_id="j1", sheet_num=1, reason="test")))
 
         # User also pauses
         _run(baton.handle_event(PauseJob(job_id="j1")))
 
         # Resolve escalation
-        _run(baton.handle_event(
-            EscalationResolved(job_id="j1", sheet_num=1, decision=decision)
-        ))
+        _run(baton.handle_event(EscalationResolved(job_id="j1", sheet_num=1, decision=decision)))
 
         # Job stays paused because user_paused=True
         assert baton.is_job_paused("j1"), (

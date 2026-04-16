@@ -85,7 +85,7 @@ class TestDispatchFallbackOnCircuitBreaker:
             open_circuit_breakers={"claude-code"},
         )
 
-        result = await dispatch_ready(baton, config, _tracking_callback)
+        await dispatch_ready(baton, config, _tracking_callback)
 
         # The sheet should have fallen back to gemini-cli and been dispatched
         assert s.instrument_name == "gemini-cli"
@@ -195,7 +195,7 @@ class TestDispatchFallbackChainMultiple:
             open_circuit_breakers={"claude-code", "gemini-cli"},
         )
 
-        result = await dispatch_ready(baton, config, _tracking_callback)
+        await dispatch_ready(baton, config, _tracking_callback)
 
         # Should have fallen back through claude-code → gemini-cli → ollama
         assert s.instrument_name == "ollama"

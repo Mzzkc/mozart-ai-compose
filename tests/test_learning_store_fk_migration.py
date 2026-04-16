@@ -103,12 +103,8 @@ def _create_legacy_db(db_path: Path) -> None:
             grounding_confidence REAL
         )
     """)
-    conn.execute(
-        "CREATE INDEX idx_app_pattern ON pattern_applications(pattern_id)"
-    )
-    conn.execute(
-        "CREATE INDEX idx_app_execution ON pattern_applications(execution_id)"
-    )
+    conn.execute("CREATE INDEX idx_app_pattern ON pattern_applications(pattern_id)")
+    conn.execute("CREATE INDEX idx_app_execution ON pattern_applications(execution_id)")
 
     # Insert test data
     from datetime import datetime
@@ -143,14 +139,10 @@ class TestFKMigration:
         _create_legacy_db(temp_db)
 
         conn = sqlite3.connect(str(temp_db))
-        fk_list = conn.execute(
-            "PRAGMA foreign_key_list(pattern_applications)"
-        ).fetchall()
+        fk_list = conn.execute("PRAGMA foreign_key_list(pattern_applications)").fetchall()
         conn.close()
 
-        assert len(fk_list) == 2, (
-            f"Legacy DB must have 2 FK constraints, got {len(fk_list)}"
-        )
+        assert len(fk_list) == 2, f"Legacy DB must have 2 FK constraints, got {len(fk_list)}"
 
     def test_migration_removes_fk_constraints(self, temp_db: Path) -> None:
         """v15 migration removes FK constraints from pattern_applications."""
@@ -162,9 +154,7 @@ class TestFKMigration:
         # Verify FK constraints are gone
         conn = sqlite3.connect(str(temp_db))
         conn.row_factory = sqlite3.Row
-        fk_list = conn.execute(
-            "PRAGMA foreign_key_list(pattern_applications)"
-        ).fetchall()
+        fk_list = conn.execute("PRAGMA foreign_key_list(pattern_applications)").fetchall()
         conn.close()
 
         assert len(fk_list) == 0, (
@@ -173,9 +163,7 @@ class TestFKMigration:
 
         # Verify schema version updated
         with store._get_connection() as c:
-            row = c.execute(
-                "SELECT version FROM schema_version LIMIT 1"
-            ).fetchone()
+            row = c.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
         assert row["version"] == 15
 
     def test_migration_preserves_data(self, temp_db: Path) -> None:
@@ -185,14 +173,10 @@ class TestFKMigration:
         store = GlobalLearningStore(db_path=temp_db)
 
         with store._get_connection() as conn:
-            row = conn.execute(
-                "SELECT COUNT(*) as cnt FROM pattern_applications"
-            ).fetchone()
+            row = conn.execute("SELECT COUNT(*) as cnt FROM pattern_applications").fetchone()
             assert row["cnt"] == 1, "Migration must preserve existing rows"
 
-            app = conn.execute(
-                "SELECT * FROM pattern_applications WHERE id = 'app1'"
-            ).fetchone()
+            app = conn.execute("SELECT * FROM pattern_applications WHERE id = 'app1'").fetchone()
             assert app is not None
             assert app["pattern_id"] == "pat1"
             assert app["execution_id"] == "exec1"
@@ -215,7 +199,8 @@ class TestFKMigration:
         assert "idx_app_execution" in index_names
 
     def test_post_migration_insert_with_synthetic_execution_id(
-        self, temp_db: Path,
+        self,
+        temp_db: Path,
     ) -> None:
         """After migration, inserting with a non-existent execution_id works."""
         _create_legacy_db(temp_db)
@@ -233,8 +218,7 @@ class TestFKMigration:
 
         with store._get_connection() as conn:
             row = conn.execute(
-                "SELECT COUNT(*) as cnt FROM pattern_applications "
-                "WHERE execution_id = 'sheet_42'"
+                "SELECT COUNT(*) as cnt FROM pattern_applications WHERE execution_id = 'sheet_42'"
             ).fetchone()
             assert row["cnt"] == 1
 
@@ -245,15 +229,14 @@ class TestFKMigration:
         _store = GlobalLearningStore(db_path=fresh_db)
 
         conn = sqlite3.connect(str(fresh_db))
-        fk_list = conn.execute(
-            "PRAGMA foreign_key_list(pattern_applications)"
-        ).fetchall()
+        fk_list = conn.execute("PRAGMA foreign_key_list(pattern_applications)").fetchall()
         conn.close()
 
         assert len(fk_list) == 0
 
     def test_integrity_error_caught_in_record_application(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """record_pattern_application catches IntegrityError for legacy DBs
         that haven't been migrated yet."""
@@ -337,7 +320,5 @@ class TestFKMigrationIdempotent:
         store2 = GlobalLearningStore(db_path=temp_db)
 
         with store2._get_connection() as conn:
-            row = conn.execute(
-                "SELECT COUNT(*) as cnt FROM pattern_applications"
-            ).fetchone()
+            row = conn.execute("SELECT COUNT(*) as cnt FROM pattern_applications").fetchone()
             assert row["cnt"] == 1

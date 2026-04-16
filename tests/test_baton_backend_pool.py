@@ -195,9 +195,7 @@ class TestAcquireReleaseCli:
         registry = _make_registry(profile)
         pool = BackendPool(registry)
 
-        backend = await pool.acquire(
-            "test-cli", working_directory=Path("/tmp/test-ws")
-        )
+        backend = await pool.acquire("test-cli", working_directory=Path("/tmp/test-ws"))
         assert backend.working_directory == Path("/tmp/test-ws")
         await pool.close_all()
 
@@ -419,9 +417,7 @@ class TestCreateBackendForProfile:
 
     async def test_cli_profile_with_working_directory(self) -> None:
         profile = _make_cli_profile()
-        backend = _create_backend_for_profile(
-            profile, working_directory=Path("/tmp/test")
-        )
+        backend = _create_backend_for_profile(profile, working_directory=Path("/tmp/test"))
         assert backend.working_directory == Path("/tmp/test")
 
     async def test_openrouter_profile_creates_openrouter_backend(self) -> None:
@@ -436,7 +432,8 @@ class TestCreateBackendForProfile:
 
         profile = _make_openrouter_profile()
         backend = _create_backend_for_profile(
-            profile, api_key="sk-test-injected-key",
+            profile,
+            api_key="sk-test-injected-key",
         )
         assert isinstance(backend, OpenRouterBackend)
         assert backend._api_key == "sk-test-injected-key"
@@ -446,7 +443,8 @@ class TestCreateBackendForProfile:
 
         profile = _make_openrouter_profile()
         backend = _create_backend_for_profile(
-            profile, model="google/gemma-4",
+            profile,
+            model="google/gemma-4",
         )
         assert isinstance(backend, OpenRouterBackend)
         assert backend.model == "google/gemma-4"

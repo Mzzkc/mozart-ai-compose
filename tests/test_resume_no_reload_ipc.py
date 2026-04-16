@@ -17,7 +17,6 @@ import pytest
 from marianne.core.checkpoint import CheckpointState, JobStatus
 from marianne.daemon.manager import DaemonJobStatus, JobManager, JobMeta
 
-
 # ---------------------------------------------------------------------------
 # 1. CLI: params dict includes no_reload when flag is set
 # ---------------------------------------------------------------------------
@@ -32,7 +31,9 @@ class TestCliResumeNoReloadParam:
         captured_params: list[dict[str, Any]] = []
 
         async def fake_daemon_route(
-            method: str, params: dict[str, Any], **kwargs: Any,
+            method: str,
+            params: dict[str, Any],
+            **kwargs: Any,
         ) -> tuple[bool, Any]:
             captured_params.append(params)
             return True, {
@@ -66,7 +67,9 @@ class TestCliResumeNoReloadParam:
         captured_params: list[dict[str, Any]] = []
 
         async def fake_daemon_route(
-            method: str, params: dict[str, Any], **kwargs: Any,
+            method: str,
+            params: dict[str, Any],
+            **kwargs: Any,
         ) -> tuple[bool, Any]:
             captured_params.append(params)
             return True, {
@@ -130,7 +133,9 @@ class TestManagerResumeNoReload:
         captured_args: list[dict[str, Any]] = []
 
         async def fake_task(
-            job_id: str, workspace: Path, no_reload: bool = False,
+            job_id: str,
+            workspace: Path,
+            no_reload: bool = False,
         ) -> None:
             captured_args.append({"no_reload": no_reload})
 
@@ -159,7 +164,9 @@ class TestManagerResumeNoReload:
         captured_args: list[dict[str, Any]] = []
 
         async def fake_task(
-            job_id: str, workspace: Path, no_reload: bool = False,
+            job_id: str,
+            workspace: Path,
+            no_reload: bool = False,
         ) -> None:
             captured_args.append({"no_reload": no_reload})
 
@@ -291,24 +298,28 @@ class TestCostLimitResetOnReload:
             total_output_tokens=50000,
         )
 
-        new_config = JobConfig.model_validate({
-            "name": "test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 3, "total_items": 9},
-            "prompt": {"template": "Test {{ sheet_num }}"},
-            "cost_limits": {
-                "enabled": False,
-            },
-        })
+        new_config = JobConfig.model_validate(
+            {
+                "name": "test",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 3, "total_items": 9},
+                "prompt": {"template": "Test {{ sheet_num }}"},
+                "cost_limits": {
+                    "enabled": False,
+                },
+            }
+        )
 
         report = reconcile_config(state, new_config)
 
         assert report.has_changes, "cost_limits change should be detected"
         assert "cost_limits" in report.sections_changed
-        assert state.cost_limit_reached is False, \
+        assert state.cost_limit_reached is False, (
             "cost_limit_reached must be reset when cost_limits change"
-        assert state.total_estimated_cost == 0.0, \
+        )
+        assert state.total_estimated_cost == 0.0, (
             "total_estimated_cost must be reset when cost_limits change"
+        )
 
     def test_cost_limit_not_reset_when_cost_limits_unchanged(self) -> None:
         """cost_limit_reached should NOT be reset when cost_limits don't change."""
@@ -316,16 +327,18 @@ class TestCostLimitResetOnReload:
         from marianne.execution.reconciliation import reconcile_config
 
         # Use a full model dump as snapshot so all defaults match
-        base_config = JobConfig.model_validate({
-            "name": "test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 3, "total_items": 9},
-            "prompt": {"template": "Test {{ sheet_num }}"},
-            "cost_limits": {
-                "enabled": True,
-                "max_cost_per_sheet": 5.0,
-            },
-        })
+        base_config = JobConfig.model_validate(
+            {
+                "name": "test",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 3, "total_items": 9},
+                "prompt": {"template": "Test {{ sheet_num }}"},
+                "cost_limits": {
+                    "enabled": True,
+                    "max_cost_per_sheet": 5.0,
+                },
+            }
+        )
         full_snapshot = base_config.model_dump(mode="json")
 
         state = CheckpointState(
@@ -342,10 +355,12 @@ class TestCostLimitResetOnReload:
 
         report = reconcile_config(state, new_config)
 
-        assert "cost_limits" not in report.sections_changed, \
+        assert "cost_limits" not in report.sections_changed, (
             "cost_limits should not be in changed sections when unchanged"
-        assert state.cost_limit_reached is True, \
+        )
+        assert state.cost_limit_reached is True, (
             "cost_limit_reached should remain True when cost_limits unchanged"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -369,7 +384,6 @@ class TestBatonResumeNoReload:
 
     def test_resume_job_task_forwards_no_reload_to_baton(self) -> None:
         """_resume_job_task routes no_reload to _resume_via_baton."""
-        import ast
 
         source_file = Path(__file__).parent.parent / "src" / "marianne" / "daemon" / "manager.py"
         source = source_file.read_text()

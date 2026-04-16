@@ -28,7 +28,6 @@ from marianne.cli.output import (
     create_run_summary_panel,
     create_server_panel,
     create_sheet_details_table,
-    format_sheet_display_status,
     create_sheet_plan_table,
     create_simple_table,
     create_status_progress,
@@ -38,6 +37,7 @@ from marianne.cli.output import (
     format_duration,
     format_error_details,
     format_job_status_line,
+    format_sheet_display_status,
     format_timestamp,
     format_validation_status,
     infer_error_type,
@@ -457,8 +457,13 @@ class TestRunSummaryPanel:
             total_sheets=10,
             failed_sheets=0,
             skipped_sheets=0,
-            spec=["job_name", "completed_sheets", "total_sheets",
-                  "failed_sheets", "skipped_sheets"],
+            spec=[
+                "job_name",
+                "completed_sheets",
+                "total_sheets",
+                "failed_sheets",
+                "skipped_sheets",
+            ],
         )
         # Remove optional attributes
         del summary.validation_passed

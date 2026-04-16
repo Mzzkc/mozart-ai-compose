@@ -64,7 +64,8 @@ class TestLitmusF518StaleCompletedAt:
         checkpoint.started_at = utc_now()
 
         # Model validator only runs on construction/validation, not field assignment
-        # Trigger it by reconstructing the model (simulates what happens during persistence round-trip)
+        # Trigger it by reconstructing the model
+        # (simulates what happens during persistence round-trip)
         checkpoint = CheckpointState(**checkpoint.model_dump())
 
         # Verify the fix: RUNNING jobs must have completed_at = None
@@ -73,7 +74,8 @@ class TestLitmusF518StaleCompletedAt:
         assert checkpoint.completed_at is None, (
             "F-518: completed_at must be None for RUNNING jobs. "
             "Stale completed_at from previous run causes negative elapsed time. "
-            "Fix: CheckpointState._enforce_status_invariants() clears completed_at when status=RUNNING"
+            "Fix: CheckpointState._enforce_status_invariants() "
+            "clears completed_at when status=RUNNING"
         )
 
     async def test_compute_elapsed_with_stale_timestamps(self) -> None:
@@ -131,8 +133,10 @@ class TestLitmusF518StaleCompletedAt:
         # This test verifies the fix is in place
         assert checkpoint.completed_at is None, (
             "Monitoring data integrity failure: stale completed_at "
-            f"produces wrong elapsed time. started_at={checkpoint.started_at.isoformat() if checkpoint.started_at else 'None'}, "
-            f"completed_at={checkpoint.completed_at.isoformat() if checkpoint.completed_at else 'None'}, "
+            f"produces wrong elapsed time. "
+            f"started_at={checkpoint.started_at.isoformat() if checkpoint.started_at else 'None'}, "
+            f"completed_at="
+            f"{checkpoint.completed_at.isoformat() if checkpoint.completed_at else 'None'}, "
             f"computed_elapsed={computed:.1f}s"
         )
 
@@ -160,9 +164,7 @@ class TestLitmusF518StaleCompletedAt:
         checkpoint = CheckpointState(**checkpoint.model_dump())
 
         # All completion metadata should be cleared
-        assert checkpoint.completed_at is None, (
-            "completed_at must be None for RUNNING jobs"
-        )
+        assert checkpoint.completed_at is None, "completed_at must be None for RUNNING jobs"
 
         # Future-proofing: if CheckpointState gains completion_reason, final_cost, etc.
         # those should also be None for RUNNING jobs
@@ -270,6 +272,4 @@ class TestLitmusMonitoringCorrectness:
         # Should show time since start (approximately 3 hours = 10800s)
         # This might not be ideal UX (should pause time freeze elapsed?)
         # but it documents current behavior
-        assert computed >= 10799.0, (
-            f"Paused job should show elapsed time, got {computed:.1f}s"
-        )
+        assert computed >= 10799.0, f"Paused job should show elapsed time, got {computed:.1f}s"

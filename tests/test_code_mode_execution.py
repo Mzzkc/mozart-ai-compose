@@ -65,7 +65,9 @@ class TestPythonExecution:
         assert "4" in result.stdout
 
     async def test_file_creation(
-        self, executor: CodeModeExecutor, workspace: Path,
+        self,
+        executor: CodeModeExecutor,
+        workspace: Path,
     ) -> None:
         """Python code can write files to the workspace."""
         code = """
@@ -128,7 +130,9 @@ class TestBashExecution:
         assert "hello bash" in result.stdout
 
     async def test_bash_file_ops(
-        self, executor: CodeModeExecutor, workspace: Path,
+        self,
+        executor: CodeModeExecutor,
+        workspace: Path,
     ) -> None:
         """Bash can write files to workspace."""
         block = CodeBlock(
@@ -191,7 +195,8 @@ class TestErrorCases:
     """Error handling and edge cases."""
 
     async def test_unsupported_language(
-        self, executor: CodeModeExecutor,
+        self,
+        executor: CodeModeExecutor,
     ) -> None:
         """Unsupported language returns failure."""
         block = CodeBlock(language="fortran", code="PRINT *, 'hello'")
@@ -209,7 +214,8 @@ class TestErrorCases:
         assert "Empty code block" in (result.error_message or "")
 
     async def test_whitespace_only_code(
-        self, executor: CodeModeExecutor,
+        self,
+        executor: CodeModeExecutor,
     ) -> None:
         """Whitespace-only code block returns failure."""
         block = CodeBlock(language="python", code="   \n\t  ")
@@ -226,7 +232,8 @@ class TestErrorCases:
             )
 
     async def test_execute_all_sequential(
-        self, executor: CodeModeExecutor,
+        self,
+        executor: CodeModeExecutor,
     ) -> None:
         """execute_all runs blocks sequentially."""
         blocks = [

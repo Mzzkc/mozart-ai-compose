@@ -18,16 +18,10 @@ Covers:
 from pathlib import Path
 from textwrap import dedent
 
-import pytest
-
 from marianne.core.config import JobConfig
 from marianne.validation.rendering import (
-    ExpandedValidation,
-    RenderingPreview,
-    SheetPreview,
     generate_preview,
 )
-
 
 # ============================================================================
 # Helpers
@@ -58,6 +52,7 @@ class TestBasicRendering:
               total_items: 30
             prompt:
               template: "Process sheet {{{{ sheet_num }}}} items {{{{ start_item }}}}-{{{{ end_item }}}}"
+
         """).format(workspace=tmp_path / "ws")
 
         config_path = tmp_path / "config.yaml"

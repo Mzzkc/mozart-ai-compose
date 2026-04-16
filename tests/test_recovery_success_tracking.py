@@ -256,9 +256,9 @@ def test_learned_wait_time_ignores_failures(global_store: GlobalLearningStore):
 
     assert learned_wait is not None
     # Should be based on 60, 70, 80 (successes only), not the 30s (failures)
-    assert (
-        learned_wait >= 60.0
-    ), f"Learned wait {learned_wait} should not be influenced by failed recoveries"
+    assert learned_wait >= 60.0, (
+        f"Learned wait {learned_wait} should not be influenced by failed recoveries"
+    )
 
 
 def test_get_effective_model_for_claude_cli():

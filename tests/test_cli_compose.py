@@ -77,11 +77,16 @@ class TestCliCompose:
         output_dir = tmp_path / "scores"
         agents_dir = tmp_path / "agents"
 
-        result = runner.invoke(app, [
-            str(config_path),
-            "--output", str(output_dir),
-            "--agents-dir", str(agents_dir),
-        ])
+        result = runner.invoke(
+            app,
+            [
+                str(config_path),
+                "--output",
+                str(output_dir),
+                "--agents-dir",
+                str(agents_dir),
+            ],
+        )
 
         assert result.exit_code == 0, f"Exit code: {result.exit_code}\n{result.output}"
         assert (output_dir / "test-agent.yaml").exists()
@@ -101,12 +106,17 @@ class TestCliCompose:
         output_dir = tmp_path / "scores"
         agents_dir = tmp_path / "agents"
 
-        result = runner.invoke(app, [
-            str(config_path),
-            "--output", str(output_dir),
-            "--agents-dir", str(agents_dir),
-            "--fleet",
-        ])
+        result = runner.invoke(
+            app,
+            [
+                str(config_path),
+                "--output",
+                str(output_dir),
+                "--agents-dir",
+                str(agents_dir),
+                "--fleet",
+            ],
+        )
 
         assert result.exit_code == 0, f"Exit code: {result.exit_code}\n{result.output}"
         assert (output_dir / "fleet.yaml").exists()
@@ -159,11 +169,15 @@ class TestCliCompose:
         config_path = _create_config(tmp_path)
         agents_dir = tmp_path / "agents"
 
-        result = runner.invoke(app, [
-            str(config_path),
-            "--seed-only",
-            "--agents-dir", str(agents_dir),
-        ])
+        result = runner.invoke(
+            app,
+            [
+                str(config_path),
+                "--seed-only",
+                "--agents-dir",
+                str(agents_dir),
+            ],
+        )
 
         assert result.exit_code == 0
         assert (agents_dir / "test-agent" / "identity.md").exists()
@@ -176,11 +190,16 @@ class TestCliCompose:
         output_dir = tmp_path / "scores"
         agents_dir = tmp_path / "agents"
 
-        result = runner.invoke(app, [
-            str(config_path),
-            "--output", str(output_dir),
-            "--agents-dir", str(agents_dir),
-        ])
+        result = runner.invoke(
+            app,
+            [
+                str(config_path),
+                "--output",
+                str(output_dir),
+                "--agents-dir",
+                str(agents_dir),
+            ],
+        )
 
         assert result.exit_code == 0
         assert (output_dir / "agent-a.yaml").exists()
@@ -194,11 +213,16 @@ class TestCliCompose:
         output_dir = tmp_path / "scores"
         agents_dir = tmp_path / "agents"
 
-        runner.invoke(app, [
-            str(config_path),
-            "--output", str(output_dir),
-            "--agents-dir", str(agents_dir),
-        ])
+        runner.invoke(
+            app,
+            [
+                str(config_path),
+                "--output",
+                str(output_dir),
+                "--agents-dir",
+                str(agents_dir),
+            ],
+        )
 
         score_data = yaml.safe_load((output_dir / "test-agent.yaml").read_text())
         assert "name" in score_data

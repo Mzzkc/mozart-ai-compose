@@ -87,35 +87,27 @@ class TestSetupLearning:
         assert outcome is None
         assert gls is None
 
-    def test_enabled_json_store(
-        self, base_config_dict: dict, tmp_path: Path
-    ) -> None:
+    def test_enabled_json_store(self, base_config_dict: dict, tmp_path: Path) -> None:
         config = _make_config(
             base_config_dict,
             learning={"enabled": True, "outcome_store_type": "json"},
             workspace=str(tmp_path),
         )
-        with patch(
-            "marianne.learning.global_store.get_global_store"
-        ) as mock_get_global:
+        with patch("marianne.learning.global_store.get_global_store") as mock_get_global:
             mock_get_global.return_value = MagicMock()
             outcome, gls = setup_learning(config)
 
         assert outcome is not None
         assert gls is not None
 
-    def test_override_global_store(
-        self, base_config_dict: dict, tmp_path: Path
-    ) -> None:
+    def test_override_global_store(self, base_config_dict: dict, tmp_path: Path) -> None:
         config = _make_config(
             base_config_dict,
             learning={"enabled": True, "outcome_store_type": "json"},
             workspace=str(tmp_path),
         )
         mock_store = MagicMock()
-        outcome, gls = setup_learning(
-            config, global_learning_store_override=mock_store
-        )
+        outcome, gls = setup_learning(config, global_learning_store_override=mock_store)
         assert gls is mock_store
 
 
@@ -172,6 +164,7 @@ class TestSetupGrounding:
     def test_enabled_without_hooks_raises(self, base_config_dict: dict) -> None:
         """Enabled grounding with no hooks should raise at config time."""
         import pytest
+
         with pytest.raises(Exception, match="no hooks configured"):
             _make_config(
                 base_config_dict,

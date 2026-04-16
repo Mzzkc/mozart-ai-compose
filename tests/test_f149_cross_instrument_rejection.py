@@ -13,8 +13,6 @@ current_level() still includes rate limits for sheet-level dispatch delay.
 
 from __future__ import annotations
 
-import asyncio
-import time
 from unittest.mock import patch
 
 import pytest
@@ -26,7 +24,6 @@ from marianne.daemon.backpressure import (
 from marianne.daemon.config import ResourceLimitConfig
 from marianne.daemon.monitor import ResourceMonitor
 from marianne.daemon.rate_coordinator import RateLimitCoordinator
-
 
 # ─── Fixtures ──────────────────────────────────────────────────────────
 
@@ -48,7 +45,8 @@ def coordinator() -> RateLimitCoordinator:
 
 @pytest.fixture
 def controller(
-    monitor: ResourceMonitor, coordinator: RateLimitCoordinator,
+    monitor: ResourceMonitor,
+    coordinator: RateLimitCoordinator,
 ) -> BackpressureController:
     return BackpressureController(monitor, coordinator)
 
@@ -71,10 +69,17 @@ class TestF149RateLimitsDoNotBlockJobs:
         coordinator: RateLimitCoordinator,
     ):
         """Job submissions accepted even when an instrument is rate-limited."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=100.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             await coordinator.report_rate_limit(
                 backend_type="claude_cli",
@@ -93,10 +98,17 @@ class TestF149RateLimitsDoNotBlockJobs:
         coordinator: RateLimitCoordinator,
     ):
         """Even multiple rate-limited instruments don't block job submission."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=100.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             await coordinator.report_rate_limit(
                 backend_type="claude_cli",
@@ -121,10 +133,17 @@ class TestF149RateLimitsDoNotBlockJobs:
         coordinator: RateLimitCoordinator,
     ):
         """rejection_reason returns None when only rate limits are active."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=100.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             await coordinator.report_rate_limit(
                 backend_type="openai",
@@ -143,10 +162,17 @@ class TestF149RateLimitsDoNotBlockJobs:
         coordinator: RateLimitCoordinator,
     ):
         """High memory pressure still rejects regardless of rate limits."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=900.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=900.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             # High memory → reject even without rate limits
             assert controller.should_accept_job() is False
@@ -159,10 +185,17 @@ class TestF149RateLimitsDoNotBlockJobs:
         coordinator: RateLimitCoordinator,
     ):
         """Both memory pressure and rate limits → resource rejection."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=900.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=900.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             await coordinator.report_rate_limit(
                 backend_type="claude_cli",
@@ -194,10 +227,17 @@ class TestSheetDispatchStillConsidersRateLimits:
         coordinator: RateLimitCoordinator,
     ):
         """current_level() still returns HIGH when rate limits active."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=100.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             await coordinator.report_rate_limit(
                 backend_type="claude_cli",
@@ -216,10 +256,17 @@ class TestSheetDispatchStillConsidersRateLimits:
         coordinator: RateLimitCoordinator,
     ):
         """Sheets get HIGH-level delay when rate limits are active."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=100.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=True,
+            ),
         ):
             await coordinator.report_rate_limit(
                 backend_type="claude_cli",
@@ -241,34 +288,49 @@ class TestCriticalPathsUnaffected:
     """System health checks still gate job submission correctly."""
 
     def test_degraded_monitor_still_rejects(
-        self, controller: BackpressureController, monitor: ResourceMonitor,
+        self,
+        controller: BackpressureController,
+        monitor: ResourceMonitor,
     ):
         """Degraded monitor → reject regardless of rate limits."""
         monitor._degraded = True
         with patch.object(
-            ResourceMonitor, "current_memory_mb", return_value=100.0,
+            ResourceMonitor,
+            "current_memory_mb",
+            return_value=100.0,
         ):
             assert controller.should_accept_job() is False
             assert controller.rejection_reason() == "resource"
         monitor._degraded = False
 
     def test_process_limit_still_rejects(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
     ):
         """Process limit exceeded → reject via is_accepting_work."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=False,
+        with (
+            patch.object(
+                ResourceMonitor,
+                "_get_memory_usage_mb",
+                return_value=100.0,
+            ),
+            patch.object(
+                ResourceMonitor,
+                "is_accepting_work",
+                return_value=False,
+            ),
         ):
             assert controller.should_accept_job() is False
 
     def test_probe_failure_still_rejects(
-        self, controller: BackpressureController,
+        self,
+        controller: BackpressureController,
     ):
         """Memory probe failure → reject."""
         with patch.object(
-            ResourceMonitor, "current_memory_mb", return_value=None,
+            ResourceMonitor,
+            "current_memory_mb",
+            return_value=None,
         ):
             assert controller.should_accept_job() is False
             assert controller.rejection_reason() == "resource"

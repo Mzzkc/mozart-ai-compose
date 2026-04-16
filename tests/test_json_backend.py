@@ -12,7 +12,6 @@ import pytest
 from marianne.core.checkpoint import CheckpointState, JobStatus, SheetStatus
 from marianne.state.json_backend import JsonStateBackend, StateCorruptionError
 
-
 # =============================================================================
 # Helpers
 # =============================================================================
@@ -256,9 +255,7 @@ class TestListJobs:
         job_ids = {j.job_id for j in jobs}
         assert job_ids == {"alpha", "bravo", "charlie"}
 
-    async def test_sorted_by_updated_at_descending(
-        self, backend: JsonStateBackend
-    ):
+    async def test_sorted_by_updated_at_descending(self, backend: JsonStateBackend):
         """Jobs are sorted by updated_at (most recent first)."""
         import time
 
@@ -354,9 +351,7 @@ class TestMarkSheetStatus:
         state = _make_state()
         await backend.save(state)
 
-        await backend.mark_sheet_status(
-            "test-job", 2, SheetStatus.FAILED, "Out of tokens"
-        )
+        await backend.mark_sheet_status("test-job", 2, SheetStatus.FAILED, "Out of tokens")
 
         loaded = await backend.load("test-job")
         assert loaded is not None
@@ -368,9 +363,7 @@ class TestMarkSheetStatus:
         state = _make_state()
         await backend.save(state)
 
-        await backend.mark_sheet_status(
-            "test-job", 1, SheetStatus.IN_PROGRESS
-        )
+        await backend.mark_sheet_status("test-job", 1, SheetStatus.IN_PROGRESS)
 
         loaded = await backend.load("test-job")
         assert loaded is not None
@@ -379,6 +372,4 @@ class TestMarkSheetStatus:
     async def test_mark_nonexistent_job_raises(self, backend: JsonStateBackend):
         """Marking sheet on non-existent job raises ValueError."""
         with pytest.raises(ValueError, match="No state found"):
-            await backend.mark_sheet_status(
-                "no-such-job", 1, SheetStatus.COMPLETED
-            )
+            await backend.mark_sheet_status("no-such-job", 1, SheetStatus.COMPLETED)

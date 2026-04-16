@@ -28,13 +28,12 @@ from __future__ import annotations
 import pytest
 
 from marianne.daemon.baton.core import BatonCore
-from marianne.daemon.baton.state import BatonSheetStatus, SheetExecutionState
 from marianne.daemon.baton.events import (
     EscalationResolved,
     EscalationTimeout,
     SheetAttemptResult,
 )
-
+from marianne.daemon.baton.state import BatonSheetStatus, SheetExecutionState
 
 # =============================================================================
 # Helpers
@@ -111,9 +110,7 @@ class TestZeroPassRateRetryBudget:
         sheets[1].status = BatonSheetStatus.DISPATCHED
 
         # Report: execution succeeded but ALL validations failed
-        result = _success_result(
-            "j1", 1, pass_rate=0.0, validations_total=5
-        )
+        result = _success_result("j1", 1, pass_rate=0.0, validations_total=5)
         await baton.handle_event(result)
 
         # normal_attempts MUST have been incremented
@@ -134,7 +131,10 @@ class TestZeroPassRateRetryBudget:
             last_attempt = attempt_num
             sheets[1].status = BatonSheetStatus.DISPATCHED
             result = _success_result(
-                "j1", 1, pass_rate=0.0, validations_total=5,
+                "j1",
+                1,
+                pass_rate=0.0,
+                validations_total=5,
                 attempt=attempt_num,
             )
             await baton.handle_event(result)
@@ -162,7 +162,11 @@ class TestZeroPassRateRetryBudget:
                 break
             sheets[1].status = BatonSheetStatus.DISPATCHED
             result = _success_result(
-                "j1", 1, pass_rate=0.0, validations_total=5, attempt=i,
+                "j1",
+                1,
+                pass_rate=0.0,
+                validations_total=5,
+                attempt=i,
             )
             await baton.handle_event(result)
 
@@ -180,7 +184,10 @@ class TestZeroPassRateRetryBudget:
 
         sheets[1].status = BatonSheetStatus.DISPATCHED
         result = _success_result(
-            "j1", 1, pass_rate=50.0, validations_total=4,
+            "j1",
+            1,
+            pass_rate=50.0,
+            validations_total=4,
         )
         await baton.handle_event(result)
 
@@ -207,7 +214,9 @@ class TestEscalationMultipleFermata:
         baton = _make_baton()
         sheets = _make_sheets(3)
         baton.register_job(
-            "j1", sheets, {},
+            "j1",
+            sheets,
+            {},
             escalation_enabled=True,
         )
 
@@ -221,7 +230,9 @@ class TestEscalationMultipleFermata:
         # Resolve sheet 1's escalation
         await baton.handle_event(
             EscalationResolved(
-                job_id="j1", sheet_num=1, decision="retry",
+                job_id="j1",
+                sheet_num=1,
+                decision="retry",
             )
         )
 
@@ -230,9 +241,7 @@ class TestEscalationMultipleFermata:
         # Sheet 2 is still in FERMATA
         assert sheets[2].status == BatonSheetStatus.FERMATA
         # Job MUST stay paused — sheet 2 still needs escalation resolution
-        assert job.paused is True, (
-            "Job should stay paused while other sheets are still in FERMATA"
-        )
+        assert job.paused is True, "Job should stay paused while other sheets are still in FERMATA"
 
     @pytest.mark.asyncio
     async def test_resolve_last_fermata_unpauses_job(self) -> None:
@@ -249,7 +258,9 @@ class TestEscalationMultipleFermata:
 
         await baton.handle_event(
             EscalationResolved(
-                job_id="j1", sheet_num=1, decision="skip",
+                job_id="j1",
+                sheet_num=1,
+                decision="skip",
             )
         )
 
@@ -270,9 +281,7 @@ class TestEscalationMultipleFermata:
         job = baton._jobs["j1"]
         job.paused = True
 
-        await baton.handle_event(
-            EscalationTimeout(job_id="j1", sheet_num=1)
-        )
+        await baton.handle_event(EscalationTimeout(job_id="j1", sheet_num=1))
 
         # Sheet 1 should be FAILED (timeout default)
         assert sheets[1].status == BatonSheetStatus.FAILED
@@ -296,7 +305,9 @@ class TestEscalationMultipleFermata:
 
         await baton.handle_event(
             EscalationResolved(
-                job_id="j1", sheet_num=1, decision="retry",
+                job_id="j1",
+                sheet_num=1,
+                decision="retry",
             )
         )
 
@@ -334,15 +345,15 @@ class TestEscalationCostPauseInteraction:
         # Resolve the escalation
         await baton.handle_event(
             EscalationResolved(
-                job_id="j1", sheet_num=1, decision="skip",
+                job_id="j1",
+                sheet_num=1,
+                decision="skip",
             )
         )
 
         assert sheets[1].status == BatonSheetStatus.SKIPPED
         # Job must stay paused — cost limit still exceeded
-        assert job.paused is True, (
-            "Cost enforcement pause must survive escalation resolution"
-        )
+        assert job.paused is True, "Cost enforcement pause must survive escalation resolution"
 
     @pytest.mark.asyncio
     async def test_escalation_timeout_preserves_cost_pause(self) -> None:
@@ -358,11 +369,7 @@ class TestEscalationCostPauseInteraction:
         job = baton._jobs["j1"]
         job.paused = True
 
-        await baton.handle_event(
-            EscalationTimeout(job_id="j1", sheet_num=1)
-        )
+        await baton.handle_event(EscalationTimeout(job_id="j1", sheet_num=1))
 
         assert sheets[1].status == BatonSheetStatus.FAILED
-        assert job.paused is True, (
-            "Cost enforcement pause must survive escalation timeout"
-        )
+        assert job.paused is True, "Cost enforcement pause must survive escalation timeout"

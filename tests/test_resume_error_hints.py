@@ -43,7 +43,8 @@ def _make_state(
         started_at=now,
         updated_at=now,
         config_path=config_path,
-        config_snapshot=config_snapshot or {
+        config_snapshot=config_snapshot
+        or {
             "name": "test-resume",
             "backend": {"type": "claude_cli"},
             "sheet": {"size": 1, "total_items": 1},
@@ -64,24 +65,19 @@ class TestResumeConfigLoadErrorHints:
         state = _make_state()
 
         with (
-            patch(
-                "marianne.cli.commands.resume.output_error"
-            ) as mock_error,
+            patch("marianne.cli.commands.resume.output_error") as mock_error,
             pytest.raises(typer.Exit),
         ):
             _reconstruct_config(state, bad_config, no_reload=False)
 
         mock_error.assert_called_once()
         kwargs = mock_error.call_args[1] if mock_error.call_args[1] else {}
-        assert "hints" in kwargs, (
-            "output_error called without hints — user gets no guidance"
-        )
+        assert "hints" in kwargs, "output_error called without hints — user gets no guidance"
         hints = kwargs["hints"]
         assert len(hints) > 0
-        assert any(
-            "validate" in h.lower() or "yaml" in h.lower()
-            for h in hints
-        ), f"Hints don't mention validation or YAML: {hints}"
+        assert any("validate" in h.lower() or "yaml" in h.lower() for h in hints), (
+            f"Hints don't mention validation or YAML: {hints}"
+        )
 
     def test_incomplete_config_includes_hint(self, tmp_path: Path) -> None:
         """When config is valid YAML but missing required fields,
@@ -92,9 +88,7 @@ class TestResumeConfigLoadErrorHints:
         state = _make_state()
 
         with (
-            patch(
-                "marianne.cli.commands.resume.output_error"
-            ) as mock_error,
+            patch("marianne.cli.commands.resume.output_error") as mock_error,
             pytest.raises(typer.Exit),
         ):
             _reconstruct_config(state, incomplete, no_reload=False)
@@ -112,15 +106,11 @@ class TestResumeConfigLoadErrorHints:
         state = _make_state(config_path=str(bad_stored))
 
         with (
-            patch(
-                "marianne.cli.commands.resume.output_error"
-            ) as mock_error,
+            patch("marianne.cli.commands.resume.output_error") as mock_error,
             pytest.raises(typer.Exit),
         ):
             _reconstruct_config(state, config_file=None, no_reload=False)
 
         mock_error.assert_called_once()
         kwargs = mock_error.call_args[1] if mock_error.call_args[1] else {}
-        assert "hints" in kwargs, (
-            "Config reload error has no hints — user doesn't know what to do"
-        )
+        assert "hints" in kwargs, "Config reload error has no hints — user doesn't know what to do"

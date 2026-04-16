@@ -25,7 +25,6 @@ from marianne.core.sheet import Sheet
 from marianne.daemon.baton.events import SheetAttemptResult
 from marianne.daemon.baton.state import BatonSheetStatus, SheetExecutionState
 
-
 # =========================================================================
 # Helpers
 # =========================================================================
@@ -129,9 +128,7 @@ class TestDispatchGuardBackendAcquireFailure:
         # Mock pool that raises NotImplementedError (unsupported kind)
         adapter._backend_pool = MagicMock()
         adapter._backend_pool.acquire = AsyncMock(
-            side_effect=NotImplementedError(
-                "HTTP instrument backends are not yet supported"
-            )
+            side_effect=NotImplementedError("HTTP instrument backends are not yet supported")
         )
 
         state = _make_execution_state(sheet_num=1, instrument="http-instrument")
@@ -158,9 +155,7 @@ class TestDispatchGuardBackendAcquireFailure:
         _drain_inbox(adapter)  # Clear DispatchRetry from registration
 
         adapter._backend_pool = MagicMock()
-        adapter._backend_pool.acquire = AsyncMock(
-            side_effect=RuntimeError("BackendPool is closed")
-        )
+        adapter._backend_pool.acquire = AsyncMock(side_effect=RuntimeError("BackendPool is closed"))
 
         state = _make_execution_state(sheet_num=1)
         await adapter._dispatch_callback("test-job", 1, state)
@@ -203,9 +198,7 @@ class TestDispatchGuardBackendAcquireFailure:
         _drain_inbox(adapter)
 
         adapter._backend_pool = MagicMock()
-        adapter._backend_pool.acquire = AsyncMock(
-            side_effect=ValueError("Not found")
-        )
+        adapter._backend_pool.acquire = AsyncMock(side_effect=ValueError("Not found"))
 
         state = _make_execution_state(sheet_num=1, instrument="gemini-cli")
         await adapter._dispatch_callback("test-job", 1, state)
@@ -269,9 +262,7 @@ class TestDispatchGuardBackendAcquireFailure:
         _drain_inbox(adapter)  # Clear DispatchRetry from registration
 
         adapter._backend_pool = MagicMock()
-        adapter._backend_pool.acquire = AsyncMock(
-            side_effect=ValueError("Not found")
-        )
+        adapter._backend_pool.acquire = AsyncMock(side_effect=ValueError("Not found"))
 
         # First dispatch attempt — should send failure result
         config = adapter.baton.build_dispatch_config(max_concurrent_sheets=10)

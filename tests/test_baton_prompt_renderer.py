@@ -16,7 +16,6 @@ from marianne.core.sheet import Sheet
 from marianne.daemon.baton.prompt import PromptRenderer, RenderedPrompt
 from marianne.daemon.baton.state import AttemptContext, AttemptMode
 
-
 # =========================================================================
 # Fixtures
 # =========================================================================
@@ -193,9 +192,7 @@ class TestBasicRendering:
             movement=2,
             voice=3,
             voice_count=4,
-            prompt_template=(
-                "Movement {{ movement }} voice {{ voice }} of {{ voice_count }}"
-            ),
+            prompt_template=("Movement {{ movement }} voice {{ voice }} of {{ voice_count }}"),
         )
         renderer = PromptRenderer(
             prompt_config=_make_prompt_config(),

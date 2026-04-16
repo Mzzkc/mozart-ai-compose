@@ -28,7 +28,6 @@ from marianne.core.config.spec import SpecCorpusConfig, SpecFragment
 from marianne.prompts.templating import PromptBuilder
 from marianne.spec.loader import SpecCorpusLoader
 
-
 # =============================================================================
 # SpecFragment model pipeline tests
 # =============================================================================
@@ -181,7 +180,8 @@ class TestLoaderToConfigIntegration:
         """YAML spec file → fragment → config → filterable."""
         spec_dir = tmp_path / "spec"
         spec_dir.mkdir()
-        (spec_dir / "intent.yaml").write_text(textwrap.dedent("""\
+        (spec_dir / "intent.yaml").write_text(
+            textwrap.dedent("""\
             name: intent
             tags: [goals, purpose]
             kind: structured
@@ -190,7 +190,8 @@ class TestLoaderToConfigIntegration:
               Correctness above all.
             data:
               primary_goal: correctness
-        """))
+        """)
+        )
 
         fragments = SpecCorpusLoader.load(str(spec_dir))
         config = SpecCorpusConfig(spec_dir=str(spec_dir), fragments=fragments)
@@ -299,20 +300,24 @@ class TestEndToEndPipeline:
         spec_dir.mkdir()
 
         # Create spec files with different tags
-        (spec_dir / "intent.yaml").write_text(textwrap.dedent("""\
+        (spec_dir / "intent.yaml").write_text(
+            textwrap.dedent("""\
             name: intent
             tags: [goals, mission]
             kind: text
             content: |
               Build the best orchestrator.
-        """))
-        (spec_dir / "constraints.yaml").write_text(textwrap.dedent("""\
+        """)
+        )
+        (spec_dir / "constraints.yaml").write_text(
+            textwrap.dedent("""\
             name: constraints
             tags: [safety, limits]
             kind: text
             content: |
               Never delete user data.
-        """))
+        """)
+        )
 
         # Step 1: Load
         fragments = SpecCorpusLoader.load(str(spec_dir))

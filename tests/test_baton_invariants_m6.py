@@ -74,9 +74,7 @@ class TestCheckpointTimestampInvariants:
     @given(
         status=st.sampled_from(list(JobStatus)),
     )
-    def test_invariant_100_running_jobs_always_have_started_at(
-        self, status: JobStatus
-    ) -> None:
+    def test_invariant_100_running_jobs_always_have_started_at(self, status: JobStatus) -> None:
         """Invariant 100: RUNNING jobs must have started_at set.
 
         F-493: Missing started_at caused "0.0s elapsed" display.
@@ -369,9 +367,7 @@ class TestTimestampEdgeCases:
     @given(
         status=st.sampled_from(list(JobStatus)),
     )
-    def test_invariant_107_none_timestamps_handled_consistently(
-        self, status: JobStatus
-    ) -> None:
+    def test_invariant_107_none_timestamps_handled_consistently(self, status: JobStatus) -> None:
         """Invariant 107: None timestamps are handled consistently across status transitions.
 
         Every status has a defined behavior for None timestamps:
@@ -397,9 +393,7 @@ class TestTimestampEdgeCases:
         # Check consistency based on status
         if checkpoint.status == JobStatus.RUNNING:
             # F-493 + F-518: RUNNING must have started_at, must NOT have completed_at
-            assert checkpoint.started_at is not None, (
-                "RUNNING jobs must have started_at (F-493)"
-            )
+            assert checkpoint.started_at is not None, "RUNNING jobs must have started_at (F-493)"
             assert checkpoint.completed_at is None, (
                 "RUNNING jobs must NOT have completed_at (F-518)"
             )

@@ -9,7 +9,6 @@ from __future__ import annotations
 import ast
 import re
 from pathlib import Path
-from typing import Optional
 
 import pytest
 
@@ -32,12 +31,11 @@ ASSERTION_LESS_TEST_BASELINE: int = 132
 def _collect_test_files() -> list[Path]:
     """Return all test_*.py files in the tests directory."""
     return sorted(
-        p for p in TESTS_DIR.iterdir()
-        if p.name.startswith("test_") and p.name.endswith(".py")
+        p for p in TESTS_DIR.iterdir() if p.name.startswith("test_") and p.name.endswith(".py")
     )
 
 
-def _parse_file(path: Path) -> Optional[ast.Module]:
+def _parse_file(path: Path) -> ast.Module | None:
     """Parse a Python file into an AST, returning None on failure."""
     try:
         return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -125,8 +123,7 @@ def test_no_asyncio_sleep_for_coordination() -> None:
         for filename, lineno in all_violations[-new_count:]:
             msg_lines.append(f"  {filename}:{lineno}")
         msg_lines.append(
-            "\nFix: use asyncio.sleep(0) for yielding, or wrap in a "
-            "while-loop polling pattern."
+            "\nFix: use asyncio.sleep(0) for yielding, or wrap in a while-loop polling pattern."
         )
         pytest.fail("\n".join(msg_lines))
 
@@ -137,9 +134,7 @@ def test_no_asyncio_sleep_for_coordination() -> None:
 
 # Matches patterns like "assert elapsed < 5.0" in non-comment lines.
 # Captures the numeric bound.
-_TIGHT_TIMING_RE = re.compile(
-    r"assert\s+\w*elapsed\w*\s*<\s*(\d+(?:\.\d+)?)"
-)
+_TIGHT_TIMING_RE = re.compile(r"assert\s+\w*elapsed\w*\s*<\s*(\d+(?:\.\d+)?)")
 
 
 def test_no_tight_timing_assertions() -> None:
@@ -147,9 +142,7 @@ def test_no_tight_timing_assertions() -> None:
     violations: list[tuple[str, int, float]] = []
 
     for test_file in _collect_test_files():
-        for lineno, line in enumerate(
-            test_file.read_text(encoding="utf-8").splitlines(), start=1
-        ):
+        for lineno, line in enumerate(test_file.read_text(encoding="utf-8").splitlines(), start=1):
             stripped = line.lstrip()
             if stripped.startswith("#"):
                 continue
@@ -160,9 +153,7 @@ def test_no_tight_timing_assertions() -> None:
                     violations.append((test_file.name, lineno, bound))
 
     if violations:
-        msg_lines = [
-            f"Found {len(violations)} tight timing assertion(s) (bound < 30s):"
-        ]
+        msg_lines = [f"Found {len(violations)} tight timing assertion(s) (bound < 30s):"]
         for filename, lineno, bound in violations:
             msg_lines.append(f"  {filename}:{lineno} — assert elapsed < {bound}")
         msg_lines.append(
@@ -213,9 +204,7 @@ def test_all_tests_have_assertions() -> None:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if node.name.startswith("test_"):
                     if not _has_assertion(node):
-                        violations.append(
-                            (test_file.name, node.name, node.lineno)
-                        )
+                        violations.append((test_file.name, node.name, node.lineno))
 
     current_count = len(violations)
 
@@ -258,9 +247,7 @@ def _count_bare_magicmock(path: Path) -> list[tuple[str, int]]:
         elif isinstance(func, ast.Attribute):
             name = func.attr
         if name == "MagicMock":
-            has_spec = any(
-                kw.arg in ("spec", "spec_set") for kw in node.keywords
-            )
+            has_spec = any(kw.arg in ("spec", "spec_set") for kw in node.keywords)
             if not has_spec:
                 results.append((path.name, node.lineno))
     return results
@@ -286,9 +273,7 @@ def test_no_bare_magicmock() -> None:
         # Show all locations (can't diff, show all)
         for filename, lineno in all_instances[-new_count:]:
             msg_lines.append(f"  {filename}:{lineno}")
-        msg_lines.append(
-            "\nFix: use MagicMock(spec=RealClass) or create_autospec(RealClass)."
-        )
+        msg_lines.append("\nFix: use MagicMock(spec=RealClass) or create_autospec(RealClass).")
         pytest.fail("\n".join(msg_lines))
 
 
@@ -345,13 +330,19 @@ def _find_given_tested_models() -> set[str]:
             for decorator in node.decorator_list:
                 if isinstance(decorator, ast.Call):
                     func = decorator.func
-                    if isinstance(func, ast.Name) and func.id == "given":
+                    if (
+                        isinstance(func, ast.Name)
+                        and func.id == "given"
+                        or isinstance(func, ast.Attribute)
+                        and func.attr == "given"
+                    ):
                         has_given = True
-                    elif isinstance(func, ast.Attribute) and func.attr == "given":
-                        has_given = True
-                elif isinstance(decorator, ast.Name) and decorator.id == "given":
-                    has_given = True
-                elif isinstance(decorator, ast.Attribute) and decorator.attr == "given":
+                elif (
+                    isinstance(decorator, ast.Name)
+                    and decorator.id == "given"
+                    or isinstance(decorator, ast.Attribute)
+                    and decorator.attr == "given"
+                ):
                     has_given = True
             if has_given:
                 # Extract model names from the function body and name
@@ -377,7 +368,6 @@ def test_property_based_tests_exist_for_pydantic_models() -> None:
         for model_name in untested:
             msg_lines.append(f"  - {model_name}")
         msg_lines.append(
-            "\nFix: add hypothesis @given tests using strategies from "
-            "conftest_adversarial.py."
+            "\nFix: add hypothesis @given tests using strategies from conftest_adversarial.py."
         )
         pytest.fail("\n".join(msg_lines))

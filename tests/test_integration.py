@@ -23,7 +23,6 @@ from marianne.backends.base import ExecutionResult
 from marianne.cli import app
 from marianne.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
 from marianne.dashboard import create_app
-from marianne.core.summary import RunSummary
 from marianne.state.json_backend import JsonStateBackend
 
 runner = CliRunner()
@@ -36,13 +35,13 @@ def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
     Individual tests that need conductor behavior override with
     unittest.mock.patch (which takes precedence during its context).
     """
-    async def _fake_route(
-        method: str, params: dict, *, socket_path=None
-    ) -> tuple[bool, None]:
+
+    async def _fake_route(method: str, params: dict, *, socket_path=None) -> tuple[bool, None]:
         return False, None
 
     monkeypatch.setattr(
-        "marianne.daemon.detect.try_daemon_route", _fake_route,
+        "marianne.daemon.detect.try_daemon_route",
+        _fake_route,
     )
 
 
@@ -190,25 +189,39 @@ def _multi_job_daemon_data() -> list[dict[str, Any]]:
     now = time.time()
     return [
         {
-            "job_id": "job-completed-1", "status": "completed",
-            "workspace": "/ws/1", "submitted_at": now - 400,
-            "started_at": now - 390, "completed_at": now - 300, "pid": 1001,
+            "job_id": "job-completed-1",
+            "status": "completed",
+            "workspace": "/ws/1",
+            "submitted_at": now - 400,
+            "started_at": now - 390,
+            "completed_at": now - 300,
+            "pid": 1001,
         },
         {
-            "job_id": "job-running-2", "status": "running",
-            "workspace": "/ws/2", "submitted_at": now - 200,
-            "started_at": now - 190, "pid": 1002,
+            "job_id": "job-running-2",
+            "status": "running",
+            "workspace": "/ws/2",
+            "submitted_at": now - 200,
+            "started_at": now - 190,
+            "pid": 1002,
         },
         {
-            "job_id": "job-failed-3", "status": "failed",
-            "workspace": "/ws/3", "submitted_at": now - 100,
-            "started_at": now - 90, "completed_at": now - 50,
-            "error_message": "Max retries exceeded", "pid": 1003,
+            "job_id": "job-failed-3",
+            "status": "failed",
+            "workspace": "/ws/3",
+            "submitted_at": now - 100,
+            "started_at": now - 90,
+            "completed_at": now - 50,
+            "error_message": "Max retries exceeded",
+            "pid": 1003,
         },
         {
-            "job_id": "job-paused-4", "status": "paused",
-            "workspace": "/ws/4", "submitted_at": now - 50,
-            "started_at": now - 40, "pid": 1004,
+            "job_id": "job-paused-4",
+            "status": "paused",
+            "workspace": "/ws/4",
+            "submitted_at": now - 50,
+            "started_at": now - 40,
+            "pid": 1004,
         },
     ]
 
@@ -221,9 +234,7 @@ def _multi_job_daemon_data() -> list[dict[str, Any]]:
 class TestRunStatusResumeWorkflow:
     """Tests for the complete run -> status -> resume workflow."""
 
-    def test_run_dry_run_shows_plan(
-        self, workspace_with_config: tuple[Path, Path]
-    ) -> None:
+    def test_run_dry_run_shows_plan(self, workspace_with_config: tuple[Path, Path]) -> None:
         """Dry run shows job plan without execution."""
         _, config_path = workspace_with_config
 
@@ -282,6 +293,7 @@ class TestRunStatusResumeWorkflow:
 
     def test_resume_continues_from_checkpoint(self, tmp_path: Path) -> None:
         """Resume of paused job is accepted by conductor."""
+
         # Resume routes through conductor; mock an accepted response
         async def _fake_route(method, params, *, socket_path=None):
             assert params["job_id"] == "resume-test-job"
@@ -342,14 +354,10 @@ class TestRunStatusResumeWorkflow:
             },
         )
         state_file = workspace / "e2e-test-job.json"
-        state_file.write_text(
-            json.dumps(paused_state.model_dump(mode="json"), default=str)
-        )
+        state_file.write_text(json.dumps(paused_state.model_dump(mode="json"), default=str))
 
         # Step 2: Check status
-        result = runner.invoke(
-            app, ["status", "e2e-test-job", "--workspace", str(workspace)]
-        )
+        result = runner.invoke(app, ["status", "e2e-test-job", "--workspace", str(workspace)])
         assert result.exit_code == 0
         assert "PAUSED" in result.stdout
         assert "1" in result.stdout and "3" in result.stdout  # 1/3 sheets
@@ -364,9 +372,7 @@ class TestRunStatusResumeWorkflow:
             }
 
         with patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_resume_route):
-            result = runner.invoke(
-                app, ["resume", "e2e-test-job"]
-            )
+            result = runner.invoke(app, ["resume", "e2e-test-job"])
 
         assert result.exit_code == 0
         assert "Resume accepted" in result.stdout
@@ -383,8 +389,10 @@ class TestListMultipleJobs:
     @staticmethod
     def _mock_route(jobs: list[dict]):
         """Return a patch that makes try_daemon_route return *jobs*."""
+
         async def _fake_route(method, params):
             return (True, jobs)
+
         return patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_route)
 
     def test_list_default_shows_active_only(self) -> None:
@@ -490,9 +498,7 @@ class TestDashboardAPIIntegration:
         test_app = create_app(state_backend=state_backend)
         return TestClient(test_app)
 
-    def test_dashboard_initially_empty(
-        self, dashboard_client: TestClient
-    ) -> None:
+    def test_dashboard_initially_empty(self, dashboard_client: TestClient) -> None:
         """Dashboard shows empty list initially."""
         response = dashboard_client.get("/api/jobs")
         assert response.status_code == 200
@@ -511,9 +517,7 @@ class TestDashboardAPIIntegration:
             status=JobStatus.RUNNING,
         )
         state_file = dashboard_workspace / f"{job.job_id}.json"
-        state_file.write_text(
-            json.dumps(job.model_dump(mode="json"), default=str)
-        )
+        state_file.write_text(json.dumps(job.model_dump(mode="json"), default=str))
 
         # List should show the job
         response = dashboard_client.get("/api/jobs")
@@ -530,9 +534,7 @@ class TestDashboardAPIIntegration:
         assert job_data["status"] == "running"
         assert job_data["total_sheets"] == 5
 
-    def test_dashboard_404_for_missing_job(
-        self, dashboard_client: TestClient
-    ) -> None:
+    def test_dashboard_404_for_missing_job(self, dashboard_client: TestClient) -> None:
         """Dashboard returns 404 for non-existent job."""
         response = dashboard_client.get("/api/jobs/nonexistent")
         assert response.status_code == 404
@@ -574,8 +576,10 @@ class TestAllCLICommandsFunctional:
     def test_list_command_works(self) -> None:
         """List command works via daemon."""
         jobs = _multi_job_daemon_data()
+
         async def _fake_route(method, params):
             return (True, jobs)
+
         with patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_route):
             result = runner.invoke(app, ["list", "--all"])
         assert result.exit_code == 0
@@ -609,9 +613,7 @@ class TestAllCLICommandsFunctional:
         mock_uvicorn.run = lambda *args, **kwargs: None
 
         with patch.dict(sys.modules, {"uvicorn": mock_uvicorn}):
-            result = runner.invoke(
-                app, ["dashboard", "--workspace", str(tmp_path)]
-            )
+            result = runner.invoke(app, ["dashboard", "--workspace", str(tmp_path)])
             assert result.exit_code == 0
             assert "Marianne Dashboard" in result.stdout
 
@@ -689,9 +691,7 @@ class TestStateBackendIntegration:
         # Update state
         state.status = JobStatus.RUNNING
         state.last_completed_sheet = 3
-        state.sheets[1] = SheetState(
-            sheet_num=1, status=SheetStatus.COMPLETED, attempt_count=1
-        )
+        state.sheets[1] = SheetState(sheet_num=1, status=SheetStatus.COMPLETED, attempt_count=1)
         await backend.save(state)
 
         # Load and verify
@@ -722,8 +722,10 @@ class TestErrorHandlingIntegration:
 
     def test_list_without_daemon_error(self) -> None:
         """List without running daemon produces helpful error."""
+
         async def _fake_route(method, params):
             return (False, None)
+
         with patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_route):
             result = runner.invoke(app, ["list"])
         assert result.exit_code == 1
@@ -734,14 +736,13 @@ class TestErrorHandlingIntegration:
         workspace = tmp_path / "empty"
         workspace.mkdir()
 
-        result = runner.invoke(
-            app, ["status", "nonexistent-job", "--workspace", str(workspace)]
-        )
+        result = runner.invoke(app, ["status", "nonexistent-job", "--workspace", str(workspace)])
         assert result.exit_code == 1
         assert "not found" in result.stdout.lower()
 
     def test_resume_missing_config_error(self, tmp_path: Path) -> None:
         """Resume without config snapshot shows helpful error."""
+
         # Resume routes through conductor; mock a rejection about missing config
         async def _fake_route(method, params, *, socket_path=None):
             return True, {
@@ -751,8 +752,6 @@ class TestErrorHandlingIntegration:
             }
 
         with patch("marianne.daemon.detect.try_daemon_route", side_effect=_fake_route):
-            result = runner.invoke(
-                app, ["resume", "no-config"]
-            )
+            result = runner.invoke(app, ["resume", "no-config"])
         assert result.exit_code == 1
         assert "config" in result.stdout.lower()

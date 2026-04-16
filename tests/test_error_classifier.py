@@ -51,8 +51,12 @@ class TestParseResetTime:
             ("resets in 45 minutes", 45 * 60),
         ],
         ids=[
-            "3-hours", "1-hour", "5-hr",
-            "30-minutes", "10-min", "45-minutes",
+            "3-hours",
+            "1-hour",
+            "5-hr",
+            "30-minutes",
+            "10-min",
+            "45-minutes",
         ],
     )
     def test_relative_time_formats(
@@ -82,9 +86,7 @@ class TestParseResetTime:
         ],
         ids=["9pm", "9-space-pm", "3pm", "11am", "12am-midnight", "12pm-noon"],
     )
-    def test_absolute_12hr_time_formats(
-        self, classifier: ErrorClassifier, text: str
-    ) -> None:
+    def test_absolute_12hr_time_formats(self, classifier: ErrorClassifier, text: str) -> None:
         """Test 'resets at Xpm/Xam' formats return a positive wait time >= 300."""
         result = classifier.parse_reset_time(text)
         assert result is not None
@@ -113,9 +115,7 @@ class TestParseResetTime:
         ],
         ids=["random", "conn-refused", "rate-limit-no-time", "empty", "vague-reset"],
     )
-    def test_no_match_returns_none(
-        self, classifier: ErrorClassifier, text: str
-    ) -> None:
+    def test_no_match_returns_none(self, classifier: ErrorClassifier, text: str) -> None:
         """Test that text without a parseable reset time returns None."""
         result = classifier.parse_reset_time(text)
         assert result is None
@@ -266,22 +266,43 @@ class TestClassifyByPattern:
             ("network unreachable", ErrorCode.NETWORK_CONNECTION_FAILED, ErrorCategory.NETWORK),
         ],
         ids=[
-            "quota-tokens-exhausted", "quota-token-budget", "quota-usage-reset-at",
-            "quota-resets-9pm", "quota-resets-in-hours", "quota-daily-token-limit",
-            "quota-no-credits", "quota-token-allowance",
-            "rate-limit-exceeded", "rate-limit-429-text", "rate-limit-429-code",
+            "quota-tokens-exhausted",
+            "quota-token-budget",
+            "quota-usage-reset-at",
+            "quota-resets-9pm",
+            "quota-resets-in-hours",
+            "quota-daily-token-limit",
+            "quota-no-credits",
+            "quota-token-allowance",
+            "rate-limit-exceeded",
+            "rate-limit-429-text",
+            "rate-limit-429-code",
             "rate-limit-hit-limit",
-            "capacity-overloaded", "capacity-try-later", "capacity-at-capacity",
-            "enoent-spawn", "enoent-no-such-file", "enoent-cmd-not-found",
+            "capacity-overloaded",
+            "capacity-try-later",
+            "capacity-at-capacity",
+            "enoent-spawn",
+            "enoent-no-such-file",
+            "enoent-cmd-not-found",
             "enoent-not-in-path",
             "cli-mode-streaming",
-            "auth-401", "auth-invalid-key", "auth-permission-denied",
-            "auth-access-denied", "auth-403",
-            "mcp-server-error", "mcp-missing-env",
-            "dns-enotfound", "dns-resolution", "dns-could-not-resolve",
-            "ssl-handshake", "ssl-certificate", "ssl-tls-error",
-            "network-conn-refused", "network-econnrefused",
-            "network-etimedout", "network-unreachable",
+            "auth-401",
+            "auth-invalid-key",
+            "auth-permission-denied",
+            "auth-access-denied",
+            "auth-403",
+            "mcp-server-error",
+            "mcp-missing-env",
+            "dns-enotfound",
+            "dns-resolution",
+            "dns-could-not-resolve",
+            "ssl-handshake",
+            "ssl-certificate",
+            "ssl-tls-error",
+            "network-conn-refused",
+            "network-econnrefused",
+            "network-etimedout",
+            "network-unreachable",
         ],
     )
     def test_pattern_classification(
@@ -312,9 +333,15 @@ class TestClassifyByPattern:
             ("SSL_ERROR", True),
         ],
         ids=[
-            "rate-limit", "quota", "enoent",
-            "auth", "mcp", "cli-mode",
-            "network", "dns", "ssl",
+            "rate-limit",
+            "quota",
+            "enoent",
+            "auth",
+            "mcp",
+            "cli-mode",
+            "network",
+            "dns",
+            "ssl",
         ],
     )
     def test_pattern_retriability(
@@ -345,8 +372,13 @@ class TestClassifyByExitCode:
             (124, ErrorCode.EXECUTION_TIMEOUT, ErrorCategory.TIMEOUT, True),
             (127, ErrorCode.BACKEND_NOT_FOUND, ErrorCategory.FATAL, False),
         ],
-        ids=["exit-0-validation", "exit-1-transient", "exit-2-transient",
-             "exit-124-timeout", "exit-127-not-found"],
+        ids=[
+            "exit-0-validation",
+            "exit-1-transient",
+            "exit-2-transient",
+            "exit-124-timeout",
+            "exit-127-not-found",
+        ],
     )
     def test_exit_code_classification(
         self,
@@ -410,9 +442,14 @@ class TestClassifySignal:
             (signal.SIGINT, ErrorCode.EXECUTION_INTERRUPTED, ErrorCategory.FATAL, False),
         ],
         ids=[
-            "SIGTERM-retriable", "SIGHUP-retriable", "SIGPIPE-retriable",
-            "SIGSEGV-fatal", "SIGBUS-fatal", "SIGABRT-fatal",
-            "SIGFPE-fatal", "SIGILL-fatal",
+            "SIGTERM-retriable",
+            "SIGHUP-retriable",
+            "SIGPIPE-retriable",
+            "SIGSEGV-fatal",
+            "SIGBUS-fatal",
+            "SIGABRT-fatal",
+            "SIGFPE-fatal",
+            "SIGILL-fatal",
             "SIGINT-interrupted",
         ],
     )
@@ -456,9 +493,7 @@ class TestClassifySignal:
         ],
         ids=["oom-killer", "out-of-memory", "cannot-allocate", "memory-cgroup"],
     )
-    def test_sigkill_with_oom_indicators(
-        self, classifier: ErrorClassifier, oom_text: str
-    ) -> None:
+    def test_sigkill_with_oom_indicators(self, classifier: ErrorClassifier, oom_text: str) -> None:
         """SIGKILL with OOM indicators in output produces EXECUTION_OOM."""
         result = classifier.classify(
             stderr=oom_text,
@@ -505,15 +540,23 @@ class TestMatchesAny:
 
     def test_matches_any_returns_true_on_match(self, classifier: ErrorClassifier) -> None:
         """Test _matches_any returns True when text matches a pattern."""
-        assert classifier._matches_any(
-            "rate limit exceeded", classifier.rate_limit_patterns,
-        ) is True
+        assert (
+            classifier._matches_any(
+                "rate limit exceeded",
+                classifier.rate_limit_patterns,
+            )
+            is True
+        )
 
     def test_matches_any_returns_false_on_no_match(self, classifier: ErrorClassifier) -> None:
         """Test _matches_any returns False when no pattern matches."""
-        assert classifier._matches_any(
-            "everything is fine", classifier.rate_limit_patterns,
-        ) is False
+        assert (
+            classifier._matches_any(
+                "everything is fine",
+                classifier.rate_limit_patterns,
+            )
+            is False
+        )
 
     def test_matches_any_caches_combined_pattern(self, classifier: ErrorClassifier) -> None:
         """Test that _matches_any uses pre-computed combined regex patterns."""
@@ -542,9 +585,13 @@ class TestMatchesAny:
 
     def test_matches_any_case_insensitive(self, classifier: ErrorClassifier) -> None:
         """Test that _matches_any is case insensitive."""
-        assert classifier._matches_any(
-            "RATE LIMIT EXCEEDED", classifier.rate_limit_patterns,
-        ) is True
+        assert (
+            classifier._matches_any(
+                "RATE LIMIT EXCEEDED",
+                classifier.rate_limit_patterns,
+            )
+            is True
+        )
         assert classifier._matches_any("Rate Limit", classifier.rate_limit_patterns) is True
 
 
@@ -624,13 +671,15 @@ class TestClassifyExecution:
 
     def test_structured_json_errors_parsed(self, classifier: ErrorClassifier) -> None:
         """Test that structured JSON errors[] are parsed and classified."""
-        stdout = json.dumps({
-            "result": "",
-            "errors": [
-                {"type": "system", "message": "Rate limit exceeded"},
-            ],
-            "cost_usd": 0.05,
-        })
+        stdout = json.dumps(
+            {
+                "result": "",
+                "errors": [
+                    {"type": "system", "message": "Rate limit exceeded"},
+                ],
+                "cost_usd": 0.05,
+            }
+        )
         result = classifier.classify_execution(stdout=stdout, exit_code=1)
         assert isinstance(result, ClassificationResult)
         assert result.classification_method == "structured"
@@ -648,13 +697,15 @@ class TestClassifyExecution:
 
     def test_multi_error_root_cause_selection(self, classifier: ErrorClassifier) -> None:
         """Test that root cause is selected from multiple JSON errors."""
-        stdout = json.dumps({
-            "result": "",
-            "errors": [
-                {"type": "system", "message": "Rate limit exceeded"},
-                {"type": "user", "message": "spawn claude ENOENT"},
-            ],
-        })
+        stdout = json.dumps(
+            {
+                "result": "",
+                "errors": [
+                    {"type": "system", "message": "Rate limit exceeded"},
+                    {"type": "user", "message": "spawn claude ENOENT"},
+                ],
+            }
+        )
         result = classifier.classify_execution(stdout=stdout, exit_code=1)
         # ENOENT (BACKEND_NOT_FOUND) has higher priority than rate limit
         assert result.primary.error_code == ErrorCode.BACKEND_NOT_FOUND
@@ -684,9 +735,7 @@ class TestClassifyExecution:
             exit_code=1,
             exception=exc,
         )
-        assert any(
-            e.error_code == ErrorCode.EXECUTION_TIMEOUT for e in result.all_errors
-        )
+        assert any(e.error_code == ErrorCode.EXECUTION_TIMEOUT for e in result.all_errors)
 
     def test_classify_execution_network_exception(self, classifier: ErrorClassifier) -> None:
         """Test classify_execution with network-related exception."""
@@ -695,9 +744,7 @@ class TestClassifyExecution:
             exit_code=1,
             exception=exc,
         )
-        assert any(
-            e.error_code == ErrorCode.NETWORK_CONNECTION_FAILED for e in result.all_errors
-        )
+        assert any(e.error_code == ErrorCode.NETWORK_CONNECTION_FAILED for e in result.all_errors)
 
     def test_classify_execution_result_backward_compat(self, classifier: ErrorClassifier) -> None:
         """Test ClassificationResult backward compatibility properties."""
@@ -714,13 +761,15 @@ class TestClassifyExecution:
 
     def test_classify_execution_error_codes_list(self, classifier: ErrorClassifier) -> None:
         """Test ClassificationResult.error_codes returns all codes."""
-        stdout = json.dumps({
-            "result": "",
-            "errors": [
-                {"type": "system", "message": "Rate limit exceeded"},
-                {"type": "user", "message": "spawn claude ENOENT"},
-            ],
-        })
+        stdout = json.dumps(
+            {
+                "result": "",
+                "errors": [
+                    {"type": "system", "message": "Rate limit exceeded"},
+                    {"type": "user", "message": "spawn claude ENOENT"},
+                ],
+            }
+        )
         result = classifier.classify_execution(stdout=stdout, exit_code=1)
         codes = result.error_codes
         assert isinstance(codes, list)
@@ -864,6 +913,7 @@ class TestExitCodeNoneClassification126:
     ) -> None:
         """TEST-126-B: exit_code=None + exit_signal=SIGTERM still handled by signal path."""
         import signal as signal_mod
+
         result = classifier.classify(
             exit_code=None,
             exit_signal=signal_mod.SIGTERM,
@@ -899,9 +949,7 @@ class TestExitCodeNoneClassification126:
         # 127 = FATAL (backend not found), 42 = unknown fallback (FATAL)
         assert result_before.category == ErrorCategory.FATAL
 
-    def test_126_e_suggested_wait_seconds_reasonable(
-        self, classifier: ErrorClassifier
-    ) -> None:
+    def test_126_e_suggested_wait_seconds_reasonable(self, classifier: ErrorClassifier) -> None:
         """TEST-126-E: suggested_wait_seconds in a reasonable range for transient race."""
         result = classifier.classify(exit_code=None, exit_reason="error")
         assert result.suggested_wait_seconds is not None
@@ -915,9 +963,7 @@ class TestExitCodeNoneClassification126:
         result = classifier.classify(exit_code=None, exit_reason="timeout")
         assert result.category == ErrorCategory.TIMEOUT
 
-    def test_126_g_exit_code_none_no_reason_is_transient(
-        self, classifier: ErrorClassifier
-    ) -> None:
+    def test_126_g_exit_code_none_no_reason_is_transient(self, classifier: ErrorClassifier) -> None:
         """TEST-126-G: exit_code=None with no exit_reason → TRANSIENT (bug #126 fix).
 
         Before the fix, this fell through to FATAL. After the fix,

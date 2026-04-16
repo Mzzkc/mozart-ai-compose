@@ -71,7 +71,7 @@ class TestArtifactTools:
                     completed_at=datetime.now(),
                     attempt_count=1,
                     stdout_tail="Sheet 1 output content",
-                    stderr_tail=""
+                    stderr_tail="",
                 ),
                 2: SheetState(
                     sheet_num=2,
@@ -80,9 +80,9 @@ class TestArtifactTools:
                     attempt_count=3,
                     stdout_tail="Sheet 2 failed output",
                     stderr_tail="Error in sheet 2",
-                    error_message="Validation failed"
-                )
-            }
+                    error_message="Validation failed",
+                ),
+            },
         )
 
     async def test_list_tools(self, artifact_tools):
@@ -95,7 +95,7 @@ class TestArtifactTools:
             "marianne_artifact_read",
             "marianne_artifact_get_logs",
             "marianne_artifact_list_artifacts",
-            "marianne_artifact_get_artifact"
+            "marianne_artifact_get_artifact",
         ]
 
         for expected in expected_tools:
@@ -111,10 +111,9 @@ class TestArtifactTools:
 
     async def test_list_files_basic(self, artifact_tools, temp_workspace):
         """Test basic file listing functionality."""
-        result = await artifact_tools._list_files({
-            "workspace": str(temp_workspace / "job1"),
-            "path": "."
-        })
+        result = await artifact_tools._list_files(
+            {"workspace": str(temp_workspace / "job1"), "path": "."}
+        )
 
         assert result["content"][0]["type"] == "text"
         text = result["content"][0]["text"]
@@ -132,22 +131,18 @@ class TestArtifactTools:
 
     async def test_list_files_with_hidden(self, artifact_tools, temp_workspace):
         """Test file listing with hidden files included."""
-        result = await artifact_tools._list_files({
-            "workspace": str(temp_workspace / "job1"),
-            "path": ".",
-            "include_hidden": True
-        })
+        result = await artifact_tools._list_files(
+            {"workspace": str(temp_workspace / "job1"), "path": ".", "include_hidden": True}
+        )
 
         text = result["content"][0]["text"]
         assert "📄 .hidden_file" in text
 
     async def test_list_files_without_hidden(self, artifact_tools, temp_workspace):
         """Test file listing without hidden files (default)."""
-        result = await artifact_tools._list_files({
-            "workspace": str(temp_workspace / "job1"),
-            "path": ".",
-            "include_hidden": False
-        })
+        result = await artifact_tools._list_files(
+            {"workspace": str(temp_workspace / "job1"), "path": ".", "include_hidden": False}
+        )
 
         text = result["content"][0]["text"]
         assert ".hidden_file" not in text
@@ -155,25 +150,22 @@ class TestArtifactTools:
     async def test_list_files_security_violation(self, artifact_tools, temp_workspace):
         """Test that file listing prevents directory traversal attacks."""
         with pytest.raises(PermissionError, match="Access denied: Path outside workspace"):
-            await artifact_tools._list_files({
-                "workspace": str(temp_workspace / "job1"),
-                "path": "../.."
-            })
+            await artifact_tools._list_files(
+                {"workspace": str(temp_workspace / "job1"), "path": "../.."}
+            )
 
     async def test_list_files_nonexistent_directory(self, artifact_tools, temp_workspace):
         """Test file listing with non-existent directory."""
         with pytest.raises(FileNotFoundError, match="Directory not found"):
-            await artifact_tools._list_files({
-                "workspace": str(temp_workspace / "job1"),
-                "path": "nonexistent"
-            })
+            await artifact_tools._list_files(
+                {"workspace": str(temp_workspace / "job1"), "path": "nonexistent"}
+            )
 
     async def test_read_file_basic(self, artifact_tools, temp_workspace):
         """Test basic file reading functionality."""
-        result = await artifact_tools._read_file({
-            "workspace": str(temp_workspace / "job1"),
-            "file_path": "outputs/result.txt"
-        })
+        result = await artifact_tools._read_file(
+            {"workspace": str(temp_workspace / "job1"), "file_path": "outputs/result.txt"}
+        )
 
         text = result["content"][0]["text"]
         assert "📄 File: result.txt" in text
@@ -183,10 +175,9 @@ class TestArtifactTools:
 
     async def test_read_file_json(self, artifact_tools, temp_workspace):
         """Test reading JSON file."""
-        result = await artifact_tools._read_file({
-            "workspace": str(temp_workspace / "job1"),
-            "file_path": "outputs/data.json"
-        })
+        result = await artifact_tools._read_file(
+            {"workspace": str(temp_workspace / "job1"), "file_path": "outputs/data.json"}
+        )
 
         text = result["content"][0]["text"]
         assert '{"result": "success"}' in text
@@ -194,31 +185,34 @@ class TestArtifactTools:
     async def test_read_file_too_large(self, artifact_tools, temp_workspace):
         """Test reading file that exceeds size limit."""
         with pytest.raises(ValueError, match="File too large"):
-            await artifact_tools._read_file({
-                "workspace": str(temp_workspace / "job1"),
-                "file_path": "large_file.txt",
-                "max_size": 1000
-            })
+            await artifact_tools._read_file(
+                {
+                    "workspace": str(temp_workspace / "job1"),
+                    "file_path": "large_file.txt",
+                    "max_size": 1000,
+                }
+            )
 
     async def test_read_file_security_violation(self, artifact_tools, temp_workspace):
         """Test that file reading prevents directory traversal attacks."""
         with pytest.raises(PermissionError, match="Access denied: Path outside workspace"):
-            await artifact_tools._read_file({
-                "workspace": str(temp_workspace / "job1"),
-                "file_path": "../../etc/passwd"
-            })
+            await artifact_tools._read_file(
+                {"workspace": str(temp_workspace / "job1"), "file_path": "../../etc/passwd"}
+            )
 
     async def test_read_file_alternative_encoding(self, artifact_tools, temp_workspace):
         """Test reading file with alternative encoding."""
         # Create a file with non-UTF-8 content
         latin_file = temp_workspace / "job1" / "latin1.txt"
-        latin_file.write_bytes("café".encode('latin-1'))
+        latin_file.write_bytes("café".encode("latin-1"))
 
-        result = await artifact_tools._read_file({
-            "workspace": str(temp_workspace / "job1"),
-            "file_path": "latin1.txt",
-            "encoding": "utf-8"
-        })
+        result = await artifact_tools._read_file(
+            {
+                "workspace": str(temp_workspace / "job1"),
+                "file_path": "latin1.txt",
+                "encoding": "utf-8",
+            }
+        )
 
         text = result["content"][0]["text"]
         # Should fall back to alternative encoding
@@ -226,12 +220,14 @@ class TestArtifactTools:
 
     async def test_get_logs_with_workspace(self, artifact_tools, temp_workspace):
         """Test log retrieval with specified workspace."""
-        result = await artifact_tools._get_logs({
-            "job_id": "job1",
-            "workspace": str(temp_workspace / "job1"),
-            "lines": 50,
-            "level": "all"
-        })
+        result = await artifact_tools._get_logs(
+            {
+                "job_id": "job1",
+                "workspace": str(temp_workspace / "job1"),
+                "lines": 50,
+                "level": "all",
+            }
+        )
 
         text = result["content"][0]["text"]
         assert "📋 Logs for Marianne Job: job1" in text
@@ -242,11 +238,9 @@ class TestArtifactTools:
 
     async def test_get_logs_level_filter(self, artifact_tools, temp_workspace):
         """Test log retrieval with level filtering."""
-        result = await artifact_tools._get_logs({
-            "job_id": "job1",
-            "workspace": str(temp_workspace / "job1"),
-            "level": "error"
-        })
+        result = await artifact_tools._get_logs(
+            {"job_id": "job1", "workspace": str(temp_workspace / "job1"), "level": "error"}
+        )
 
         text = result["content"][0]["text"]
         assert "ERROR: Validation failed" in text
@@ -255,11 +249,9 @@ class TestArtifactTools:
 
     async def test_get_logs_info_filter(self, artifact_tools, temp_workspace):
         """Test log retrieval filtering for info level."""
-        result = await artifact_tools._get_logs({
-            "job_id": "job1",
-            "workspace": str(temp_workspace / "job1"),
-            "level": "info"
-        })
+        result = await artifact_tools._get_logs(
+            {"job_id": "job1", "workspace": str(temp_workspace / "job1"), "level": "info"}
+        )
 
         text = result["content"][0]["text"]
         assert "INFO: Job started" in text
@@ -268,28 +260,26 @@ class TestArtifactTools:
 
     async def test_get_logs_line_limit(self, artifact_tools, temp_workspace):
         """Test log retrieval with line limit."""
-        result = await artifact_tools._get_logs({
-            "job_id": "job1",
-            "workspace": str(temp_workspace / "job1"),
-            "lines": 2,
-            "level": "all"
-        })
+        result = await artifact_tools._get_logs(
+            {
+                "job_id": "job1",
+                "workspace": str(temp_workspace / "job1"),
+                "lines": 2,
+                "level": "all",
+            }
+        )
 
         text = result["content"][0]["text"]
         # Should only show last 2 lines
         assert "ERROR: Validation failed" in text
         assert "INFO: Job completed" in text
 
-    @patch.object(ArtifactTools, '_find_job_workspace')
+    @patch.object(ArtifactTools, "_find_job_workspace")
     async def test_get_logs_auto_find_workspace(self, mock_find, artifact_tools, temp_workspace):
         """Test log retrieval with automatic workspace detection."""
         mock_find.return_value = str(temp_workspace / "job1")
 
-        result = await artifact_tools._get_logs({
-            "job_id": "job1",
-            "lines": 10,
-            "level": "all"
-        })
+        result = await artifact_tools._get_logs({"job_id": "job1", "lines": 10, "level": "all"})
 
         mock_find.assert_called_once_with("job1")
         text = result["content"][0]["text"]
@@ -301,18 +291,13 @@ class TestArtifactTools:
         empty_job_dir.mkdir()
 
         with pytest.raises(FileNotFoundError, match="No log files found"):
-            await artifact_tools._get_logs({
-                "job_id": "empty_job",
-                "workspace": str(empty_job_dir)
-            })
+            await artifact_tools._get_logs({"job_id": "empty_job", "workspace": str(empty_job_dir)})
 
     async def test_list_artifacts_all_types(self, artifact_tools, temp_workspace):
         """Test listing all artifacts."""
-        result = await artifact_tools._list_artifacts({
-            "job_id": "job1",
-            "workspace": str(temp_workspace / "job1"),
-            "artifact_type": "all"
-        })
+        result = await artifact_tools._list_artifacts(
+            {"job_id": "job1", "workspace": str(temp_workspace / "job1"), "artifact_type": "all"}
+        )
 
         text = result["content"][0]["text"]
         assert "🎯 Artifacts for Marianne Job: job1" in text
@@ -325,11 +310,9 @@ class TestArtifactTools:
 
     async def test_list_artifacts_by_type(self, artifact_tools, temp_workspace):
         """Test listing artifacts filtered by type."""
-        result = await artifact_tools._list_artifacts({
-            "job_id": "job1",
-            "workspace": str(temp_workspace / "job1"),
-            "artifact_type": "log"
-        })
+        result = await artifact_tools._list_artifacts(
+            {"job_id": "job1", "workspace": str(temp_workspace / "job1"), "artifact_type": "log"}
+        )
 
         text = result["content"][0]["text"]
         assert "LOG Artifacts" in text
@@ -343,26 +326,25 @@ class TestArtifactTools:
         (temp_workspace / "job1" / "sheet_1_output.txt").write_text("Sheet 1 output")
         (temp_workspace / "job1" / "sheet_2_error.log").write_text("Sheet 2 error")
 
-        result = await artifact_tools._list_artifacts({
-            "job_id": "job1",
-            "workspace": str(temp_workspace / "job1"),
-            "sheet_filter": 1
-        })
+        result = await artifact_tools._list_artifacts(
+            {"job_id": "job1", "workspace": str(temp_workspace / "job1"), "sheet_filter": 1}
+        )
 
         text = result["content"][0]["text"]
         assert "sheet_1_output.txt" in text
         assert "sheet_2_error.log" not in text
 
-    @patch.object(ArtifactTools, '_find_job_workspace')
+    @patch.object(ArtifactTools, "_find_job_workspace")
     async def test_list_artifacts_auto_find_workspace(
-        self, mock_find, artifact_tools, temp_workspace,
+        self,
+        mock_find,
+        artifact_tools,
+        temp_workspace,
     ):
         """Test artifact listing with automatic workspace detection."""
         mock_find.return_value = str(temp_workspace / "job1")
 
-        result = await artifact_tools._list_artifacts({
-            "job_id": "job1"
-        })
+        result = await artifact_tools._list_artifacts({"job_id": "job1"})
 
         mock_find.assert_called_once_with("job1")
         text = result["content"][0]["text"]
@@ -370,11 +352,13 @@ class TestArtifactTools:
 
     async def test_get_artifact_text_file(self, artifact_tools, temp_workspace):
         """Test retrieving a text artifact."""
-        result = await artifact_tools._get_artifact({
-            "job_id": "job1",
-            "workspace": str(temp_workspace / "job1"),
-            "artifact_path": "outputs/result.txt"
-        })
+        result = await artifact_tools._get_artifact(
+            {
+                "job_id": "job1",
+                "workspace": str(temp_workspace / "job1"),
+                "artifact_path": "outputs/result.txt",
+            }
+        )
 
         text = result["content"][0]["text"]
         assert "🎯 Marianne Job Artifact: job1" in text
@@ -386,11 +370,13 @@ class TestArtifactTools:
 
     async def test_get_artifact_json_file(self, artifact_tools, temp_workspace):
         """Test retrieving a JSON artifact."""
-        result = await artifact_tools._get_artifact({
-            "job_id": "job1",
-            "workspace": str(temp_workspace / "job1"),
-            "artifact_path": "outputs/data.json"
-        })
+        result = await artifact_tools._get_artifact(
+            {
+                "job_id": "job1",
+                "workspace": str(temp_workspace / "job1"),
+                "artifact_path": "outputs/data.json",
+            }
+        )
 
         text = result["content"][0]["text"]
         assert '{"result": "success"}' in text
@@ -399,13 +385,15 @@ class TestArtifactTools:
         """Test retrieving a binary artifact."""
         # Create a small binary file
         binary_file = temp_workspace / "job1" / "binary.dat"
-        binary_file.write_bytes(b'\x00\x01\x02\x03\x04\x05')
+        binary_file.write_bytes(b"\x00\x01\x02\x03\x04\x05")
 
-        result = await artifact_tools._get_artifact({
-            "job_id": "job1",
-            "workspace": str(temp_workspace / "job1"),
-            "artifact_path": "binary.dat"
-        })
+        result = await artifact_tools._get_artifact(
+            {
+                "job_id": "job1",
+                "workspace": str(temp_workspace / "job1"),
+                "artifact_path": "binary.dat",
+            }
+        )
 
         text = result["content"][0]["text"]
         assert "Binary Content (hex):" in text
@@ -415,13 +403,15 @@ class TestArtifactTools:
         """Test retrieving a large binary artifact."""
         # Create a larger binary file
         binary_file = temp_workspace / "job1" / "large_binary.dat"
-        binary_file.write_bytes(b'\xFF' * 2000)
+        binary_file.write_bytes(b"\xff" * 2000)
 
-        result = await artifact_tools._get_artifact({
-            "job_id": "job1",
-            "workspace": str(temp_workspace / "job1"),
-            "artifact_path": "large_binary.dat"
-        })
+        result = await artifact_tools._get_artifact(
+            {
+                "job_id": "job1",
+                "workspace": str(temp_workspace / "job1"),
+                "artifact_path": "large_binary.dat",
+            }
+        )
 
         text = result["content"][0]["text"]
         assert "Large Binary File:" in text
@@ -431,30 +421,36 @@ class TestArtifactTools:
     async def test_get_artifact_too_large(self, artifact_tools, temp_workspace):
         """Test retrieving artifact that exceeds size limit."""
         with pytest.raises(ValueError, match="Artifact too large"):
-            await artifact_tools._get_artifact({
-                "job_id": "job1",
-                "workspace": str(temp_workspace / "job1"),
-                "artifact_path": "large_file.txt",
-                "max_size": 1000
-            })
+            await artifact_tools._get_artifact(
+                {
+                    "job_id": "job1",
+                    "workspace": str(temp_workspace / "job1"),
+                    "artifact_path": "large_file.txt",
+                    "max_size": 1000,
+                }
+            )
 
     async def test_get_artifact_security_violation(self, artifact_tools, temp_workspace):
         """Test that artifact retrieval prevents directory traversal."""
         with pytest.raises(PermissionError, match="Access denied"):
-            await artifact_tools._get_artifact({
-                "job_id": "job1",
-                "workspace": str(temp_workspace / "job1"),
-                "artifact_path": "../../../etc/passwd"
-            })
+            await artifact_tools._get_artifact(
+                {
+                    "job_id": "job1",
+                    "workspace": str(temp_workspace / "job1"),
+                    "artifact_path": "../../../etc/passwd",
+                }
+            )
 
     async def test_get_artifact_not_found(self, artifact_tools, temp_workspace):
         """Test retrieving non-existent artifact."""
         with pytest.raises(FileNotFoundError, match="Artifact not found"):
-            await artifact_tools._get_artifact({
-                "job_id": "job1",
-                "workspace": str(temp_workspace / "job1"),
-                "artifact_path": "nonexistent.txt"
-            })
+            await artifact_tools._get_artifact(
+                {
+                    "job_id": "job1",
+                    "workspace": str(temp_workspace / "job1"),
+                    "artifact_path": "nonexistent.txt",
+                }
+            )
 
     def test_find_job_workspace_with_state_file(self, artifact_tools, temp_workspace):
         """Test workspace finding with state file present."""
@@ -481,9 +477,9 @@ class TestArtifactTools:
     async def test_call_tool_routing(self, artifact_tools, temp_workspace):
         """Test that call_tool correctly routes to appropriate methods."""
         # Test successful routing
-        result = await artifact_tools.call_tool("marianne_artifact_list", {
-            "workspace": str(temp_workspace / "job1")
-        })
+        result = await artifact_tools.call_tool(
+            "marianne_artifact_list", {"workspace": str(temp_workspace / "job1")}
+        )
         assert "content" in result
         assert result["content"][0]["type"] == "text"
 
@@ -495,10 +491,9 @@ class TestArtifactTools:
 
     async def test_call_tool_exception_handling(self, artifact_tools):
         """Test that call_tool handles exceptions gracefully."""
-        result = await artifact_tools.call_tool("marianne_artifact_read", {
-            "workspace": "/nonexistent",
-            "file_path": "test.txt"
-        })
+        result = await artifact_tools.call_tool(
+            "marianne_artifact_read", {"workspace": "/nonexistent", "file_path": "test.txt"}
+        )
 
         assert result["isError"] is True
         assert "Error:" in result["content"][0]["text"]
@@ -583,12 +578,14 @@ class TestCustomLogLevelCache:
 
     async def test_custom_level_filters_correctly(self, artifact_tools, temp_workspace) -> None:
         """Custom log level string should filter lines correctly."""
-        result = await artifact_tools._get_logs({
-            "job_id": "job1",
-            "workspace": str(temp_workspace / "job1"),
-            "level": "CRITICAL",
-            "lines": 50,
-        })
+        result = await artifact_tools._get_logs(
+            {
+                "job_id": "job1",
+                "workspace": str(temp_workspace / "job1"),
+                "level": "CRITICAL",
+                "lines": 50,
+            }
+        )
         text = result["content"][0]["text"]
         assert "CRITICAL: line2" in text
         assert "CRITICAL: line4" in text
@@ -596,33 +593,39 @@ class TestCustomLogLevelCache:
 
     async def test_custom_level_is_cached(self, artifact_tools, temp_workspace) -> None:
         """Repeated calls with same custom level should use cache."""
-        await artifact_tools._get_logs({
-            "job_id": "job1",
-            "workspace": str(temp_workspace / "job1"),
-            "level": "CRITICAL",
-            "lines": 50,
-        })
+        await artifact_tools._get_logs(
+            {
+                "job_id": "job1",
+                "workspace": str(temp_workspace / "job1"),
+                "level": "CRITICAL",
+                "lines": 50,
+            }
+        )
         assert "critical" in artifact_tools._custom_level_cache
 
         # Call again — should use cached pattern
         cached_pattern = artifact_tools._custom_level_cache["critical"]
-        await artifact_tools._get_logs({
-            "job_id": "job1",
-            "workspace": str(temp_workspace / "job1"),
-            "level": "CRITICAL",
-            "lines": 50,
-        })
+        await artifact_tools._get_logs(
+            {
+                "job_id": "job1",
+                "workspace": str(temp_workspace / "job1"),
+                "level": "CRITICAL",
+                "lines": 50,
+            }
+        )
         # Same pattern object should still be in cache
         assert artifact_tools._custom_level_cache["critical"] is cached_pattern
 
     async def test_standard_levels_not_cached(self, artifact_tools, temp_workspace) -> None:
         """Pre-compiled standard levels (info, error, etc.) should not populate custom cache."""
-        await artifact_tools._get_logs({
-            "job_id": "job1",
-            "workspace": str(temp_workspace / "job1"),
-            "level": "info",
-            "lines": 50,
-        })
+        await artifact_tools._get_logs(
+            {
+                "job_id": "job1",
+                "workspace": str(temp_workspace / "job1"),
+                "level": "info",
+                "lines": 50,
+            }
+        )
         assert "info" not in artifact_tools._custom_level_cache
 
     async def test_empty_log_dir_raises(self, artifact_tools, temp_workspace) -> None:
@@ -630,11 +633,13 @@ class TestCustomLogLevelCache:
         empty_job = temp_workspace / "empty"
         empty_job.mkdir()
         with pytest.raises(FileNotFoundError, match="No log files found"):
-            await artifact_tools._get_logs({
-                "job_id": "empty",
-                "workspace": str(empty_job),
-                "level": "all",
-            })
+            await artifact_tools._get_logs(
+                {
+                    "job_id": "empty",
+                    "workspace": str(empty_job),
+                    "level": "all",
+                }
+            )
 
 
 class TestMakeErrorResponse:

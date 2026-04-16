@@ -114,10 +114,7 @@ def _register_simple_job(
     **kwargs: Any,
 ) -> dict[int, SheetExecutionState]:
     """Register a simple job and return the sheet states."""
-    sheets = {
-        i: _make_sheet_state(i, instrument=instrument)
-        for i in range(1, sheet_count + 1)
-    }
+    sheets = {i: _make_sheet_state(i, instrument=instrument) for i in range(1, sheet_count + 1)}
     if deps is None:
         deps = {i: [] for i in range(1, sheet_count + 1)}
     baton.register_job(job_id, sheets, deps, **kwargs)
@@ -146,9 +143,7 @@ class TestDispatchFailureHandling:
         # Run dispatch callback synchronously via event loop
         loop = asyncio.new_event_loop()
         try:
-            loop.run_until_complete(
-                adapter._dispatch_callback("j1", 1, sheets[1])
-            )
+            loop.run_until_complete(adapter._dispatch_callback("j1", 1, sheets[1]))
         finally:
             loop.close()
 
@@ -173,9 +168,7 @@ class TestDispatchFailureHandling:
 
         loop = asyncio.new_event_loop()
         try:
-            loop.run_until_complete(
-                adapter._dispatch_callback("j1", 1, sheets[1])
-            )
+            loop.run_until_complete(adapter._dispatch_callback("j1", 1, sheets[1]))
         finally:
             loop.close()
 
@@ -205,9 +198,7 @@ class TestDispatchFailureHandling:
 
         loop = asyncio.new_event_loop()
         try:
-            loop.run_until_complete(
-                adapter._dispatch_callback("j1", 1, sheets[1])
-            )
+            loop.run_until_complete(adapter._dispatch_callback("j1", 1, sheets[1]))
         finally:
             loop.close()
 
@@ -235,9 +226,7 @@ class TestDispatchFailureHandling:
 
         loop = asyncio.new_event_loop()
         try:
-            loop.run_until_complete(
-                adapter._dispatch_callback("j1", 1, state)
-            )
+            loop.run_until_complete(adapter._dispatch_callback("j1", 1, state))
         finally:
             loop.close()
 
@@ -332,9 +321,7 @@ class TestMultiJobInstrumentSharing:
 
         loop = asyncio.new_event_loop()
         try:
-            loop.run_until_complete(
-                baton.handle_event(RateLimitExpired(instrument="claude-cli"))
-            )
+            loop.run_until_complete(baton.handle_event(RateLimitExpired(instrument="claude-cli")))
         finally:
             loop.close()
 
@@ -389,17 +376,17 @@ class TestRecoveryFromCorruptedCheckpoint:
         mock_cp.sheets = {
             1: MagicMock(
                 status=MagicMock(value="completed"),
-                attempt_count=2, completion_attempts=0,
+                attempt_count=2,
+                completion_attempts=0,
             ),
             3: MagicMock(
                 status=MagicMock(value="failed"),
-                attempt_count=3, completion_attempts=0,
+                attempt_count=3,
+                completion_attempts=0,
             ),
         }
 
-        adapter.recover_job(
-            "j1", mock_sheets, {1: [], 2: [1], 3: [2]}, checkpoint=mock_cp
-        )
+        adapter.recover_job("j1", mock_sheets, {1: [], 2: [1], 3: [2]}, checkpoint=mock_cp)
 
         # Sheet 2 should be PENDING with 0 attempts
         state2 = adapter.baton.get_sheet_state("j1", 2)
@@ -422,7 +409,8 @@ class TestRecoveryFromCorruptedCheckpoint:
         mock_cp.sheets = {
             1: MagicMock(
                 status=BatonSheetStatus.IN_PROGRESS,
-                attempt_count=1, completion_attempts=0,
+                attempt_count=1,
+                completion_attempts=0,
             ),
         }
 
@@ -632,9 +620,7 @@ class TestCostLimitBoundaries:
         loop = asyncio.new_event_loop()
         try:
             loop.run_until_complete(
-                baton.handle_event(
-                    _make_result(job_id="j1", sheet_num=1, cost=0.001)
-                )
+                baton.handle_event(_make_result(job_id="j1", sheet_num=1, cost=0.001))
             )
         finally:
             loop.close()
@@ -654,9 +640,7 @@ class TestCostLimitBoundaries:
             # limit but together exceed it
             for num in [1, 2]:
                 loop.run_until_complete(
-                    baton.handle_event(
-                        _make_result(job_id="j1", sheet_num=num, cost=0.06)
-                    )
+                    baton.handle_event(_make_result(job_id="j1", sheet_num=num, cost=0.06))
                 )
         finally:
             loop.close()
@@ -680,23 +664,25 @@ class TestCostLimitBoundaries:
             loop.run_until_complete(
                 baton.handle_event(
                     _make_result(
-                        job_id="j1", sheet_num=1,
-                        success=False, pass_rate=0.0, cost=0.03,
+                        job_id="j1",
+                        sheet_num=1,
+                        success=False,
+                        pass_rate=0.0,
+                        cost=0.03,
                     )
                 )
             )
             # Sheet should be in retry_scheduled now
             # Second failure pushes cost over
-            loop.run_until_complete(
-                baton.handle_event(
-                    RetryDue(job_id="j1", sheet_num=1)
-                )
-            )
+            loop.run_until_complete(baton.handle_event(RetryDue(job_id="j1", sheet_num=1)))
             loop.run_until_complete(
                 baton.handle_event(
                     _make_result(
-                        job_id="j1", sheet_num=1,
-                        success=False, pass_rate=0.0, cost=0.03,
+                        job_id="j1",
+                        sheet_num=1,
+                        success=False,
+                        pass_rate=0.0,
+                        cost=0.03,
                     )
                 )
             )
@@ -722,16 +708,12 @@ class TestCostLimitBoundaries:
         try:
             # Complete sheet 1 with cost exceeding limit
             loop.run_until_complete(
-                baton.handle_event(
-                    _make_result(job_id="j1", sheet_num=1, cost=0.10)
-                )
+                baton.handle_event(_make_result(job_id="j1", sheet_num=1, cost=0.10))
             )
             assert baton._jobs["j1"].paused is True
 
             # Resume — should re-pause because cost still exceeded
-            loop.run_until_complete(
-                baton.handle_event(ResumeJob(job_id="j1"))
-            )
+            loop.run_until_complete(baton.handle_event(ResumeJob(job_id="j1")))
         finally:
             loop.close()
 
@@ -766,11 +748,7 @@ class TestEventOrderingAttacks:
         # Late result arrives — should be silently ignored
         loop = asyncio.new_event_loop()
         try:
-            loop.run_until_complete(
-                baton.handle_event(
-                    _make_result(job_id="j1", sheet_num=1)
-                )
-            )
+            loop.run_until_complete(baton.handle_event(_make_result(job_id="j1", sheet_num=1)))
         finally:
             loop.close()
         # No crash, no state corruption
@@ -785,18 +763,12 @@ class TestEventOrderingAttacks:
         try:
             # Skip first
             loop.run_until_complete(
-                baton.handle_event(
-                    SheetSkipped(job_id="j1", sheet_num=1, reason="skip_when")
-                )
+                baton.handle_event(SheetSkipped(job_id="j1", sheet_num=1, reason="skip_when"))
             )
             assert baton._jobs["j1"].sheets[1].status == BatonSheetStatus.SKIPPED
 
             # Late result arrives
-            loop.run_until_complete(
-                baton.handle_event(
-                    _make_result(job_id="j1", sheet_num=1)
-                )
-            )
+            loop.run_until_complete(baton.handle_event(_make_result(job_id="j1", sheet_num=1)))
         finally:
             loop.close()
 
@@ -822,11 +794,7 @@ class TestEventOrderingAttacks:
 
             # Escalation resolves with "retry"
             loop.run_until_complete(
-                baton.handle_event(
-                    EscalationResolved(
-                        job_id="j1", sheet_num=1, decision="retry"
-                    )
-                )
+                baton.handle_event(EscalationResolved(job_id="j1", sheet_num=1, decision="retry"))
             )
         finally:
             loop.close()
@@ -849,11 +817,7 @@ class TestEventOrderingAttacks:
         try:
             # Resolve sheet 1
             loop.run_until_complete(
-                baton.handle_event(
-                    EscalationResolved(
-                        job_id="j1", sheet_num=1, decision="retry"
-                    )
-                )
+                baton.handle_event(EscalationResolved(job_id="j1", sheet_num=1, decision="retry"))
             )
         finally:
             loop.close()
@@ -865,11 +829,7 @@ class TestEventOrderingAttacks:
         loop = asyncio.new_event_loop()
         try:
             loop.run_until_complete(
-                baton.handle_event(
-                    EscalationResolved(
-                        job_id="j1", sheet_num=2, decision="accept"
-                    )
-                )
+                baton.handle_event(EscalationResolved(job_id="j1", sheet_num=2, decision="accept"))
             )
         finally:
             loop.close()
@@ -887,9 +847,7 @@ class TestEventOrderingAttacks:
 
         loop = asyncio.new_event_loop()
         try:
-            loop.run_until_complete(
-                baton.handle_event(JobTimeout(job_id="j1"))
-            )
+            loop.run_until_complete(baton.handle_event(JobTimeout(job_id="j1")))
         finally:
             loop.close()
 
@@ -908,9 +866,7 @@ class TestEventOrderingAttacks:
         loop = asyncio.new_event_loop()
         try:
             loop.run_until_complete(
-                baton.handle_event(
-                    ProcessExited(job_id="j1", sheet_num=1, pid=12345)
-                )
+                baton.handle_event(ProcessExited(job_id="j1", sheet_num=1, pid=12345))
             )
         finally:
             loop.close()
@@ -927,9 +883,7 @@ class TestEventOrderingAttacks:
 
         loop = asyncio.new_event_loop()
         try:
-            loop.run_until_complete(
-                baton.handle_event(ShutdownRequested(graceful=True))
-            )
+            loop.run_until_complete(baton.handle_event(ShutdownRequested(graceful=True)))
         finally:
             loop.close()
 
@@ -948,9 +902,7 @@ class TestEventOrderingAttacks:
 
         loop = asyncio.new_event_loop()
         try:
-            loop.run_until_complete(
-                baton.handle_event(ShutdownRequested(graceful=False))
-            )
+            loop.run_until_complete(baton.handle_event(ShutdownRequested(graceful=False)))
         finally:
             loop.close()
 
@@ -1137,9 +1089,7 @@ class TestDispatchAdversarialConcurrency:
 
         loop = asyncio.new_event_loop()
         try:
-            result = loop.run_until_complete(
-                dispatch_ready(baton, config, callback)
-            )
+            result = loop.run_until_complete(dispatch_ready(baton, config, callback))
         finally:
             loop.close()
 
@@ -1162,9 +1112,7 @@ class TestDispatchAdversarialConcurrency:
 
         loop = asyncio.new_event_loop()
         try:
-            result = loop.run_until_complete(
-                dispatch_ready(baton, config, callback)
-            )
+            result = loop.run_until_complete(dispatch_ready(baton, config, callback))
         finally:
             loop.close()
 
@@ -1188,9 +1136,7 @@ class TestDispatchAdversarialConcurrency:
 
         loop = asyncio.new_event_loop()
         try:
-            result = loop.run_until_complete(
-                dispatch_ready(baton, config, callback)
-            )
+            result = loop.run_until_complete(dispatch_ready(baton, config, callback))
         finally:
             loop.close()
 
@@ -1211,9 +1157,7 @@ class TestDispatchAdversarialConcurrency:
 
         loop = asyncio.new_event_loop()
         try:
-            result = loop.run_until_complete(
-                dispatch_ready(baton, config, callback)
-            )
+            result = loop.run_until_complete(dispatch_ready(baton, config, callback))
         finally:
             loop.close()
 
@@ -1230,9 +1174,7 @@ class TestDispatchAdversarialConcurrency:
 
         call_count = 0
 
-        async def failing_callback(
-            job_id: str, sheet_num: int, state: SheetExecutionState
-        ) -> None:
+        async def failing_callback(job_id: str, sheet_num: int, state: SheetExecutionState) -> None:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -1240,9 +1182,7 @@ class TestDispatchAdversarialConcurrency:
 
         loop = asyncio.new_event_loop()
         try:
-            result = loop.run_until_complete(
-                dispatch_ready(baton, config, failing_callback)
-            )
+            result = loop.run_until_complete(dispatch_ready(baton, config, failing_callback))
         finally:
             loop.close()
 
@@ -1263,9 +1203,7 @@ class TestDispatchAdversarialConcurrency:
 
         loop = asyncio.new_event_loop()
         try:
-            result = loop.run_until_complete(
-                dispatch_ready(baton, config, callback)
-            )
+            result = loop.run_until_complete(dispatch_ready(baton, config, callback))
         finally:
             loop.close()
 
@@ -1307,9 +1245,7 @@ class TestDispatchAdversarialConcurrency:
 
         loop = asyncio.new_event_loop()
         try:
-            result = loop.run_until_complete(
-                dispatch_ready(baton, config, callback)
-            )
+            result = loop.run_until_complete(dispatch_ready(baton, config, callback))
         finally:
             loop.close()
 
@@ -1333,12 +1269,14 @@ class TestTerminalStateResistanceM3:
 
     @pytest.mark.parametrize(
         "terminal_status",
-        [BatonSheetStatus.COMPLETED, BatonSheetStatus.FAILED,
-         BatonSheetStatus.SKIPPED, BatonSheetStatus.CANCELLED],
+        [
+            BatonSheetStatus.COMPLETED,
+            BatonSheetStatus.FAILED,
+            BatonSheetStatus.SKIPPED,
+            BatonSheetStatus.CANCELLED,
+        ],
     )
-    def test_terminal_sheet_resists_attempt_result(
-        self, terminal_status: BatonSheetStatus
-    ) -> None:
+    def test_terminal_sheet_resists_attempt_result(self, terminal_status: BatonSheetStatus) -> None:
         """No SheetAttemptResult can regress a terminal sheet."""
         baton = BatonCore()
         sheets = {1: _make_sheet_state(1, status=terminal_status)}
@@ -1346,11 +1284,7 @@ class TestTerminalStateResistanceM3:
 
         loop = asyncio.new_event_loop()
         try:
-            loop.run_until_complete(
-                baton.handle_event(
-                    _make_result(job_id="j1", sheet_num=1)
-                )
-            )
+            loop.run_until_complete(baton.handle_event(_make_result(job_id="j1", sheet_num=1)))
         finally:
             loop.close()
 
@@ -1358,12 +1292,14 @@ class TestTerminalStateResistanceM3:
 
     @pytest.mark.parametrize(
         "terminal_status",
-        [BatonSheetStatus.COMPLETED, BatonSheetStatus.FAILED,
-         BatonSheetStatus.SKIPPED, BatonSheetStatus.CANCELLED],
+        [
+            BatonSheetStatus.COMPLETED,
+            BatonSheetStatus.FAILED,
+            BatonSheetStatus.SKIPPED,
+            BatonSheetStatus.CANCELLED,
+        ],
     )
-    def test_terminal_sheet_resists_skip(
-        self, terminal_status: BatonSheetStatus
-    ) -> None:
+    def test_terminal_sheet_resists_skip(self, terminal_status: BatonSheetStatus) -> None:
         """No SheetSkipped event can regress a terminal sheet."""
         baton = BatonCore()
         sheets = {1: _make_sheet_state(1, status=terminal_status)}
@@ -1372,9 +1308,7 @@ class TestTerminalStateResistanceM3:
         loop = asyncio.new_event_loop()
         try:
             loop.run_until_complete(
-                baton.handle_event(
-                    SheetSkipped(job_id="j1", sheet_num=1, reason="late")
-                )
+                baton.handle_event(SheetSkipped(job_id="j1", sheet_num=1, reason="late"))
             )
         finally:
             loop.close()
@@ -1383,12 +1317,14 @@ class TestTerminalStateResistanceM3:
 
     @pytest.mark.parametrize(
         "terminal_status",
-        [BatonSheetStatus.COMPLETED, BatonSheetStatus.FAILED,
-         BatonSheetStatus.SKIPPED, BatonSheetStatus.CANCELLED],
+        [
+            BatonSheetStatus.COMPLETED,
+            BatonSheetStatus.FAILED,
+            BatonSheetStatus.SKIPPED,
+            BatonSheetStatus.CANCELLED,
+        ],
     )
-    def test_terminal_sheet_resists_escalation(
-        self, terminal_status: BatonSheetStatus
-    ) -> None:
+    def test_terminal_sheet_resists_escalation(self, terminal_status: BatonSheetStatus) -> None:
         """No EscalationNeeded event can move a terminal sheet to FERMATA."""
         baton = BatonCore()
         sheets = {1: _make_sheet_state(1, status=terminal_status)}
@@ -1397,11 +1333,7 @@ class TestTerminalStateResistanceM3:
         loop = asyncio.new_event_loop()
         try:
             loop.run_until_complete(
-                baton.handle_event(
-                    EscalationNeeded(
-                        job_id="j1", sheet_num=1, reason="test"
-                    )
-                )
+                baton.handle_event(EscalationNeeded(job_id="j1", sheet_num=1, reason="test"))
             )
         finally:
             loop.close()
@@ -1434,15 +1366,16 @@ class TestExhaustionDecisionTree:
                 loop.run_until_complete(
                     baton.handle_event(
                         _make_result(
-                            job_id="j1", sheet_num=1,
-                            success=False, pass_rate=0.0, cost=0.0,
+                            job_id="j1",
+                            sheet_num=1,
+                            success=False,
+                            pass_rate=0.0,
+                            cost=0.0,
                         )
                     )
                 )
                 if sheet.status == BatonSheetStatus.RETRY_SCHEDULED:
-                    loop.run_until_complete(
-                        baton.handle_event(RetryDue(job_id="j1", sheet_num=1))
-                    )
+                    loop.run_until_complete(baton.handle_event(RetryDue(job_id="j1", sheet_num=1)))
         finally:
             loop.close()
 
@@ -1455,7 +1388,9 @@ class TestExhaustionDecisionTree:
         the sheet enters FERMATA."""
         baton = BatonCore()
         _register_simple_job(
-            baton, "j1", 1,
+            baton,
+            "j1",
+            1,
             escalation_enabled=True,
             self_healing_enabled=False,
         )
@@ -1468,8 +1403,10 @@ class TestExhaustionDecisionTree:
             loop.run_until_complete(
                 baton.handle_event(
                     _make_result(
-                        job_id="j1", sheet_num=1,
-                        success=False, pass_rate=0.0,
+                        job_id="j1",
+                        sheet_num=1,
+                        success=False,
+                        pass_rate=0.0,
                     )
                 )
             )
@@ -1493,8 +1430,10 @@ class TestExhaustionDecisionTree:
             loop.run_until_complete(
                 baton.handle_event(
                     _make_result(
-                        job_id="j1", sheet_num=1,
-                        success=False, pass_rate=0.0,
+                        job_id="j1",
+                        sheet_num=1,
+                        success=False,
+                        pass_rate=0.0,
                     )
                 )
             )

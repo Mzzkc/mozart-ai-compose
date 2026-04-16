@@ -70,9 +70,7 @@ class TestAIReviewResult:
         result = AIReviewResult(
             score=85,
             components={"code_quality": 25, "security": 20},
-            issues=[
-                ReviewIssue("low", "documentation", "Missing docstring")
-            ],
+            issues=[ReviewIssue("low", "documentation", "Missing docstring")],
             summary="Good code",
         )
         data = result.to_dict()
@@ -163,24 +161,26 @@ class TestAIReviewer:
     @pytest.mark.asyncio
     async def test_review_success(self, mock_backend, config, mock_diff_provider):
         """Test successful review parsing."""
-        response_json = json.dumps({
-            "score": 85,
-            "components": {
-                "code_quality": 25,
-                "test_coverage": 20,
-                "security": 25,
-                "documentation": 15,
-            },
-            "issues": [
-                {
-                    "severity": "low",
-                    "category": "documentation",
-                    "description": "Missing docstring",
-                    "suggestion": "Add docstring",
-                }
-            ],
-            "summary": "Good code quality",
-        })
+        response_json = json.dumps(
+            {
+                "score": 85,
+                "components": {
+                    "code_quality": 25,
+                    "test_coverage": 20,
+                    "security": 25,
+                    "documentation": 15,
+                },
+                "issues": [
+                    {
+                        "severity": "low",
+                        "category": "documentation",
+                        "description": "Missing docstring",
+                        "suggestion": "Add docstring",
+                    }
+                ],
+                "summary": "Good code quality",
+            }
+        )
 
         mock_backend.execute.return_value = MagicMock(
             success=True,

@@ -41,8 +41,10 @@ class TestPromptMetrics:
         assert metrics.has_file_references is True
         # Should find absolute, relative, and quoted paths
         assert any("/home/user/data.txt" in p for p in metrics.referenced_paths)
-        assert any("./output/result.json" in p or "output/result.json" in p
-                   for p in metrics.referenced_paths)
+        assert any(
+            "./output/result.json" in p or "output/result.json" in p
+            for p in metrics.referenced_paths
+        )
 
     def test_from_prompt_with_template_paths(self):
         """Test extraction of template paths like {workspace}/file.txt."""
@@ -379,9 +381,9 @@ class TestFilePathExtraction:
 
     def test_quoted_paths(self):
         """Test extraction of quoted paths."""
-        prompt = '''
+        prompt = """
         Open "path/to/file.txt" and 'another/path.json'
-        '''
+        """
         metrics = PromptMetrics.from_prompt(prompt)
 
         assert metrics.has_file_references is True

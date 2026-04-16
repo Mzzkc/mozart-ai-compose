@@ -12,15 +12,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from marianne.core.checkpoint import (
     CheckpointState,
     JobStatus,
     SheetState,
     SheetStatus,
 )
-
 
 # ============================================================================
 # Helpers to build test data
@@ -248,9 +245,7 @@ class TestStatusRichBeautification:
         """Execution stats should show compact key numbers."""
         from marianne.cli.commands.status import _output_status_rich
 
-        sheets = {
-            i: _make_sheet(SheetStatus.COMPLETED) for i in range(1, 6)
-        }
+        sheets = {i: _make_sheet(SheetStatus.COMPLETED) for i in range(1, 6)}
         job = _make_job(
             sheets=sheets,
             total_retry_count=3,
@@ -387,9 +382,15 @@ class TestConductorStatusBeautification:
         ):
             mock_run.return_value = (
                 {"uptime_seconds": 3600, "status": "healthy"},
-                {"status": "ready", "running_jobs": 1, "memory_mb": 165,
-                 "child_processes": 8, "accepting_work": True,
-                 "memory_limit_mb": 2048, "process_limit": 200},
+                {
+                    "status": "ready",
+                    "running_jobs": 1,
+                    "memory_mb": 165,
+                    "child_processes": 8,
+                    "accepting_work": True,
+                    "memory_limit_mb": 2048,
+                    "process_limit": 200,
+                },
                 {"version": "0.1.0"},
             )
             get_conductor_status()
@@ -412,9 +413,15 @@ class TestConductorStatusBeautification:
         ):
             mock_run.return_value = (
                 {"uptime_seconds": 7200},
-                {"status": "ready", "running_jobs": 2, "memory_mb": 256,
-                 "child_processes": 15, "accepting_work": True,
-                 "memory_limit_mb": 2048, "process_limit": 200},
+                {
+                    "status": "ready",
+                    "running_jobs": 2,
+                    "memory_mb": 256,
+                    "child_processes": 15,
+                    "accepting_work": True,
+                    "memory_limit_mb": 2048,
+                    "process_limit": 200,
+                },
                 {"version": "0.1.0"},
             )
             get_conductor_status()
@@ -442,8 +449,11 @@ class TestMovementProgressDisplay:
         sheets = {
             1: _make_sheet(SheetStatus.COMPLETED, movement=0),
             2: _make_sheet(SheetStatus.COMPLETED, movement=0),
-            3: _make_sheet(SheetStatus.IN_PROGRESS, movement=1,
-                           started_at=datetime.now(UTC) - timedelta(minutes=5)),
+            3: _make_sheet(
+                SheetStatus.IN_PROGRESS,
+                movement=1,
+                started_at=datetime.now(UTC) - timedelta(minutes=5),
+            ),
             4: _make_sheet(SheetStatus.PENDING, movement=1),
             5: _make_sheet(SheetStatus.PENDING, movement=2),
         }
@@ -465,8 +475,11 @@ class TestMovementProgressDisplay:
         sheets = {
             1: _make_sheet(SheetStatus.COMPLETED, movement=1),
             2: _make_sheet(SheetStatus.COMPLETED, movement=1),
-            3: _make_sheet(SheetStatus.IN_PROGRESS, movement=1,
-                           started_at=datetime.now(UTC) - timedelta(minutes=2)),
+            3: _make_sheet(
+                SheetStatus.IN_PROGRESS,
+                movement=1,
+                started_at=datetime.now(UTC) - timedelta(minutes=2),
+            ),
             4: _make_sheet(SheetStatus.PENDING, movement=1),
         }
         job = _make_job(total_sheets=4, sheets=sheets)
@@ -495,12 +508,16 @@ class TestNowPlayingSection:
         sheets = {
             1: _make_sheet(SheetStatus.COMPLETED, sheet_num=1, movement=0),
             2: _make_sheet(
-                SheetStatus.IN_PROGRESS, sheet_num=2, movement=1,
+                SheetStatus.IN_PROGRESS,
+                sheet_num=2,
+                movement=1,
                 started_at=now - timedelta(minutes=4, seconds=53),
                 instrument_name="claude-code",
             ),
             3: _make_sheet(
-                SheetStatus.IN_PROGRESS, sheet_num=3, movement=1,
+                SheetStatus.IN_PROGRESS,
+                sheet_num=3,
+                movement=1,
                 started_at=now - timedelta(minutes=4, seconds=53),
                 instrument_name="claude-code",
             ),
@@ -539,7 +556,9 @@ class TestNowPlayingSection:
         now = datetime.now(UTC)
         sheets = {
             i: _make_sheet(
-                SheetStatus.IN_PROGRESS, sheet_num=i, movement=1,
+                SheetStatus.IN_PROGRESS,
+                sheet_num=i,
+                movement=1,
                 started_at=now - timedelta(minutes=2),
             )
             for i in range(1, 16)  # 15 in progress
@@ -569,8 +588,7 @@ class TestSynthesisBounding:
 
         # Create a job with 10 synthesis results (dict format)
         synth = {
-            f"batch-{i}": {"sheets": [i], "strategy": "merge", "status": "done"}
-            for i in range(10)
+            f"batch-{i}": {"sheets": [i], "strategy": "merge", "status": "done"} for i in range(10)
         }
         job = _make_job()
         # Directly set synthesis_results via model

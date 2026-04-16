@@ -203,7 +203,9 @@ class TestOnErrorClassified:
         hooks.on_error_classified(ctx)
         mock_store.get_learned_wait_time.assert_called_once()
 
-    def test_rate_limit_applies_learned_wait(self, hooks: ErrorLearningHooks, mock_store: MagicMock):
+    def test_rate_limit_applies_learned_wait(
+        self, hooks: ErrorLearningHooks, mock_store: MagicMock
+    ):
         """When learned wait is available, it replaces the original."""
         mock_store.get_learned_wait_time.return_value = 120.0
         error = _make_error(
@@ -248,7 +250,9 @@ class TestOnErrorClassified:
         hooks.on_error_classified(ctx)
         assert len(hooks._pending_contexts) == 1
 
-    def test_classification_result_unwrapped(self, hooks: ErrorLearningHooks, mock_store: MagicMock):
+    def test_classification_result_unwrapped(
+        self, hooks: ErrorLearningHooks, mock_store: MagicMock
+    ):
         """ClassificationResult is properly unwrapped to ClassifiedError."""
         mock_store.get_learned_wait_time.return_value = None
         primary = _make_error(category=ErrorCategory.RATE_LIMIT)
@@ -357,13 +361,16 @@ class TestGetErrorStats:
         assert "error" in result
 
     def test_with_data(self, mock_store: MagicMock):
-        _stub_store_connection(mock_store, {
-            "total_occurrences": 10,
-            "recoveries": 8,
-            "avg_wait": 45.123,
-            "min_wait": 10.0,
-            "max_wait": 120.0,
-        })
+        _stub_store_connection(
+            mock_store,
+            {
+                "total_occurrences": 10,
+                "recoveries": 8,
+                "avg_wait": 45.123,
+                "min_wait": 10.0,
+                "max_wait": 120.0,
+            },
+        )
         h = ErrorLearningHooks(global_store=mock_store)
 
         result = h.get_error_stats("E103")
@@ -390,6 +397,7 @@ class TestWrapClassifier:
 
     def test_returns_classifier_and_hooks(self):
         from marianne.core.errors import ErrorClassifier
+
         classifier = ErrorClassifier()
         c, hooks = wrap_classifier_with_learning(classifier)
         assert c is classifier
@@ -397,6 +405,7 @@ class TestWrapClassifier:
 
     def test_hooks_disabled_without_store(self):
         from marianne.core.errors import ErrorClassifier
+
         _, hooks = wrap_classifier_with_learning(ErrorClassifier(), global_store=None)
         assert not hooks.enabled
 

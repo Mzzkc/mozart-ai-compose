@@ -15,7 +15,6 @@ import pytest
 
 from marianne.daemon.rate_coordinator import RateLimitCoordinator, RateLimitEvent
 
-
 # ─── Fixtures ──────────────────────────────────────────────────────────
 
 
@@ -33,7 +32,8 @@ class TestReporting:
 
     @pytest.mark.asyncio
     async def test_report_creates_active_limit(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """Reporting a limit makes the backend rate-limited."""
         await coordinator.report_rate_limit(
@@ -50,7 +50,8 @@ class TestReporting:
 
     @pytest.mark.asyncio
     async def test_report_extends_existing_limit(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """A longer wait replaces a shorter existing limit."""
         await coordinator.report_rate_limit(
@@ -73,7 +74,8 @@ class TestReporting:
 
     @pytest.mark.asyncio
     async def test_report_doesnt_shorten_limit(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """A shorter wait does NOT reduce an existing longer limit."""
         await coordinator.report_rate_limit(
@@ -95,7 +97,8 @@ class TestReporting:
 
     @pytest.mark.asyncio
     async def test_different_backends_independent(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """Limits on one backend don't affect others."""
         await coordinator.report_rate_limit(
@@ -111,7 +114,8 @@ class TestReporting:
 
     @pytest.mark.asyncio
     async def test_report_stores_event(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """Reported events are stored and accessible."""
         await coordinator.report_rate_limit(
@@ -137,7 +141,8 @@ class TestProtocolCompliance:
 
     @pytest.mark.asyncio
     async def test_returns_tuple_when_limited(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """Returns (True, float) when limited."""
         await coordinator.report_rate_limit(
@@ -155,7 +160,8 @@ class TestProtocolCompliance:
 
     @pytest.mark.asyncio
     async def test_returns_tuple_when_not_limited(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """Returns (False, 0.0) when not limited."""
         result = await coordinator.is_rate_limited("claude_cli")
@@ -163,11 +169,13 @@ class TestProtocolCompliance:
 
     @pytest.mark.asyncio
     async def test_accepts_model_parameter(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """The model parameter is accepted (protocol compat)."""
         result = await coordinator.is_rate_limited(
-            "claude_cli", model="claude-sonnet-4-5-20250929",
+            "claude_cli",
+            model="claude-sonnet-4-5-20250929",
         )
         assert result == (False, 0.0)
 
@@ -180,7 +188,8 @@ class TestProperties:
 
     @pytest.mark.asyncio
     async def test_active_limits_property(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """active_limits returns only currently active limits."""
         await coordinator.report_rate_limit(
@@ -205,7 +214,8 @@ class TestProperties:
 
     @pytest.mark.asyncio
     async def test_active_limits_excludes_expired(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """Expired limits are not included in active_limits."""
         # Report a limit that expires almost immediately
@@ -222,7 +232,8 @@ class TestProperties:
 
     @pytest.mark.asyncio
     async def test_recent_events_ordered_newest_first(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """recent_events returns newest events first."""
         for i in range(3):
@@ -248,7 +259,8 @@ class TestEventPruning:
 
     @pytest.mark.asyncio
     async def test_old_events_pruned_on_report(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """Events older than 1 hour are pruned when new events arrive."""
         # Manually inject an old event
@@ -282,7 +294,8 @@ class TestPruneStale:
 
     @pytest.mark.asyncio
     async def test_prune_removes_old_events(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """prune_stale() removes events older than 1 hour."""
         old_event = RateLimitEvent(
@@ -300,7 +313,8 @@ class TestPruneStale:
 
     @pytest.mark.asyncio
     async def test_prune_keeps_recent_events(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """prune_stale() preserves events from the last hour."""
         await coordinator.report_rate_limit(
@@ -316,7 +330,8 @@ class TestPruneStale:
 
     @pytest.mark.asyncio
     async def test_prune_removes_expired_active_limits(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """prune_stale() clears expired entries from _active_limits."""
         # Inject an expired limit
@@ -327,7 +342,8 @@ class TestPruneStale:
 
     @pytest.mark.asyncio
     async def test_prune_keeps_active_limits(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """prune_stale() preserves still-active limits."""
         coordinator._active_limits["active_backend"] = time.monotonic() + 60
@@ -337,25 +353,30 @@ class TestPruneStale:
 
     @pytest.mark.asyncio
     async def test_prune_returns_correct_count(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """prune_stale() returns the number of events removed."""
         now = time.monotonic()
         for i in range(5):
-            coordinator._events.append(RateLimitEvent(
+            coordinator._events.append(
+                RateLimitEvent(
+                    backend_type="cli",
+                    detected_at=now - 7200,  # 2 hours ago
+                    suggested_wait_seconds=10.0,
+                    job_id=f"old-{i}",
+                    sheet_num=i,
+                )
+            )
+        coordinator._events.append(
+            RateLimitEvent(
                 backend_type="cli",
-                detected_at=now - 7200,  # 2 hours ago
+                detected_at=now,  # fresh
                 suggested_wait_seconds=10.0,
-                job_id=f"old-{i}",
-                sheet_num=i,
-            ))
-        coordinator._events.append(RateLimitEvent(
-            backend_type="cli",
-            detected_at=now,  # fresh
-            suggested_wait_seconds=10.0,
-            job_id="fresh",
-            sheet_num=99,
-        ))
+                job_id="fresh",
+                sheet_num=99,
+            )
+        )
 
         removed = await coordinator.prune_stale()
         assert removed == 5
@@ -364,7 +385,8 @@ class TestPruneStale:
 
     @pytest.mark.asyncio
     async def test_prune_on_empty_coordinator(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """prune_stale() on empty state is a no-op."""
         removed = await coordinator.prune_stale()
@@ -379,7 +401,8 @@ class TestInputValidation:
 
     @pytest.mark.asyncio
     async def test_negative_wait_clamped_to_zero(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """Negative wait_seconds is clamped to 0 (no blocking)."""
         await coordinator.report_rate_limit(
@@ -395,7 +418,8 @@ class TestInputValidation:
 
     @pytest.mark.asyncio
     async def test_zero_wait_not_blocking(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """wait_seconds=0 should not create a blocking limit."""
         await coordinator.report_rate_limit(
@@ -410,7 +434,8 @@ class TestInputValidation:
 
     @pytest.mark.asyncio
     async def test_huge_wait_capped(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """wait_seconds > MAX_WAIT_SECONDS is capped."""
         from marianne.daemon.rate_coordinator import MAX_WAIT_SECONDS
@@ -440,7 +465,8 @@ class TestNonFiniteWaitSeconds:
 
     @pytest.mark.asyncio
     async def test_nan_wait_treated_as_zero(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """NaN wait_seconds is clamped to 0 — no blocking."""
         await coordinator.report_rate_limit(
@@ -455,7 +481,8 @@ class TestNonFiniteWaitSeconds:
 
     @pytest.mark.asyncio
     async def test_inf_wait_treated_as_zero(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """Positive inf wait_seconds is clamped to 0 — no permanent blocking."""
         await coordinator.report_rate_limit(
@@ -470,7 +497,8 @@ class TestNonFiniteWaitSeconds:
 
     @pytest.mark.asyncio
     async def test_negative_inf_wait_treated_as_zero(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """Negative inf wait_seconds is clamped to 0."""
         await coordinator.report_rate_limit(
@@ -485,7 +513,8 @@ class TestNonFiniteWaitSeconds:
 
     @pytest.mark.asyncio
     async def test_nan_event_still_recorded(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """NaN wait results in an event recorded with wait=0."""
         await coordinator.report_rate_limit(
@@ -511,7 +540,8 @@ class TestConcurrentRateLimitStress:
 
     @pytest.mark.asyncio
     async def test_concurrent_reports_no_data_loss(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """Many concurrent report_rate_limit() calls don't lose events."""
         num_reports = 50
@@ -532,7 +562,8 @@ class TestConcurrentRateLimitStress:
 
     @pytest.mark.asyncio
     async def test_concurrent_reports_and_queries(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """Concurrent reports + is_rate_limited queries don't crash or deadlock."""
         stop = asyncio.Event()
@@ -583,7 +614,8 @@ class TestConcurrentRateLimitStress:
 
     @pytest.mark.asyncio
     async def test_concurrent_reports_different_backends(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """Concurrent reports to different backends maintain correct per-backend limits."""
         num_backends = 10
@@ -598,10 +630,7 @@ class TestConcurrentRateLimitStress:
                     sheet_num=j,
                 )
 
-        tasks = [
-            asyncio.create_task(report_backend(i))
-            for i in range(num_backends)
-        ]
+        tasks = [asyncio.create_task(report_backend(i)) for i in range(num_backends)]
         await asyncio.gather(*tasks)
 
         # All backends should be limited
@@ -616,7 +645,8 @@ class TestConcurrentRateLimitStress:
 
     @pytest.mark.asyncio
     async def test_concurrent_prune_and_report(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """Concurrent prune_stale() + report_rate_limit() don't corrupt state."""
         stop = asyncio.Event()
@@ -672,7 +702,8 @@ class TestReportExpireReportCycle:
 
     @pytest.mark.asyncio
     async def test_full_cycle_single_backend(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """Report → wait for expiry → verify clear → re-report → verify active."""
         # Phase 1: Report a short limit
@@ -711,7 +742,8 @@ class TestReportExpireReportCycle:
 
     @pytest.mark.asyncio
     async def test_cycle_multiple_backends_independent(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """Expire/re-report on one backend doesn't affect another."""
         # Report on both backends
@@ -751,7 +783,8 @@ class TestReportExpireReportCycle:
 
     @pytest.mark.asyncio
     async def test_rapid_report_expire_cycles(
-        self, coordinator: RateLimitCoordinator,
+        self,
+        coordinator: RateLimitCoordinator,
     ):
         """Multiple rapid report/expire cycles don't accumulate stale state."""
         for i in range(10):

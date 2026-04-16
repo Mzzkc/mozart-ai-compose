@@ -23,7 +23,6 @@ from marianne.daemon.exceptions import DaemonError, DaemonNotRunningError, JobSu
 from marianne.daemon.ipc.client import DaemonClient
 from marianne.daemon.ipc.errors import JOB_NOT_FOUND
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -237,11 +236,13 @@ class TestStreamResponseParsing:
         client = _make_client(tmp_path)
         lines = [
             _json_line({"jsonrpc": "2.0", "method": "progress", "params": {"pct": 50}}),
-            _json_line({
-                "jsonrpc": "2.0",
-                "error": {"code": JOB_NOT_FOUND, "message": "gone"},
-                "id": 1,
-            }),
+            _json_line(
+                {
+                    "jsonrpc": "2.0",
+                    "error": {"code": JOB_NOT_FOUND, "message": "gone"},
+                    "id": 1,
+                }
+            ),
         ]
 
         with _mock_connection(client, lines):
@@ -264,7 +265,8 @@ class TestStreamResponseParsing:
 
     @pytest.mark.asyncio
     async def test_stream_malformed_json_in_notification(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Malformed JSON in a notification line raises JSONDecodeError."""
         client = _make_client(tmp_path)

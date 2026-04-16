@@ -94,7 +94,10 @@ def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
     """Prevent CLI tests from routing through a real conductor."""
 
     async def _fake_route(
-        method: str, params: dict, *, socket_path=None  # noqa: ANN001
+        method: str,
+        params: dict,
+        *,
+        socket_path=None,  # noqa: ANN001
     ) -> tuple[bool, None]:
         return False, None
 
@@ -125,7 +128,10 @@ class TestInstrumentsHttpStatus:
 
         assert result.exit_code == 0
         # The old behavior showed "http" — we want "unchecked" instead
-        assert "http" not in result.stdout.split("KIND")[1].split("DEFAULT MODEL")[0] or "unchecked" in result.stdout.lower()
+        assert (
+            "http" not in result.stdout.split("KIND")[1].split("DEFAULT MODEL")[0]
+            or "unchecked" in result.stdout.lower()
+        )
 
     def test_http_instrument_not_counted_as_ready(self) -> None:
         """HTTP instruments shouldn't be counted as 'ready' since we can't verify them."""
@@ -133,10 +139,13 @@ class TestInstrumentsHttpStatus:
             "claude-code": _make_cli_profile("claude-code", "Claude Code", "claude"),
             "anthropic_api": _make_http_profile("anthropic_api", "Anthropic API"),
         }
-        with patch(
-            "marianne.cli.commands.instruments._load_all_profiles",
-            return_value=profiles,
-        ), patch("shutil.which", return_value="/usr/bin/claude"):
+        with (
+            patch(
+                "marianne.cli.commands.instruments._load_all_profiles",
+                return_value=profiles,
+            ),
+            patch("shutil.which", return_value="/usr/bin/claude"),
+        ):
             result = runner.invoke(app, ["instruments", "list"])
 
         assert result.exit_code == 0
@@ -168,10 +177,13 @@ class TestInstrumentsHttpStatus:
             "anthropic_api": _make_http_profile("anthropic_api", "Anthropic API"),
             "ollama": _make_http_profile("ollama", "Ollama"),
         }
-        with patch(
-            "marianne.cli.commands.instruments._load_all_profiles",
-            return_value=profiles,
-        ), patch("shutil.which", return_value="/usr/bin/claude"):
+        with (
+            patch(
+                "marianne.cli.commands.instruments._load_all_profiles",
+                return_value=profiles,
+            ),
+            patch("shutil.which", return_value="/usr/bin/claude"),
+        ):
             result = runner.invoke(app, ["instruments", "list"])
 
         assert result.exit_code == 0
@@ -322,18 +334,23 @@ class TestPauseErrorStandardization:
     """Verify pause command errors migrated from raw console.print to output_error."""
 
     def test_pause_daemon_error_includes_hint(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Pause daemon route error (E501) now includes 'mzt list' hint."""
         from marianne.daemon.exceptions import DaemonError
 
         async def _raise(
-            method: str, params: dict, *, socket_path: Path | None = None,
+            method: str,
+            params: dict,
+            *,
+            socket_path: Path | None = None,
         ) -> tuple[bool, None]:
             raise DaemonError("Score 'ghost-test' not found")
 
         monkeypatch.setattr(
-            "marianne.daemon.detect.try_daemon_route", _raise,
+            "marianne.daemon.detect.try_daemon_route",
+            _raise,
         )
         result = runner.invoke(app, ["pause", "ghost-test"])
         assert result.exit_code != 0
@@ -341,18 +358,23 @@ class TestPauseErrorStandardization:
         assert "mzt list" in result.output
 
     def test_pause_daemon_error_json_has_hints(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """JSON error from pause daemon route includes hints array."""
         from marianne.daemon.exceptions import DaemonError
 
         async def _raise(
-            method: str, params: dict, *, socket_path: Path | None = None,
+            method: str,
+            params: dict,
+            *,
+            socket_path: Path | None = None,
         ) -> tuple[bool, None]:
             raise DaemonError("Not found")
 
         monkeypatch.setattr(
-            "marianne.daemon.detect.try_daemon_route", _raise,
+            "marianne.daemon.detect.try_daemon_route",
+            _raise,
         )
         result = runner.invoke(app, ["pause", "no-job", "--json"])
         assert result.exit_code != 0
@@ -366,19 +388,22 @@ class TestPauseErrorStandardization:
         bad_config = tmp_path / "bad.yaml"
         bad_config.write_text("invalid: {{{yaml")
         result = runner.invoke(
-            app, ["modify", "some-job", "-c", str(bad_config)],
+            app,
+            ["modify", "some-job", "-c", str(bad_config)],
         )
         assert result.exit_code != 0
         assert "Invalid config" in result.output or "YAML" in result.output
 
     def test_modify_invalid_config_json_has_config_file(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """JSON error from modify invalid config includes config_file path."""
         bad_config = tmp_path / "bad.yaml"
         bad_config.write_text("not valid yaml {{{")
         result = runner.invoke(
-            app, ["modify", "some-job", "-c", str(bad_config), "--json"],
+            app,
+            ["modify", "some-job", "-c", str(bad_config), "--json"],
         )
         assert result.exit_code != 0
         # JSON may contain control characters from YAML error (F-032),
@@ -439,7 +464,9 @@ class TestRecoverErrorStandardization:
     """
 
     def test_no_config_snapshot_resets_to_pending(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         """Missing config snapshot resets sheets to PENDING (GH#170).
 
@@ -480,7 +507,6 @@ class TestRecoverErrorStandardization:
         conn.commit()
         conn.close()
 
-        import marianne.cli.commands.recover
         recover_mod = sys.modules["marianne.cli.commands.recover"]
         monkeypatch.setattr(recover_mod, "_get_db_path", lambda: db_path)
 
@@ -548,18 +574,23 @@ class TestCancelErrorStandardization:
     """cancel command error paths use output_error()."""
 
     def test_cancel_daemon_error_uses_output_error(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Cancel daemon error uses output_error() format."""
         from marianne.daemon.exceptions import DaemonError
 
         async def _raise(
-            method: str, params: dict, *, socket_path: Path | None = None,
+            method: str,
+            params: dict,
+            *,
+            socket_path: Path | None = None,
         ) -> tuple[bool, None]:
             raise DaemonError("Connection failed")
 
         monkeypatch.setattr(
-            "marianne.daemon.detect.try_daemon_route", _raise,
+            "marianne.daemon.detect.try_daemon_route",
+            _raise,
         )
         result = runner.invoke(app, ["cancel", "test-job"])
         assert result.exit_code != 0
@@ -567,18 +598,23 @@ class TestCancelErrorStandardization:
         assert "Connection failed" in result.output
 
     def test_cancel_daemon_error_json_structured(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Cancel daemon error in --json mode outputs structured JSON."""
         from marianne.daemon.exceptions import DaemonError
 
         async def _raise(
-            method: str, params: dict, *, socket_path: Path | None = None,
+            method: str,
+            params: dict,
+            *,
+            socket_path: Path | None = None,
         ) -> tuple[bool, None]:
             raise DaemonError("Not found")
 
         monkeypatch.setattr(
-            "marianne.daemon.detect.try_daemon_route", _raise,
+            "marianne.daemon.detect.try_daemon_route",
+            _raise,
         )
         result = runner.invoke(app, ["cancel", "test-job", "--json"])
         assert result.exit_code != 0
@@ -606,19 +642,24 @@ class TestPauseRemainingStandardization:
     """Remaining pause error paths migrated from raw console.print."""
 
     def test_pause_not_running_uses_output_error(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Pausing a non-running job uses output_error() with hints."""
 
         async def _not_running(
-            method: str, params: dict, *, socket_path: Path | None = None,
+            method: str,
+            params: dict,
+            *,
+            socket_path: Path | None = None,
         ) -> tuple[bool, dict]:
             if method == "job.pause":
                 return True, {"paused": False, "error": "Score is not running"}
             return True, {}
 
         monkeypatch.setattr(
-            "marianne.daemon.detect.try_daemon_route", _not_running,
+            "marianne.daemon.detect.try_daemon_route",
+            _not_running,
         )
         result = runner.invoke(app, ["pause", "test-job"])
         assert result.exit_code != 0
@@ -626,19 +667,24 @@ class TestPauseRemainingStandardization:
         assert "E502" in result.output or "not running" in result.output.lower()
 
     def test_pause_failure_uses_output_error(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Pause failure from conductor uses output_error() format."""
 
         async def _fail(
-            method: str, params: dict, *, socket_path: Path | None = None,
+            method: str,
+            params: dict,
+            *,
+            socket_path: Path | None = None,
         ) -> tuple[bool, dict]:
             if method == "job.pause":
                 return True, {"paused": False, "error": "Job already stopped"}
             return True, None
 
         monkeypatch.setattr(
-            "marianne.daemon.detect.try_daemon_route", _fail,
+            "marianne.daemon.detect.try_daemon_route",
+            _fail,
         )
         result = runner.invoke(app, ["pause", "test-job"])
         assert result.exit_code != 0
@@ -656,17 +702,22 @@ class TestResumeRemainingStandardization:
     """Resume error path for rejected status uses output_error()."""
 
     def test_resume_rejected_uses_output_error(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Resume rejected by conductor uses output_error() format."""
 
         async def _reject(
-            method: str, params: dict, *, socket_path: Path | None = None,
+            method: str,
+            params: dict,
+            *,
+            socket_path: Path | None = None,
         ) -> tuple[bool, dict]:
             return True, {"status": "rejected", "message": "Job is completed"}
 
         monkeypatch.setattr(
-            "marianne.daemon.detect.try_daemon_route", _reject,
+            "marianne.daemon.detect.try_daemon_route",
+            _reject,
         )
         result = runner.invoke(app, ["resume", "test-job"])
         assert result.exit_code != 0

@@ -57,12 +57,7 @@ class TestAlexFirstScore:
     def test_missing_sheet_gives_specific_hint(self, tmp_path: Path) -> None:
         """When sheet section is missing, hint mentions what to add."""
         score = tmp_path / "no-sheet.yaml"
-        score.write_text(
-            "name: test\n"
-            "prompt:\n"
-            '  template: "Hello"\n'
-            "workspace: ./ws\n"
-        )
+        score.write_text('name: test\nprompt:\n  template: "Hello"\nworkspace: ./ws\n')
         result = runner.invoke(app, ["validate", str(score)])
         assert result.exit_code == 2
         out = result.stdout
@@ -73,13 +68,7 @@ class TestAlexFirstScore:
     def test_missing_prompt_gives_specific_hint(self, tmp_path: Path) -> None:
         """When prompt section is missing, hint mentions template."""
         score = tmp_path / "no-prompt.yaml"
-        score.write_text(
-            "name: test\n"
-            "sheet:\n"
-            "  total_items: 1\n"
-            "  size: 1\n"
-            "workspace: ./ws\n"
-        )
+        score.write_text("name: test\nsheet:\n  total_items: 1\n  size: 1\nworkspace: ./ws\n")
         result = runner.invoke(app, ["validate", str(score)])
         assert result.exit_code == 2
         out = result.stdout
@@ -147,19 +136,13 @@ class TestSchemaErrorHints:
 
     def test_missing_sheet_field_detected(self) -> None:
         """Missing 'sheet' field triggers specific hint."""
-        error = (
-            "1 validation error for JobConfig\nsheet\n"
-            "  Field required"
-        )
+        error = "1 validation error for JobConfig\nsheet\n  Field required"
         hints = _schema_error_hints(error)
         assert any("total_items" in h for h in hints)
 
     def test_missing_prompt_field_detected(self) -> None:
         """Missing 'prompt' field triggers specific hint."""
-        error = (
-            "1 validation error for JobConfig\nprompt\n"
-            "  Field required"
-        )
+        error = "1 validation error for JobConfig\nprompt\n  Field required"
         hints = _schema_error_hints(error)
         assert any("template" in h for h in hints)
 

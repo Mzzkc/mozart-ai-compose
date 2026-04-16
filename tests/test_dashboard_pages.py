@@ -2,6 +2,7 @@
 
 Covers: Q018 (pages.py coverage)
 """
+
 import asyncio
 import tempfile
 from pathlib import Path
@@ -97,11 +98,14 @@ class TestPageRoutes:
         assert response.status_code == 200
         assert "text/html" in response.headers["content-type"]
 
-    @pytest.mark.parametrize("path", [
-        "/templates",
-        "/editor",
-        "/editor?template=some-template",
-    ])
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/templates",
+            "/editor",
+            "/editor?template=some-template",
+        ],
+    )
     def test_template_route_registered(self, client, path):
         """Routes with Jinja2/Alpine.js conflicts are registered (not 404).
 

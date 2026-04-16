@@ -64,10 +64,7 @@ class TestRedactCredentials:
 
     def test_multiple_credentials_all_redacted(self) -> None:
         """Multiple credentials of different types are all redacted."""
-        text = (
-            "ANTHROPIC_API_KEY=sk-ant-api03-xxxxxxxxxxxxxxxxxxxx "
-            "AWS_KEY=AKIAIOSFODNN7EXAMPLE"
-        )
+        text = "ANTHROPIC_API_KEY=sk-ant-api03-xxxxxxxxxxxxxxxxxxxx AWS_KEY=AKIAIOSFODNN7EXAMPLE"
         result = redact_credentials(text)
         assert "sk-ant-api" not in result
         assert "AKIA" not in result

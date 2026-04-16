@@ -356,12 +356,15 @@ class TestErrorTolerance:
         (workspace / "file.md").write_text("data")
 
         archiver = WorkspaceArchiver(workspace, default_config)
-        with patch("shutil.move", side_effect=TypeError("unexpected type")), \
-             pytest.raises(TypeError, match="unexpected type"):
+        with (
+            patch("shutil.move", side_effect=TypeError("unexpected type")),
+            pytest.raises(TypeError, match="unexpected type"),
+        ):
             archiver._do_archive()
 
     def test_programming_error_in_rotation_propagates(
-        self, workspace: Path,
+        self,
+        workspace: Path,
     ):
         """TypeError during rotation propagates (not caught by narrowed handler)."""
 
@@ -377,8 +380,10 @@ class TestErrorTolerance:
         (workspace / "report.md").write_text("new")
 
         archiver = WorkspaceArchiver(workspace, config)
-        with patch("shutil.rmtree", side_effect=TypeError("unexpected type")), \
-             pytest.raises(TypeError, match="unexpected type"):
+        with (
+            patch("shutil.rmtree", side_effect=TypeError("unexpected type")),
+            pytest.raises(TypeError, match="unexpected type"),
+        ):
             archiver._do_archive()
 
 

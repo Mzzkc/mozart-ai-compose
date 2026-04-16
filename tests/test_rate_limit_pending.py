@@ -18,7 +18,6 @@ import pytest
 
 from marianne.daemon.backpressure import BackpressureController
 
-
 # =============================================================================
 # BackpressureController.rejection_reason — why was the job rejected?
 # =============================================================================
@@ -232,7 +231,6 @@ class TestPendingJobAutoStart:
             mgr._backpressure.should_accept_job.return_value = True
 
             # Mock asyncio.create_task to capture calls
-            created_tasks: list[str] = []
 
             async def mock_run_job_task(job_id: str, request: object) -> None:
                 pass  # pragma: no cover
@@ -289,9 +287,7 @@ class TestCliPendingStatus:
             )
             # Should have printed something with "pending" or "queued"
             assert mock_console.print.called
-            all_output = " ".join(
-                str(call[0][0]) for call in mock_console.print.call_args_list
-            )
+            all_output = " ".join(str(call[0][0]) for call in mock_console.print.call_args_list)
             assert "pending" in all_output.lower() or "queued" in all_output.lower()
 
     def test_pending_response_json_output(self) -> None:
@@ -396,7 +392,8 @@ class TestPendingAutoStartWiring:
 
     @pytest.mark.asyncio
     async def test_queue_pending_schedules_deferred_start(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Queuing a pending job should schedule a deferred auto-start check."""
         from marianne.daemon.manager import JobManager
@@ -438,14 +435,15 @@ class TestPendingAutoStartWiring:
                 mock_task.add_done_callback = MagicMock()
                 mock_create_task.return_value = mock_task
                 with patch.object(
-                    mgr, "_resolve_workspace_from_config", return_value=None,
+                    mgr,
+                    "_resolve_workspace_from_config",
+                    return_value=None,
                 ):
                     await mgr._queue_pending_job(request)
 
             # Should have scheduled a deferred start task
             assert any(
-                "pending-autostart" in str(call)
-                for call in mock_create_task.call_args_list
+                "pending-autostart" in str(call) for call in mock_create_task.call_args_list
             ), f"Expected pending-autostart task, got: {mock_create_task.call_args_list}"
 
 
@@ -504,14 +502,18 @@ class TestPendingJobVisibility:
                 self_healing_auto_confirm=False,
             )
 
-            with patch(
-                "marianne.daemon.manager.asyncio.create_task",
-                return_value=MagicMock(add_done_callback=MagicMock()),
+            with (
+                patch(
+                    "marianne.daemon.manager.asyncio.create_task",
+                    return_value=MagicMock(add_done_callback=MagicMock()),
+                ),
+                patch.object(
+                    mgr,
+                    "_resolve_workspace_from_config",
+                    return_value=tmp_path,
+                ),
             ):
-                with patch.object(
-                    mgr, "_resolve_workspace_from_config", return_value=tmp_path,
-                ):
-                    response = await mgr._queue_pending_job(request)
+                response = await mgr._queue_pending_job(request)
 
             assert response.status == "pending"
 
@@ -520,14 +522,12 @@ class TestPendingJobVisibility:
             assert len(jobs) >= 1
             pending_jobs = [j for j in jobs if j.get("status") == "pending"]
             assert len(pending_jobs) == 1, (
-                f"Expected 1 pending job in list, got {len(pending_jobs)}. "
-                f"All jobs: {jobs}"
+                f"Expected 1 pending job in list, got {len(pending_jobs)}. All jobs: {jobs}"
             )
 
     @pytest.mark.asyncio
     async def test_pending_job_not_clearable(self) -> None:
         """Pending jobs should not be cleared by mzt clear."""
-        from marianne.daemon.registry import DaemonJobStatus
 
         # "pending" is not in _TERMINAL_STATUSES
         from marianne.daemon.registry import _TERMINAL_STATUSES

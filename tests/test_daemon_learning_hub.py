@@ -14,7 +14,6 @@ import pytest
 from marianne.daemon.learning_hub import LearningHub
 from marianne.learning.global_store import GlobalLearningStore
 
-
 # ─── Fixtures ──────────────────────────────────────────────────────────
 
 

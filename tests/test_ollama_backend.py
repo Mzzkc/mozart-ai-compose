@@ -324,7 +324,7 @@ class TestJsonExtraction:
 
     def test_code_block_and_inline_both_invalid_returns_empty(self, ollama_backend):
         """Both tier 1 and tier 2 fail → returns empty dict (tier 3)."""
-        text = '```json\n{invalid\n```\nAlso {broken json'
+        text = "```json\n{invalid\n```\nAlso {broken json"
         result = ollama_backend._extract_json_from_text(text)
         assert result == {}
 
@@ -353,9 +353,7 @@ class TestJsonExtraction:
 
     # --- Integration: _parse_tool_calls triggers extraction fallback ---
 
-    def test_parse_tool_calls_string_args_invalid_json_triggers_extraction(
-        self, ollama_backend
-    ):
+    def test_parse_tool_calls_string_args_invalid_json_triggers_extraction(self, ollama_backend):
         """_parse_tool_calls falls back to _extract_json_from_text for non-JSON strings."""
         raw_calls = [
             {
@@ -372,9 +370,7 @@ class TestJsonExtraction:
         assert parsed[0].name == "write_file"
         assert parsed[0].arguments == {"path": "/tmp/out", "content": "hi"}
 
-    def test_parse_tool_calls_string_args_code_block_triggers_extraction(
-        self, ollama_backend
-    ):
+    def test_parse_tool_calls_string_args_code_block_triggers_extraction(self, ollama_backend):
         """_parse_tool_calls handles code-block-wrapped JSON string arguments."""
         raw_calls = [
             {
@@ -389,9 +385,7 @@ class TestJsonExtraction:
         assert len(parsed) == 1
         assert parsed[0].arguments == {"path": "/etc/hosts"}
 
-    def test_parse_tool_calls_completely_invalid_string_args_skipped(
-        self, ollama_backend
-    ):
+    def test_parse_tool_calls_completely_invalid_string_args_skipped(self, ollama_backend):
         """_parse_tool_calls with totally invalid string args skips the call (Q024)."""
         raw_calls = [
             {
@@ -418,9 +412,7 @@ class TestTokenEstimation:
 
     def test_estimate_tokens_from_response(self, ollama_backend, sample_ollama_response):
         """Test token estimation from actual counts in response."""
-        input_tokens, output_tokens = ollama_backend._estimate_tokens(
-            sample_ollama_response
-        )
+        input_tokens, output_tokens = ollama_backend._estimate_tokens(sample_ollama_response)
 
         assert input_tokens == 10
         assert output_tokens == 15
@@ -451,9 +443,7 @@ class TestExecuteSimple:
         """Test basic prompt execution without tools."""
         mock_client = AsyncMock(spec=httpx.AsyncClient)
         mock_client.is_closed = False
-        mock_client.post = AsyncMock(
-            return_value=mock_httpx_response(sample_ollama_response)
-        )
+        mock_client.post = AsyncMock(return_value=mock_httpx_response(sample_ollama_response))
 
         with patch.object(ollama_backend, "_get_client", return_value=mock_client):
             result = await ollama_backend.execute("Hello, how are you?")
@@ -466,9 +456,7 @@ class TestExecuteSimple:
         """Test handling of connection errors."""
         mock_client = AsyncMock(spec=httpx.AsyncClient)
         mock_client.is_closed = False
-        mock_client.post = AsyncMock(
-            side_effect=httpx.ConnectError("Connection refused")
-        )
+        mock_client.post = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
 
         with patch.object(ollama_backend, "_get_client", return_value=mock_client):
             result = await ollama_backend.execute("Test prompt")
@@ -509,9 +497,7 @@ class TestAgenticLoop:
         """Test agentic loop that completes in one iteration."""
         mock_client = AsyncMock(spec=httpx.AsyncClient)
         mock_client.is_closed = False
-        mock_client.post = AsyncMock(
-            return_value=mock_httpx_response(sample_ollama_response)
-        )
+        mock_client.post = AsyncMock(return_value=mock_httpx_response(sample_ollama_response))
 
         messages = [OllamaMessage(role="user", content="Hi")]
         tools = [{"type": "function", "function": {"name": "test"}}]
@@ -587,9 +573,7 @@ class TestAgenticLoop:
         # Always return tool calls (never done)
         mock_client = AsyncMock(spec=httpx.AsyncClient)
         mock_client.is_closed = False
-        mock_client.post = AsyncMock(
-            return_value=mock_httpx_response(sample_ollama_tool_response)
-        )
+        mock_client.post = AsyncMock(return_value=mock_httpx_response(sample_ollama_tool_response))
 
         messages = [OllamaMessage(role="user", content="Test")]
         tools = [{"type": "function", "function": {"name": "read_file"}}]
@@ -628,9 +612,7 @@ class TestHealthCheck:
 
         assert result is True
 
-    async def test_health_check_model_not_found(
-        self, ollama_backend, mock_httpx_response
-    ):
+    async def test_health_check_model_not_found(self, ollama_backend, mock_httpx_response):
         """Test health check when model isn't available."""
         tags_response = {
             "models": [
@@ -651,9 +633,7 @@ class TestHealthCheck:
         """Test health check handles connection errors."""
         mock_client = AsyncMock(spec=httpx.AsyncClient)
         mock_client.is_closed = False
-        mock_client.get = AsyncMock(
-            side_effect=httpx.ConnectError("Connection refused")
-        )
+        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
 
         with patch.object(ollama_backend, "_get_client", return_value=mock_client):
             result = await ollama_backend.health_check()
@@ -732,9 +712,7 @@ class TestOllamaPreamble:
 
         mock_client = AsyncMock(spec=httpx.AsyncClient)
         mock_client.is_closed = False
-        mock_client.post = AsyncMock(
-            return_value=mock_httpx_response(sample_ollama_response)
-        )
+        mock_client.post = AsyncMock(return_value=mock_httpx_response(sample_ollama_response))
 
         with patch.object(ollama_backend, "_get_client", return_value=mock_client):
             await ollama_backend.execute("Do the task")
@@ -755,9 +733,7 @@ class TestOllamaPreamble:
 
         mock_client = AsyncMock(spec=httpx.AsyncClient)
         mock_client.is_closed = False
-        mock_client.post = AsyncMock(
-            return_value=mock_httpx_response(sample_ollama_response)
-        )
+        mock_client.post = AsyncMock(return_value=mock_httpx_response(sample_ollama_response))
 
         with patch.object(ollama_backend, "_get_client", return_value=mock_client):
             await ollama_backend.execute("Do the task")
@@ -778,9 +754,7 @@ class TestOllamaPreamble:
 
         mock_client = AsyncMock(spec=httpx.AsyncClient)
         mock_client.is_closed = False
-        mock_client.post = AsyncMock(
-            return_value=mock_httpx_response(sample_ollama_response)
-        )
+        mock_client.post = AsyncMock(return_value=mock_httpx_response(sample_ollama_response))
 
         with patch.object(ollama_backend, "_get_client", return_value=mock_client):
             await ollama_backend.execute("My prompt")
@@ -798,9 +772,7 @@ class TestOllamaPreamble:
         """Without preamble or extensions, prompt is sent unchanged."""
         mock_client = AsyncMock(spec=httpx.AsyncClient)
         mock_client.is_closed = False
-        mock_client.post = AsyncMock(
-            return_value=mock_httpx_response(sample_ollama_response)
-        )
+        mock_client.post = AsyncMock(return_value=mock_httpx_response(sample_ollama_response))
 
         with patch.object(ollama_backend, "_get_client", return_value=mock_client):
             await ollama_backend.execute("Plain prompt")
@@ -826,5 +798,3 @@ class TestOllamaPreamble:
         """set_prompt_extensions() filters empty strings."""
         ollama_backend.set_prompt_extensions(["Valid", "", "  ", "Also valid"])
         assert ollama_backend._prompt_extensions == ["Valid", "Also valid"]
-
-

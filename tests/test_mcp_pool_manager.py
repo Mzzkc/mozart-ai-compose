@@ -9,7 +9,6 @@ TDD: tests written before implementation.
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -17,7 +16,6 @@ import pytest
 
 from marianne.daemon.config import McpPoolConfig, McpServerEntry
 from marianne.daemon.mcp_pool import McpPoolManager, McpServerState
-
 
 # =============================================================================
 # Fixtures
@@ -81,7 +79,8 @@ class TestLifecycle:
     """Server processes are started and stopped by the manager."""
 
     async def test_start_all_starts_servers(
-        self, pool_config: McpPoolConfig,
+        self,
+        pool_config: McpPoolConfig,
     ) -> None:
         manager = McpPoolManager(pool_config)
 
@@ -103,7 +102,8 @@ class TestLifecycle:
         assert manager.is_running("filesystem")
 
     async def test_stop_all_terminates_servers(
-        self, pool_config: McpPoolConfig,
+        self,
+        pool_config: McpPoolConfig,
     ) -> None:
         manager = McpPoolManager(pool_config)
 
@@ -128,14 +128,16 @@ class TestLifecycle:
         assert not manager.is_running("filesystem")
 
     async def test_start_empty_pool_is_noop(
-        self, empty_config: McpPoolConfig,
+        self,
+        empty_config: McpPoolConfig,
     ) -> None:
         manager = McpPoolManager(empty_config)
         await manager.start_all()  # should not raise
         await manager.stop_all()
 
     async def test_stop_all_is_idempotent(
-        self, pool_config: McpPoolConfig,
+        self,
+        pool_config: McpPoolConfig,
     ) -> None:
         manager = McpPoolManager(pool_config)
 
@@ -167,14 +169,16 @@ class TestServerState:
     """Server state is tracked correctly."""
 
     def test_initial_state_is_stopped(
-        self, pool_config: McpPoolConfig,
+        self,
+        pool_config: McpPoolConfig,
     ) -> None:
         manager = McpPoolManager(pool_config)
         assert not manager.is_running("github")
         assert not manager.is_running("filesystem")
 
     def test_unknown_server_not_running(
-        self, pool_config: McpPoolConfig,
+        self,
+        pool_config: McpPoolConfig,
     ) -> None:
         manager = McpPoolManager(pool_config)
         assert not manager.is_running("nonexistent")
@@ -185,7 +189,8 @@ class TestServerState:
         assert McpServerState.FAILED.value == "failed"
 
     async def test_get_status_returns_all_servers(
-        self, pool_config: McpPoolConfig,
+        self,
+        pool_config: McpPoolConfig,
     ) -> None:
         manager = McpPoolManager(pool_config)
         status = manager.get_status()
@@ -204,7 +209,8 @@ class TestFailureHandling:
     """Process failures are detected and handled per restart policy."""
 
     async def test_start_failure_marks_server_failed(
-        self, pool_config: McpPoolConfig,
+        self,
+        pool_config: McpPoolConfig,
     ) -> None:
         manager = McpPoolManager(pool_config)
 
@@ -220,7 +226,8 @@ class TestFailureHandling:
         assert status["filesystem"] == McpServerState.FAILED
 
     async def test_stop_handles_already_dead_process(
-        self, pool_config: McpPoolConfig,
+        self,
+        pool_config: McpPoolConfig,
     ) -> None:
         manager = McpPoolManager(pool_config)
 
@@ -252,21 +259,24 @@ class TestSocketPaths:
     """Socket paths are managed correctly."""
 
     def test_get_socket_path(
-        self, pool_config: McpPoolConfig, tmp_path: Path,
+        self,
+        pool_config: McpPoolConfig,
+        tmp_path: Path,
     ) -> None:
         manager = McpPoolManager(pool_config)
-        assert manager.get_socket_path("github") == Path(
-            str(tmp_path / "github.sock")
-        )
+        assert manager.get_socket_path("github") == Path(str(tmp_path / "github.sock"))
 
     def test_get_socket_path_unknown_server(
-        self, pool_config: McpPoolConfig,
+        self,
+        pool_config: McpPoolConfig,
     ) -> None:
         manager = McpPoolManager(pool_config)
         assert manager.get_socket_path("nonexistent") is None
 
     def test_get_all_socket_paths(
-        self, pool_config: McpPoolConfig, tmp_path: Path,
+        self,
+        pool_config: McpPoolConfig,
+        tmp_path: Path,
     ) -> None:
         manager = McpPoolManager(pool_config)
         paths = manager.get_all_socket_paths()
@@ -284,7 +294,8 @@ class TestHealthCheck:
     """Health checks verify server processes are alive."""
 
     async def test_health_check_running_server(
-        self, pool_config: McpPoolConfig,
+        self,
+        pool_config: McpPoolConfig,
     ) -> None:
         manager = McpPoolManager(pool_config)
 
@@ -304,7 +315,8 @@ class TestHealthCheck:
         assert await manager.health_check("github")
 
     async def test_health_check_dead_server(
-        self, pool_config: McpPoolConfig,
+        self,
+        pool_config: McpPoolConfig,
     ) -> None:
         manager = McpPoolManager(pool_config)
 
@@ -327,13 +339,15 @@ class TestHealthCheck:
         assert not await manager.health_check("github")
 
     async def test_health_check_unknown_server(
-        self, pool_config: McpPoolConfig,
+        self,
+        pool_config: McpPoolConfig,
     ) -> None:
         manager = McpPoolManager(pool_config)
         assert not await manager.health_check("nonexistent")
 
     async def test_health_check_not_started(
-        self, pool_config: McpPoolConfig,
+        self,
+        pool_config: McpPoolConfig,
     ) -> None:
         manager = McpPoolManager(pool_config)
         assert not await manager.health_check("github")

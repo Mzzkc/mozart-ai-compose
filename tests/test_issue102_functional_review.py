@@ -16,13 +16,11 @@ import time
 from pathlib import Path
 from typing import Any
 
-
 from marianne.daemon.profiler.models import (
     JobProgress,
     ProcessMetric,
     SystemSnapshot,
 )
-
 
 # ===========================================================================
 # Phase 1: Timeline observer file event rendering
@@ -63,23 +61,41 @@ class TestTimelineFileEventRendering:
         return entries
 
     def test_created_event_uses_green_and_create_label(self) -> None:
-        events = [{"event": "observer.file_created", "timestamp": 100.0,
-                    "job_id": "j1", "data": {"path": "/ws/new.txt"}}]
+        events = [
+            {
+                "event": "observer.file_created",
+                "timestamp": 100.0,
+                "job_id": "j1",
+                "data": {"path": "/ws/new.txt"},
+            }
+        ]
         entries = self._render_entries(events)
         assert len(entries) == 1
         assert "[green]CREATE[/]" in entries[0][1]
         assert "/ws/new.txt" in entries[0][1]
 
     def test_modified_event_uses_yellow_and_modify_label(self) -> None:
-        events = [{"event": "observer.file_modified", "timestamp": 200.0,
-                    "job_id": "j1", "data": {"path": "/ws/changed.py"}}]
+        events = [
+            {
+                "event": "observer.file_modified",
+                "timestamp": 200.0,
+                "job_id": "j1",
+                "data": {"path": "/ws/changed.py"},
+            }
+        ]
         entries = self._render_entries(events)
         assert len(entries) == 1
         assert "[yellow]MODIFY[/]" in entries[0][1]
 
     def test_deleted_event_uses_red_and_delete_label(self) -> None:
-        events = [{"event": "observer.file_deleted", "timestamp": 300.0,
-                    "job_id": "j1", "data": {"path": "/ws/removed.log"}}]
+        events = [
+            {
+                "event": "observer.file_deleted",
+                "timestamp": 300.0,
+                "job_id": "j1",
+                "data": {"path": "/ws/removed.log"},
+            }
+        ]
         entries = self._render_entries(events)
         assert len(entries) == 1
         assert "[red]DELETE[/]" in entries[0][1]
@@ -88,8 +104,14 @@ class TestTimelineFileEventRendering:
         """Paths > 40 chars get truncated to '...' + last 37 chars."""
         long_path = "/workspace/deeply/nested/directory/structure/file.txt"
         assert len(long_path) > 40
-        events = [{"event": "observer.file_created", "timestamp": 100.0,
-                    "job_id": "j1", "data": {"path": long_path}}]
+        events = [
+            {
+                "event": "observer.file_created",
+                "timestamp": 100.0,
+                "job_id": "j1",
+                "data": {"path": long_path},
+            }
+        ]
         entries = self._render_entries(events)
         assert entries[0][1].count("...") == 1
         # The truncated path should be 40 chars total: "..." (3) + 37 = 40
@@ -100,8 +122,14 @@ class TestTimelineFileEventRendering:
     def test_short_path_not_truncated(self) -> None:
         short_path = "/ws/file.txt"
         assert len(short_path) <= 40
-        events = [{"event": "observer.file_created", "timestamp": 100.0,
-                    "job_id": "j1", "data": {"path": short_path}}]
+        events = [
+            {
+                "event": "observer.file_created",
+                "timestamp": 100.0,
+                "job_id": "j1",
+                "data": {"path": short_path},
+            }
+        ]
         entries = self._render_entries(events)
         assert "..." not in entries[0][1]
         assert short_path in entries[0][1]
@@ -109,26 +137,36 @@ class TestTimelineFileEventRendering:
     def test_process_events_ignored_by_file_renderer(self) -> None:
         """observer.process_* events should not produce file entries."""
         events = [
-            {"event": "observer.process_spawned", "timestamp": 100.0,
-             "job_id": "j1", "data": {"pid": 123}},
-            {"event": "observer.file_created", "timestamp": 200.0,
-             "job_id": "j1", "data": {"path": "/ws/f.txt"}},
+            {
+                "event": "observer.process_spawned",
+                "timestamp": 100.0,
+                "job_id": "j1",
+                "data": {"pid": 123},
+            },
+            {
+                "event": "observer.file_created",
+                "timestamp": 200.0,
+                "job_id": "j1",
+                "data": {"path": "/ws/f.txt"},
+            },
         ]
         entries = self._render_entries(events)
         assert len(entries) == 1  # Only the file event
 
     def test_missing_data_key_uses_defaults(self) -> None:
         """Events with missing 'data' key should use '?' for path."""
-        events = [{"event": "observer.file_created", "timestamp": 100.0,
-                    "job_id": "j1"}]  # No 'data' key
+        events = [
+            {"event": "observer.file_created", "timestamp": 100.0, "job_id": "j1"}
+        ]  # No 'data' key
         entries = self._render_entries(events)
         assert len(entries) == 1
         assert "?" in entries[0][1]
 
     def test_missing_path_in_data_uses_default(self) -> None:
         """Events with empty data dict should use '?' for path."""
-        events = [{"event": "observer.file_created", "timestamp": 100.0,
-                    "job_id": "j1", "data": {}}]
+        events = [
+            {"event": "observer.file_created", "timestamp": 100.0, "job_id": "j1", "data": {}}
+        ]
         entries = self._render_entries(events)
         assert len(entries) == 1
         assert "?" in entries[0][1]
@@ -144,6 +182,7 @@ class TestJobsPanelFileEventFiltering:
 
     def _build_panel_with_tree(self) -> Any:
         from textual.widgets import Static, Tree
+
         from marianne.tui.panels.jobs import JobsPanel
 
         panel = JobsPanel()
@@ -168,12 +207,24 @@ class TestJobsPanelFileEventFiltering:
             ],
         )
         file_events = [
-            {"event": "observer.file_created", "timestamp": 1.0,
-             "job_id": "alpha", "data": {"path": "/a.txt"}},
-            {"event": "observer.file_modified", "timestamp": 2.0,
-             "job_id": "beta", "data": {"path": "/b.txt"}},
-            {"event": "observer.file_deleted", "timestamp": 3.0,
-             "job_id": "alpha", "data": {"path": "/c.txt"}},
+            {
+                "event": "observer.file_created",
+                "timestamp": 1.0,
+                "job_id": "alpha",
+                "data": {"path": "/a.txt"},
+            },
+            {
+                "event": "observer.file_modified",
+                "timestamp": 2.0,
+                "job_id": "beta",
+                "data": {"path": "/b.txt"},
+            },
+            {
+                "event": "observer.file_deleted",
+                "timestamp": 3.0,
+                "job_id": "alpha",
+                "data": {"path": "/c.txt"},
+            },
         ]
         panel.update_data(snap, observer_file_events=file_events)
 
@@ -195,10 +246,18 @@ class TestJobsPanelFileEventFiltering:
         )
         # Mix file and process events
         mixed_events = [
-            {"event": "observer.file_created", "timestamp": 1.0,
-             "job_id": "j1", "data": {"path": "/f.txt"}},
-            {"event": "observer.process_spawned", "timestamp": 2.0,
-             "job_id": "j1", "data": {"pid": 999}},
+            {
+                "event": "observer.file_created",
+                "timestamp": 1.0,
+                "job_id": "j1",
+                "data": {"path": "/f.txt"},
+            },
+            {
+                "event": "observer.process_spawned",
+                "timestamp": 2.0,
+                "job_id": "j1",
+                "data": {"pid": 999},
+            },
         ]
         panel.update_data(snap, observer_file_events=mixed_events)
 
@@ -211,9 +270,9 @@ class TestJobsPanelFileEventFiltering:
     def test_update_data_preserves_events_when_none_passed(self) -> None:
         """When observer_file_events=None, existing events are preserved."""
         from marianne.tui.panels.jobs import JobsPanel
+
         panel = JobsPanel()
-        initial = [{"event": "observer.file_created", "job_id": "j1",
-                     "data": {"path": "/f.txt"}}]
+        initial = [{"event": "observer.file_created", "job_id": "j1", "data": {"path": "/f.txt"}}]
         panel._observer_file_events = initial
         panel.update_data(None)  # No observer_file_events parameter
         assert panel._observer_file_events is initial
@@ -239,8 +298,7 @@ class TestAppObserverWiring:
         ]
         # This is the exact filtering logic from app.py refresh_data
         observer_file_events = [
-            e for e in all_events
-            if e.get("event", "").startswith("observer.file_")
+            e for e in all_events if e.get("event", "").startswith("observer.file_")
         ]
         assert len(observer_file_events) == 3
         assert all(e["event"].startswith("observer.file_") for e in observer_file_events)
@@ -273,6 +331,7 @@ class TestSnapshotObserverSummary:
         jsonl.write_text("\n".join(json.dumps(r) for r in records) + "\n")
 
         from marianne.daemon.snapshot import SnapshotManager
+
         SnapshotManager._capture_observer_summary(ws, snapshot_dir)
 
         summary_path = snapshot_dir / "observer-summary.json"
@@ -294,13 +353,11 @@ class TestSnapshotObserverSummary:
 
         jsonl = ws / ".marianne-observer.jsonl"
         jsonl.write_text(
-            '{"event":"observer.file_created"}\n'
-            "\n"
-            '{"event":"observer.file_modified"}\n'
-            "   \n"
+            '{"event":"observer.file_created"}\n\n{"event":"observer.file_modified"}\n   \n'
         )
 
         from marianne.daemon.snapshot import SnapshotManager
+
         SnapshotManager._capture_observer_summary(ws, snapshot_dir)
 
         summary = json.loads((snapshot_dir / "observer-summary.json").read_text())
@@ -317,6 +374,7 @@ class TestSnapshotObserverSummary:
         jsonl.write_text("not json\nalso not json\n")
 
         from marianne.daemon.snapshot import SnapshotManager
+
         SnapshotManager._capture_observer_summary(ws, snapshot_dir)
 
         assert not (snapshot_dir / "observer-summary.json").exists()
@@ -341,6 +399,7 @@ class TestSnapshotConfigCapture:
         config.write_text("name: test-job\nsheets:\n  - prompt: hi\n")
 
         from marianne.daemon.snapshot import SnapshotManager
+
         mgr = SnapshotManager(base_dir=tmp_path / "snapshots")
         result = mgr.capture("test-job", ws, config_path=config)
         assert result is not None
@@ -357,6 +416,7 @@ class TestSnapshotConfigCapture:
         config.write_text("sheets: []\n")
 
         from marianne.daemon.snapshot import SnapshotManager
+
         mgr = SnapshotManager(base_dir=tmp_path / "snapshots")
         result = mgr.capture("test-job", ws, config_path=config)
         assert result is not None
@@ -380,6 +440,7 @@ class TestSnapshotCapturePatterns:
         (ws / "override.yml").write_text("other: data")
 
         from marianne.daemon.snapshot import SnapshotManager
+
         mgr = SnapshotManager(base_dir=tmp_path / "snapshots")
         result = mgr.capture("test-job", ws)
         assert result is not None
@@ -390,6 +451,7 @@ class TestSnapshotCapturePatterns:
     def test_capture_patterns_list(self) -> None:
         """Verify capture patterns include yaml/yml."""
         from marianne.daemon.snapshot import _CAPTURE_PATTERNS
+
         assert "*.yaml" in _CAPTURE_PATTERNS
         assert "*.yml" in _CAPTURE_PATTERNS
         assert ".marianne-observer.jsonl" in _CAPTURE_PATTERNS
@@ -418,6 +480,7 @@ class TestManagerSnapshotWiring:
     def test_snapshot_capture_signature_accepts_config_path(self) -> None:
         """SnapshotManager.capture() accepts config_path as a keyword arg."""
         import inspect
+
         from marianne.daemon.snapshot import SnapshotManager
 
         sig = inspect.signature(SnapshotManager.capture)
@@ -445,26 +508,40 @@ class TestEndToEndObserverFlow:
         4. DetailPanel renders file activity
         """
         from textual.widgets import Static, Tree
-        from marianne.tui.panels.jobs import JobsPanel
+
         from marianne.tui.panels.detail import DetailPanel
+        from marianne.tui.panels.jobs import JobsPanel
 
         # Step 1: Simulated observer events (as returned by get_observer_events)
         all_observer = [
-            {"event": "observer.file_created", "timestamp": 1.0,
-             "job_id": "alpha", "data": {"path": "/ws-a/output.txt"}},
-            {"event": "observer.process_spawned", "timestamp": 2.0,
-             "job_id": "alpha", "data": {"pid": 1234}},
-            {"event": "observer.file_modified", "timestamp": 3.0,
-             "job_id": "beta", "data": {"path": "/ws-b/config.yaml"}},
-            {"event": "observer.file_deleted", "timestamp": 4.0,
-             "job_id": "alpha", "data": {"path": "/ws-a/temp.log"}},
+            {
+                "event": "observer.file_created",
+                "timestamp": 1.0,
+                "job_id": "alpha",
+                "data": {"path": "/ws-a/output.txt"},
+            },
+            {
+                "event": "observer.process_spawned",
+                "timestamp": 2.0,
+                "job_id": "alpha",
+                "data": {"pid": 1234},
+            },
+            {
+                "event": "observer.file_modified",
+                "timestamp": 3.0,
+                "job_id": "beta",
+                "data": {"path": "/ws-b/config.yaml"},
+            },
+            {
+                "event": "observer.file_deleted",
+                "timestamp": 4.0,
+                "job_id": "alpha",
+                "data": {"path": "/ws-a/temp.log"},
+            },
         ]
 
         # Step 2: App filtering (exact logic from app.py)
-        file_events = [
-            e for e in all_observer
-            if e.get("event", "").startswith("observer.file_")
-        ]
+        file_events = [e for e in all_observer if e.get("event", "").startswith("observer.file_")]
         assert len(file_events) == 3
 
         # Step 3: JobsPanel receives snapshot + file events
@@ -499,8 +576,9 @@ class TestEndToEndObserverFlow:
         detail = DetailPanel()
         detail.show_item(alpha_item)
         detail.show_item(beta_item)
-        detail.show_item({"type": "job", "job_id": "empty",
-                          "processes": [], "observer_file_events": []})
+        detail.show_item(
+            {"type": "job", "job_id": "empty", "processes": [], "observer_file_events": []}
+        )
 
     def test_snapshot_captures_full_observer_pipeline(self, tmp_path: Path) -> None:
         """End-to-end: workspace with observer JSONL → snapshot with
@@ -523,6 +601,7 @@ class TestEndToEndObserverFlow:
         config.write_text("name: my-job\nsheets:\n  - prompt: test\n")
 
         from marianne.daemon.snapshot import SnapshotManager
+
         mgr = SnapshotManager(base_dir=tmp_path / "snapshots")
         result = mgr.capture("my-job", ws, config_path=config)
 

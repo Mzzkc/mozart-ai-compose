@@ -106,9 +106,7 @@ class TestTryDaemonRoute:
     async def test_returns_false_when_no_daemon(self, tmp_path: Path):
         """Returns (False, None) when daemon is not running."""
         sock = tmp_path / "nonexistent.sock"
-        routed, result = await try_daemon_route(
-            "daemon.status", {}, socket_path=sock
-        )
+        routed, result = await try_daemon_route("daemon.status", {}, socket_path=sock)
         assert routed is False
         assert result is None
 
@@ -168,9 +166,7 @@ class TestTryDaemonRoute:
         server = DaemonServer(sock, _make_detect_handler())
         await server.start()
         try:
-            routed, result = await try_daemon_route(
-                "daemon.status", {}, socket_path=sock
-            )
+            routed, result = await try_daemon_route("daemon.status", {}, socket_path=sock)
             assert routed is True
             assert result["pid"] == 9999
             assert result["version"] == "0.1.0"
@@ -199,8 +195,12 @@ class TestCliNonDaemonRegression:
         """
         result = subprocess.run(
             [
-                sys.executable, "-m", "marianne", "run",
-                "examples/getting-started/simple-sheet.yaml", "--dry-run",
+                sys.executable,
+                "-m",
+                "marianne",
+                "run",
+                "examples/getting-started/simple-sheet.yaml",
+                "--dry-run",
             ],
             capture_output=True,
             text=True,
@@ -225,7 +225,10 @@ class TestCliNonDaemonRegression:
         """mzt validate succeeds without a daemon socket."""
         result = subprocess.run(
             [
-                sys.executable, "-m", "marianne", "validate",
+                sys.executable,
+                "-m",
+                "marianne",
+                "validate",
                 "examples/getting-started/simple-sheet.yaml",
             ],
             capture_output=True,

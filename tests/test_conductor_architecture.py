@@ -77,7 +77,8 @@ class TestBug1StateJobIdMatchesConductorId:
 
     @pytest.mark.asyncio
     async def test_state_job_id_matches_conductor_id(
-        self, manager: JobManager,
+        self,
+        manager: JobManager,
     ) -> None:
         # Two running jobs: "alpha" (from alpha.yaml) and "beta" (from beta.yaml)
         # Neither has live state yet.
@@ -139,7 +140,8 @@ class TestBug2ConcurrentSameConfigNoClobber:
 
     @pytest.mark.asyncio
     async def test_concurrent_same_config_no_clobber(
-        self, manager: JobManager,
+        self,
+        manager: JobManager,
     ) -> None:
         # Two concurrent jobs from the same config.
         # First job: conductor ID "foo", second: "foo-2" (deduped).
@@ -204,7 +206,8 @@ class TestBug3CompletedJobRetainsLiveState:
 
     @pytest.mark.asyncio
     async def test_completed_job_retains_live_state(
-        self, manager: JobManager,
+        self,
+        manager: JobManager,
     ) -> None:
         # Fill up more terminal jobs than max_job_history allows.
         # Default max_job_history is large, so set a lower value.
@@ -216,7 +219,9 @@ class TestBug3CompletedJobRetainsLiveState:
         for i in range(4):
             jid = f"job-{i}"
             manager._live_states[jid] = _make_checkpoint(
-                jid, last_completed_sheet=5, status="completed",
+                jid,
+                last_completed_sheet=5,
+                status="completed",
             )
             manager._job_meta[jid] = JobMeta(
                 job_id=jid,
@@ -304,6 +309,7 @@ class TestBug4SubmitJobUsesLock:
             lock_events: list[tuple[str, str]] = []
 
             from marianne.core.config import JobConfig
+
             original_from_yaml = JobConfig.from_yaml
 
             def tracked_from_yaml(path, *args, **kwargs):

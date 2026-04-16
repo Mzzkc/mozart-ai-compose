@@ -33,6 +33,7 @@ runner = CliRunner()
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 def _make_job(
     *,
     job_id: str = "diag-test",
@@ -57,9 +58,7 @@ def _make_job(
             )
             for i in range(1, total_sheets + 1)
         }
-    last_completed = sum(
-        1 for s in sheets.values() if s.status == SheetStatus.COMPLETED
-    )
+    last_completed = sum(1 for s in sheets.values() if s.status == SheetStatus.COMPLETED)
     return CheckpointState(
         job_id=job_id,
         job_name=job_name,
@@ -112,8 +111,12 @@ class TestBuildDiagnosticReport:
     def test_progress_with_failures(self) -> None:
         sheets = {
             1: SheetState(sheet_num=1, status=SheetStatus.COMPLETED, attempt_count=1),
-            2: SheetState(sheet_num=2, status=SheetStatus.FAILED, attempt_count=3,
-                          error_message="Validation failed"),
+            2: SheetState(
+                sheet_num=2,
+                status=SheetStatus.FAILED,
+                attempt_count=3,
+                error_message="Validation failed",
+            ),
             3: SheetState(sheet_num=3, status=SheetStatus.COMPLETED, attempt_count=1),
         }
         job = _make_job(total_sheets=3, status=JobStatus.FAILED, sheets=sheets)
@@ -288,13 +291,18 @@ class TestBuildDiagnosticReport:
 @pytest.fixture(autouse=True)
 def _no_daemon_route(monkeypatch: pytest.MonkeyPatch) -> None:
     """Prevent CLI tests from routing through a live conductor."""
+
     async def _fake_route(
-        method: str, params: dict, *, socket_path=None,
+        method: str,
+        params: dict,
+        *,
+        socket_path=None,
     ) -> tuple[bool, None]:
         return False, None
 
     monkeypatch.setattr(
-        "marianne.daemon.detect.try_daemon_route", _fake_route,
+        "marianne.daemon.detect.try_daemon_route",
+        _fake_route,
     )
 
 
@@ -305,9 +313,7 @@ class TestDiagnoseCommand:
         job = _make_job()
         _write_state(tmp_path, job)
 
-        result = runner.invoke(
-            app, ["diagnose", "diag-test", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["diagnose", "diag-test", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Diagnose Test" in result.stdout or "diag-test" in result.stdout
 
@@ -329,18 +335,14 @@ class TestDiagnoseCommand:
         workspace = tmp_path / "empty"
         workspace.mkdir()
 
-        result = runner.invoke(
-            app, ["diagnose", "no-such-job", "--workspace", str(workspace)]
-        )
+        result = runner.invoke(app, ["diagnose", "no-such-job", "--workspace", str(workspace)])
         assert result.exit_code == 1
         assert "Score not found" in result.stdout
 
     def test_diagnose_nonexistent_workspace(self, tmp_path: Path) -> None:
         fake = tmp_path / "nope"
 
-        result = runner.invoke(
-            app, ["diagnose", "any-job", "--workspace", str(fake)]
-        )
+        result = runner.invoke(app, ["diagnose", "any-job", "--workspace", str(fake)])
         assert result.exit_code == 1
         assert "Workspace not found" in result.stdout
 
@@ -365,9 +367,7 @@ class TestDiagnoseCommand:
         job = _make_job(total_sheets=1, status=JobStatus.FAILED, sheets=sheets)
         _write_state(tmp_path, job)
 
-        result = runner.invoke(
-            app, ["diagnose", "diag-test", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["diagnose", "diag-test", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         # Should show errors section
         assert "Error" in result.stdout or "error" in result.stdout.lower()
@@ -408,55 +408,62 @@ class TestErrorsCommand:
         job = _make_job()
         _write_state(tmp_path, job)
 
-        result = runner.invoke(
-            app, ["errors", "diag-test", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["errors", "diag-test", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "No errors found" in result.stdout
 
     def test_errors_with_history(self, tmp_path: Path) -> None:
         now = datetime.now(UTC)
         err1 = ErrorRecord(
-            error_type="transient", error_code="E001",
-            error_message="Timeout", attempt_number=1, timestamp=now,
+            error_type="transient",
+            error_code="E001",
+            error_message="Timeout",
+            attempt_number=1,
+            timestamp=now,
         )
         err2 = ErrorRecord(
-            error_type="permanent", error_code="E301",
-            error_message="File not found", attempt_number=2, timestamp=now,
+            error_type="permanent",
+            error_code="E301",
+            error_message="File not found",
+            attempt_number=2,
+            timestamp=now,
         )
         sheets = {
             1: SheetState(
-                sheet_num=1, status=SheetStatus.FAILED,
-                attempt_count=2, error_history=[err1, err2],
+                sheet_num=1,
+                status=SheetStatus.FAILED,
+                attempt_count=2,
+                error_history=[err1, err2],
             ),
         }
         job = _make_job(total_sheets=1, status=JobStatus.FAILED, sheets=sheets)
         _write_state(tmp_path, job)
 
-        result = runner.invoke(
-            app, ["errors", "diag-test", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["errors", "diag-test", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Timeout" in result.stdout or "E001" in result.stdout
 
     def test_errors_json_output(self, tmp_path: Path) -> None:
         now = datetime.now(UTC)
         err = ErrorRecord(
-            error_type="transient", error_code="E001",
-            error_message="Timeout", attempt_number=1, timestamp=now,
+            error_type="transient",
+            error_code="E001",
+            error_message="Timeout",
+            attempt_number=1,
+            timestamp=now,
         )
         sheets = {
             1: SheetState(
-                sheet_num=1, status=SheetStatus.FAILED,
-                attempt_count=1, error_history=[err],
+                sheet_num=1,
+                status=SheetStatus.FAILED,
+                attempt_count=1,
+                error_history=[err],
             ),
         }
         job = _make_job(total_sheets=1, status=JobStatus.FAILED, sheets=sheets)
         _write_state(tmp_path, job)
 
-        result = runner.invoke(
-            app, ["errors", "diag-test", "--json", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["errors", "diag-test", "--json", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         data = json.loads(result.stdout)
         assert data["total_errors"] == 1
@@ -465,32 +472,47 @@ class TestErrorsCommand:
     def test_errors_filter_by_sheet(self, tmp_path: Path) -> None:
         now = datetime.now(UTC)
         err1 = ErrorRecord(
-            error_type="transient", error_code="E001",
-            error_message="Timeout on sheet 1", attempt_number=1, timestamp=now,
+            error_type="transient",
+            error_code="E001",
+            error_message="Timeout on sheet 1",
+            attempt_number=1,
+            timestamp=now,
         )
         err2 = ErrorRecord(
-            error_type="permanent", error_code="E301",
-            error_message="Error on sheet 2", attempt_number=1, timestamp=now,
+            error_type="permanent",
+            error_code="E301",
+            error_message="Error on sheet 2",
+            attempt_number=1,
+            timestamp=now,
         )
         sheets = {
             1: SheetState(
-                sheet_num=1, status=SheetStatus.FAILED,
-                attempt_count=1, error_history=[err1],
+                sheet_num=1,
+                status=SheetStatus.FAILED,
+                attempt_count=1,
+                error_history=[err1],
             ),
             2: SheetState(
-                sheet_num=2, status=SheetStatus.FAILED,
-                attempt_count=1, error_history=[err2],
+                sheet_num=2,
+                status=SheetStatus.FAILED,
+                attempt_count=1,
+                error_history=[err2],
             ),
         }
         job = _make_job(total_sheets=2, status=JobStatus.FAILED, sheets=sheets)
         _write_state(tmp_path, job)
 
         result = runner.invoke(
-            app, [
-                "errors", "diag-test",
-                "--sheet", "1", "--json",
-                "--workspace", str(tmp_path),
-            ]
+            app,
+            [
+                "errors",
+                "diag-test",
+                "--sheet",
+                "1",
+                "--json",
+                "--workspace",
+                str(tmp_path),
+            ],
         )
         assert result.exit_code == 0
         data = json.loads(result.stdout)
@@ -500,28 +522,41 @@ class TestErrorsCommand:
     def test_errors_filter_by_type(self, tmp_path: Path) -> None:
         now = datetime.now(UTC)
         err1 = ErrorRecord(
-            error_type="transient", error_code="E001",
-            error_message="Timeout", attempt_number=1, timestamp=now,
+            error_type="transient",
+            error_code="E001",
+            error_message="Timeout",
+            attempt_number=1,
+            timestamp=now,
         )
         err2 = ErrorRecord(
-            error_type="rate_limit", error_code="E102",
-            error_message="Rate limited", attempt_number=2, timestamp=now,
+            error_type="rate_limit",
+            error_code="E102",
+            error_message="Rate limited",
+            attempt_number=2,
+            timestamp=now,
         )
         sheets = {
             1: SheetState(
-                sheet_num=1, status=SheetStatus.FAILED,
-                attempt_count=2, error_history=[err1, err2],
+                sheet_num=1,
+                status=SheetStatus.FAILED,
+                attempt_count=2,
+                error_history=[err1, err2],
             ),
         }
         job = _make_job(total_sheets=1, status=JobStatus.FAILED, sheets=sheets)
         _write_state(tmp_path, job)
 
         result = runner.invoke(
-            app, [
-                "errors", "diag-test",
-                "--type", "rate_limit", "--json",
-                "--workspace", str(tmp_path),
-            ]
+            app,
+            [
+                "errors",
+                "diag-test",
+                "--type",
+                "rate_limit",
+                "--json",
+                "--workspace",
+                str(tmp_path),
+            ],
         )
         assert result.exit_code == 0
         data = json.loads(result.stdout)
@@ -532,7 +567,9 @@ class TestErrorsCommand:
         """When no error_history, errors command synthesizes from sheet error_message."""
         sheets = {
             1: SheetState(
-                sheet_num=1, status=SheetStatus.FAILED, attempt_count=2,
+                sheet_num=1,
+                status=SheetStatus.FAILED,
+                attempt_count=2,
                 error_message="CLI binary not found",
                 error_category="validation",
             ),
@@ -540,9 +577,7 @@ class TestErrorsCommand:
         job = _make_job(total_sheets=1, status=JobStatus.FAILED, sheets=sheets)
         _write_state(tmp_path, job)
 
-        result = runner.invoke(
-            app, ["errors", "diag-test", "--json", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["errors", "diag-test", "--json", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         data = json.loads(result.stdout)
         assert data["total_errors"] == 1
@@ -552,9 +587,7 @@ class TestErrorsCommand:
         workspace = tmp_path / "empty"
         workspace.mkdir()
 
-        result = runner.invoke(
-            app, ["errors", "no-job", "--workspace", str(workspace)]
-        )
+        result = runner.invoke(app, ["errors", "no-job", "--workspace", str(workspace)])
         assert result.exit_code == 1
         assert "Score not found" in result.stdout
 
@@ -563,9 +596,7 @@ class TestLogsCommand:
     """Basic tests for `mzt logs` (limited scope — no running jobs)."""
 
     def test_logs_no_log_file(self, tmp_path: Path) -> None:
-        result = runner.invoke(
-            app, ["logs", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["logs", "--workspace", str(tmp_path)])
         assert result.exit_code == 1
         assert "No log files found" in result.stdout
 
@@ -576,9 +607,7 @@ class TestLogsCommand:
         log_file = log_dir / "marianne.log"
         log_file.write_text('{"event": "test", "level": "INFO"}\n')
 
-        result = runner.invoke(
-            app, ["logs", "--workspace", str(tmp_path), "--level", "BOGUS"]
-        )
+        result = runner.invoke(app, ["logs", "--workspace", str(tmp_path), "--level", "BOGUS"])
         assert result.exit_code == 1
         assert "Invalid log level" in result.stdout
 
@@ -727,11 +756,13 @@ class TestMaxOutputCaptureConfig:
 
     def test_default_value(self) -> None:
         from marianne.core.config import BackendConfig
+
         config = BackendConfig()
         assert config.max_output_capture_bytes == 51200
 
     def test_custom_value(self) -> None:
         from marianne.core.config import BackendConfig
+
         config = BackendConfig(max_output_capture_bytes=20480)
         assert config.max_output_capture_bytes == 20480
 
@@ -787,9 +818,7 @@ class TestLogRotationHint:
         job = _make_job()
         _write_state(tmp_path, job)
 
-        result = runner.invoke(
-            app, ["diagnose", "diag-test", "--workspace", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["diagnose", "diag-test", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "cleanup" in result.stdout or "hook log" in result.stdout
 

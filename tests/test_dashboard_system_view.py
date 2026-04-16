@@ -1,4 +1,5 @@
 """Tests for DaemonSystemView and system health API routes."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -26,12 +27,14 @@ def mock_client() -> DaemonClient:
     client._socket_path = Path("/tmp/fake.sock")
 
     # daemon.top → SystemSnapshot
-    client.call = AsyncMock(return_value={
-        "cpu_percent": 42.5,
-        "memory_percent": 65.0,
-        "pressure_level": "LOW",
-        "active_processes": 3,
-    })
+    client.call = AsyncMock(
+        return_value={
+            "cpu_percent": 42.5,
+            "memory_percent": 65.0,
+            "pressure_level": "LOW",
+            "active_processes": 3,
+        }
+    )
 
     # daemon.status
     status = MagicMock(spec=DaemonStatus)
@@ -44,18 +47,22 @@ def mock_client() -> DaemonClient:
     client.status = AsyncMock(return_value=status)
 
     # daemon.rate_limits
-    client.rate_limits = AsyncMock(return_value={
-        "backends": {"claude": {"events_count": 5, "active": True}},
-        "active_limits": 1,
-    })
+    client.rate_limits = AsyncMock(
+        return_value={
+            "backends": {"claude": {"events_count": 5, "active": True}},
+            "active_limits": 1,
+        }
+    )
 
     # daemon.learning.patterns
-    client.learning_patterns = AsyncMock(return_value={
-        "patterns": [
-            {"pattern_id": "p1", "description": "Rate limit pattern", "confidence": 0.9},
-            {"pattern_id": "p2", "description": "Timeout pattern", "confidence": 0.7},
-        ],
-    })
+    client.learning_patterns = AsyncMock(
+        return_value={
+            "patterns": [
+                {"pattern_id": "p1", "description": "Rate limit pattern", "confidence": 0.9},
+                {"pattern_id": "p2", "description": "Timeout pattern", "confidence": 0.7},
+            ],
+        }
+    )
 
     return client
 
@@ -152,7 +159,8 @@ class TestPressureLevel:
 
     @pytest.mark.asyncio
     async def test_unknown_pressure_level_gets_gray(
-        self, mock_client: DaemonClient,
+        self,
+        mock_client: DaemonClient,
     ) -> None:
         mock_client.call = AsyncMock(return_value={"pressure_level": "ALIEN"})
         view = DaemonSystemView(mock_client)
@@ -162,7 +170,8 @@ class TestPressureLevel:
 
     @pytest.mark.asyncio
     async def test_missing_pressure_level_defaults_none(
-        self, mock_client: DaemonClient,
+        self,
+        mock_client: DaemonClient,
     ) -> None:
         mock_client.call = AsyncMock(return_value={})
         view = DaemonSystemView(mock_client)
@@ -241,19 +250,22 @@ class TestSystemRoutes:
         assert data[0]["pattern_id"] == "p1"
 
     def test_learning_endpoint_with_limit(
-        self, app_with_system_view: TestClient,
+        self,
+        app_with_system_view: TestClient,
     ) -> None:
         resp = app_with_system_view.get("/api/system/learning?limit=5")
         assert resp.status_code == 200
 
     def test_learning_endpoint_invalid_limit(
-        self, app_with_system_view: TestClient,
+        self,
+        app_with_system_view: TestClient,
     ) -> None:
         resp = app_with_system_view.get("/api/system/learning?limit=0")
         assert resp.status_code == 422  # FastAPI validation error
 
     def test_learning_endpoint_limit_too_high(
-        self, app_with_system_view: TestClient,
+        self,
+        app_with_system_view: TestClient,
     ) -> None:
         resp = app_with_system_view.get("/api/system/learning?limit=101")
         assert resp.status_code == 422

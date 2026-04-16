@@ -45,9 +45,7 @@ class TestSQLiteBackendBasics:
         assert loaded.total_sheets == sample_state.total_sheets
         assert loaded.status == JobStatus.PENDING
 
-    async def test_load_nonexistent_returns_none(
-        self, sqlite_backend: SQLiteStateBackend
-    ) -> None:
+    async def test_load_nonexistent_returns_none(self, sqlite_backend: SQLiteStateBackend) -> None:
         """Test loading a non-existent job returns None."""
         result = await sqlite_backend.load("nonexistent-job")
         assert result is None
@@ -75,9 +73,7 @@ class TestSQLiteBackendBasics:
         result = await sqlite_backend.delete("nonexistent-job")
         assert result is False
 
-    async def test_list_jobs(
-        self, sqlite_backend: SQLiteStateBackend
-    ) -> None:
+    async def test_list_jobs(self, sqlite_backend: SQLiteStateBackend) -> None:
         """Test listing all jobs."""
         # Create multiple jobs
         for i in range(3):
@@ -98,9 +94,7 @@ class TestSQLiteBackendBasics:
 class TestSheetOperations:
     """Test sheet-level operations."""
 
-    async def test_get_next_sheet_new_job(
-        self, sqlite_backend: SQLiteStateBackend
-    ) -> None:
+    async def test_get_next_sheet_new_job(self, sqlite_backend: SQLiteStateBackend) -> None:
         """Test get_next_sheet returns 1 for new job."""
         result = await sqlite_backend.get_next_sheet("new-job")
         assert result == 1
@@ -121,9 +115,7 @@ class TestSheetOperations:
         """Test marking a sheet as in progress."""
         await sqlite_backend.save(sample_state)
 
-        await sqlite_backend.mark_sheet_status(
-            sample_state.job_id, 1, SheetStatus.IN_PROGRESS
-        )
+        await sqlite_backend.mark_sheet_status(sample_state.job_id, 1, SheetStatus.IN_PROGRESS)
 
         loaded = await sqlite_backend.load(sample_state.job_id)
         assert loaded is not None
@@ -139,9 +131,7 @@ class TestSheetOperations:
         sample_state.mark_sheet_started(1)
         await sqlite_backend.save(sample_state)
 
-        await sqlite_backend.mark_sheet_status(
-            sample_state.job_id, 1, SheetStatus.COMPLETED
-        )
+        await sqlite_backend.mark_sheet_status(sample_state.job_id, 1, SheetStatus.COMPLETED)
 
         loaded = await sqlite_backend.load(sample_state.job_id)
         assert loaded is not None
@@ -169,9 +159,7 @@ class TestSheetOperations:
     ) -> None:
         """Test marking sheet on non-existent job raises ValueError."""
         with pytest.raises(ValueError, match="No state found"):
-            await sqlite_backend.mark_sheet_status(
-                "nonexistent", 1, SheetStatus.COMPLETED
-            )
+            await sqlite_backend.mark_sheet_status("nonexistent", 1, SheetStatus.COMPLETED)
 
 
 class TestSheetStatePreservation:
@@ -232,7 +220,6 @@ class TestSheetStatePreservation:
         assert sheet.passed_validations == ["File check", "Content check"]
         assert sheet.failed_validations == ["Size check"]
         assert sheet.last_pass_percentage == 66.7
-
 
     async def test_sheet_duration_fields_preserved(
         self, sqlite_backend: SQLiteStateBackend, sample_state: CheckpointState
@@ -320,9 +307,7 @@ class TestExecutionHistory:
                 duration_seconds=float(i + 1),
             )
 
-        history = await sqlite_backend.get_execution_history(
-            sample_state.job_id, sheet_num=1
-        )
+        history = await sqlite_backend.get_execution_history(sample_state.job_id, sheet_num=1)
 
         assert len(history) == 3
         # Most recent first
@@ -352,9 +337,7 @@ class TestExecutionHistory:
 class TestJobStatistics:
     """Test job statistics calculation."""
 
-    async def test_get_job_statistics(
-        self, sqlite_backend: SQLiteStateBackend
-    ) -> None:
+    async def test_get_job_statistics(self, sqlite_backend: SQLiteStateBackend) -> None:
         """Test getting job statistics."""
         state = CheckpointState(
             job_id="stats-job",
@@ -384,9 +367,7 @@ class TestJobStatistics:
         assert stats["total_executions"] == 7
         assert stats["avg_duration_seconds"] == 2.0
 
-    async def test_get_job_statistics_nonexistent(
-        self, sqlite_backend: SQLiteStateBackend
-    ) -> None:
+    async def test_get_job_statistics_nonexistent(self, sqlite_backend: SQLiteStateBackend) -> None:
         """Test getting statistics for non-existent job."""
         stats = await sqlite_backend.get_job_statistics("nonexistent")
         assert stats == {}
@@ -395,9 +376,7 @@ class TestJobStatistics:
 class TestQueryJobs:
     """Test job querying for dashboard."""
 
-    async def test_query_jobs_all(
-        self, sqlite_backend: SQLiteStateBackend
-    ) -> None:
+    async def test_query_jobs_all(self, sqlite_backend: SQLiteStateBackend) -> None:
         """Test querying all jobs."""
         # Create jobs with different statuses
         for i, status in enumerate([JobStatus.COMPLETED, JobStatus.RUNNING, JobStatus.FAILED]):
@@ -413,9 +392,7 @@ class TestQueryJobs:
 
         assert len(results) == 3
 
-    async def test_query_jobs_by_status(
-        self, sqlite_backend: SQLiteStateBackend
-    ) -> None:
+    async def test_query_jobs_by_status(self, sqlite_backend: SQLiteStateBackend) -> None:
         """Test querying jobs filtered by status."""
         for i, status in enumerate([JobStatus.COMPLETED, JobStatus.RUNNING, JobStatus.FAILED]):
             state = CheckpointState(
@@ -431,9 +408,7 @@ class TestQueryJobs:
         assert len(results) == 1
         assert results[0]["status"] == "running"
 
-    async def test_query_jobs_since(
-        self, sqlite_backend: SQLiteStateBackend
-    ) -> None:
+    async def test_query_jobs_since(self, sqlite_backend: SQLiteStateBackend) -> None:
         """Test querying jobs updated since a time."""
         # Create a job
         state = CheckpointState(
@@ -459,9 +434,7 @@ class TestQueryJobs:
 class TestConfigSnapshot:
     """Test config_snapshot storage for resume (Task 3)."""
 
-    async def test_config_snapshot_persisted(
-        self, sqlite_backend: SQLiteStateBackend
-    ) -> None:
+    async def test_config_snapshot_persisted(self, sqlite_backend: SQLiteStateBackend) -> None:
         """Test that config_snapshot is saved and loaded correctly."""
         config_data = {
             "name": "test-job",
@@ -540,9 +513,7 @@ class TestConfigSnapshot:
 class TestSchemaMigration:
     """Test schema migration support."""
 
-    async def test_schema_version_recorded(
-        self, sqlite_backend: SQLiteStateBackend
-    ) -> None:
+    async def test_schema_version_recorded(self, sqlite_backend: SQLiteStateBackend) -> None:
         """Test that schema version is recorded after migration."""
         import aiosqlite
 
@@ -558,9 +529,7 @@ class TestSchemaMigration:
             # Updated to v4 for first_attempt_success → success_without_retry rename
             assert row[0] == 4
 
-    async def test_migration_is_idempotent(
-        self, sqlite_backend: SQLiteStateBackend
-    ) -> None:
+    async def test_migration_is_idempotent(self, sqlite_backend: SQLiteStateBackend) -> None:
         """Test that running migrations multiple times is safe."""
         # Run initialization twice
         await sqlite_backend._ensure_initialized()
@@ -625,9 +594,7 @@ class TestEdgeCases:
         assert loaded.status == JobStatus.RUNNING
         assert loaded.last_completed_sheet == 3
 
-    async def test_special_characters_in_job_id(
-        self, sqlite_backend: SQLiteStateBackend
-    ) -> None:
+    async def test_special_characters_in_job_id(self, sqlite_backend: SQLiteStateBackend) -> None:
         """Test handling job IDs with special characters."""
         state = CheckpointState(
             job_id="job-with-special/chars:and@symbols",
@@ -640,9 +607,7 @@ class TestEdgeCases:
         assert loaded is not None
         assert loaded.job_id == "job-with-special/chars:and@symbols"
 
-    async def test_concurrent_saves(
-        self, sqlite_backend: SQLiteStateBackend
-    ) -> None:
+    async def test_concurrent_saves(self, sqlite_backend: SQLiteStateBackend) -> None:
         """Test concurrent saves don't corrupt data."""
         import asyncio
 
@@ -739,9 +704,7 @@ class TestCascadeDelete:
             row = await cursor.fetchone()
             assert row[0] == 0, "Execution history should be removed by CASCADE delete"
 
-    async def test_fresh_run_no_stale_sheets(
-        self, sqlite_backend: SQLiteStateBackend
-    ) -> None:
+    async def test_fresh_run_no_stale_sheets(self, sqlite_backend: SQLiteStateBackend) -> None:
         """After delete + re-create with same job ID, no stale sheet data loads."""
         job_id = "fresh-run-test"
 

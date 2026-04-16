@@ -37,10 +37,10 @@ from marianne.learning.store.models import (
     PatternEntropyMetrics,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def store(tmp_path: Path) -> GlobalLearningStore:
@@ -58,6 +58,7 @@ def job_hash() -> str:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _insert_pattern_with_applications(
     store: GlobalLearningStore,
@@ -82,10 +83,19 @@ def _insert_pattern_with_applications(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                pattern_id, "test", pattern_name, "test pattern",
-                app_count, now, now, now,
-                app_count, 0,
-                0.8, 0.0, 0.5,
+                pattern_id,
+                "test",
+                pattern_name,
+                "test pattern",
+                app_count,
+                now,
+                now,
+                now,
+                app_count,
+                0,
+                0.8,
+                0.0,
+                0.5,
                 quarantine_status,
             ),
         )
@@ -107,6 +117,7 @@ def _insert_pattern_with_applications(
 # ===========================================================================
 # Dataclass tests
 # ===========================================================================
+
 
 class TestEntropyResponseConfig:
     """Tests for EntropyResponseConfig defaults and field override."""
@@ -155,21 +166,27 @@ class TestEntropyTriggerContext:
 # Exploration Budget CRUD
 # ===========================================================================
 
+
 class TestGetExplorationBudget:
     """Tests for get_exploration_budget()."""
 
     def test_returns_none_when_empty(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         assert store.get_exploration_budget(job_hash) is None
 
     def test_returns_none_global_when_empty(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         assert store.get_exploration_budget() is None
 
     def test_returns_latest_record(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         store.update_exploration_budget(
             job_hash=job_hash,
@@ -188,7 +205,8 @@ class TestGetExplorationBudget:
         assert record.adjustment_type == "boost"
 
     def test_filter_by_job_hash(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         store.update_exploration_budget(
             job_hash="job_a",
@@ -213,7 +231,9 @@ class TestUpdateExplorationBudget:
     """Tests for update_exploration_budget()."""
 
     def test_basic_insert(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         record = store.update_exploration_budget(
             job_hash=job_hash,
@@ -233,7 +253,9 @@ class TestUpdateExplorationBudget:
         assert record.id  # non-empty UUID
 
     def test_floor_enforcement(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         """Budget below floor should be clamped to floor."""
         record = store.update_exploration_budget(
@@ -249,7 +271,9 @@ class TestUpdateExplorationBudget:
         assert "enforced to floor" in (record.adjustment_reason or "")
 
     def test_ceiling_enforcement(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         """Budget above ceiling should be clamped to ceiling."""
         record = store.update_exploration_budget(
@@ -265,7 +289,9 @@ class TestUpdateExplorationBudget:
         assert "enforced to ceiling" in (record.adjustment_reason or "")
 
     def test_value_at_floor_not_enforced(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         """Value exactly at floor should not trigger floor_enforced."""
         record = store.update_exploration_budget(
@@ -278,7 +304,9 @@ class TestUpdateExplorationBudget:
         assert record.adjustment_type == "decay"
 
     def test_value_at_ceiling_not_enforced(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         """Value exactly at ceiling should not trigger ceiling_enforced."""
         record = store.update_exploration_budget(
@@ -291,7 +319,9 @@ class TestUpdateExplorationBudget:
         assert record.adjustment_type == "boost"
 
     def test_custom_floor_and_ceiling(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         """Custom floor/ceiling values should be respected."""
         record = store.update_exploration_budget(
@@ -305,7 +335,9 @@ class TestUpdateExplorationBudget:
         assert record.adjustment_type == "floor_enforced"
 
     def test_entropy_at_time_none_allowed(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         """entropy_at_time can be None."""
         record = store.update_exploration_budget(
@@ -321,30 +353,41 @@ class TestUpdateExplorationBudget:
 # Budget History and Statistics
 # ===========================================================================
 
+
 class TestExplorationBudgetHistory:
     """Tests for get_exploration_budget_history()."""
 
     def test_empty_history(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         history = store.get_exploration_budget_history(job_hash)
         assert history == []
 
     def test_returns_ordered_records(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         import time
 
         store.update_exploration_budget(
-            job_hash=job_hash, budget_value=0.10, adjustment_type="initial",
+            job_hash=job_hash,
+            budget_value=0.10,
+            adjustment_type="initial",
         )
         time.sleep(0.01)  # Ensure distinct timestamps for ordering
         store.update_exploration_budget(
-            job_hash=job_hash, budget_value=0.15, adjustment_type="boost",
+            job_hash=job_hash,
+            budget_value=0.15,
+            adjustment_type="boost",
         )
         time.sleep(0.01)
         store.update_exploration_budget(
-            job_hash=job_hash, budget_value=0.14, adjustment_type="decay",
+            job_hash=job_hash,
+            budget_value=0.14,
+            adjustment_type="decay",
         )
 
         history = store.get_exploration_budget_history(job_hash)
@@ -355,7 +398,9 @@ class TestExplorationBudgetHistory:
         assert history[2].adjustment_type == "initial"
 
     def test_respects_limit(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         for i in range(10):
             store.update_exploration_budget(
@@ -368,14 +413,19 @@ class TestExplorationBudgetHistory:
         assert len(history) == 3
 
     def test_global_history(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """History without job_hash filter returns all records."""
         store.update_exploration_budget(
-            job_hash="job_a", budget_value=0.10, adjustment_type="initial",
+            job_hash="job_a",
+            budget_value=0.10,
+            adjustment_type="initial",
         )
         store.update_exploration_budget(
-            job_hash="job_b", budget_value=0.20, adjustment_type="initial",
+            job_hash="job_b",
+            budget_value=0.20,
+            adjustment_type="initial",
         )
 
         history = store.get_exploration_budget_history()
@@ -386,7 +436,9 @@ class TestExplorationBudgetStatistics:
     """Tests for get_exploration_budget_statistics()."""
 
     def test_empty_statistics(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         stats = store.get_exploration_budget_statistics(job_hash)
         assert stats["current_budget"] is None
@@ -397,21 +449,31 @@ class TestExplorationBudgetStatistics:
         assert stats["decay_count"] == 0
 
     def test_populated_statistics(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         # Insert various adjustment types
         store.update_exploration_budget(
-            job_hash=job_hash, budget_value=0.15, adjustment_type="initial",
+            job_hash=job_hash,
+            budget_value=0.15,
+            adjustment_type="initial",
         )
         store.update_exploration_budget(
-            job_hash=job_hash, budget_value=0.25, adjustment_type="boost",
+            job_hash=job_hash,
+            budget_value=0.25,
+            adjustment_type="boost",
         )
         store.update_exploration_budget(
-            job_hash=job_hash, budget_value=0.20, adjustment_type="decay",
+            job_hash=job_hash,
+            budget_value=0.20,
+            adjustment_type="decay",
         )
         # This will be floor-enforced
         store.update_exploration_budget(
-            job_hash=job_hash, budget_value=0.01, adjustment_type="decay",
+            job_hash=job_hash,
+            budget_value=0.01,
+            adjustment_type="decay",
             floor=0.05,
         )
 
@@ -430,11 +492,14 @@ class TestExplorationBudgetStatistics:
 # Budget Decay and Boost (calculate_budget_adjustment)
 # ===========================================================================
 
+
 class TestCalculateBudgetAdjustment:
     """Tests for calculate_budget_adjustment() -- the core decay/boost logic."""
 
     def test_initial_budget_when_no_history(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         """First call should create an 'initial' budget record."""
         record = store.calculate_budget_adjustment(
@@ -446,12 +511,16 @@ class TestCalculateBudgetAdjustment:
         assert record.budget_value == pytest.approx(0.15)
 
     def test_boost_when_entropy_below_threshold(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         """Low entropy should trigger a budget boost."""
         # Set initial budget
         store.update_exploration_budget(
-            job_hash=job_hash, budget_value=0.15, adjustment_type="initial",
+            job_hash=job_hash,
+            budget_value=0.15,
+            adjustment_type="initial",
         )
 
         record = store.calculate_budget_adjustment(
@@ -464,11 +533,15 @@ class TestCalculateBudgetAdjustment:
         assert record.budget_value == pytest.approx(0.25)  # 0.15 + 0.10
 
     def test_decay_when_entropy_above_threshold(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         """Healthy entropy should trigger budget decay."""
         store.update_exploration_budget(
-            job_hash=job_hash, budget_value=0.20, adjustment_type="initial",
+            job_hash=job_hash,
+            budget_value=0.20,
+            adjustment_type="initial",
         )
 
         record = store.calculate_budget_adjustment(
@@ -481,11 +554,15 @@ class TestCalculateBudgetAdjustment:
         assert record.budget_value == pytest.approx(0.20 * 0.95)
 
     def test_decay_respects_floor(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         """Repeated decay should not drop budget below floor."""
         store.update_exploration_budget(
-            job_hash=job_hash, budget_value=0.06, adjustment_type="decay",
+            job_hash=job_hash,
+            budget_value=0.06,
+            adjustment_type="decay",
         )
 
         record = store.calculate_budget_adjustment(
@@ -499,11 +576,15 @@ class TestCalculateBudgetAdjustment:
         assert record.adjustment_type == "floor_enforced"
 
     def test_boost_respects_ceiling(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         """Boost should not push budget above ceiling."""
         store.update_exploration_budget(
-            job_hash=job_hash, budget_value=0.45, adjustment_type="boost",
+            job_hash=job_hash,
+            budget_value=0.45,
+            adjustment_type="boost",
         )
 
         record = store.calculate_budget_adjustment(
@@ -517,11 +598,15 @@ class TestCalculateBudgetAdjustment:
         assert record.adjustment_type == "ceiling_enforced"
 
     def test_entropy_at_threshold_decays(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         """Entropy exactly at threshold should decay (>= threshold branch)."""
         store.update_exploration_budget(
-            job_hash=job_hash, budget_value=0.20, adjustment_type="initial",
+            job_hash=job_hash,
+            budget_value=0.20,
+            adjustment_type="initial",
         )
 
         record = store.calculate_budget_adjustment(
@@ -535,26 +620,34 @@ class TestCalculateBudgetAdjustment:
         assert record.budget_value == pytest.approx(0.20 * 0.90)
 
     def test_multiple_adjustments_sequence(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         """A sequence of adjustments should compound correctly."""
         # Initial
         r1 = store.calculate_budget_adjustment(
-            job_hash=job_hash, current_entropy=0.5, initial_budget=0.20,
+            job_hash=job_hash,
+            current_entropy=0.5,
+            initial_budget=0.20,
         )
         assert r1.adjustment_type == "initial"
         assert r1.budget_value == pytest.approx(0.20)
 
         # Decay
         r2 = store.calculate_budget_adjustment(
-            job_hash=job_hash, current_entropy=0.5, decay_rate=0.90,
+            job_hash=job_hash,
+            current_entropy=0.5,
+            decay_rate=0.90,
         )
         assert r2.adjustment_type == "decay"
         assert r2.budget_value == pytest.approx(0.18)
 
         # Boost (entropy drops)
         r3 = store.calculate_budget_adjustment(
-            job_hash=job_hash, current_entropy=0.1, boost_amount=0.10,
+            job_hash=job_hash,
+            current_entropy=0.1,
+            boost_amount=0.10,
         )
         assert r3.adjustment_type == "boost"
         assert r3.budget_value == pytest.approx(0.28)
@@ -564,14 +657,19 @@ class TestCalculateBudgetAdjustment:
 # Entropy Response
 # ===========================================================================
 
+
 class TestTriggerEntropyResponse:
     """Tests for trigger_entropy_response()."""
 
     def test_legacy_positional_calling_convention(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         record = store.trigger_entropy_response(
-            job_hash, 0.15, 0.30,
+            job_hash,
+            0.15,
+            0.30,
         )
 
         assert isinstance(record, EntropyResponseRecord)
@@ -582,7 +680,9 @@ class TestTriggerEntropyResponse:
         assert "budget_boost" in record.actions_taken
 
     def test_bundled_trigger_context(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         ctx = EntropyTriggerContext(
             job_hash=job_hash,
@@ -596,7 +696,9 @@ class TestTriggerEntropyResponse:
         assert record.threshold_used == pytest.approx(0.35)
 
     def test_bundled_config(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         cfg = EntropyResponseConfig(
             boost_budget=True,
@@ -604,7 +706,9 @@ class TestTriggerEntropyResponse:
             budget_boost_amount=0.20,
         )
         ctx = EntropyTriggerContext(
-            job_hash=job_hash, entropy_at_trigger=0.10, threshold_used=0.30,
+            job_hash=job_hash,
+            entropy_at_trigger=0.10,
+            threshold_used=0.30,
         )
 
         record = store.trigger_entropy_response(trigger=ctx, config=cfg)
@@ -615,13 +719,17 @@ class TestTriggerEntropyResponse:
         assert record.quarantine_revisits == 0
 
     def test_keyword_overrides_config(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         """Explicit keyword args should override config values."""
         cfg = EntropyResponseConfig(boost_budget=True, revisit_quarantine=True)
 
         record = store.trigger_entropy_response(
-            job_hash, 0.15, 0.30,
+            job_hash,
+            0.15,
+            0.30,
             config=cfg,
             boost_budget=False,
             revisit_quarantine=False,
@@ -633,11 +741,15 @@ class TestTriggerEntropyResponse:
         assert record.actions_taken == []
 
     def test_no_boost_no_revisit(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         """Disabling both actions yields an empty actions list."""
         record = store.trigger_entropy_response(
-            job_hash, 0.15, 0.30,
+            job_hash,
+            0.15,
+            0.30,
             boost_budget=False,
             revisit_quarantine=False,
         )
@@ -647,11 +759,15 @@ class TestTriggerEntropyResponse:
         assert record.actions_taken == []
 
     def test_budget_boost_creates_budget_record(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         """Triggering a budget boost should create a budget record."""
         store.trigger_entropy_response(
-            job_hash, 0.15, 0.30,
+            job_hash,
+            0.15,
+            0.30,
             boost_budget=True,
             revisit_quarantine=False,
             budget_boost_amount=0.10,
@@ -663,15 +779,21 @@ class TestTriggerEntropyResponse:
         assert budget.budget_value == pytest.approx(0.25)
 
     def test_budget_boost_adds_to_existing(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         """Boost adds to the current budget value if one exists."""
         store.update_exploration_budget(
-            job_hash=job_hash, budget_value=0.20, adjustment_type="initial",
+            job_hash=job_hash,
+            budget_value=0.20,
+            adjustment_type="initial",
         )
 
         store.trigger_entropy_response(
-            job_hash, 0.15, 0.30,
+            job_hash,
+            0.15,
+            0.30,
             boost_budget=True,
             revisit_quarantine=False,
             budget_boost_amount=0.10,
@@ -682,23 +804,36 @@ class TestTriggerEntropyResponse:
         assert budget.budget_value == pytest.approx(0.30)  # 0.20 + 0.10
 
     def test_quarantine_revisit(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         """Entropy response should revisit quarantined patterns."""
         # Create quarantined patterns
         p1 = _insert_pattern_with_applications(
-            store, "pattern_a", 3, quarantine_status="quarantined",
+            store,
+            "pattern_a",
+            3,
+            quarantine_status="quarantined",
         )
         p2 = _insert_pattern_with_applications(
-            store, "pattern_b", 2, quarantine_status="quarantined",
+            store,
+            "pattern_b",
+            2,
+            quarantine_status="quarantined",
         )
         # A non-quarantined pattern should not be revisited
         _insert_pattern_with_applications(
-            store, "pattern_c", 5, quarantine_status="validated",
+            store,
+            "pattern_c",
+            5,
+            quarantine_status="validated",
         )
 
         record = store.trigger_entropy_response(
-            job_hash, 0.15, 0.30,
+            job_hash,
+            0.15,
+            0.30,
             boost_budget=False,
             revisit_quarantine=True,
             max_quarantine_revisits=10,
@@ -718,16 +853,23 @@ class TestTriggerEntropyResponse:
             assert row["quarantine_status"] == "pending"
 
     def test_quarantine_revisit_respects_limit(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         """max_quarantine_revisits should cap the number revisited."""
         for i in range(5):
             _insert_pattern_with_applications(
-                store, f"q_pattern_{i}", 1, quarantine_status="quarantined",
+                store,
+                f"q_pattern_{i}",
+                1,
+                quarantine_status="quarantined",
             )
 
         record = store.trigger_entropy_response(
-            job_hash, 0.15, 0.30,
+            job_hash,
+            0.15,
+            0.30,
             boost_budget=False,
             revisit_quarantine=True,
             max_quarantine_revisits=2,
@@ -741,24 +883,35 @@ class TestTriggerEntropyResponse:
 # Entropy Response Retrieval
 # ===========================================================================
 
+
 class TestGetEntropyResponse:
     """Tests for get_last_entropy_response() and history."""
 
     def test_no_responses(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         assert store.get_last_entropy_response(job_hash) is None
 
     def test_last_response(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         store.trigger_entropy_response(
-            job_hash, 0.10, 0.30,
-            boost_budget=False, revisit_quarantine=False,
+            job_hash,
+            0.10,
+            0.30,
+            boost_budget=False,
+            revisit_quarantine=False,
         )
         store.trigger_entropy_response(
-            job_hash, 0.20, 0.30,
-            boost_budget=False, revisit_quarantine=False,
+            job_hash,
+            0.20,
+            0.30,
+            boost_budget=False,
+            revisit_quarantine=False,
         )
 
         last = store.get_last_entropy_response(job_hash)
@@ -766,12 +919,17 @@ class TestGetEntropyResponse:
         assert last.entropy_at_trigger == pytest.approx(0.20)
 
     def test_response_history(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         for i in range(5):
             store.trigger_entropy_response(
-                job_hash, 0.10 + i * 0.01, 0.30,
-                boost_budget=False, revisit_quarantine=False,
+                job_hash,
+                0.10 + i * 0.01,
+                0.30,
+                boost_budget=False,
+                revisit_quarantine=False,
             )
 
         history = store.get_entropy_response_history(job_hash)
@@ -780,12 +938,17 @@ class TestGetEntropyResponse:
         assert history[0].entropy_at_trigger > history[-1].entropy_at_trigger
 
     def test_response_history_limit(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         for _ in range(10):
             store.trigger_entropy_response(
-                job_hash, 0.10, 0.30,
-                boost_budget=False, revisit_quarantine=False,
+                job_hash,
+                0.10,
+                0.30,
+                boost_budget=False,
+                revisit_quarantine=False,
             )
 
         history = store.get_entropy_response_history(job_hash, limit=3)
@@ -796,11 +959,14 @@ class TestGetEntropyResponse:
 # Entropy Response Statistics
 # ===========================================================================
 
+
 class TestEntropyResponseStatistics:
     """Tests for get_entropy_response_statistics()."""
 
     def test_empty_statistics(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         stats = store.get_entropy_response_statistics(job_hash)
         assert stats["total_responses"] == 0
@@ -810,21 +976,32 @@ class TestEntropyResponseStatistics:
         assert stats["last_response"] is None
 
     def test_populated_statistics(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         # Two responses with budget boost
         store.trigger_entropy_response(
-            job_hash, 0.10, 0.30,
-            boost_budget=True, revisit_quarantine=False,
+            job_hash,
+            0.10,
+            0.30,
+            boost_budget=True,
+            revisit_quarantine=False,
         )
         store.trigger_entropy_response(
-            job_hash, 0.20, 0.30,
-            boost_budget=True, revisit_quarantine=False,
+            job_hash,
+            0.20,
+            0.30,
+            boost_budget=True,
+            revisit_quarantine=False,
         )
         # One response without boost
         store.trigger_entropy_response(
-            job_hash, 0.25, 0.30,
-            boost_budget=False, revisit_quarantine=False,
+            job_hash,
+            0.25,
+            0.30,
+            boost_budget=False,
+            revisit_quarantine=False,
         )
 
         stats = store.get_entropy_response_statistics(job_hash)
@@ -838,11 +1015,14 @@ class TestEntropyResponseStatistics:
 # Check Entropy Response Needed
 # ===========================================================================
 
+
 class TestCheckEntropyResponseNeeded:
     """Tests for check_entropy_response_needed()."""
 
     def test_no_patterns_returns_not_needed(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         needed, entropy, reason = store.check_entropy_response_needed(job_hash)
         assert needed is False
@@ -850,13 +1030,16 @@ class TestCheckEntropyResponseNeeded:
         assert "No pattern applications" in reason
 
     def test_single_pattern_low_entropy(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         """A single pattern with all applications should have zero diversity."""
         _insert_pattern_with_applications(store, "dominant", 10)
 
         needed, entropy, _reason = store.check_entropy_response_needed(
-            job_hash, entropy_threshold=0.3,
+            job_hash,
+            entropy_threshold=0.3,
         )
 
         # Single effective pattern => diversity_index = 0 (H/Hmax = 0/1 = 0)
@@ -865,14 +1048,17 @@ class TestCheckEntropyResponseNeeded:
         assert entropy == pytest.approx(0.0)
 
     def test_balanced_patterns_healthy_entropy(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         """Multiple patterns with balanced applications should have high entropy."""
         for i in range(5):
             _insert_pattern_with_applications(store, f"pattern_{i}", 10)
 
         needed, entropy, reason = store.check_entropy_response_needed(
-            job_hash, entropy_threshold=0.3,
+            job_hash,
+            entropy_threshold=0.3,
         )
 
         # 5 patterns with equal applications => diversity_index near 1.0
@@ -882,7 +1068,9 @@ class TestCheckEntropyResponseNeeded:
         assert "healthy" in reason
 
     def test_cooldown_blocks_response(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         """A recent entropy response should block new checks via cooldown."""
         # Create patterns so entropy check would normally trigger
@@ -890,20 +1078,26 @@ class TestCheckEntropyResponseNeeded:
 
         # Trigger a response first
         store.trigger_entropy_response(
-            job_hash, 0.1, 0.3,
-            boost_budget=False, revisit_quarantine=False,
+            job_hash,
+            0.1,
+            0.3,
+            boost_budget=False,
+            revisit_quarantine=False,
         )
 
         # Now check again -- should be in cooldown
         needed, _entropy, reason = store.check_entropy_response_needed(
-            job_hash, cooldown_seconds=3600,
+            job_hash,
+            cooldown_seconds=3600,
         )
 
         assert needed is False
         assert "Cooldown active" in reason
 
     def test_expired_cooldown_allows_response(
-        self, store: GlobalLearningStore, job_hash: str,
+        self,
+        store: GlobalLearningStore,
+        job_hash: str,
     ) -> None:
         """After cooldown expires, response should be allowed."""
         _insert_pattern_with_applications(store, "dominant", 100)
@@ -922,14 +1116,22 @@ class TestCheckEntropyResponseNeeded:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    str(uuid.uuid4()), job_hash, old_time, 0.1, 0.3,
-                    json.dumps([]), 0, 0, json.dumps([]),
+                    str(uuid.uuid4()),
+                    job_hash,
+                    old_time,
+                    0.1,
+                    0.3,
+                    json.dumps([]),
+                    0,
+                    0,
+                    json.dumps([]),
                 ),
             )
 
         # Cooldown of 1 hour should have expired
         needed, _entropy, _reason = store.check_entropy_response_needed(
-            job_hash, cooldown_seconds=3600,
+            job_hash,
+            cooldown_seconds=3600,
         )
 
         assert needed is True
@@ -938,6 +1140,7 @@ class TestCheckEntropyResponseNeeded:
 # ===========================================================================
 # Pattern Entropy Metrics
 # ===========================================================================
+
 
 class TestCalculatePatternEntropy:
     """Tests for calculate_pattern_entropy()."""
@@ -952,7 +1155,8 @@ class TestCalculatePatternEntropy:
         assert metrics.effective_pattern_count == 0
 
     def test_single_pattern_with_applications(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         _insert_pattern_with_applications(store, "single", 5)
 
@@ -991,7 +1195,8 @@ class TestCalculatePatternEntropy:
         assert metrics.dominant_pattern_share == pytest.approx(0.9)
 
     def test_pattern_without_applications_not_effective(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         """A pattern with zero applications should not count as effective."""
         _insert_pattern_with_applications(store, "used", 5)
@@ -1066,7 +1271,8 @@ class TestRecordPatternEntropy:
         assert len(history) == 3
 
     def test_threshold_exceeded_persisted(
-        self, store: GlobalLearningStore,
+        self,
+        store: GlobalLearningStore,
     ) -> None:
         m = PatternEntropyMetrics(
             calculated_at=datetime.now(),
@@ -1089,6 +1295,7 @@ class TestRecordPatternEntropy:
 # ===========================================================================
 # Where helper
 # ===========================================================================
+
 
 class TestWhereJobHash:
     """Tests for BudgetMixin._where_job_hash static helper."""

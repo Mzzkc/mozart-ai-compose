@@ -26,6 +26,7 @@ _JSON_PATCH = "marianne.cli.commands.status.output_json"
 # Unit: _format_uptime
 # ---------------------------------------------------------------------------
 
+
 class TestFormatUptime:
     """Test the uptime formatter."""
 
@@ -52,18 +53,21 @@ class TestFormatUptime:
 # Integration: _status_overview
 # ---------------------------------------------------------------------------
 
+
 class TestStatusOverview:
     """Test the overview mode of mzt status."""
 
     async def test_no_conductor_shows_error(self) -> None:
         """When conductor is not running, show error and exit."""
-        with patch(
-            _ROUTE_PATCH,
-            new_callable=AsyncMock,
-            return_value=(False, None),
-        ):
-            with pytest.raises((SystemExit, Exception)):  # typer.Exit raises click.exceptions.Exit
-                await _status_overview(json_output=False)
+        with (
+            patch(
+                _ROUTE_PATCH,
+                new_callable=AsyncMock,
+                return_value=(False, None),
+            ),
+            pytest.raises((SystemExit, Exception)),
+        ):  # typer.Exit raises click.exceptions.Exit
+            await _status_overview(json_output=False)
 
     async def test_overview_json_with_active_jobs(self) -> None:
         """JSON mode returns structured data with active and recent jobs."""
@@ -102,6 +106,7 @@ class TestStatusOverview:
 
     async def test_overview_rich_with_no_jobs(self) -> None:
         """Rich mode shows conductor status even with no jobs."""
+
         async def mock_route(method: str, params: dict) -> tuple[bool, object]:  # noqa: ARG001
             if method == "daemon.health":
                 return True, {"status": "healthy", "uptime_seconds": 7200.0}
@@ -187,13 +192,15 @@ class TestStatusOverview:
 
     async def test_overview_handles_daemon_health_error(self) -> None:
         """If daemon.health raises, overview shows error and exits."""
-        with patch(
-            _ROUTE_PATCH,
-            new_callable=AsyncMock,
-            side_effect=ConnectionError("socket gone"),
-        ):
-            with pytest.raises((SystemExit, Exception)):  # typer.Exit raises click.exceptions.Exit
-                await _status_overview(json_output=False)
+        with (
+            patch(
+                _ROUTE_PATCH,
+                new_callable=AsyncMock,
+                side_effect=ConnectionError("socket gone"),
+            ),
+            pytest.raises((SystemExit, Exception)),
+        ):  # typer.Exit raises click.exceptions.Exit
+            await _status_overview(json_output=False)
 
     async def test_overview_handles_job_list_error(self) -> None:
         """If job.list fails after health succeeds, show empty overview."""
@@ -227,6 +234,7 @@ class TestStatusOverview:
 # CLI argument: job_id is now optional
 # ---------------------------------------------------------------------------
 
+
 class TestStatusArgOptional:
     """Verify that the status command accepts no arguments."""
 
@@ -244,6 +252,7 @@ class TestStatusArgOptional:
 # ---------------------------------------------------------------------------
 # Large score summary view (F-038)
 # ---------------------------------------------------------------------------
+
 
 class TestLargeScoreSummary:
     """Test summary view for large scores (50+ sheets)."""

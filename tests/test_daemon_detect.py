@@ -73,9 +73,7 @@ class TestIsDaemonAvailable:
         """OSError (e.g. socket not found) returns False."""
         with patch(_CLIENT_PATH) as MockClient:
             client = MockClient.return_value
-            client.is_daemon_running = AsyncMock(
-                side_effect=OSError("No such file")
-            )
+            client.is_daemon_running = AsyncMock(side_effect=OSError("No such file"))
 
             result = await is_daemon_available(Path("/tmp/test.sock"))
 
@@ -85,9 +83,7 @@ class TestIsDaemonAvailable:
         """ConnectionError (socket exists but daemon dead) returns False."""
         with patch(_CLIENT_PATH) as MockClient:
             client = MockClient.return_value
-            client.is_daemon_running = AsyncMock(
-                side_effect=ConnectionRefusedError("refused")
-            )
+            client.is_daemon_running = AsyncMock(side_effect=ConnectionRefusedError("refused"))
 
             result = await is_daemon_available(Path("/tmp/test.sock"))
 
@@ -107,9 +103,7 @@ class TestIsDaemonAvailable:
         """Arbitrary exceptions return False (safety guarantee)."""
         with patch(_CLIENT_PATH) as MockClient:
             client = MockClient.return_value
-            client.is_daemon_running = AsyncMock(
-                side_effect=RuntimeError("unexpected crash")
-            )
+            client.is_daemon_running = AsyncMock(side_effect=RuntimeError("unexpected crash"))
 
             result = await is_daemon_available(Path("/tmp/test.sock"))
 
@@ -119,7 +113,8 @@ class TestIsDaemonAvailable:
         """None socket_path triggers SocketConfig fallback."""
         with (
             patch(
-                "marianne.daemon.clone.get_clone_name", return_value=None,
+                "marianne.daemon.clone.get_clone_name",
+                return_value=None,
             ),
             patch(_CLIENT_PATH) as MockClient,
         ):
@@ -157,9 +152,7 @@ class TestTryDaemonRoute:
 
         assert routed is True
         assert result == {"status": "ok"}
-        client.call.assert_called_once_with(
-            "job.submit", {"config": "test.yaml"}
-        )
+        client.call.assert_called_once_with("job.submit", {"config": "test.yaml"})
 
     async def test_returns_false_when_daemon_not_running(self):
         """When daemon not running, returns (False, None)."""
@@ -234,9 +227,7 @@ class TestTryDaemonRoute:
             client = MockClient.return_value
             client.is_daemon_running = AsyncMock(return_value=True)
             client.call = AsyncMock(
-                side_effect=ValueError(
-                    "Separator is not found, and chunk exceed the limit"
-                ),
+                side_effect=ValueError("Separator is not found, and chunk exceed the limit"),
             )
 
             with pytest.raises(DaemonError, match="Response too large"):
@@ -247,9 +238,7 @@ class TestTryDaemonRoute:
         with patch(_CLIENT_PATH) as MockClient:
             client = MockClient.return_value
             client.is_daemon_running = AsyncMock(return_value=True)
-            client.call = AsyncMock(
-                side_effect=RuntimeError("totally unexpected")
-            )
+            client.call = AsyncMock(side_effect=RuntimeError("totally unexpected"))
 
             routed, result = await try_daemon_route("job.submit", {})
 
@@ -260,9 +249,7 @@ class TestTryDaemonRoute:
         """ConnectionRefusedError (stale socket) returns (False, None)."""
         with patch(_CLIENT_PATH) as MockClient:
             client = MockClient.return_value
-            client.is_daemon_running = AsyncMock(
-                side_effect=ConnectionRefusedError("refused")
-            )
+            client.is_daemon_running = AsyncMock(side_effect=ConnectionRefusedError("refused"))
 
             routed, result = await try_daemon_route("job.list", {})
 

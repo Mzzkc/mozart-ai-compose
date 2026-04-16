@@ -6,11 +6,8 @@ Blueprint, Movement 1.
 
 from __future__ import annotations
 
-import pytest
-
-from marianne.core.errors.codes import ErrorCode, RetryBehavior, Severity
 from marianne.core.errors.classifier import ErrorClassifier
-
+from marianne.core.errors.codes import ErrorCode, RetryBehavior, Severity
 
 # =============================================================================
 # E006 EXECUTION_STALE — Differentiate stale detection from backend timeout
@@ -159,9 +156,7 @@ class TestRateLimitStdoutDetection:
             exit_code=1,
         )
         # The rate limit should be detected regardless of JSON error
-        assert any(
-            e.category.value == "rate_limit" for e in result.all_errors
-        ), (
+        assert any(e.category.value == "rate_limit" for e in result.all_errors), (
             f"Rate limit not detected. Got: "
             f"{[(e.error_code.value, e.category.value) for e in result.all_errors]}"
         )

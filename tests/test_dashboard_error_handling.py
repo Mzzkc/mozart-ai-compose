@@ -1,4 +1,5 @@
 """Test comprehensive error handling for dashboard APIs."""
+
 from pathlib import Path
 from unittest.mock import patch
 
@@ -67,18 +68,16 @@ class TestHTTPErrorCodes:
         assert error["detail"] == "Invalid job configuration"
 
         # Both config sources provided
-        response = client.post("/api/jobs", json={
-            "config_content": "test: config",
-            "config_path": "/some/path.yaml"
-        })
+        response = client.post(
+            "/api/jobs", json={"config_content": "test: config", "config_path": "/some/path.yaml"}
+        )
         assert response.status_code == 400
         assert response.json()["detail"] == "Invalid job configuration"
 
         # Invalid start_sheet (negative)
-        response = client.post("/api/jobs", json={
-            "config_content": "name: test",
-            "start_sheet": -1
-        })
+        response = client.post(
+            "/api/jobs", json={"config_content": "name: test", "start_sheet": -1}
+        )
         assert response.status_code == 422  # Pydantic validation error
         error = response.json()
         assert "detail" in error
@@ -89,9 +88,7 @@ class TestHTTPErrorCodes:
         """Test 404 Not Found errors for missing resources."""
 
         # Nonexistent config file
-        response = client.post("/api/jobs", json={
-            "config_path": "/nonexistent/file.yaml"
-        })
+        response = client.post("/api/jobs", json={"config_path": "/nonexistent/file.yaml"})
         # 404 when conductor forwards error, 503 when conductor unavailable
         assert response.status_code in (404, 503)
         error = response.json()
@@ -157,9 +154,7 @@ class TestHTTPErrorCodes:
             "asyncio.create_subprocess_exec",
             side_effect=RuntimeError("Process creation failed"),
         ):
-            response = client.post("/api/jobs", json={
-                "config_path": str(sample_config_file)
-            })
+            response = client.post("/api/jobs", json={"config_path": str(sample_config_file)})
             # 500 when conductor forwards the error, 503 when conductor unavailable
             assert response.status_code in (500, 503)
 
@@ -197,10 +192,13 @@ class TestErrorResponseFormat:
         """Test Pydantic validation error format."""
 
         # Invalid field type
-        response = client.post("/api/jobs", json={
-            "config_content": "test",
-            "start_sheet": "invalid"  # Should be int
-        })
+        response = client.post(
+            "/api/jobs",
+            json={
+                "config_content": "test",
+                "start_sheet": "invalid",  # Should be int
+            },
+        )
         assert response.status_code == 422
         error = response.json()
         assert "detail" in error
@@ -378,9 +376,7 @@ class TestProcessErrorHandling:
 
         for error in error_scenarios:
             with patch("asyncio.create_subprocess_exec", side_effect=error):
-                response = client.post("/api/jobs", json={
-                    "config_path": str(sample_config_file)
-                })
+                response = client.post("/api/jobs", json={"config_path": str(sample_config_file)})
                 # 500 when conductor forwards the error, 503 when conductor unavailable
                 assert response.status_code in (500, 503)
                 response_data = response.json()

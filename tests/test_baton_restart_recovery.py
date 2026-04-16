@@ -12,9 +12,7 @@ TDD: Tests written first (red), then implementation (green).
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -23,21 +21,18 @@ from marianne.core.sheet import Sheet
 from marianne.daemon.baton.adapter import (
     BatonAdapter,
     checkpoint_to_baton_status,
-    sheets_to_execution_states,
 )
 from marianne.daemon.baton.events import (
     DispatchRetry,
-    SheetAttemptResult,
-    SheetSkipped,
 )
 from marianne.daemon.baton.state import (
     BatonSheetStatus,
-    SheetExecutionState,
 )
 
 # =========================================================================
 # Fixtures
 # =========================================================================
+
 
 def _make_sheet(
     num: int = 1,
@@ -60,6 +55,7 @@ def _make_sheet(
         timeout_seconds=timeout,
     )
 
+
 def _make_checkpoint(
     job_id: str = "test-job",
     total_sheets: int = 5,
@@ -77,7 +73,7 @@ def _make_checkpoint(
         sheet_completion_attempts: Map of sheet_num → completion_attempts.
     """
     if sheet_statuses is None:
-        sheet_statuses = {i: "pending" for i in range(1, total_sheets + 1)}
+        sheet_statuses = dict.fromkeys(range(1, total_sheets + 1), "pending")
     if sheet_attempts is None:
         sheet_attempts = {}
     if sheet_completion_attempts is None:
@@ -99,9 +95,11 @@ def _make_checkpoint(
         sheets=sheets,
     )
 
+
 def _make_sheets_list(count: int = 5, instrument: str = "claude-code") -> list[Sheet]:
     """Create a list of Sheet entities."""
     return [_make_sheet(num=i, instrument=instrument) for i in range(1, count + 1)]
+
 
 def _make_simple_deps(count: int = 5) -> dict[int, list[int]]:
     """Create a simple linear dependency chain: 1→2→3→4→5."""
@@ -110,9 +108,11 @@ def _make_simple_deps(count: int = 5) -> dict[int, list[int]]:
         deps[i] = [i - 1]
     return deps
 
+
 # =========================================================================
 # Part 1: BatonAdapter.recover_job() — rebuild from checkpoint
 # =========================================================================
+
 
 class TestRecoverJobRegistration:
     """Test that recover_job() correctly re-registers a job with the baton."""
@@ -162,6 +162,7 @@ class TestRecoverJobRegistration:
 
         # Completion event should exist
         assert "test-job" in adapter._completion_events
+
 
 class TestRecoverJobStatusMapping:
     """Test that recover_job() correctly maps checkpoint statuses to baton statuses."""
@@ -247,6 +248,7 @@ class TestRecoverJobStatusMapping:
         # in_progress → PENDING because the executing musician was killed
         assert state.status == BatonSheetStatus.PENDING
 
+
 class TestRecoverJobAttemptPreservation:
     """Test that recover_job() preserves attempt counts from the checkpoint."""
 
@@ -303,6 +305,7 @@ class TestRecoverJobAttemptPreservation:
         assert state.normal_attempts == 0
         assert state.completion_attempts == 0
 
+
 class TestRecoverJobAlreadyComplete:
     """Test recover_job() behavior when all sheets are terminal."""
 
@@ -335,6 +338,7 @@ class TestRecoverJobAlreadyComplete:
 
         assert adapter.baton.is_job_complete("test-job")
 
+
 class TestRecoverJobCostLimit:
     """Test that recover_job() restores cost limits."""
 
@@ -346,11 +350,15 @@ class TestRecoverJobCostLimit:
         checkpoint = _make_checkpoint(total_sheets=2)
 
         adapter.recover_job(
-            "test-job", sheets, deps, checkpoint,
+            "test-job",
+            sheets,
+            deps,
+            checkpoint,
             max_cost_usd=10.0,
         )
 
         assert adapter.baton._job_cost_limits.get("test-job") == 10.0
+
 
 class TestRecoverJobDispatchKick:
     """Test that recover_job() kicks dispatch for ready sheets."""
@@ -372,6 +380,7 @@ class TestRecoverJobDispatchKick:
         event = adapter.baton.inbox.get_nowait()
         assert isinstance(event, DispatchRetry)
 
+
 # =========================================================================
 # Part 2: Per-event state sync — baton events → CheckpointState
 # =========================================================================
@@ -379,6 +388,7 @@ class TestRecoverJobDispatchKick:
 # =========================================================================
 # Part 3: Recovery status mapping edge cases
 # =========================================================================
+
 
 class TestRecoveryStatusMapping:
     """Edge cases in checkpoint-to-baton status mapping during recovery."""
@@ -419,7 +429,10 @@ class TestRecoveryStatusMapping:
         checkpoint = _make_checkpoint(total_sheets=1)
 
         adapter.recover_job(
-            "test-job", sheets, deps, checkpoint,
+            "test-job",
+            sheets,
+            deps,
+            checkpoint,
             max_retries=7,
         )
 
@@ -439,7 +452,10 @@ class TestRecoveryStatusMapping:
         )
 
         adapter.recover_job(
-            "test-job", sheets, deps, checkpoint,
+            "test-job",
+            sheets,
+            deps,
+            checkpoint,
             max_retries=3,
         )
 

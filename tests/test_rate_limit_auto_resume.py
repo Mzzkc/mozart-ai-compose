@@ -14,8 +14,6 @@ from __future__ import annotations
 import asyncio
 import time
 
-import pytest
-
 from marianne.daemon.baton.core import BatonCore
 from marianne.daemon.baton.events import (
     RateLimitExpired,
@@ -27,10 +25,10 @@ from marianne.daemon.baton.state import (
 )
 from marianne.daemon.baton.timer import TimerWheel
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_baton_with_timer() -> tuple[BatonCore, TimerWheel, asyncio.Queue]:
     """Create a BatonCore with a real TimerWheel."""
@@ -238,17 +236,25 @@ class TestRateLimitTimerReplacement:
         baton, timer, _ = _make_baton_with_timer()
         _register_simple_job(baton, instrument="claude-cli")
 
-        baton._handle_rate_limit_hit(RateLimitHit(
-            instrument="claude-cli", wait_seconds=30.0,
-            job_id="test-job", sheet_num=1,
-        ))
+        baton._handle_rate_limit_hit(
+            RateLimitHit(
+                instrument="claude-cli",
+                wait_seconds=30.0,
+                job_id="test-job",
+                sheet_num=1,
+            )
+        )
         first_count = len(timer._heap)
 
         before = time.monotonic()
-        baton._handle_rate_limit_hit(RateLimitHit(
-            instrument="claude-cli", wait_seconds=60.0,
-            job_id="test-job", sheet_num=1,
-        ))
+        baton._handle_rate_limit_hit(
+            RateLimitHit(
+                instrument="claude-cli",
+                wait_seconds=60.0,
+                job_id="test-job",
+                sheet_num=1,
+            )
+        )
 
         assert len(timer._heap) >= first_count
         non_cancelled = [e for e in timer._heap if not e.cancelled]
@@ -270,10 +276,14 @@ class TestEndToEndRateLimitCycle:
         assert sheet.status == BatonSheetStatus.PENDING
         sheet.status = BatonSheetStatus.IN_PROGRESS
 
-        baton._handle_rate_limit_hit(RateLimitHit(
-            instrument="claude-cli", wait_seconds=30.0,
-            job_id="test-job", sheet_num=1,
-        ))
+        baton._handle_rate_limit_hit(
+            RateLimitHit(
+                instrument="claude-cli",
+                wait_seconds=30.0,
+                job_id="test-job",
+                sheet_num=1,
+            )
+        )
         assert sheet.status == BatonSheetStatus.WAITING
         assert baton._instruments["claude-cli"].rate_limited is True
 

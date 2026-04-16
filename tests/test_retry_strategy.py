@@ -218,7 +218,6 @@ class TestErrorRecord:
         assert result_neg.confidence == 0.0
 
 
-
 class TestRetryRecommendation:
     """Tests for RetryRecommendation dataclass."""
 
@@ -289,7 +288,6 @@ class TestRetryRecommendation:
         assert d["strategy_used"] == "rapid_failure_backoff"
 
 
-
 class TestRetryStrategyConfig:
     """Tests for RetryStrategyConfig."""
 
@@ -333,7 +331,6 @@ class TestRetryStrategyConfig:
         """Test that exponential_base <= 1 raises error."""
         with pytest.raises(ValueError, match="exponential_base must be > 1"):
             RetryStrategyConfig(exponential_base=exp_base)
-
 
 
 class TestPatternDetection:
@@ -515,7 +512,6 @@ class TestPatternDetection:
         assert rec.confidence >= 0.9  # High confidence in not retrying
 
 
-
 class TestRetryRecommendations:
     """Tests for retry recommendations."""
 
@@ -691,7 +687,6 @@ class TestRetryRecommendations:
         assert rec.delay_seconds <= 1800.0 * 1.15  # 10% buffer + some margin
 
 
-
 class TestIntegration:
     """Integration tests for AdaptiveRetryStrategy."""
 
@@ -795,7 +790,6 @@ class TestIntegration:
         assert rec.delay_seconds >= 10.0  # At least base delay
 
 
-
 class TestRetryBehavior:
     """Tests for RetryBehavior and ErrorCode.get_retry_behavior()."""
 
@@ -855,12 +849,15 @@ class TestRetryBehavior:
         assert behavior.is_retriable is False
         assert "memory" in behavior.reason.lower() or "recur" in behavior.reason.lower()
 
-    @pytest.mark.parametrize("code", [
-        ErrorCode.CONFIG_INVALID,
-        ErrorCode.CONFIG_MISSING_FIELD,
-        ErrorCode.CONFIG_PATH_NOT_FOUND,
-        ErrorCode.CONFIG_PARSE_ERROR,
-    ])
+    @pytest.mark.parametrize(
+        "code",
+        [
+            ErrorCode.CONFIG_INVALID,
+            ErrorCode.CONFIG_MISSING_FIELD,
+            ErrorCode.CONFIG_PATH_NOT_FOUND,
+            ErrorCode.CONFIG_PARSE_ERROR,
+        ],
+    )
     def test_config_errors_not_retriable(self, code: ErrorCode) -> None:
         """Test that configuration errors are not retriable."""
         behavior = code.get_retry_behavior()
@@ -875,30 +872,38 @@ class TestRetryBehavior:
         assert behavior.is_retriable is False
         assert "auth" in behavior.reason.lower() or "credential" in behavior.reason.lower()
 
-    @pytest.mark.parametrize("code", [
-        ErrorCode.NETWORK_CONNECTION_FAILED,
-        ErrorCode.NETWORK_DNS_ERROR,
-        ErrorCode.NETWORK_SSL_ERROR,
-        ErrorCode.NETWORK_TIMEOUT,
-    ])
+    @pytest.mark.parametrize(
+        "code",
+        [
+            ErrorCode.NETWORK_CONNECTION_FAILED,
+            ErrorCode.NETWORK_DNS_ERROR,
+            ErrorCode.NETWORK_SSL_ERROR,
+            ErrorCode.NETWORK_TIMEOUT,
+        ],
+    )
     def test_network_errors_retriable_with_moderate_delay(self, code: ErrorCode) -> None:
         """Test that network errors are retriable with moderate delay."""
         behavior = code.get_retry_behavior()
         assert behavior.is_retriable is True, f"{code} should be retriable"
-        assert 30.0 <= behavior.delay_seconds <= 60.0, \
+        assert 30.0 <= behavior.delay_seconds <= 60.0, (
             f"{code} should have 30-60s delay, got {behavior.delay_seconds}"
+        )
 
-    @pytest.mark.parametrize("code", [
-        ErrorCode.VALIDATION_FILE_MISSING,
-        ErrorCode.VALIDATION_CONTENT_MISMATCH,
-        ErrorCode.VALIDATION_GENERIC,
-    ])
+    @pytest.mark.parametrize(
+        "code",
+        [
+            ErrorCode.VALIDATION_FILE_MISSING,
+            ErrorCode.VALIDATION_CONTENT_MISMATCH,
+            ErrorCode.VALIDATION_GENERIC,
+        ],
+    )
     def test_validation_errors_retriable_with_short_delay(self, code: ErrorCode) -> None:
         """Test that validation errors are retriable with short delay."""
         behavior = code.get_retry_behavior()
         assert behavior.is_retriable is True, f"{code} should be retriable"
-        assert behavior.delay_seconds <= 10.0, \
+        assert behavior.delay_seconds <= 10.0, (
             f"{code} should have short delay, got {behavior.delay_seconds}"
+        )
 
     def test_all_error_codes_have_behavior(self) -> None:
         """Test that all ErrorCodes return a valid RetryBehavior."""
@@ -909,7 +914,6 @@ class TestRetryBehavior:
             assert isinstance(behavior.is_retriable, bool)
             assert isinstance(behavior.reason, str)
             assert len(behavior.reason) > 0
-
 
 
 class TestErrorCodeSpecificRetry:
@@ -962,9 +966,7 @@ class TestErrorCodeSpecificRetry:
 
     def test_different_error_codes_different_delays(self) -> None:
         """Test that different ErrorCodes produce different delays."""
-        strategy = AdaptiveRetryStrategy(
-            config=RetryStrategyConfig(jitter_factor=0.0)
-        )
+        strategy = AdaptiveRetryStrategy(config=RetryStrategyConfig(jitter_factor=0.0))
 
         # Rate limit API: 3600s
         rate_limit_rec = ErrorRecord(
@@ -1061,7 +1063,6 @@ class TestErrorCodeSpecificRetry:
         assert rec3.should_retry is True
         # Delay should be at least the ErrorCode-specific base
         assert rec3.delay_seconds >= 30.0
-
 
 
 class TestDelayOutcome:
@@ -1208,9 +1209,7 @@ class TestDelayLearning:
 
     def test_no_history_uses_static_delay(self) -> None:
         """Test that without history, static delay is used."""
-        strategy = AdaptiveRetryStrategy(
-            config=RetryStrategyConfig(jitter_factor=0.0)
-        )
+        strategy = AdaptiveRetryStrategy(config=RetryStrategyConfig(jitter_factor=0.0))
 
         delay, strategy_name = strategy.blend_historical_delay(
             ErrorCode.NETWORK_TIMEOUT,
@@ -1427,9 +1426,7 @@ class TestBlendHistoricalDelayGlobalFallthrough:
         from unittest.mock import MagicMock
 
         mock_store = MagicMock()
-        mock_store.get_learned_wait_time_with_fallback.return_value = (
-            25.0, 0.85, "global_learned"
-        )
+        mock_store.get_learned_wait_time_with_fallback.return_value = (25.0, 0.85, "global_learned")
 
         history = DelayHistory()
         strategy = AdaptiveRetryStrategy(
@@ -1452,9 +1449,7 @@ class TestBlendHistoricalDelayGlobalFallthrough:
         from unittest.mock import MagicMock
 
         mock_store = MagicMock()
-        mock_store.get_learned_wait_time_with_fallback.return_value = (
-            25.0, 0.85, "global_learned"
-        )
+        mock_store.get_learned_wait_time_with_fallback.return_value = (25.0, 0.85, "global_learned")
 
         history = DelayHistory()
         strategy = AdaptiveRetryStrategy(
@@ -1488,9 +1483,7 @@ class TestBlendHistoricalDelayGlobalFallthrough:
         from unittest.mock import MagicMock
 
         mock_store = MagicMock()
-        mock_store.get_learned_wait_time_with_fallback.return_value = (
-            60.0, 0.0, "static_fallback"
-        )
+        mock_store.get_learned_wait_time_with_fallback.return_value = (60.0, 0.0, "static_fallback")
 
         history = DelayHistory()
         strategy = AdaptiveRetryStrategy(
@@ -1537,7 +1530,9 @@ class TestBlendHistoricalDelayGlobalFallthrough:
         mock_store = MagicMock()
         # Return a delay far exceeding max_delay
         mock_store.get_learned_wait_time_with_fallback.return_value = (
-            9999.0, 0.9, "global_learned"
+            9999.0,
+            0.9,
+            "global_learned",
         )
 
         history = DelayHistory()

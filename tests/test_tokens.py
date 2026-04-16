@@ -55,6 +55,7 @@ class TestEstimateTokens:
         assert result > 0
         # Should be consistent with JSON serialization
         import json
+
         expected = estimate_tokens(json.dumps(data, default=str))
         assert result == expected
 
@@ -71,6 +72,7 @@ class TestEstimateTokens:
         result = estimate_tokens(data)
         assert result > 0
         import json
+
         expected = estimate_tokens(json.dumps(data, default=str))
         assert result == expected
 
@@ -222,8 +224,8 @@ class TestTokenBudgetTracker:
     # T2.6: Multiple allocations track correctly
     def test_multiple_allocations(self) -> None:
         tracker = TokenBudgetTracker(window_size=10_000)
-        text_a = "a" * 350   # ~100 tokens
-        text_b = "b" * 700   # ~200 tokens
+        text_a = "a" * 350  # ~100 tokens
+        text_b = "b" * 700  # ~200 tokens
         text_c = "c" * 1050  # ~300 tokens
 
         assert tracker.allocate(text_a, "template") is True
@@ -347,6 +349,7 @@ class TestEstimatorReconciliation:
     def test_single_source_of_truth_exists(self) -> None:
         """tokens.py exports estimate_tokens as the canonical estimator."""
         from marianne.core.tokens import estimate_tokens as canonical
+
         assert callable(canonical)
         # The function is deterministic
         assert canonical("test") == canonical("test")
@@ -430,10 +433,10 @@ class TestInstrumentAwareWindows:
     @pytest.mark.parametrize(
         "instrument,expected",
         [
-            ("claude_cli", 196_000),   # underscore → hyphen
-            ("claude-cli", 196_000),   # already hyphenated
-            ("gemini_cli", 1_000_000), # underscore variant
-            ("codex_cli", 196_000),    # underscore variant
+            ("claude_cli", 196_000),  # underscore → hyphen
+            ("claude-cli", 196_000),  # already hyphenated
+            ("gemini_cli", 1_000_000),  # underscore variant
+            ("codex_cli", 196_000),  # underscore variant
             ("anthropic_api", 196_000),  # underscore variant
         ],
         ids=["claude_cli", "claude-cli", "gemini_cli", "codex_cli", "anthropic_api"],

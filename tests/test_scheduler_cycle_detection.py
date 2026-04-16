@@ -16,8 +16,6 @@ All tests call _detect_cycle directly since it's a @staticmethod.
 Created by Ghost, Movement 1.
 """
 
-import pytest
-
 from marianne.daemon.scheduler import GlobalSheetScheduler
 
 
@@ -133,8 +131,9 @@ class TestDetectCycleEdgeCases:
     def test_disconnected_one_has_cycle(self) -> None:
         """Two components, one has a cycle."""
         deps = {
-            2: {1},        # component 1: acyclic
-            3: {4}, 4: {3},  # component 2: 3↔4 cycle
+            2: {1},  # component 1: acyclic
+            3: {4},
+            4: {3},  # component 2: 3↔4 cycle
         }
         result = GlobalSheetScheduler._detect_cycle(deps)
         assert result is not None
@@ -143,8 +142,10 @@ class TestDetectCycleEdgeCases:
     def test_multiple_independent_cycles(self) -> None:
         """Two separate cycles in the graph."""
         deps = {
-            1: {2}, 2: {1},   # cycle 1
-            3: {4}, 4: {3},   # cycle 2
+            1: {2},
+            2: {1},  # cycle 1
+            3: {4},
+            4: {3},  # cycle 2
         }
         result = GlobalSheetScheduler._detect_cycle(deps)
         assert result is not None

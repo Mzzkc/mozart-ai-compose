@@ -14,10 +14,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import create_autospec, patch
 
-from marianne.backends.base import ExecutionResult
-
 import pytest
 
+from marianne.backends.base import ExecutionResult
 from marianne.healing.context import ErrorContext
 from marianne.healing.coordinator import HealingReport, SelfHealingCoordinator
 from marianne.healing.diagnosis import Diagnosis, DiagnosisEngine
@@ -565,10 +564,12 @@ class TestHealingReport:
         report = HealingReport(error_context=basic_error_context)
         assert not report.any_remedies_applied
 
-        report.actions_taken.append((
-            "test",
-            RemedyResult(success=True, message="OK", action_taken="test"),
-        ))
+        report.actions_taken.append(
+            (
+                "test",
+                RemedyResult(success=True, message="OK", action_taken="test"),
+            )
+        )
         assert report.any_remedies_applied
 
     def test_should_retry(self, basic_error_context):
@@ -576,10 +577,12 @@ class TestHealingReport:
         report = HealingReport(error_context=basic_error_context)
         assert not report.should_retry
 
-        report.actions_taken.append((
-            "test",
-            RemedyResult(success=True, message="OK", action_taken="test"),
-        ))
+        report.actions_taken.append(
+            (
+                "test",
+                RemedyResult(success=True, message="OK", action_taken="test"),
+            )
+        )
         assert report.should_retry
 
     def test_format(self, basic_error_context):
@@ -1342,26 +1345,52 @@ class TestRemedyRealCodePaths:
     def test_generate_diagnostic_all_remedies(self, mock_config):
         """Test that all remedies produce meaningful diagnostic output."""
         remedies = [
-            (CreateMissingWorkspaceRemedy(), ErrorContext(
-                error_code="E601", error_message="workspace does not exist: /tmp/ws",
-                error_category="preflight", config=mock_config, workspace=Path("/tmp/ws"),
-            )),
-            (CreateMissingParentDirsRemedy(), ErrorContext(
-                error_code="E601", error_message="directory '/tmp/foo' does not exist",
-                error_category="preflight", config=mock_config,
-            )),
-            (SuggestJinjaFixRemedy(), ErrorContext(
-                error_code="E304", error_message="'sheet_nuum' is undefined",
-                error_category="template", config=mock_config,
-            )),
-            (DiagnoseAuthErrorRemedy(), ErrorContext(
-                error_code="E101", error_message="Rate limit exceeded",
-                error_category="rate_limit", config=mock_config,
-            )),
-            (DiagnoseMissingCLIRemedy(), ErrorContext(
-                error_code="E901", error_message="claude command not found",
-                error_category="execution", config=mock_config,
-            )),
+            (
+                CreateMissingWorkspaceRemedy(),
+                ErrorContext(
+                    error_code="E601",
+                    error_message="workspace does not exist: /tmp/ws",
+                    error_category="preflight",
+                    config=mock_config,
+                    workspace=Path("/tmp/ws"),
+                ),
+            ),
+            (
+                CreateMissingParentDirsRemedy(),
+                ErrorContext(
+                    error_code="E601",
+                    error_message="directory '/tmp/foo' does not exist",
+                    error_category="preflight",
+                    config=mock_config,
+                ),
+            ),
+            (
+                SuggestJinjaFixRemedy(),
+                ErrorContext(
+                    error_code="E304",
+                    error_message="'sheet_nuum' is undefined",
+                    error_category="template",
+                    config=mock_config,
+                ),
+            ),
+            (
+                DiagnoseAuthErrorRemedy(),
+                ErrorContext(
+                    error_code="E101",
+                    error_message="Rate limit exceeded",
+                    error_category="rate_limit",
+                    config=mock_config,
+                ),
+            ),
+            (
+                DiagnoseMissingCLIRemedy(),
+                ErrorContext(
+                    error_code="E901",
+                    error_message="claude command not found",
+                    error_category="execution",
+                    config=mock_config,
+                ),
+            ),
         ]
 
         for remedy, ctx in remedies:
@@ -1470,9 +1499,7 @@ class TestSelfHealingE2ERealFilesystem:
         )
 
         registry = create_default_registry()
-        coordinator = SelfHealingCoordinator(
-            registry=registry, max_healing_attempts=1
-        )
+        coordinator = SelfHealingCoordinator(registry=registry, max_healing_attempts=1)
 
         await coordinator.heal(ctx)
         report2 = await coordinator.heal(ctx)
@@ -1593,7 +1620,9 @@ class TestSelfHealingE2E:
 
         registry = create_default_registry()
         coordinator = SelfHealingCoordinator(
-            registry, auto_confirm=True, max_healing_attempts=2,
+            registry,
+            auto_confirm=True,
+            max_healing_attempts=2,
         )
 
         # First two attempts should work
@@ -1803,9 +1832,7 @@ class TestHealingStackedRemedies:
 
         # Report should track all attempted actions
         total_actions = (
-            len(report.actions_taken)
-            + len(report.actions_skipped)
-            + len(report.diagnostic_outputs)
+            len(report.actions_taken) + len(report.actions_skipped) + len(report.diagnostic_outputs)
         )
         assert total_actions >= 1, "Should have at least one action recorded"
 
@@ -1923,7 +1950,9 @@ class TestHealingStackedRemedies:
 
         registry = create_default_registry()
         coordinator = SelfHealingCoordinator(
-            registry, auto_confirm=True, max_healing_attempts=1,
+            registry,
+            auto_confirm=True,
+            max_healing_attempts=1,
         )
 
         # First heal succeeds
@@ -2003,7 +2032,9 @@ class TestHealingStackedRemedies:
 
         registry = create_default_registry()
         coordinator = SelfHealingCoordinator(
-            registry, auto_confirm=True, dry_run=True,
+            registry,
+            auto_confirm=True,
+            dry_run=True,
         )
         report = await coordinator.heal(ctx)
 
@@ -2011,10 +2042,7 @@ class TestHealingStackedRemedies:
         assert len(report.actions_taken) == 0
         assert not workspace.exists()
         # But actions should be recorded as skipped with "Dry run" reason
-        dry_run_skipped = [
-            name for name, reason in report.actions_skipped
-            if "Dry run" in reason
-        ]
+        dry_run_skipped = [name for name, reason in report.actions_skipped if "Dry run" in reason]
         assert len(dry_run_skipped) >= 1
 
     @pytest.mark.asyncio

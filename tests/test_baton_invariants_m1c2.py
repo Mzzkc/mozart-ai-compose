@@ -63,9 +63,16 @@ from marianne.daemon.baton.state import (
 sheet_nums = st.integers(min_value=1, max_value=100)
 
 # Strategy for instrument names
-instrument_names = st.sampled_from([
-    "claude-code", "gemini-cli", "codex-cli", "aider", "goose", "ollama",
-])
+instrument_names = st.sampled_from(
+    [
+        "claude-code",
+        "gemini-cli",
+        "codex-cli",
+        "aider",
+        "goose",
+        "ollama",
+    ]
+)
 
 # Strategy for BatonSheetStatus
 all_baton_statuses = st.sampled_from(list(BatonSheetStatus))
@@ -140,6 +147,7 @@ def _make_sheet(
 # 1. Adapter State Mapping — Total Function
 # =============================================================================
 
+
 class TestAdapterStateMappingInvariants:
     """Prove that the baton-to-checkpoint mapping is a total function.
 
@@ -162,7 +170,8 @@ class TestAdapterStateMappingInvariants:
 
     @given(status=all_baton_statuses)
     def test_baton_to_checkpoint_always_returns_string(
-        self, status: BatonSheetStatus,
+        self,
+        status: BatonSheetStatus,
     ) -> None:
         """baton_to_checkpoint_status returns a non-empty string for all inputs."""
         result = baton_to_checkpoint_status(status)
@@ -171,13 +180,22 @@ class TestAdapterStateMappingInvariants:
 
     @given(status=all_baton_statuses)
     def test_checkpoint_status_is_one_of_eleven_known_values(
-        self, status: BatonSheetStatus,
+        self,
+        status: BatonSheetStatus,
     ) -> None:
         """CheckpointState knows all 11 statuses (1:1 mapping since Phase 1)."""
         known = {
-            "pending", "ready", "dispatched", "in_progress",
-            "waiting", "retry_scheduled", "fermata",
-            "completed", "failed", "skipped", "cancelled",
+            "pending",
+            "ready",
+            "dispatched",
+            "in_progress",
+            "waiting",
+            "retry_scheduled",
+            "fermata",
+            "completed",
+            "failed",
+            "skipped",
+            "cancelled",
         }
         result = baton_to_checkpoint_status(status)
         assert result in known, (
@@ -215,14 +233,14 @@ class TestAdapterStateMappingInvariants:
         for status in BatonSheetStatus:
             results = {baton_to_checkpoint_status(status) for _ in range(10)}
             assert len(results) == 1, (
-                f"BatonSheetStatus.{status.name} produced multiple mappings: "
-                f"{results}"
+                f"BatonSheetStatus.{status.name} produced multiple mappings: {results}"
             )
 
 
 # =============================================================================
 # 2. Record Attempt Budget Invariants
 # =============================================================================
+
 
 class TestRecordAttemptBudgetInvariants:
     """Prove that record_attempt correctly manages the retry budget.
@@ -237,7 +255,9 @@ class TestRecordAttemptBudgetInvariants:
         duration=st.floats(min_value=0.0, max_value=3600.0, allow_nan=False),
     )
     def test_successful_attempt_never_consumes_budget(
-        self, cost: float, duration: float,
+        self,
+        cost: float,
+        duration: float,
     ) -> None:
         """A successful attempt must NEVER increment normal_attempts."""
         sheet = SheetExecutionState(sheet_num=1, instrument_name="claude-code")
@@ -259,7 +279,9 @@ class TestRecordAttemptBudgetInvariants:
         duration=st.floats(min_value=0.0, max_value=3600.0, allow_nan=False),
     )
     def test_rate_limited_attempt_never_consumes_budget(
-        self, cost: float, duration: float,
+        self,
+        cost: float,
+        duration: float,
     ) -> None:
         """A rate-limited attempt must NEVER increment normal_attempts."""
         sheet = SheetExecutionState(sheet_num=1, instrument_name="claude-code")
@@ -281,7 +303,9 @@ class TestRecordAttemptBudgetInvariants:
         duration=st.floats(min_value=0.0, max_value=3600.0, allow_nan=False),
     )
     def test_failed_non_rate_limited_always_consumes_budget(
-        self, cost: float, duration: float,
+        self,
+        cost: float,
+        duration: float,
     ) -> None:
         """A failed, non-rate-limited attempt must ALWAYS increment normal_attempts."""
         sheet = SheetExecutionState(sheet_num=1, instrument_name="claude-code")
@@ -325,24 +349,24 @@ class TestRecordAttemptBudgetInvariants:
         This is a boundary condition: at exactly max_retries, can_retry is False.
         """
         sheet = SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code", max_retries=max_retries,
+            sheet_num=1,
+            instrument_name="claude-code",
+            max_retries=max_retries,
         )
         for i in range(max_retries):
             assert sheet.can_retry, (
                 f"can_retry is False at attempt {i}, but max_retries={max_retries}"
             )
-            sheet.record_attempt(
-                _make_attempt_result(execution_success=False, attempt=i + 1)
-            )
+            sheet.record_attempt(_make_attempt_result(execution_success=False, attempt=i + 1))
         assert not sheet.can_retry, (
-            f"can_retry is True after {max_retries} failed attempts, "
-            f"but max_retries={max_retries}"
+            f"can_retry is True after {max_retries} failed attempts, but max_retries={max_retries}"
         )
 
 
 # =============================================================================
 # 3. Sheet Entity Template Variables
 # =============================================================================
+
 
 class TestSheetTemplateVariableInvariants:
     """Prove that Sheet.template_variables() provides both terminologies."""
@@ -385,7 +409,9 @@ class TestSheetTemplateVariableInvariants:
         total_movements=st.integers(min_value=1, max_value=100),
     )
     def test_new_and_old_terminology_are_equal(
-        self, movement: int, total_movements: int,
+        self,
+        movement: int,
+        total_movements: int,
     ) -> None:
         """New terminology values must EQUAL old terminology values.
 
@@ -405,8 +431,7 @@ class TestSheetTemplateVariableInvariants:
             f"voice_count={tvars['voice_count']} != fan_count={tvars['fan_count']}"
         )
         assert tvars["total_movements"] == tvars["total_stages"], (
-            f"total_movements={tvars['total_movements']} != "
-            f"total_stages={tvars['total_stages']}"
+            f"total_movements={tvars['total_movements']} != total_stages={tvars['total_stages']}"
         )
 
     @given(
@@ -415,7 +440,10 @@ class TestSheetTemplateVariableInvariants:
         instrument=instrument_names,
     )
     def test_core_identity_always_present(
-        self, num: int, total_sheets: int, instrument: str,
+        self,
+        num: int,
+        total_sheets: int,
+        instrument: str,
     ) -> None:
         """Core identity variables (sheet_num, total_sheets, workspace,
         instrument_name) must always be present.
@@ -429,11 +457,22 @@ class TestSheetTemplateVariableInvariants:
         assert tvars["instrument_name"] == instrument
 
     @given(
-        custom_key=st.sampled_from([
-            "sheet_num", "total_sheets", "workspace", "movement",
-            "stage", "voice", "instance", "instrument_name",
-            "voice_count", "fan_count", "total_movements", "total_stages",
-        ]),
+        custom_key=st.sampled_from(
+            [
+                "sheet_num",
+                "total_sheets",
+                "workspace",
+                "movement",
+                "stage",
+                "voice",
+                "instance",
+                "instrument_name",
+                "voice_count",
+                "fan_count",
+                "total_movements",
+                "total_stages",
+            ]
+        ),
     )
     def test_builtin_vars_override_custom_vars(self, custom_key: str) -> None:
         """Built-in variables take precedence over custom variables.
@@ -448,14 +487,14 @@ class TestSheetTemplateVariableInvariants:
 
         tvars = patched.template_variables(10, 1)
         assert tvars[custom_key] != "SHOULD_NOT_APPEAR", (
-            f"Custom variable '{custom_key}' overrode built-in. "
-            f"Built-ins must take precedence."
+            f"Custom variable '{custom_key}' overrode built-in. Built-ins must take precedence."
         )
 
 
 # =============================================================================
 # 4. Baton Decision Tree Exhaustiveness
 # =============================================================================
+
 
 class TestBatonDecisionTreeInvariants:
     """Prove that _handle_attempt_result produces correct outcomes
@@ -478,8 +517,10 @@ class TestBatonDecisionTreeInvariants:
         baton.register_job("j1", sheets, {})
 
         result = _make_attempt_result(
-            job_id="j1", sheet_num=1,
-            execution_success=False, rate_limited=True,
+            job_id="j1",
+            sheet_num=1,
+            execution_success=False,
+            rate_limited=True,
         )
         baton._handle_attempt_result(result)
 
@@ -489,7 +530,8 @@ class TestBatonDecisionTreeInvariants:
         pass_rate=st.floats(min_value=0.0, max_value=99.9, allow_nan=False),
     )
     def test_f018_guard_no_validations_always_completes(
-        self, pass_rate: float,
+        self,
+        pass_rate: float,
     ) -> None:
         """F-018: execution_success + validations_total=0 → COMPLETED.
 
@@ -500,7 +542,8 @@ class TestBatonDecisionTreeInvariants:
         baton.register_job("j1", sheets, {})
 
         result = _make_attempt_result(
-            job_id="j1", sheet_num=1,
+            job_id="j1",
+            sheet_num=1,
             execution_success=True,
             validation_pass_rate=pass_rate,
             validations_total=0,
@@ -520,7 +563,8 @@ class TestBatonDecisionTreeInvariants:
         baton.register_job("j1", sheets, {})
 
         result = _make_attempt_result(
-            job_id="j1", sheet_num=1,
+            job_id="j1",
+            sheet_num=1,
             execution_success=True,
             validation_pass_rate=100.0,
             validations_total=3,
@@ -533,13 +577,18 @@ class TestBatonDecisionTreeInvariants:
     def test_partial_pass_enters_completion_mode(self, pass_rate: float) -> None:
         """execution_success + 0 < pass_rate < 100 → PENDING (completion mode)."""
         baton = BatonCore()
-        sheets = {1: SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code", max_completion=5,
-        )}
+        sheets = {
+            1: SheetExecutionState(
+                sheet_num=1,
+                instrument_name="claude-code",
+                max_completion=5,
+            )
+        }
         baton.register_job("j1", sheets, {})
 
         result = _make_attempt_result(
-            job_id="j1", sheet_num=1,
+            job_id="j1",
+            sheet_num=1,
             execution_success=True,
             validation_pass_rate=pass_rate,
             validations_total=3,
@@ -562,14 +611,19 @@ class TestBatonDecisionTreeInvariants:
         counts execution failures.
         """
         baton = BatonCore()
-        sheets = {1: SheetExecutionState(
-            sheet_num=1, instrument_name="claude-code", max_retries=2,
-        )}
+        sheets = {
+            1: SheetExecutionState(
+                sheet_num=1,
+                instrument_name="claude-code",
+                max_retries=2,
+            )
+        }
         baton.register_job("j1", sheets, {})
 
         for i in range(3):
             result = _make_attempt_result(
-                job_id="j1", sheet_num=1,
+                job_id="j1",
+                sheet_num=1,
                 attempt=i + 1,
                 execution_success=True,
                 validation_pass_rate=0.0,
@@ -594,7 +648,8 @@ class TestBatonDecisionTreeInvariants:
         baton.register_job("j1", sheets, {2: [1]})
 
         result = _make_attempt_result(
-            job_id="j1", sheet_num=1,
+            job_id="j1",
+            sheet_num=1,
             execution_success=False,
             error_classification="AUTH_FAILURE",
         )
@@ -619,7 +674,8 @@ class TestBatonDecisionTreeInvariants:
         baton.set_job_cost_limit("j1", 0.001)
 
         result = _make_attempt_result(
-            job_id="j1", sheet_num=1,
+            job_id="j1",
+            sheet_num=1,
             execution_success=True,
             validation_pass_rate=100.0,
             cost_usd=cost,
@@ -630,14 +686,14 @@ class TestBatonDecisionTreeInvariants:
         # Sheet completes, but job should be paused due to cost
         assert sheets[1].status == BatonSheetStatus.COMPLETED
         assert job.paused, (
-            f"Job cost limit 0.001 exceeded by sheet costing {cost}, "
-            f"but job is NOT paused"
+            f"Job cost limit 0.001 exceeded by sheet costing {cost}, but job is NOT paused"
         )
 
 
 # =============================================================================
 # 5. Terminal State Resistance (Extended)
 # =============================================================================
+
 
 class TestTerminalStateResistance:
     """Prove that terminal sheets resist ALL event types.
@@ -652,7 +708,10 @@ class TestTerminalStateResistance:
         cost=costs,
     )
     def test_terminal_sheets_resist_attempt_results(
-        self, status: BatonSheetStatus, pass_rate: float, cost: float,
+        self,
+        status: BatonSheetStatus,
+        pass_rate: float,
+        cost: float,
     ) -> None:
         """No SheetAttemptResult can change a terminal sheet's status."""
         baton = BatonCore()
@@ -663,7 +722,8 @@ class TestTerminalStateResistance:
         for success in [True, False]:
             for rate_limited in [True, False]:
                 result = _make_attempt_result(
-                    job_id="j1", sheet_num=1,
+                    job_id="j1",
+                    sheet_num=1,
                     execution_success=success,
                     validation_pass_rate=pass_rate,
                     rate_limited=rate_limited,
@@ -680,6 +740,7 @@ class TestTerminalStateResistance:
 # =============================================================================
 # 6. Error Taxonomy — E006 vs E001 Distinction
 # =============================================================================
+
 
 class TestErrorTaxonomyInvariants:
     """Prove that the error classifier correctly distinguishes error types."""
@@ -708,8 +769,7 @@ class TestErrorTaxonomyInvariants:
             exit_reason="timeout",
         )
         assert stale_result.primary.error_code == ErrorCode.EXECUTION_STALE, (
-            f"Stale detection classified as {stale_result.primary.error_code} "
-            f"instead of E006"
+            f"Stale detection classified as {stale_result.primary.error_code} instead of E006"
         )
 
         # Regular timeout case
@@ -720,8 +780,7 @@ class TestErrorTaxonomyInvariants:
             exit_reason="timeout",
         )
         assert timeout_result.primary.error_code == ErrorCode.EXECUTION_TIMEOUT, (
-            f"Regular timeout classified as {timeout_result.primary.error_code} "
-            f"instead of E001"
+            f"Regular timeout classified as {timeout_result.primary.error_code} instead of E001"
         )
 
     def test_phase_4_5_rate_limit_override_always_fires(self) -> None:
@@ -743,8 +802,7 @@ class TestErrorTaxonomyInvariants:
         )
 
         has_rate_limit = any(
-            e.category == ErrorCategory.RATE_LIMIT
-            for e in [result.primary] + result.secondary
+            e.category == ErrorCategory.RATE_LIMIT for e in [result.primary] + result.secondary
         )
         assert has_rate_limit, (
             "Phase 4.5 failed: rate limit text in stdout was not detected "
@@ -752,15 +810,18 @@ class TestErrorTaxonomyInvariants:
         )
 
     @given(
-        rate_limit_text=st.sampled_from([
-            "API Error: Rate limit reached",
-            "You've hit your limit · resets 11pm",
-            "rate limit exceeded",
-            "limit resets in 5 minutes",
-        ]),
+        rate_limit_text=st.sampled_from(
+            [
+                "API Error: Rate limit reached",
+                "You've hit your limit · resets 11pm",
+                "rate limit exceeded",
+                "limit resets in 5 minutes",
+            ]
+        ),
     )
     def test_rate_limit_patterns_detected_in_stdout(
-        self, rate_limit_text: str,
+        self,
+        rate_limit_text: str,
     ) -> None:
         """Known rate limit patterns in stdout must always be detected."""
         from marianne.core.errors.classifier import ErrorClassifier
@@ -774,17 +835,15 @@ class TestErrorTaxonomyInvariants:
         )
 
         has_rate_limit = any(
-            e.category == ErrorCategory.RATE_LIMIT
-            for e in [result.primary] + result.secondary
+            e.category == ErrorCategory.RATE_LIMIT for e in [result.primary] + result.secondary
         )
-        assert has_rate_limit, (
-            f"Rate limit text '{rate_limit_text}' in stdout was not detected"
-        )
+        assert has_rate_limit, f"Rate limit text '{rate_limit_text}' in stdout was not detected"
 
 
 # =============================================================================
 # 7. Status Set Invariants
 # =============================================================================
+
 
 class TestStatusSetInvariants:
     """Prove that the status sets are mutually consistent."""
@@ -839,21 +898,15 @@ class TestStatusSetInvariants:
             BatonSheetStatus.FERMATA,
             BatonSheetStatus.READY,
         }
-        accounted = (
-            _TERMINAL_BATON_STATUSES
-            | _DISPATCHABLE_BATON_STATUSES
-            | intermediate
-        )
+        accounted = _TERMINAL_BATON_STATUSES | _DISPATCHABLE_BATON_STATUSES | intermediate
         orphaned = all_statuses - accounted
-        assert not orphaned, (
-            f"Orphaned BatonSheetStatus values not in any status set: "
-            f"{orphaned}"
-        )
+        assert not orphaned, f"Orphaned BatonSheetStatus values not in any status set: {orphaned}"
 
 
 # =============================================================================
 # 8. Prompt Assembly Invariants
 # =============================================================================
+
 
 class TestPromptAssemblyInvariants:
     """Prove properties of the musician's prompt assembly pipeline."""
@@ -879,14 +932,13 @@ class TestPromptAssemblyInvariants:
         from marianne.daemon.baton.musician import _build_prompt
 
         sheet = _make_sheet(
-            num=7, prompt_template="Sheet number is {{ sheet_num }}.",
+            num=7,
+            prompt_template="Sheet number is {{ sheet_num }}.",
         )
         context = AttemptContext(attempt_number=1, mode=AttemptMode.NORMAL)
         prompt = _build_prompt(sheet, context, total_sheets=10, total_movements=1)
 
-        assert "Sheet number is 7." in prompt, (
-            "Template variable {{ sheet_num }} was not rendered"
-        )
+        assert "Sheet number is 7." in prompt, "Template variable {{ sheet_num }} was not rendered"
 
     def test_completion_suffix_only_in_completion_mode(self) -> None:
         """Completion prompt suffix appears ONLY when mode=COMPLETION."""
@@ -955,6 +1007,7 @@ class TestPromptAssemblyInvariants:
 # 9. Deregister Cleanup Invariant (F-062)
 # =============================================================================
 
+
 class TestDeregisterCleanupInvariants:
     """Prove that deregister_job cleans up ALL associated state."""
 
@@ -977,9 +1030,7 @@ class TestDeregisterCleanupInvariants:
         baton.deregister_job("j1")
 
         # Verify cleanup
-        assert "j1" not in baton._job_cost_limits, (
-            "Job cost limit not cleaned up on deregister"
-        )
+        assert "j1" not in baton._job_cost_limits, "Job cost limit not cleaned up on deregister"
         assert ("j1", 1) not in baton._sheet_cost_limits, (
             "Sheet cost limit (j1, 1) not cleaned up on deregister"
         )
@@ -996,6 +1047,7 @@ class TestDeregisterCleanupInvariants:
 # =============================================================================
 # 10. Circuit Breaker State Invariants
 # =============================================================================
+
 
 class TestCircuitBreakerStateInvariants:
     """Prove properties of the circuit breaker states."""
@@ -1019,13 +1071,15 @@ class TestCircuitBreakerStateInvariants:
 # 11. Failure Propagation with Dependency DAGs
 # =============================================================================
 
+
 class TestFailurePropagationInvariants:
     """Prove that failure propagation reaches all transitive dependents."""
 
     @given(chain_length=st.integers(min_value=2, max_value=20))
     @settings(max_examples=10)
     def test_failure_propagates_through_linear_chain(
-        self, chain_length: int,
+        self,
+        chain_length: int,
     ) -> None:
         """In a linear chain 1→2→...→N, failing sheet 1 must fail ALL downstream."""
         baton = BatonCore()
@@ -1038,7 +1092,8 @@ class TestFailurePropagationInvariants:
 
         # Fail sheet 1
         result = _make_attempt_result(
-            job_id="j1", sheet_num=1,
+            job_id="j1",
+            sheet_num=1,
             execution_success=False,
             error_classification="AUTH_FAILURE",
         )
@@ -1068,23 +1123,30 @@ class TestFailurePropagationInvariants:
         baton = BatonCore()
         # 1 → (2, 3, 4) → 5
         sheets = {
-            i: SheetExecutionState(sheet_num=i, instrument_name="claude-code")
-            for i in range(1, 6)
+            i: SheetExecutionState(sheet_num=i, instrument_name="claude-code") for i in range(1, 6)
         }
         deps = {2: [1], 3: [1], 4: [1], 5: [2, 3, 4]}
         baton.register_job("j1", sheets, deps)
 
         # Complete sheet 1
-        baton._handle_attempt_result(_make_attempt_result(
-            job_id="j1", sheet_num=1, execution_success=True,
-            validation_pass_rate=100.0,
-        ))
+        baton._handle_attempt_result(
+            _make_attempt_result(
+                job_id="j1",
+                sheet_num=1,
+                execution_success=True,
+                validation_pass_rate=100.0,
+            )
+        )
 
         # Fail sheet 2 with AUTH_FAILURE (immediate terminal)
-        baton._handle_attempt_result(_make_attempt_result(
-            job_id="j1", sheet_num=2, execution_success=False,
-            error_classification="AUTH_FAILURE",
-        ))
+        baton._handle_attempt_result(
+            _make_attempt_result(
+                job_id="j1",
+                sheet_num=2,
+                execution_success=False,
+                error_classification="AUTH_FAILURE",
+            )
+        )
 
         # Sheets 3 and 4 are independent — should NOT be failed or skipped
         assert sheets[3].status != BatonSheetStatus.FAILED

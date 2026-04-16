@@ -138,9 +138,7 @@ class TestMcpDisableArgsInjection:
         args = backend._build_command("test prompt", timeout_seconds=None)
         no_mcp_idx = args.index("--no-mcp")
         verbose_idx = args.index("--verbose")
-        assert no_mcp_idx < verbose_idx, (
-            "mcp_disable_args should precede extra_flags"
-        )
+        assert no_mcp_idx < verbose_idx, "mcp_disable_args should precede extra_flags"
 
     def test_mcp_disable_args_empty_is_noop(self) -> None:
         """Empty mcp_disable_args adds nothing to command."""
@@ -268,11 +266,15 @@ class TestCredentialEnvFiltering:
     def test_required_env_excludes_unrequested_vars(self) -> None:
         """Vars not in required_env are excluded from subprocess env."""
         backend = _make_backend(required_env=["ANTHROPIC_API_KEY"])
-        with patch.dict(os.environ, {
-            "ANTHROPIC_API_KEY": "sk-ant-123",
-            "OPENAI_API_KEY": "sk-openai-456",
-            "PATH": "/usr/bin",
-        }, clear=True):
+        with patch.dict(
+            os.environ,
+            {
+                "ANTHROPIC_API_KEY": "sk-ant-123",
+                "OPENAI_API_KEY": "sk-openai-456",
+                "PATH": "/usr/bin",
+            },
+            clear=True,
+        ):
             env = backend._build_env()
         assert env is not None
         assert "ANTHROPIC_API_KEY" in env
@@ -299,11 +301,15 @@ class TestCredentialEnvFiltering:
     def test_empty_required_env_passes_only_system(self) -> None:
         """Empty required_env list → only system essentials pass through."""
         backend = _make_backend(required_env=[])
-        with patch.dict(os.environ, {
-            "PATH": "/usr/bin",
-            "SECRET_KEY": "danger",
-            "HOME": "/home/test",
-        }, clear=True):
+        with patch.dict(
+            os.environ,
+            {
+                "PATH": "/usr/bin",
+                "SECRET_KEY": "danger",
+                "HOME": "/home/test",
+            },
+            clear=True,
+        ):
             env = backend._build_env()
         assert env is not None
         assert "SECRET_KEY" not in env
@@ -312,10 +318,14 @@ class TestCredentialEnvFiltering:
     def test_none_required_env_inherits_full_parent(self) -> None:
         """required_env=None → full parent environment inherited."""
         backend = _make_backend(required_env=None, env={"PROFILE_VAR": "value"})
-        with patch.dict(os.environ, {
-            "PATH": "/usr/bin",
-            "SECRET_KEY": "danger",
-        }, clear=True):
+        with patch.dict(
+            os.environ,
+            {
+                "PATH": "/usr/bin",
+                "SECRET_KEY": "danger",
+            },
+            clear=True,
+        ):
             env = backend._build_env()
         assert env is not None
         assert "SECRET_KEY" in env
@@ -326,10 +336,14 @@ class TestCredentialEnvFiltering:
             required_env=["ANTHROPIC_API_KEY"],
             env={"EXTRA_PROFILE_VAR": "hello"},
         )
-        with patch.dict(os.environ, {
-            "ANTHROPIC_API_KEY": "key",
-            "PATH": "/usr/bin",
-        }, clear=True):
+        with patch.dict(
+            os.environ,
+            {
+                "ANTHROPIC_API_KEY": "key",
+                "PATH": "/usr/bin",
+            },
+            clear=True,
+        ):
             env = backend._build_env()
         assert env is not None
         assert env["EXTRA_PROFILE_VAR"] == "hello"
@@ -343,10 +357,14 @@ class TestCredentialEnvFiltering:
             required_env=[],
             env={"EXPANDED": "${MY_SECRET}"},
         )
-        with patch.dict(os.environ, {
-            "MY_SECRET": "resolved-value",
-            "PATH": "/usr/bin",
-        }, clear=True):
+        with patch.dict(
+            os.environ,
+            {
+                "MY_SECRET": "resolved-value",
+                "PATH": "/usr/bin",
+            },
+            clear=True,
+        ):
             env = backend._build_env()
         assert env is not None
         assert env["EXPANDED"] == "resolved-value"
@@ -377,9 +395,7 @@ class TestUserVariablesInValidations:
         user_variables: dict[str, Any] = {"workspace": "/fake/workspace"}
         real_workspace = Path("/real/workspace")
 
-        path_context: dict[str, str] = {
-            str(k): str(v) for k, v in user_variables.items()
-        }
+        path_context: dict[str, str] = {str(k): str(v) for k, v in user_variables.items()}
         # Built-ins override: same order as rendering.py
         path_context.update({"workspace": str(real_workspace)})
         assert path_context["workspace"] == "/real/workspace"
@@ -456,9 +472,8 @@ class TestSafeKillpgGuard:
         """A valid pgid (not 0/1/own) calls os.killpg."""
         from marianne.backends.claude_cli import _safe_killpg
 
-        with patch("os.killpg") as mock_killpg:
-            with patch("os.getpgid", return_value=12345):
-                result = _safe_killpg(99999, signal.SIGTERM, context="test")
+        with patch("os.killpg") as mock_killpg, patch("os.getpgid", return_value=12345):
+            result = _safe_killpg(99999, signal.SIGTERM, context="test")
         assert result is True
         mock_killpg.assert_called_once_with(99999, signal.SIGTERM)
 
@@ -538,8 +553,7 @@ class TestV212UnknownFieldHints:
         from marianne.cli.commands.validate import _unknown_field_hints
 
         error = (
-            "retries\n  Extra inputs are not permitted\n"
-            "paralel\n  Extra inputs are not permitted"
+            "retries\n  Extra inputs are not permitted\nparalel\n  Extra inputs are not permitted"
         )
         hints = _unknown_field_hints(error)
         retries_hint = [h for h in hints if "retries" in h]
@@ -659,9 +673,7 @@ class TestDaemonErrorCatchCompleteness:
         rec_module = importlib.import_module("marianne.cli.commands.recover")
         source = inspect.getsource(rec_module)
         # The new recover code handles missing DB and missing jobs
-        assert "output_error" in source, (
-            "recover.py must use output_error for clean error messages"
-        )
+        assert "output_error" in source, "recover.py must use output_error for clean error messages"
 
     def test_daemon_error_hints_mention_restart(self) -> None:
         """DaemonError catch blocks in diagnose include 'restart' in hints.
@@ -710,11 +722,15 @@ class TestFeatureInteractions:
         args = backend._build_command("test", timeout_seconds=None)
         assert "--strict-mcp-config" in args
 
-        with patch.dict(os.environ, {
-            "ANTHROPIC_API_KEY": "key",
-            "OPENAI_API_KEY": "leaked",
-            "PATH": "/usr/bin",
-        }, clear=True):
+        with patch.dict(
+            os.environ,
+            {
+                "ANTHROPIC_API_KEY": "key",
+                "OPENAI_API_KEY": "leaked",
+                "PATH": "/usr/bin",
+            },
+            clear=True,
+        ):
             env = backend._build_env()
         assert env is not None
         assert "OPENAI_API_KEY" not in env
@@ -736,10 +752,14 @@ class TestFeatureInteractions:
             required_env=[],
             env={"TOOL_KEY": "${AWS_SECRET_ACCESS_KEY}"},
         )
-        with patch.dict(os.environ, {
-            "AWS_SECRET_ACCESS_KEY": "AKIA...",
-            "PATH": "/usr/bin",
-        }, clear=True):
+        with patch.dict(
+            os.environ,
+            {
+                "AWS_SECRET_ACCESS_KEY": "AKIA...",
+                "PATH": "/usr/bin",
+            },
+            clear=True,
+        ):
             env = backend._build_env()
         assert env is not None
         # AWS_SECRET_ACCESS_KEY is NOT directly in env (not in required_env)

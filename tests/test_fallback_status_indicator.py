@@ -45,10 +45,17 @@ class TestFormatInstrumentWithFallback:
 
     def test_single_fallback_shows_indicator(self) -> None:
         """Sheet with fallback history shows original and reason."""
-        sheet = _make_sheet("gemini-cli", [
-            {"from": "claude-code", "to": "gemini-cli",
-             "reason": "rate_limit_exhausted", "timestamp": "2026-04-06T00:00:00"},
-        ])
+        sheet = _make_sheet(
+            "gemini-cli",
+            [
+                {
+                    "from": "claude-code",
+                    "to": "gemini-cli",
+                    "reason": "rate_limit_exhausted",
+                    "timestamp": "2026-04-06T00:00:00",
+                },
+            ],
+        )
         result = format_instrument_with_fallback(sheet)
         assert "gemini-cli" in result
         assert "claude-code" in result
@@ -57,12 +64,23 @@ class TestFormatInstrumentWithFallback:
 
     def test_multiple_fallbacks_shows_last(self) -> None:
         """With multiple fallbacks, show the last transition's original."""
-        sheet = _make_sheet("ollama", [
-            {"from": "claude-code", "to": "gemini-cli",
-             "reason": "unavailable", "timestamp": "2026-04-06T00:00:00"},
-            {"from": "gemini-cli", "to": "ollama",
-             "reason": "rate_limit_exhausted", "timestamp": "2026-04-06T00:01:00"},
-        ])
+        sheet = _make_sheet(
+            "ollama",
+            [
+                {
+                    "from": "claude-code",
+                    "to": "gemini-cli",
+                    "reason": "unavailable",
+                    "timestamp": "2026-04-06T00:00:00",
+                },
+                {
+                    "from": "gemini-cli",
+                    "to": "ollama",
+                    "reason": "rate_limit_exhausted",
+                    "timestamp": "2026-04-06T00:01:00",
+                },
+            ],
+        )
         result = format_instrument_with_fallback(sheet)
         assert "ollama" in result
         assert "gemini-cli" in result

@@ -10,11 +10,9 @@ TDD: Tests written before implementation. Red first, then green.
 from __future__ import annotations
 
 import asyncio
-import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -22,7 +20,6 @@ from marianne.backends.base import ExecutionResult
 from marianne.core.sheet import Sheet
 from marianne.daemon.baton.events import SheetAttemptResult
 from marianne.daemon.baton.state import AttemptContext, AttemptMode
-
 
 # =========================================================================
 # Helpers
@@ -162,9 +159,7 @@ class TestMusicianHappyPath:
         inbox: asyncio.Queue[SheetAttemptResult] = asyncio.Queue()
         backend = AsyncMock()
         backend.execute = AsyncMock(
-            return_value=_make_execution_result(
-                input_tokens=1000, output_tokens=500
-            )
+            return_value=_make_execution_result(input_tokens=1000, output_tokens=500)
         )
         backend.name = "claude-code"
 
@@ -362,9 +357,7 @@ class TestMusicianValidation:
 
         inbox: asyncio.Queue[SheetAttemptResult] = asyncio.Queue()
         backend = AsyncMock()
-        backend.execute = AsyncMock(
-            return_value=_make_execution_result(success=False, exit_code=1)
-        )
+        backend.execute = AsyncMock(return_value=_make_execution_result(success=False, exit_code=1))
         backend.name = "claude-code"
 
         # Sheet has validations but execution failed — should skip them
@@ -427,9 +420,7 @@ class TestMusicianAttemptContext:
 
         inbox: asyncio.Queue[SheetAttemptResult] = asyncio.Queue()
         backend = AsyncMock()
-        backend.execute = AsyncMock(
-            return_value=_make_execution_result(model="claude-opus-4-6")
-        )
+        backend.execute = AsyncMock(return_value=_make_execution_result(model="claude-opus-4-6"))
         backend.name = "claude-code"
 
         sheet = _make_sheet()
@@ -552,9 +543,7 @@ class TestMusicianTiming:
 
         inbox: asyncio.Queue[SheetAttemptResult] = asyncio.Queue()
         backend = AsyncMock()
-        backend.execute = AsyncMock(
-            return_value=_make_execution_result(duration=42.5)
-        )
+        backend.execute = AsyncMock(return_value=_make_execution_result(duration=42.5))
         backend.name = "claude-code"
 
         sheet = _make_sheet()

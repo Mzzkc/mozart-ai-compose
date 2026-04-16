@@ -50,9 +50,12 @@ class TestJobToolsBasic:
         assert len(result["content"]) == 1
         assert "Marianne MCP Job Listing" in result["content"][0]["text"]
 
-    @patch('marianne.mcp.tools.JobControlService')
+    @patch("marianne.mcp.tools.JobControlService")
     async def test_get_job_success(
-        self, mock_service_class, mock_state_backend: Mock, temp_workspace,
+        self,
+        mock_service_class,
+        mock_state_backend: Mock,
+        temp_workspace,
     ):
         """Test successful get_job operation."""
         # Setup mock state
@@ -76,7 +79,7 @@ class TestJobToolsBasic:
             process_exists=True,
             cpu_percent=5.2,
             memory_mb=128.5,
-            uptime_seconds=3600.0
+            uptime_seconds=3600.0,
         )
 
         # Mock the service instance
@@ -107,9 +110,7 @@ class TestJobToolsBasic:
     async def test_start_job_config_not_found(self, mock_state_backend: Mock, temp_workspace):
         """Test start_job with non-existent config file."""
         job_tools = JobTools(mock_state_backend, temp_workspace)
-        result = await job_tools.call_tool("start_job", {
-            "config_path": "/nonexistent/config.yaml"
-        })
+        result = await job_tools.call_tool("start_job", {"config_path": "/nonexistent/config.yaml"})
 
         assert "isError" in result
         assert result["isError"] is True
@@ -144,17 +145,17 @@ class TestControlToolsBasic:
         assert "resume_job" in tool_names
         assert "cancel_job" in tool_names
 
-    @patch('marianne.mcp.tools.JobControlService')
+    @patch("marianne.mcp.tools.JobControlService")
     async def test_pause_job_success(
-        self, mock_service_class, mock_state_backend: Mock, temp_workspace,
+        self,
+        mock_service_class,
+        mock_state_backend: Mock,
+        temp_workspace,
     ):
         """Test successful pause_job operation."""
         # Mock successful pause result
         pause_result = JobActionResult(
-            success=True,
-            job_id="test-job-123",
-            status="running",
-            message="Pause request sent"
+            success=True, job_id="test-job-123", status="running", message="Pause request sent"
         )
 
         # Mock the service instance
@@ -169,17 +170,17 @@ class TestControlToolsBasic:
         content_text = result["content"][0]["text"]
         assert "✓ Pause request sent to job: test-job-123" in content_text
 
-    @patch('marianne.mcp.tools.JobControlService')
+    @patch("marianne.mcp.tools.JobControlService")
     async def test_pause_job_failure(
-        self, mock_service_class, mock_state_backend: Mock, temp_workspace,
+        self,
+        mock_service_class,
+        mock_state_backend: Mock,
+        temp_workspace,
     ):
         """Test pause_job when operation fails."""
         # Mock failed pause result
         pause_result = JobActionResult(
-            success=False,
-            job_id="test-job-123",
-            status="failed",
-            message="Job not found"
+            success=False, job_id="test-job-123", status="failed", message="Job not found"
         )
 
         # Mock the service instance
@@ -219,9 +220,12 @@ class TestMCPCoverage:
         backend.load = AsyncMock()
         return backend
 
-    @patch('marianne.mcp.tools.JobControlService')
+    @patch("marianne.mcp.tools.JobControlService")
     async def test_start_job_with_workspace_param(
-        self, mock_service_class, mock_state_backend, temp_workspace,
+        self,
+        mock_service_class,
+        mock_state_backend,
+        temp_workspace,
     ):
         """Test start_job with workspace parameter."""
         config_file = temp_workspace / "test.yaml"
@@ -239,7 +243,7 @@ sheet:
             status="running",
             workspace=temp_workspace,
             total_sheets=3,
-            pid=12345
+            pid=12345,
         )
 
         mock_service = Mock()
@@ -247,23 +251,23 @@ sheet:
         mock_service_class.return_value = mock_service
 
         job_tools = JobTools(mock_state_backend, temp_workspace)
-        result = await job_tools.call_tool("start_job", {
-            "config_path": str(config_file),
-            "workspace": str(temp_workspace),
-            "self_healing": True
-        })
+        result = await job_tools.call_tool(
+            "start_job",
+            {
+                "config_path": str(config_file),
+                "workspace": str(temp_workspace),
+                "self_healing": True,
+            },
+        )
 
         assert "✓ Marianne job started successfully!" in result["content"][0]["text"]
         assert "Self-healing: Enabled" in result["content"][0]["text"]
 
-    @patch('marianne.mcp.tools.JobControlService')
+    @patch("marianne.mcp.tools.JobControlService")
     async def test_resume_job_success(self, mock_service_class, mock_state_backend, temp_workspace):
         """Test successful resume_job operation."""
         resume_result = JobActionResult(
-            success=True,
-            job_id="test-job",
-            status="running",
-            message="Job resumed"
+            success=True, job_id="test-job", status="running", message="Job resumed"
         )
 
         mock_service = Mock()
@@ -275,14 +279,11 @@ sheet:
 
         assert "✓ Job resumed successfully: test-job" in result["content"][0]["text"]
 
-    @patch('marianne.mcp.tools.JobControlService')
+    @patch("marianne.mcp.tools.JobControlService")
     async def test_cancel_job_success(self, mock_service_class, mock_state_backend, temp_workspace):
         """Test successful cancel_job operation."""
         cancel_result = JobActionResult(
-            success=True,
-            job_id="test-job",
-            status="cancelled",
-            message="Job cancelled"
+            success=True, job_id="test-job", status="cancelled", message="Job cancelled"
         )
 
         mock_service = Mock()
@@ -295,9 +296,12 @@ sheet:
         assert "✓ Job cancelled successfully: test-job" in result["content"][0]["text"]
         assert "permanent and cannot be undone" in result["content"][0]["text"]
 
-    @patch('marianne.mcp.tools.JobControlService')
+    @patch("marianne.mcp.tools.JobControlService")
     async def test_service_exception_handling(
-        self, mock_service_class, mock_state_backend, temp_workspace,
+        self,
+        mock_service_class,
+        mock_state_backend,
+        temp_workspace,
     ):
         """Test exception handling from job control service."""
         mock_service = Mock()
@@ -333,12 +337,15 @@ class TestMCPToolSchemaValidation:
         return backend
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("tool_class_name,expected_count", [
-        ("JobTools", 3),
-        ("ControlTools", 3),
-        ("ArtifactTools", 5),
-        ("ScoreTools", 0),  # Stub tools hidden from discovery
-    ])
+    @pytest.mark.parametrize(
+        "tool_class_name,expected_count",
+        [
+            ("JobTools", 3),
+            ("ControlTools", 3),
+            ("ArtifactTools", 5),
+            ("ScoreTools", 0),  # Stub tools hidden from discovery
+        ],
+    )
     async def test_tool_count_per_class(
         self, mock_state_backend, temp_workspace, tool_class_name, expected_count
     ):
@@ -357,9 +364,15 @@ class TestMCPToolSchemaValidation:
         )
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("tool_class_name", [
-        "JobTools", "ControlTools", "ArtifactTools", "ScoreTools",
-    ])
+    @pytest.mark.parametrize(
+        "tool_class_name",
+        [
+            "JobTools",
+            "ControlTools",
+            "ArtifactTools",
+            "ScoreTools",
+        ],
+    )
     async def test_all_tools_have_valid_schema(
         self, mock_state_backend, temp_workspace, tool_class_name
     ):
@@ -385,14 +398,18 @@ class TestMCPToolSchemaValidation:
             assert schema.get("type") == "object", (
                 f"Tool {tool['name']} schema type must be 'object'"
             )
-            assert "properties" in schema, (
-                f"Tool {tool['name']} schema missing 'properties'"
-            )
+            assert "properties" in schema, f"Tool {tool['name']} schema missing 'properties'"
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("tool_class_name", [
-        "JobTools", "ControlTools", "ArtifactTools", "ScoreTools",
-    ])
+    @pytest.mark.parametrize(
+        "tool_class_name",
+        [
+            "JobTools",
+            "ControlTools",
+            "ArtifactTools",
+            "ScoreTools",
+        ],
+    )
     async def test_required_params_exist_in_properties(
         self, mock_state_backend, temp_workspace, tool_class_name
     ):
@@ -427,31 +444,41 @@ class TestScoreToolsBasic:
     @pytest.fixture
     def score_tools(self, temp_workspace):
         from marianne.mcp.tools import ScoreTools
+
         return ScoreTools(temp_workspace)
 
     @pytest.mark.asyncio
     async def test_validate_score_success(self, score_tools, temp_workspace):
         """validate_score returns stub text for valid workspace."""
-        result = await score_tools.call_tool("validate_score", {
-            "workspace": str(temp_workspace),
-        })
+        result = await score_tools.call_tool(
+            "validate_score",
+            {
+                "workspace": str(temp_workspace),
+            },
+        )
         assert "isError" not in result or result.get("isError") is False
         assert "STUB IMPLEMENTATION" in result["content"][0]["text"]
 
     @pytest.mark.asyncio
     async def test_validate_score_missing_workspace(self, score_tools):
         """validate_score returns error for nonexistent workspace."""
-        result = await score_tools.call_tool("validate_score", {
-            "workspace": "/nonexistent/path/xyz",
-        })
+        result = await score_tools.call_tool(
+            "validate_score",
+            {
+                "workspace": "/nonexistent/path/xyz",
+            },
+        )
         assert result["isError"] is True
 
     @pytest.mark.asyncio
     async def test_generate_score_success(self, score_tools, temp_workspace):
         """generate_score returns stub text for valid workspace."""
-        result = await score_tools.call_tool("generate_score", {
-            "workspace": str(temp_workspace),
-        })
+        result = await score_tools.call_tool(
+            "generate_score",
+            {
+                "workspace": str(temp_workspace),
+            },
+        )
         assert "isError" not in result or result.get("isError") is False
         text = result["content"][0]["text"]
         assert "STUB IMPLEMENTATION" in text
@@ -460,11 +487,14 @@ class TestScoreToolsBasic:
     @pytest.mark.asyncio
     async def test_generate_score_with_options(self, score_tools, temp_workspace):
         """generate_score handles optional parameters."""
-        result = await score_tools.call_tool("generate_score", {
-            "workspace": str(temp_workspace),
-            "since_commit": "abc123",
-            "detailed": True,
-        })
+        result = await score_tools.call_tool(
+            "generate_score",
+            {
+                "workspace": str(temp_workspace),
+                "since_commit": "abc123",
+                "detailed": True,
+            },
+        )
         text = result["content"][0]["text"]
         assert "abc123" in text
         assert "True" in text
@@ -472,9 +502,12 @@ class TestScoreToolsBasic:
     @pytest.mark.asyncio
     async def test_validate_score_security_traversal(self, score_tools, temp_workspace):
         """validate_score blocks path traversal."""
-        result = await score_tools.call_tool("validate_score", {
-            "workspace": str(temp_workspace / ".." / ".." / "etc"),
-        })
+        result = await score_tools.call_tool(
+            "validate_score",
+            {
+                "workspace": str(temp_workspace / ".." / ".." / "etc"),
+            },
+        )
         assert result["isError"] is True
 
     @pytest.mark.asyncio

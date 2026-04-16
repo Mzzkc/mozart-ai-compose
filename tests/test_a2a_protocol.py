@@ -14,7 +14,6 @@ from marianne.core.config.a2a import A2ASkill, AgentCard
 from marianne.daemon.a2a.inbox import A2AInbox, A2ATask, A2ATaskStatus
 from marianne.daemon.a2a.registry import AgentCardRegistry
 
-
 # =============================================================================
 # AgentCardRegistry tests
 # =============================================================================
@@ -207,10 +206,14 @@ class TestA2AInbox:
         """Get only pending tasks."""
         inbox = A2AInbox(job_id="j1", agent_name="canyon")
         t1 = inbox.submit_task(
-            source_job_id="j2", source_agent="forge", description="Task 1",
+            source_job_id="j2",
+            source_agent="forge",
+            description="Task 1",
         )
         inbox.submit_task(
-            source_job_id="j3", source_agent="sentinel", description="Task 2",
+            source_job_id="j3",
+            source_agent="sentinel",
+            description="Task 2",
         )
 
         pending = inbox.get_pending_tasks()
@@ -225,7 +228,9 @@ class TestA2AInbox:
         """Full lifecycle: submit → accept → complete."""
         inbox = A2AInbox(job_id="j1", agent_name="canyon")
         task = inbox.submit_task(
-            source_job_id="j2", source_agent="forge", description="Review",
+            source_job_id="j2",
+            source_agent="forge",
+            description="Review",
         )
 
         assert inbox.mark_accepted(task.task_id)
@@ -234,7 +239,8 @@ class TestA2AInbox:
         assert updated.status == A2ATaskStatus.ACCEPTED
 
         assert inbox.complete_task(
-            task.task_id, artifacts={"review": "LGTM"},
+            task.task_id,
+            artifacts={"review": "LGTM"},
         )
         completed = inbox.get_task(task.task_id)
         assert completed is not None
@@ -245,7 +251,9 @@ class TestA2AInbox:
         """Full lifecycle: submit → fail."""
         inbox = A2AInbox(job_id="j1", agent_name="canyon")
         task = inbox.submit_task(
-            source_job_id="j2", source_agent="forge", description="Review",
+            source_job_id="j2",
+            source_agent="forge",
+            description="Review",
         )
 
         assert inbox.fail_task(task.task_id, reason="Not my domain")
@@ -258,7 +266,9 @@ class TestA2AInbox:
         """Completing an already-completed task returns False."""
         inbox = A2AInbox(job_id="j1", agent_name="canyon")
         task = inbox.submit_task(
-            source_job_id="j2", source_agent="forge", description="Review",
+            source_job_id="j2",
+            source_agent="forge",
+            description="Review",
         )
         inbox.complete_task(task.task_id, artifacts={"r": "done"})
 
@@ -269,7 +279,9 @@ class TestA2AInbox:
         """Failing an already-failed task returns False."""
         inbox = A2AInbox(job_id="j1", agent_name="canyon")
         task = inbox.submit_task(
-            source_job_id="j2", source_agent="forge", description="Review",
+            source_job_id="j2",
+            source_agent="forge",
+            description="Review",
         )
         inbox.fail_task(task.task_id, reason="Nope")
 
@@ -316,11 +328,15 @@ class TestA2AInbox:
         """to_dict / from_dict preserves all state."""
         inbox = A2AInbox(job_id="j1", agent_name="canyon")
         t1 = inbox.submit_task(
-            source_job_id="j2", source_agent="forge", description="Task 1",
+            source_job_id="j2",
+            source_agent="forge",
+            description="Task 1",
             context={"key": "val"},
         )
         inbox.submit_task(
-            source_job_id="j3", source_agent="sentinel", description="Task 2",
+            source_job_id="j3",
+            source_agent="sentinel",
+            description="Task 2",
         )
         inbox.mark_accepted(t1.task_id)
         inbox.complete_task(t1.task_id, artifacts={"result": "done"})

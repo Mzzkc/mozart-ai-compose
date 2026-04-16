@@ -20,7 +20,6 @@ import pytest
 from marianne.backends.base import ExecutionResult
 from marianne.backends.claude_cli import ClaudeCliBackend
 
-
 # ─── Fixtures ──────────────────────────────────────────────────────────
 
 
@@ -378,8 +377,14 @@ class TestWriteOutputLogs:
         backend.set_output_log_path(tmp_path / "sheet-01")
         backend._prepare_log_files()
         backend._write_output_logs(b"stdout data", b"stderr data")
-        assert backend._stdout_log_path is not None and backend._stdout_log_path.read_bytes() == b"stdout data"
-        assert backend._stderr_log_path is not None and backend._stderr_log_path.read_bytes() == b"stderr data"
+        assert (
+            backend._stdout_log_path is not None
+            and backend._stdout_log_path.read_bytes() == b"stdout data"
+        )
+        assert (
+            backend._stderr_log_path is not None
+            and backend._stderr_log_path.read_bytes() == b"stderr data"
+        )
 
     def test_no_log_paths_noop(self, backend: ClaudeCliBackend):
         backend._write_output_logs(b"data", b"data")  # Should not raise
@@ -406,7 +411,10 @@ class TestHandleExecutionTimeout:
         proc = _make_mock_process(returncode=None)
         backend._partial_stdout_chunks = [b"partial output"]
         result = await backend._handle_execution_timeout(
-            proc, time.monotonic(), 100, 5,
+            proc,
+            time.monotonic(),
+            100,
+            5,
         )
         assert result.success is False
         assert result.exit_reason == "timeout"
@@ -420,9 +428,12 @@ class TestHandleExecutionTimeout:
         import time
 
         proc = _make_mock_process(returncode=None)
-        proc.wait = AsyncMock(side_effect=[asyncio.TimeoutError(), None])
+        proc.wait = AsyncMock(side_effect=[TimeoutError(), None])
         result = await backend._handle_execution_timeout(
-            proc, time.monotonic(), 50, 3,
+            proc,
+            time.monotonic(),
+            50,
+            3,
         )
         assert result.success is False
         assert result.exit_signal == signal.SIGKILL
@@ -436,7 +447,10 @@ class TestHandleExecutionTimeout:
         proc = _make_mock_process()
         proc.terminate.side_effect = ProcessLookupError
         result = await backend._handle_execution_timeout(
-            proc, time.monotonic(), 0, 0,
+            proc,
+            time.monotonic(),
+            0,
+            0,
         )
         assert result.success is False
         assert result.exit_reason == "timeout"
@@ -450,7 +464,10 @@ class TestHandleExecutionTimeout:
         backend.progress_callback = callback
         proc = _make_mock_process()
         await backend._handle_execution_timeout(
-            proc, time.monotonic(), 100, 5,
+            proc,
+            time.monotonic(),
+            100,
+            5,
         )
         callback.assert_called_once()
         assert callback.call_args[0][0]["phase"] == "timeout"
@@ -463,7 +480,10 @@ class TestHandleExecutionTimeout:
         proc = _make_mock_process()
         backend._partial_stderr_chunks = [b"some error"]
         result = await backend._handle_execution_timeout(
-            proc, time.monotonic(), 0, 0,
+            proc,
+            time.monotonic(),
+            0,
+            0,
         )
         assert "some error" in result.stderr
         assert "timed out" in result.stderr.lower()
@@ -477,8 +497,12 @@ class TestBuildCompletedResult:
 
     def test_successful_execution(self, backend: ClaudeCliBackend):
         result = backend._build_completed_result(
-            stdout="output", stderr="", exit_code=0,
-            exit_signal=None, exit_reason="completed", duration=1.5,
+            stdout="output",
+            stderr="",
+            exit_code=0,
+            exit_signal=None,
+            exit_reason="completed",
+            duration=1.5,
         )
         assert result.success is True
         assert result.stdout == "output"
@@ -486,8 +510,12 @@ class TestBuildCompletedResult:
 
     def test_failed_execution(self, backend: ClaudeCliBackend):
         result = backend._build_completed_result(
-            stdout="", stderr="error", exit_code=1,
-            exit_signal=None, exit_reason="completed", duration=0.5,
+            stdout="",
+            stderr="error",
+            exit_code=1,
+            exit_signal=None,
+            exit_reason="completed",
+            duration=0.5,
         )
         assert result.success is False
         assert result.exit_code == 1
@@ -496,16 +524,24 @@ class TestBuildCompletedResult:
         """Rate limit detection uses shared ErrorClassifier."""
         with patch.object(backend, "_detect_rate_limit", return_value=True):
             result = backend._build_completed_result(
-                stdout="", stderr="rate limited", exit_code=1,
-                exit_signal=None, exit_reason="completed", duration=0.5,
+                stdout="",
+                stderr="rate limited",
+                exit_code=1,
+                exit_signal=None,
+                exit_reason="completed",
+                duration=0.5,
             )
         assert result.rate_limited is True
         assert result.error_type == "rate_limit"
 
     def test_killed_execution(self, backend: ClaudeCliBackend):
         result = backend._build_completed_result(
-            stdout="partial", stderr="killed", exit_code=None,
-            exit_signal=9, exit_reason="killed", duration=2.0,
+            stdout="partial",
+            stderr="killed",
+            exit_code=None,
+            exit_signal=9,
+            exit_reason="killed",
+            duration=2.0,
         )
         assert result.success is False
         assert result.exit_signal == 9
@@ -523,13 +559,16 @@ class TestKillOrphanedProcess:
         # F-490 guard: getpgid(0) must return the real own-pgroup so the guard
         # does NOT conclude that the target (12345) is our own pgroup.
         import os
+
         real_own_pgid = os.getpgid(0)
         assert real_own_pgid != 12345, "test assumption: own pgid != fake pgid"
-        with patch("os.killpg") as mock_killpg, \
-                patch(
-                    "os.getpgid",
-                    side_effect=lambda pid: real_own_pgid if pid == 0 else 12345,
-                ):
+        with (
+            patch("os.killpg") as mock_killpg,
+            patch(
+                "os.getpgid",
+                side_effect=lambda pid: real_own_pgid if pid == 0 else 12345,
+            ),
+        ):
             await backend._kill_orphaned_process(proc, RuntimeError("test"))
         mock_killpg.assert_called_once_with(12345, signal.SIGKILL)
         proc.kill.assert_called_once()
@@ -537,8 +576,10 @@ class TestKillOrphanedProcess:
     @pytest.mark.asyncio
     async def test_handles_missing_process_group(self, backend: ClaudeCliBackend):
         proc = _make_mock_process(returncode=None)
-        with patch("os.killpg", side_effect=ProcessLookupError), \
-             patch("os.getpgid", return_value=12345):
+        with (
+            patch("os.killpg", side_effect=ProcessLookupError),
+            patch("os.getpgid", return_value=12345),
+        ):
             await backend._kill_orphaned_process(proc, RuntimeError("test"))
         proc.kill.assert_called_once()
 
@@ -547,8 +588,10 @@ class TestKillOrphanedProcess:
         proc = _make_mock_process(returncode=None)
         proc.kill.side_effect = ProcessLookupError
         proc.wait = AsyncMock(side_effect=ProcessLookupError)
-        with patch("os.killpg", side_effect=ProcessLookupError), \
-             patch("os.getpgid", return_value=12345):
+        with (
+            patch("os.killpg", side_effect=ProcessLookupError),
+            patch("os.getpgid", return_value=12345),
+        ):
             await backend._kill_orphaned_process(proc, RuntimeError("test"))
         # Should not raise
 
@@ -593,12 +636,14 @@ class TestExecuteImpl:
         async def mock_create(*args, **kwargs):
             return proc
 
-        with patch("asyncio.create_subprocess_exec", side_effect=mock_create):
-            with patch.object(backend, "_stream_with_progress", side_effect=asyncio.CancelledError):
-                with patch.object(backend, "_kill_orphaned_process", new_callable=AsyncMock) as mock_kill:
-                    with pytest.raises(asyncio.CancelledError):
-                        await backend._execute_impl("test")
-                    mock_kill.assert_called_once()
+        with (
+            patch("asyncio.create_subprocess_exec", side_effect=mock_create),
+            patch.object(backend, "_stream_with_progress", side_effect=asyncio.CancelledError),
+            patch.object(backend, "_kill_orphaned_process", new_callable=AsyncMock) as mock_kill,
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await backend._execute_impl("test")
+            mock_kill.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_programming_error_reraises(self, backend: ClaudeCliBackend):
@@ -608,11 +653,13 @@ class TestExecuteImpl:
         async def mock_create(*args, **kwargs):
             return proc
 
-        with patch("asyncio.create_subprocess_exec", side_effect=mock_create):
-            with patch.object(backend, "_stream_with_progress", side_effect=TypeError("bad")):
-                with patch.object(backend, "_kill_orphaned_process", new_callable=AsyncMock):
-                    with pytest.raises(TypeError, match="bad"):
-                        await backend._execute_impl("test")
+        with (
+            patch("asyncio.create_subprocess_exec", side_effect=mock_create),
+            patch.object(backend, "_stream_with_progress", side_effect=TypeError("bad")),
+            patch.object(backend, "_kill_orphaned_process", new_callable=AsyncMock),
+            pytest.raises(TypeError, match="bad"),
+        ):
+            await backend._execute_impl("test")
 
     @pytest.mark.asyncio
     async def test_timeout_during_streaming(self, backend: ClaudeCliBackend):
@@ -623,18 +670,25 @@ class TestExecuteImpl:
             return proc
 
         mock_timeout_result = ExecutionResult(
-            success=False, stdout="", stderr="timed out",
-            duration_seconds=30.0, exit_reason="timeout",
+            success=False,
+            stdout="",
+            stderr="timed out",
+            duration_seconds=30.0,
+            exit_reason="timeout",
         )
-        with patch("asyncio.create_subprocess_exec", side_effect=mock_create):
-            with patch.object(backend, "_stream_with_progress", side_effect=TimeoutError):
-                with patch.object(
-                    backend, "_handle_execution_timeout",
-                    new_callable=AsyncMock, return_value=mock_timeout_result,
-                ) as mock_handle:
-                    result = await backend._execute_impl("test")
-                    assert result.exit_reason == "timeout"
-                    mock_handle.assert_called_once()
+        with (
+            patch("asyncio.create_subprocess_exec", side_effect=mock_create),
+            patch.object(backend, "_stream_with_progress", side_effect=TimeoutError),
+            patch.object(
+                backend,
+                "_handle_execution_timeout",
+                new_callable=AsyncMock,
+                return_value=mock_timeout_result,
+            ) as mock_handle,
+        ):
+            result = await backend._execute_impl("test")
+            assert result.exit_reason == "timeout"
+            mock_handle.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_successful_execution(self, backend: ClaudeCliBackend):
@@ -644,12 +698,16 @@ class TestExecuteImpl:
         async def mock_create(*args, **kwargs):
             return proc
 
-        with patch("asyncio.create_subprocess_exec", side_effect=mock_create):
-            with patch.object(
-                backend, "_stream_with_progress",
-                new_callable=AsyncMock, return_value=(b"output", b""),
-            ):
-                result = await backend._execute_impl("test")
+        with (
+            patch("asyncio.create_subprocess_exec", side_effect=mock_create),
+            patch.object(
+                backend,
+                "_stream_with_progress",
+                new_callable=AsyncMock,
+                return_value=(b"output", b""),
+            ),
+        ):
+            result = await backend._execute_impl("test")
         assert result.success is True
         assert result.stdout == "output"
 
@@ -663,12 +721,16 @@ class TestExecuteImpl:
         async def mock_create(*args, **kwargs):
             return proc
 
-        with patch("asyncio.create_subprocess_exec", side_effect=mock_create):
-            with patch.object(
-                backend, "_stream_with_progress",
-                new_callable=AsyncMock, return_value=(b"out", b""),
-            ):
-                await backend._execute_impl("test")
+        with (
+            patch("asyncio.create_subprocess_exec", side_effect=mock_create),
+            patch.object(
+                backend,
+                "_stream_with_progress",
+                new_callable=AsyncMock,
+                return_value=(b"out", b""),
+            ),
+        ):
+            await backend._execute_impl("test")
 
         phases = [call[0][0]["phase"] for call in callback.call_args_list]
         assert "starting" in phases
@@ -682,14 +744,18 @@ class TestExecuteImpl:
         async def mock_create(*args, **kwargs):
             return proc
 
-        with patch("asyncio.create_subprocess_exec", side_effect=mock_create):
-            with patch.object(
-                backend, "_stream_with_progress",
-                new_callable=AsyncMock, return_value=(b"out", b""),
-            ) as mock_stream:
-                await backend._execute_impl("test", timeout_seconds=60.0)
-                call_kwargs = mock_stream.call_args[1]
-                assert call_kwargs["effective_timeout"] == 60.0
+        with (
+            patch("asyncio.create_subprocess_exec", side_effect=mock_create),
+            patch.object(
+                backend,
+                "_stream_with_progress",
+                new_callable=AsyncMock,
+                return_value=(b"out", b""),
+            ) as mock_stream,
+        ):
+            await backend._execute_impl("test", timeout_seconds=60.0)
+            call_kwargs = mock_stream.call_args[1]
+            assert call_kwargs["effective_timeout"] == 60.0
 
 
 # ─── _await_process_exit ────────────────────────────────────────────
@@ -716,7 +782,7 @@ class TestAwaitProcessExit:
             call_count += 1
             # First 2 calls: initial wait + SIGTERM wait both timeout
             if call_count <= 2:
-                raise asyncio.TimeoutError()
+                raise TimeoutError()
             # Third call: after SIGKILL, process finally exits
             return 0
 
@@ -724,13 +790,16 @@ class TestAwaitProcessExit:
         # F-490 guard: getpgid(0) must return the real own-pgroup so the guard
         # does NOT conclude that 9999 is our own pgroup.
         import os
+
         real_own_pgid = os.getpgid(0)
         assert real_own_pgid != 9999, "test assumption: own pgid != fake pgid"
-        with patch("os.killpg") as mock_killpg, \
-                patch(
-                    "os.getpgid",
-                    side_effect=lambda pid: real_own_pgid if pid == 0 else 9999,
-                ):
+        with (
+            patch("os.killpg") as mock_killpg,
+            patch(
+                "os.getpgid",
+                side_effect=lambda pid: real_own_pgid if pid == 0 else 9999,
+            ),
+        ):
             await backend._await_process_exit(proc)
         # SIGTERM fails (timeout), escalates to SIGKILL on process group.
         assert mock_killpg.call_count == 2
@@ -747,11 +816,16 @@ class TestExecute:
     @pytest.mark.asyncio
     async def test_delegates_to_execute_impl(self, backend: ClaudeCliBackend):
         mock_result = ExecutionResult(
-            success=True, stdout="ok", stderr="", duration_seconds=1.0,
+            success=True,
+            stdout="ok",
+            stderr="",
+            duration_seconds=1.0,
         )
         with patch.object(
-            backend, "_execute_impl",
-            new_callable=AsyncMock, return_value=mock_result,
+            backend,
+            "_execute_impl",
+            new_callable=AsyncMock,
+            return_value=mock_result,
         ) as mock_impl:
             result = await backend.execute("my prompt", timeout_seconds=120.0)
             assert result.success is True
@@ -771,49 +845,68 @@ class TestHealthCheck:
     @pytest.mark.asyncio
     async def test_successful_health_check(self, backend: ClaudeCliBackend):
         mock_result = ExecutionResult(
-            success=True, stdout="I am ready", stderr="", duration_seconds=0.5,
+            success=True,
+            stdout="I am ready",
+            stderr="",
+            duration_seconds=0.5,
         )
         with patch.object(
-            backend, "_execute_impl",
-            new_callable=AsyncMock, return_value=mock_result,
+            backend,
+            "_execute_impl",
+            new_callable=AsyncMock,
+            return_value=mock_result,
         ):
             assert await backend.health_check() is True
 
     @pytest.mark.asyncio
     async def test_failed_health_check(self, backend: ClaudeCliBackend):
         mock_result = ExecutionResult(
-            success=False, stdout="", stderr="error", duration_seconds=0.5,
+            success=False,
+            stdout="",
+            stderr="error",
+            duration_seconds=0.5,
         )
         with patch.object(
-            backend, "_execute_impl",
-            new_callable=AsyncMock, return_value=mock_result,
+            backend,
+            "_execute_impl",
+            new_callable=AsyncMock,
+            return_value=mock_result,
         ):
             assert await backend.health_check() is False
 
     @pytest.mark.asyncio
     async def test_ready_not_in_output(self, backend: ClaudeCliBackend):
         mock_result = ExecutionResult(
-            success=True, stdout="something else", stderr="", duration_seconds=0.5,
+            success=True,
+            stdout="something else",
+            stderr="",
+            duration_seconds=0.5,
         )
         with patch.object(
-            backend, "_execute_impl",
-            new_callable=AsyncMock, return_value=mock_result,
+            backend,
+            "_execute_impl",
+            new_callable=AsyncMock,
+            return_value=mock_result,
         ):
             assert await backend.health_check() is False
 
     @pytest.mark.asyncio
     async def test_timeout_returns_false(self, backend: ClaudeCliBackend):
         with patch.object(
-            backend, "_execute_impl",
-            new_callable=AsyncMock, side_effect=TimeoutError("timeout"),
+            backend,
+            "_execute_impl",
+            new_callable=AsyncMock,
+            side_effect=TimeoutError("timeout"),
         ):
             assert await backend.health_check() is False
 
     @pytest.mark.asyncio
     async def test_os_error_returns_false(self, backend: ClaudeCliBackend):
         with patch.object(
-            backend, "_execute_impl",
-            new_callable=AsyncMock, side_effect=OSError("fail"),
+            backend,
+            "_execute_impl",
+            new_callable=AsyncMock,
+            side_effect=OSError("fail"),
         ):
             assert await backend.health_check() is False
 
@@ -856,7 +949,8 @@ class TestAvailabilityCheck:
             patch("os.path.isfile", return_value=True),
             patch("os.access", return_value=True),
             patch.object(
-                backend, "_execute_impl",
+                backend,
+                "_execute_impl",
                 new_callable=AsyncMock,
             ) as mock_exec,
         ):
