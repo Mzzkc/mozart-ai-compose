@@ -295,6 +295,25 @@ class BatonCore:
         """
         self._job_cost_limits[job_id] = max_cost_usd
 
+    def get_job_pause_reason(self, job_id: str) -> str:
+        """Return a human-readable reason why a job is paused.
+
+        Returns "not_paused" if the job isn't paused or isn't registered.
+        """
+        job = self._jobs.get(job_id)
+        if job is None or not job.paused:
+            return "not_paused"
+        if job.user_paused:
+            return "user_initiated"
+        limit = self._job_cost_limits.get(job_id)
+        if limit is not None:
+            total_cost = sum(s.total_cost_usd for s in job.sheets.values())
+            if total_cost >= limit:
+                return "cost_limit_exceeded"
+        if any(s.status == BatonSheetStatus.FERMATA for s in job.sheets.values()):
+            return "escalation_needed"
+        return "internal"
+
     def get_rate_limited_instruments(self) -> set[str]:
         """Get the set of currently rate-limited instrument names.
 
@@ -1484,6 +1503,14 @@ class BatonCore:
             sheet.status = BatonSheetStatus.FERMATA
         job.paused = True
         self._state_dirty = True
+        _logger.info(
+            "baton.job.paused.escalation_needed",
+            extra={
+                "job_id": event.job_id,
+                "sheet_num": event.sheet_num,
+                "reason": "escalation_needed",
+            },
+        )
 
     def _handle_escalation_resolved(self, event: EscalationResolved) -> None:
         """Composer made a decision on a fermata.
@@ -1554,6 +1581,10 @@ class BatonCore:
             job.paused = True
             job.user_paused = True
             self._state_dirty = True
+            _logger.info(
+                "baton.job.paused.user_initiated",
+                extra={"job_id": event.job_id, "reason": "user_initiated"},
+            )
 
     def _handle_resume_job(self, event: ResumeJob) -> None:
         """Resume dispatching for a paused job (user-initiated).

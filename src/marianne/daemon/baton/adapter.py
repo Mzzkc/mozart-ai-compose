@@ -564,7 +564,15 @@ class BatonAdapter:
         ]
         for key in keys_to_cancel:
             task = self._active_tasks.pop(key)
-            task.cancel()
+            task.cancel(msg=f"deregister_job({job_id})")
+        if keys_to_cancel:
+            _logger.info(
+                "adapter.deregister_job.tasks_cancelled",
+                extra={
+                    "job_id": job_id,
+                    "cancelled_sheets": [k[1] for k in keys_to_cancel],
+                },
+            )
 
         # Remove from baton
         self._baton.deregister_job(job_id)
@@ -1111,11 +1119,16 @@ class BatonAdapter:
                     )
                 self._completion_results[job_id] = all_success
                 event.set()
+                sheet_statuses = {
+                    sn: s.status.value
+                    for sn, s in job.sheets.items()
+                } if job else {}
                 _logger.info(
                     "adapter.job_complete",
                     extra={
                         "job_id": job_id,
                         "all_success": all_success,
+                        "sheet_statuses": sheet_statuses,
                     },
                 )
 
@@ -1483,9 +1496,13 @@ class BatonAdapter:
                     error_classification="CANCELLED",
                     error_message="Musician task cancelled",
                 ))
-            _logger.debug(
+            _logger.warning(
                 "adapter.musician.cancelled",
-                extra={"job_id": job_id, "sheet_num": sheet_num},
+                extra={
+                    "job_id": job_id,
+                    "sheet_num": sheet_num,
+                    "instrument": state.instrument_name if state else "unknown",
+                },
             )
         elif task.exception():
             _logger.error(
@@ -1779,8 +1796,17 @@ class BatonAdapter:
         Cancels all active musician tasks and closes the backend pool.
         """
         # Cancel all active tasks
-        for task in self._active_tasks.values():
-            task.cancel()
+        if self._active_tasks:
+            affected = [
+                {"job_id": k[0], "sheet_num": k[1]}
+                for k in self._active_tasks
+            ]
+            _logger.warning(
+                "adapter.shutdown.cancelling_tasks",
+                extra={"tasks": affected, "count": len(affected)},
+            )
+        for key, task in self._active_tasks.items():
+            task.cancel(msg=f"adapter shutdown (job={key[0]}, sheet={key[1]})")
         self._active_tasks.clear()
 
         # Close backend pool

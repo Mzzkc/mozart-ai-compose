@@ -1334,6 +1334,7 @@ class JobManager:
             return True
 
         # Fallback: filesystem-based pause via JobService
+        _logger.info("job.pause_filesystem_fallback", job_id=job_id)
         return await self._checked_service.pause_job(meta.job_id, meta.workspace)
 
     async def resume_job(
@@ -1376,11 +1377,18 @@ class JobManager:
         if meta.status == DaemonJobStatus.PAUSED_AT_CHAIN and meta.held_chain_hook:
             return await self._resume_held_chain(job_id, meta)
 
-        # Cancel stale task to prevent detached execution
+        # Cancel stale task and WAIT for it to finish before creating the
+        # new resume task. Without the await, the old task's CancelledError
+        # handler races with the new task's recover_job() and can deregister
+        # the freshly-recovered baton state.
         old_task = self._jobs.pop(job_id, None)
         if old_task is not None and not old_task.done():
             old_task.cancel(msg=f"stale task replaced by resume of {job_id}")
             _logger.info("job.resume_cancelled_stale_task", job_id=job_id)
+            try:
+                await old_task
+            except (asyncio.CancelledError, Exception):
+                pass  # Expected — the task was cancelled or may have errored
 
         # Apply new config path before creating the task (task reads meta.config_path)
         if config_path is not None:
@@ -2280,11 +2288,17 @@ class JobManager:
                 await self._set_job_status(
                     job_id, final_status, snapshot_path=snapshot_path,
                 )
-                _logger.info(
-                    "job.paused" if final_status == DaemonJobStatus.PAUSED
-                    else "job.completed",
-                    job_id=job_id,
-                )
+                if final_status == DaemonJobStatus.PAUSED:
+                    pause_reason = "unknown"
+                    if self._baton_adapter:
+                        pause_reason = self._baton_adapter._baton.get_job_pause_reason(job_id)
+                    _logger.info(
+                        "job.paused",
+                        job_id=job_id,
+                        reason=pause_reason,
+                    )
+                else:
+                    _logger.info("job.completed", job_id=job_id)
 
             except TimeoutError:
                 elapsed = time.monotonic() - (meta.started_at or 0)
