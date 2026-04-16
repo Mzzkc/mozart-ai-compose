@@ -58,6 +58,7 @@ from marianne.daemon.baton.state import (
     BatonSheetStatus,
     SheetExecutionState,
 )
+from marianne.daemon.technique_router import TechniqueRouter
 
 if TYPE_CHECKING:
     from marianne.core.checkpoint import CheckpointState
@@ -397,6 +398,12 @@ class BatonAdapter:
         # Per-job completion events — set when all sheets reach terminal state
         self._completion_events: dict[str, asyncio.Event] = {}
 
+        # Per-job TechniqueRouter — created when the job declares techniques.
+        # The router classifies musician output (prose, code, tool calls, A2A)
+        # and is consumed by sheet_task() at dispatch time. Jobs without
+        # techniques have no router (backward compat — classification skipped).
+        self._job_routers: dict[str, TechniqueRouter] = {}
+
         # Per-job completion status: True = all sheets completed, False = has failures
         self._completion_results: dict[str, bool] = {}
 
@@ -444,6 +451,7 @@ class BatonAdapter:
         cross_sheet: CrossSheetConfig | None = None,
         pacing_seconds: float = 0.0,
         live_sheets: dict[int, SheetExecutionState] | None = None,
+        techniques: dict[str, Any] | None = None,
     ) -> None:
         """Register a job with the baton for event-driven execution.
 
@@ -495,6 +503,16 @@ class BatonAdapter:
 
         # Create completion event for this job
         self._completion_events[job_id] = asyncio.Event()
+
+        # Stage 2a: instantiate a TechniqueRouter when techniques are declared.
+        # The router is shared across all sheets in the job (it is stateless —
+        # pure regex classification, no per-sheet setup). Jobs that declare
+        # zero techniques (or omit the argument entirely) do not get a
+        # router, so sheet_task() skips classification and output_kind stays
+        # None. This preserves backward compatibility for scores written
+        # before techniques existed.
+        if techniques:
+            self._job_routers[job_id] = TechniqueRouter()
 
         # Phase 2: use live_sheets (shared with _live_states) when provided.
         # This makes the baton write directly to the same SheetState objects
@@ -550,6 +568,21 @@ class BatonAdapter:
         # because no musician or timer has produced an event yet.
         self._baton.inbox.put_nowait(DispatchRetry())
 
+    def get_router(self, job_id: str) -> TechniqueRouter | None:
+        """Return the per-job TechniqueRouter, or None if not activated.
+
+        The router is created by :meth:`register_job` when the job declares
+        one or more techniques. Jobs without techniques (the default for
+        legacy scores) have no router and classification is skipped.
+
+        Args:
+            job_id: The job to look up.
+
+        Returns:
+            The job's TechniqueRouter if one was activated, else None.
+        """
+        return self._job_routers.get(job_id)
+
     def deregister_job(self, job_id: str) -> None:
         """Remove a job from the adapter and baton.
 
@@ -583,6 +616,7 @@ class BatonAdapter:
         self._job_cross_sheet.pop(job_id, None)
         self._completion_events.pop(job_id, None)
         self._completion_results.pop(job_id, None)
+        self._job_routers.pop(job_id, None)
 
         # Clean up vestigial _synced_status entries (Phase 2: sync layer
         # removed but dict retained for compatibility). Defensive cleanup
