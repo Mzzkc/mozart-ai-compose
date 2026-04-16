@@ -2462,26 +2462,9 @@ class TestInstrumentValidationWithAliases:
 # =========================================================================
 # Category 20: F-127 Success Outcome Classification After Restart
 # =========================================================================
-
-
-class TestSuccessOutcomeAfterRestart:
-    """Does diagnose correctly classify sheets that took many attempts?
-
-    Outcome classification now lives in the baton's Musician.
-    These tests were rewritten for the baton path.
-    """
-
-    @pytest.mark.skip(reason="Runner removed — classification now in baton")
-    def test_18_attempts_classifies_as_retry(self) -> None:
-        """Obsolete: SheetExecutionMixin no longer exists."""
-
-    @pytest.mark.skip(reason="Runner removed — classification now in baton")
-    def test_1_attempt_classifies_as_first_try(self) -> None:
-        """Obsolete: SheetExecutionMixin no longer exists."""
-
-    @pytest.mark.skip(reason="Runner removed — classification now in baton")
-    def test_completion_mode_classifies_correctly(self) -> None:
-        """Obsolete: SheetExecutionMixin no longer exists."""
+# Runner-only tests removed. Outcome classification now lives in the baton's
+# Musician. See Category 21 (F-111 Error Classification Routing) for the
+# baton-based equivalent tests.
 
 
 # =========================================================================
