@@ -9,9 +9,6 @@ TDD: Tests define the contract. Implementation fulfills it.
 
 from __future__ import annotations
 
-import pytest
-
-from marianne.backends.base import ExecutionResult
 from marianne.core.config.instruments import (
     CliCommand,
     CliErrorConfig,
@@ -20,7 +17,6 @@ from marianne.core.config.instruments import (
     InstrumentProfile,
     ModelCapacity,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures — mirrors gemini-cli.yaml error patterns
@@ -91,7 +87,7 @@ def _gemini_profile() -> InstrumentProfile:
     )
 
 
-def _make_backend() -> "PluginCliBackend":
+def _make_backend() -> PluginCliBackend:
     """Create a PluginCliBackend with gemini-cli profile."""
     from marianne.execution.instruments.cli_backend import PluginCliBackend
 
@@ -110,8 +106,8 @@ class TestGeminiRateLimitDetection:
         """RESOURCE_EXHAUSTED from Google API triggers rate limit."""
         backend = _make_backend()
         result = backend._parse_output(
-            stdout='{"error": {"type": "RESOURCE_EXHAUSTED", "message": "Quota exceeded"}}',
-            stderr="",
+            stdout="",
+            stderr="Error: RESOURCE_EXHAUSTED - Quota exceeded",
             exit_code=1,
         )
         assert result.rate_limited, "RESOURCE_EXHAUSTED should trigger rate limit"
@@ -120,8 +116,8 @@ class TestGeminiRateLimitDetection:
         """HTTP 429 in error output triggers rate limit."""
         backend = _make_backend()
         result = backend._parse_output(
-            stdout='{"error": {"type": "HttpError", "message": "Request failed with status 429"}}',
-            stderr="",
+            stdout="",
+            stderr="Error: Request failed with status 429",
             exit_code=1,
         )
         assert result.rate_limited, "429 in output should trigger rate limit"
@@ -140,8 +136,8 @@ class TestGeminiRateLimitDetection:
         """'quota exceeded' message triggers rate limit."""
         backend = _make_backend()
         result = backend._parse_output(
-            stdout='{"error": {"message": "quota exceeded for project"}}',
-            stderr="",
+            stdout="",
+            stderr="Error: quota exceeded for project",
             exit_code=1,
         )
         assert result.rate_limited, "'quota exceeded' should trigger rate limit"
@@ -277,11 +273,9 @@ class TestGeminiRateLimitWithClassification:
     def test_rate_limit_and_capacity_can_coexist(self) -> None:
         """RESOURCE_EXHAUSTED triggers rate limit; capacity also applicable."""
         backend = _make_backend()
-        # RESOURCE_EXHAUSTED matches rate limit. Does not match capacity
-        # (capacity patterns are "503", "overloaded", "UNAVAILABLE", "ServerError").
         result = backend._parse_output(
-            stdout='{"error": {"type": "RESOURCE_EXHAUSTED"}}',
-            stderr="",
+            stdout="",
+            stderr="Error: RESOURCE_EXHAUSTED",
             exit_code=1,
         )
         assert result.rate_limited, "Should be rate limited"
@@ -293,8 +287,8 @@ class TestGeminiRateLimitWithClassification:
         """Rate-limited responses should be marked as not successful."""
         backend = _make_backend()
         result = backend._parse_output(
-            stdout='{"error": {"type": "RESOURCE_EXHAUSTED"}}',
-            stderr="",
+            stdout="",
+            stderr="Error: RESOURCE_EXHAUSTED",
             exit_code=1,
         )
         assert not result.success, "Rate limited should not be successful"
@@ -304,7 +298,7 @@ class TestGeminiRateLimitWithClassification:
         backend = _make_backend()
         result = backend._parse_output(
             stdout='{"error": {"message": "Quota exceeded for model gemini-2.5-pro"}}',
-            stderr="",
+            stderr="Quota exceeded for model gemini-2.5-pro",
             exit_code=1,
         )
         assert result.rate_limited, "Should detect rate limit from 'quota exceeded'"
