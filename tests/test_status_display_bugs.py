@@ -110,13 +110,10 @@ class TestF068CompletedTimestamp:
         # Join all output and check that "Completed:" is NOT present
         full_output = "\n".join(printed)
         assert "Completed:" not in full_output, (
-            f"RUNNING job should not show 'Completed:' timestamp. "
-            f"Got: {full_output}"
+            f"RUNNING job should not show 'Completed:' timestamp. Got: {full_output}"
         )
 
-    def test_completed_job_shows_completed_timestamp(
-        self, completed_job: CheckpointState
-    ) -> None:
+    def test_completed_job_shows_completed_timestamp(self, completed_job: CheckpointState) -> None:
         """COMPLETED job SHOULD show 'Completed:' in status display."""
         from marianne.cli.commands.status import _output_status_rich
 
@@ -131,13 +128,10 @@ class TestF068CompletedTimestamp:
 
         full_output = "\n".join(printed)
         assert "Completed:" in full_output, (
-            f"COMPLETED job should show 'Completed:' timestamp. "
-            f"Got: {full_output}"
+            f"COMPLETED job should show 'Completed:' timestamp. Got: {full_output}"
         )
 
-    def test_failed_job_shows_completed_timestamp(
-        self, failed_job: CheckpointState
-    ) -> None:
+    def test_failed_job_shows_completed_timestamp(self, failed_job: CheckpointState) -> None:
         """FAILED job SHOULD show 'Completed:' in status display."""
         from marianne.cli.commands.status import _output_status_rich
 
@@ -152,8 +146,7 @@ class TestF068CompletedTimestamp:
 
         full_output = "\n".join(printed)
         assert "Completed:" in full_output, (
-            f"FAILED job should show 'Completed:' timestamp. "
-            f"Got: {full_output}"
+            f"FAILED job should show 'Completed:' timestamp. Got: {full_output}"
         )
 
     def test_paused_job_hides_completed_timestamp(
@@ -175,8 +168,7 @@ class TestF068CompletedTimestamp:
 
         full_output = "\n".join(printed)
         assert "Completed:" not in full_output, (
-            f"PAUSED job should not show 'Completed:' timestamp. "
-            f"Got: {full_output}"
+            f"PAUSED job should not show 'Completed:' timestamp. Got: {full_output}"
         )
 
 
@@ -197,12 +189,14 @@ class TestF069V101FalsePositive:
     @pytest.fixture
     def checker(self) -> object:
         from marianne.validation.checks.jinja import JinjaUndefinedVariableCheck
+
         return JinjaUndefinedVariableCheck()
 
     @pytest.fixture
     def minimal_config(self, tmp_path: Path) -> tuple[object, Path]:
         """Create a minimal config for testing V101."""
         from marianne.core.config.job import JobConfig
+
         yaml_content = """
 name: test-v101
 sheet:
@@ -220,11 +214,7 @@ prompt:
         from marianne.validation.checks.jinja import JinjaUndefinedVariableCheck
         import jinja2
 
-        template = (
-            "{% for id, char in characters.items() %}"
-            "{{ char.name }}"
-            "{% endfor %}"
-        )
+        template = "{% for id, char in characters.items() %}{{ char.name }}{% endfor %}"
         env = jinja2.Environment()
         defined = set(JinjaUndefinedVariableCheck.BUILTIN_VARIABLES)
         defined.add("characters")
@@ -239,10 +229,7 @@ prompt:
         from marianne.validation.checks.jinja import JinjaUndefinedVariableCheck
         import jinja2
 
-        template = (
-            "{% set char = characters[instance] %}"
-            "{{ char.name }}"
-        )
+        template = "{% set char = characters[instance] %}{{ char.name }}"
         env = jinja2.Environment()
         defined = set(JinjaUndefinedVariableCheck.BUILTIN_VARIABLES)
         defined.update({"characters", "instance"})
@@ -305,22 +292,3 @@ prompt:
 
 
 # =========================================================================
-# F-048: Cost shows $0.00 when cost limits are disabled
-# =========================================================================
-
-
-class TestF048CostTrackingWithoutLimits:
-    """F-048: Cost should be tracked even when cost limits are disabled.
-
-    The runner's CostMixin was removed — cost tracking now lives in the
-    baton's Musician. These tests validated the runner's implementation
-    and are no longer applicable.
-    """
-
-    @pytest.mark.skip(reason="Runner removed — cost tracking now in baton Musician")
-    def test_enforce_cost_limits_tracks_cost_when_disabled(self) -> None:
-        """Obsolete: runner's SheetExecutionMixin no longer exists."""
-
-    @pytest.mark.skip(reason="Runner removed — cost tracking now in baton Musician")
-    async def test_cost_tracked_in_state_when_limits_disabled(self) -> None:
-        """Obsolete: runner's CostMixin no longer exists."""

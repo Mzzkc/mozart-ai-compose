@@ -456,15 +456,7 @@ class TestResumeViaBatonNoReloadFallback:
 
 
 class TestStaggerTimingBoundary:
-    """ParallelExecutor stagger behavior at boundaries."""
-
-    @pytest.mark.skip(reason="Runner removed — ParallelExecutionConfig no longer exists")
-    async def test_zero_stagger_no_sleep(self) -> None:
-        """Obsolete: ParallelExecutionConfig no longer exists."""
-
-    @pytest.mark.skip(reason="Runner removed — ParallelExecutionConfig no longer exists")
-    async def test_stagger_with_single_sheet(self) -> None:
-        """Obsolete: ParallelExecutionConfig no longer exists."""
+    """ParallelConfig stagger boundary values."""
 
     def test_stagger_boundary_value_4999(self) -> None:
         """stagger_delay_ms=4999 (just under max 5000) is valid."""
@@ -497,10 +489,6 @@ class TestStaggerTimingBoundary:
 
         with pytest.raises(ValidationError):
             ParallelConfig(stagger_delay_ms=-1)
-
-    @pytest.mark.skip(reason="Runner removed — ParallelExecutionConfig no longer exists")
-    def test_stagger_converts_to_seconds_correctly(self) -> None:
-        """Obsolete: ParallelExecutionConfig no longer exists."""
 
 
 # ---------------------------------------------------------------------------
@@ -687,10 +675,13 @@ class TestCheckRunningJobsAdversarial:
         """
         from marianne.daemon.process import _check_running_jobs
 
-        with patch(
-            "marianne.daemon.detect._resolve_socket_path",
-            side_effect=RuntimeError("resolve failed"),
-        ), pytest.raises(RuntimeError, match="resolve failed"):
+        with (
+            patch(
+                "marianne.daemon.detect._resolve_socket_path",
+                side_effect=RuntimeError("resolve failed"),
+            ),
+            pytest.raises(RuntimeError, match="resolve failed"),
+        ):
             _check_running_jobs(socket_path=None)
 
     def test_none_socket_path_uses_default_resolution(self) -> None:

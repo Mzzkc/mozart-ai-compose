@@ -209,7 +209,8 @@ class JobManager:
         # is created that only does point-in-time reads.
         self._monitor = monitor or ResourceMonitor(config.resource_limits, manager=self)
         self._backpressure = BackpressureController(
-            self._monitor, self._rate_coordinator,
+            self._monitor,
+            self._rate_coordinator,
         )
 
         # Persistent job registry — survives daemon restarts.
@@ -236,6 +237,7 @@ class JobManager:
         # Baton adapter — the execution engine for all jobs.
         # Initialized in start(). Import deferred to avoid circular import.
         from marianne.daemon.baton.adapter import BatonAdapter
+
         self._baton_adapter: BatonAdapter | None = None
         self._baton_loop_task: asyncio.Task[Any] | None = None
 
@@ -290,6 +292,7 @@ class JobManager:
                 )
                 if hook_json:
                     import json
+
                     hook_config = json.loads(hook_json)
 
                 self._job_meta[record.job_id] = JobMeta(
@@ -371,15 +374,15 @@ class JobManager:
             max_concurrent_sheets=self._config.max_concurrent_sheets,
             persist_callback=self._on_baton_persist,
         )
-        self._baton_adapter.set_backend_pool(
-            BackendPool(registry, pgroup=self._pgroup)
-        )
+        self._baton_adapter.set_backend_pool(BackendPool(registry, pgroup=self._pgroup))
 
         # Populate per-model concurrency from instrument profiles
         for profile in profiles.values():
             for model in profile.models:
                 self._baton_adapter._baton.set_model_concurrency(
-                    profile.name, model.name, model.max_concurrent,
+                    profile.name,
+                    model.name,
+                    model.max_concurrent,
                 )
 
         # Start the baton's event loop as a background task
@@ -517,7 +520,7 @@ class JobManager:
         # 1. In-memory metadata (always available for active jobs)
         meta = self._job_meta.get(job_id)
         if meta is not None:
-            meta.status = status
+            object.__setattr__(meta, "status", status)
             if error_message is not None:
                 meta.error_message = error_message
 
@@ -535,7 +538,7 @@ class JobManager:
             }
             cp_status = _STATUS_MAP.get(status)
             if cp_status is not None:
-                live.status = cp_status
+                object.__setattr__(live, "status", cp_status)
 
         # 3. Persistent registry
         await self._registry.update_status(
@@ -596,8 +599,7 @@ class JobManager:
             # Count completed sheets — use count, not sequential index,
             # because the baton completes sheets concurrently.
             completed_count = sum(
-                1 for s in live.sheets.values()
-                if s.status == SheetStatus.COMPLETED
+                1 for s in live.sheets.values() if s.status == SheetStatus.COMPLETED
             )
             live.last_completed_sheet = completed_count
 
@@ -688,7 +690,7 @@ class JobManager:
         sheet_state = live.sheets[sheet_num]
 
         # Update status for ALL states (the full 11-state enum)
-        sheet_state.status = status
+        object.__setattr__(sheet_state, "status", status)
         live.updated_at = utc_now()
 
         # State-specific field updates
@@ -737,8 +739,7 @@ class JobManager:
             if baton_state.next_retry_at is not None:
                 delta = baton_state.next_retry_at - time.monotonic()
                 sheet_state.fire_at = (
-                    datetime.now(UTC) + timedelta(seconds=delta)
-                    if delta > 0 else None
+                    datetime.now(UTC) + timedelta(seconds=delta) if delta > 0 else None
                 )
             else:
                 sheet_state.fire_at = None
@@ -747,7 +748,8 @@ class JobManager:
             rate_inst = baton_state.instrument_name
             inst_state = (
                 self._baton_adapter._baton.get_instrument_state(rate_inst)
-                if self._baton_adapter else None
+                if self._baton_adapter
+                else None
             )
             if (
                 inst_state
@@ -756,8 +758,7 @@ class JobManager:
             ):
                 delta_rl = inst_state.rate_limit_expires_at - time.monotonic()
                 sheet_state.rate_limit_expires_at = (
-                    datetime.now(UTC) + timedelta(seconds=delta_rl)
-                    if delta_rl > 0 else None
+                    datetime.now(UTC) + timedelta(seconds=delta_rl) if delta_rl > 0 else None
                 )
             else:
                 sheet_state.rate_limit_expires_at = None
@@ -766,7 +767,8 @@ class JobManager:
 
         # Persist to registry on significant transitions for crash recovery.
         if status.is_terminal or status in (
-            SheetStatus.DISPATCHED, SheetStatus.IN_PROGRESS,
+            SheetStatus.DISPATCHED,
+            SheetStatus.IN_PROGRESS,
         ):
             try:
                 checkpoint_json = live.model_dump_json()
@@ -818,7 +820,9 @@ class JobManager:
                 self._jobs[job_id] = task
 
                 def _on_done(
-                    t: asyncio.Task[Any], *, _jid: str = job_id,
+                    t: asyncio.Task[Any],
+                    *,
+                    _jid: str = job_id,
                 ) -> None:
                     self._on_task_done(_jid, t)
 
@@ -952,9 +956,7 @@ class JobManager:
         hook_config_list: list[dict[str, Any]] | None = None
         concert_config_dict: dict[str, Any] | None = None
         if parsed_config and parsed_config.on_success:
-            hook_config_list = [
-                h.model_dump(mode="json") for h in parsed_config.on_success
-            ]
+            hook_config_list = [h.model_dump(mode="json") for h in parsed_config.on_success]
         if parsed_config and parsed_config.concert.enabled:
             concert_config_dict = parsed_config.concert.model_dump(mode="json")
 
@@ -1030,8 +1032,10 @@ class JobManager:
             # Persist hook config to registry for restart resilience
             if hook_config_list:
                 import json
+
                 await self._registry.store_hook_config(
-                    job_id, json.dumps(hook_config_list),
+                    job_id,
+                    json.dumps(hook_config_list),
                 )
 
         try:
@@ -1044,7 +1048,9 @@ class JobManager:
             # RuntimeError is raised by asyncio when no running event loop
             self._job_meta.pop(job_id, None)
             await self._registry.update_status(
-                job_id, DaemonJobStatus.FAILED, error_message="Task creation failed",
+                job_id,
+                DaemonJobStatus.FAILED,
+                error_message="Task creation failed",
             )
             raise
         self._jobs[job_id] = task
@@ -1093,7 +1099,8 @@ class JobManager:
         # Register in persistent storage + in-memory metadata so
         # the job is visible via `mzt list` and `mzt status`.
         workspace = request.workspace or self._resolve_workspace_from_config(
-            request.config_path, job_id,
+            request.config_path,
+            job_id,
         )
         if workspace is not None:
             await self._registry.register_job(job_id, request.config_path, workspace)
@@ -1139,11 +1146,14 @@ class JobManager:
         )
 
     def _resolve_workspace_from_config(
-        self, config_path: Path, job_id: str,
+        self,
+        config_path: Path,
+        job_id: str,
     ) -> Path | None:
         """Best-effort workspace resolution from a config file."""
         try:
             from marianne.core.config import JobConfig
+
             parsed = JobConfig.from_yaml(config_path)
             return parsed.workspace
         except Exception:
@@ -1185,8 +1195,11 @@ class JobManager:
                     name=f"job-{job_id}",
                 )
                 self._jobs[job_id] = task
+
                 def _on_pending_done(
-                    t: asyncio.Task[Any], *, _jid: str = job_id,
+                    t: asyncio.Task[Any],
+                    *,
+                    _jid: str = job_id,
                 ) -> None:
                     self._on_task_done(_jid, t)
 
@@ -1230,13 +1243,15 @@ class JobManager:
                 checkpoint_json = await self._registry.load_checkpoint(job_id)
                 if checkpoint_json is not None:
                     import json
+
                     data: dict[str, Any] = json.loads(checkpoint_json)
                     # Override checkpoint status with the registry's
                     # authoritative status. The checkpoint may have been
                     # persisted before a cancel/fail was recorded in the
                     # registry's status column.
                     authoritative_status = (
-                        meta.status.value if meta is not None
+                        meta.status.value
+                        if meta is not None
                         else (record.status.value if record is not None else None)
                     )
                     if authoritative_status and data.get("status") != authoritative_status:
@@ -1260,7 +1275,8 @@ class JobManager:
                     job_id=job_id,
                 )
                 await self._set_job_status(
-                    job_id, DaemonJobStatus.FAILED,
+                    job_id,
+                    DaemonJobStatus.FAILED,
                 )
                 # Now fall through to return the corrected checkpoint
                 # or metadata below.
@@ -1270,6 +1286,7 @@ class JobManager:
                     )
                     if checkpoint_json is not None:
                         import json as _json
+
                         data = _json.loads(checkpoint_json)
                         # Override the checkpoint's stale status
                         data["status"] = "failed"
@@ -1300,9 +1317,7 @@ class JobManager:
         if meta is None:
             raise JobSubmissionError(f"Job '{job_id}' not found")
         if meta.status != DaemonJobStatus.RUNNING:
-            raise JobSubmissionError(
-                f"Job '{job_id}' is {meta.status.value}, not running"
-            )
+            raise JobSubmissionError(f"Job '{job_id}' is {meta.status.value}, not running")
 
         # Verify there's an actual running task (guards against stale
         # "running" status restored from registry after daemon restart)
@@ -1310,8 +1325,7 @@ class JobManager:
         if task is None or task.done():
             await self._set_job_status(job_id, DaemonJobStatus.FAILED)
             raise JobSubmissionError(
-                f"Job '{job_id}' has no running process "
-                f"(stale status after daemon restart)"
+                f"Job '{job_id}' has no running process (stale status after daemon restart)"
             )
 
         # Baton path: inject PauseJob event directly into the baton.
@@ -1319,9 +1333,8 @@ class JobManager:
         # for this job regardless of whether sheets are active.
         if self._baton_adapter is not None:
             from marianne.daemon.baton.events import PauseJob
-            await self._baton_adapter._baton.inbox.put(
-                PauseJob(job_id=job_id)
-            )
+
+            await self._baton_adapter._baton.inbox.put(PauseJob(job_id=job_id))
             _logger.info("job.baton_pause_sent", job_id=job_id)
             await self._set_job_status(job_id, DaemonJobStatus.PAUSED)
             return True
@@ -1411,7 +1424,9 @@ class JobManager:
         )
 
     async def _resume_held_chain(
-        self, job_id: str, meta: JobMeta,
+        self,
+        job_id: str,
+        meta: JobMeta,
     ) -> JobResponse:
         """Submit the held chain job after a pause_before_chain intervention.
 
@@ -1471,7 +1486,10 @@ class JobManager:
         )
 
     async def modify_job(
-        self, job_id: str, config_path: Path, workspace: Path | None = None,
+        self,
+        job_id: str,
+        config_path: Path,
+        workspace: Path | None = None,
     ) -> JobResponse:
         """Pause a running job and queue automatic resume with new config.
 
@@ -1496,9 +1514,7 @@ class JobManager:
             return await self.resume_job(job_id, ws)
 
         if meta.status != DaemonJobStatus.RUNNING:
-            raise JobSubmissionError(
-                f"Job '{job_id}' is {meta.status.value}, cannot modify"
-            )
+            raise JobSubmissionError(f"Job '{job_id}' is {meta.status.value}, cannot modify")
 
         # Send pause signal
         await self.pause_job(job_id)
@@ -1621,10 +1637,7 @@ class JobManager:
             entry = meta.to_dict()
             live = self._live_states.get(meta.job_id)
             if live is not None:
-                completed = sum(
-                    1 for s in live.sheets.values()
-                    if s.status.value == "completed"
-                )
+                completed = sum(1 for s in live.sheets.values() if s.status.value == "completed")
                 entry["progress_completed"] = completed
                 entry["progress_total"] = len(live.sheets)
             result.append(entry)
@@ -1731,7 +1744,9 @@ class JobManager:
         }
 
     async def _resolve_job_workspace(
-        self, job_id: str, workspace: Path | None = None,
+        self,
+        job_id: str,
+        workspace: Path | None = None,
     ) -> Path:
         """Resolve workspace for a job, checking in-memory meta then registry.
 
@@ -1760,7 +1775,9 @@ class JobManager:
         return {"state": state_dict}
 
     async def get_diagnostic_report(
-        self, job_id: str, workspace: Path | None = None,
+        self,
+        job_id: str,
+        workspace: Path | None = None,
     ) -> dict[str, Any]:
         """Get diagnostic data for a specific job.
 
@@ -1775,8 +1792,11 @@ class JobManager:
         }
 
     async def get_execution_history(
-        self, job_id: str, workspace: Path | None = None,
-        sheet_num: int | None = None, limit: int = 50,
+        self,
+        job_id: str,
+        workspace: Path | None = None,
+        sheet_num: int | None = None,
+        limit: int = 50,
     ) -> dict[str, Any]:
         """Get execution history for a specific job.
 
@@ -1793,9 +1813,11 @@ class JobManager:
         if sqlite_path.exists():
             backend = SQLiteStateBackend(sqlite_path)
             try:
-                if hasattr(backend, 'get_execution_history'):
+                if hasattr(backend, "get_execution_history"):
                     records = await backend.get_execution_history(
-                        job_id=job_id, sheet_num=sheet_num, limit=limit,
+                        job_id=job_id,
+                        sheet_num=sheet_num,
+                        limit=limit,
                     )
                     has_history = True
             finally:
@@ -1808,8 +1830,11 @@ class JobManager:
         }
 
     async def recover_job(
-        self, job_id: str, workspace: Path | None = None,
-        sheet_num: int | None = None, dry_run: bool = False,
+        self,
+        job_id: str,
+        workspace: Path | None = None,
+        sheet_num: int | None = None,
+        dry_run: bool = False,
     ) -> dict[str, Any]:
         """Get state for recover operation.
 
@@ -1870,7 +1895,8 @@ class JobManager:
             running = [t for t in self._jobs.values() if not t.done()]
             if running:
                 _, pending = await asyncio.wait(
-                    running, timeout=timeout,
+                    running,
+                    timeout=timeout,
                 )
                 for task in pending:
                     task.cancel(msg="graceful shutdown timeout exceeded")
@@ -1890,7 +1916,8 @@ class JobManager:
                     task.cancel(msg="non-graceful shutdown")
             if self._jobs:
                 results = await asyncio.gather(
-                    *self._jobs.values(), return_exceptions=True,
+                    *self._jobs.values(),
+                    return_exceptions=True,
                 )
                 for result in results:
                     if isinstance(result, BaseException):
@@ -1916,9 +1943,8 @@ class JobManager:
         if self._baton_adapter is not None:
             try:
                 from marianne.daemon.baton.events import ShutdownRequested
-                self._baton_adapter._baton.inbox.put_nowait(
-                    ShutdownRequested(graceful=graceful)
-                )
+
+                self._baton_adapter._baton.inbox.put_nowait(ShutdownRequested(graceful=graceful))
                 # Wait for the baton loop to exit (bounded by 5s)
                 if self._baton_loop_task is not None and not self._baton_loop_task.done():
                     try:
@@ -1934,7 +1960,8 @@ class JobManager:
                 _logger.info("manager.baton_adapter_stopped")
             except Exception:
                 _logger.warning(
-                    "manager.baton_adapter_stop_failed", exc_info=True,
+                    "manager.baton_adapter_stop_failed",
+                    exc_info=True,
                 )
 
         # Stop all observers for any remaining jobs
@@ -1979,13 +2006,15 @@ class JobManager:
                 checkpoint_json = live.model_dump_json()
                 await self._registry.save_checkpoint(jid, checkpoint_json)
                 await self._registry.update_status(
-                    jid, live.status.value if hasattr(live.status, 'value') else str(live.status),
+                    jid,
+                    live.status.value if hasattr(live.status, "value") else str(live.status),
                 )
                 flushed += 1
             except Exception:
                 _logger.warning(
                     "manager.shutdown_flush_failed",
-                    job_id=jid, exc_info=True,
+                    job_id=jid,
+                    exc_info=True,
                 )
         if flushed:
             _logger.info("manager.shutdown_checkpoint_flush", flushed=flushed)
@@ -2013,9 +2042,7 @@ class JobManager:
     @property
     def running_count(self) -> int:
         """Number of currently running jobs."""
-        return sum(
-            1 for m in self._job_meta.values() if m.status == DaemonJobStatus.RUNNING
-        )
+        return sum(1 for m in self._job_meta.values() if m.status == DaemonJobStatus.RUNNING)
 
     @property
     def active_job_count(self) -> int:
@@ -2134,7 +2161,8 @@ class JobManager:
         conductor_key = state.job_id
         if conductor_key not in self._job_meta:
             conductor_key = self._config_name_to_conductor_id.get(
-                state.job_id, state.job_id,
+                state.job_id,
+                state.job_id,
             )
         if conductor_key != state.job_id:
             state = state.model_copy(update={"job_id": conductor_key})
@@ -2149,7 +2177,9 @@ class JobManager:
             )
             task.add_done_callback(
                 lambda t: log_task_exception(
-                    t, _logger, "registry.checkpoint_save_failed",
+                    t,
+                    _logger,
+                    "registry.checkpoint_save_failed",
                 ),
             )
         except Exception:
@@ -2252,7 +2282,9 @@ class JobManager:
 
             meta.started_at = time.time()
             await self._set_job_status(
-                job_id, DaemonJobStatus.RUNNING, pid=os.getpid(),
+                job_id,
+                DaemonJobStatus.RUNNING,
+                pid=os.getpid(),
             )
             _logger.info(start_event, job_id=job_id, timeout_seconds=timeout)
 
@@ -2262,7 +2294,8 @@ class JobManager:
             try:
                 result_status = await asyncio.wait_for(coro, timeout=timeout)
                 final_status = (
-                    result_status if isinstance(result_status, DaemonJobStatus)
+                    result_status
+                    if isinstance(result_status, DaemonJobStatus)
                     else DaemonJobStatus.COMPLETED
                 )
 
@@ -2281,12 +2314,15 @@ class JobManager:
                 snapshot_path: str | None = None
                 if final_status in (DaemonJobStatus.COMPLETED, DaemonJobStatus.FAILED):
                     snapshot_path = self._snapshot_manager.capture(
-                        job_id, meta.workspace,
+                        job_id,
+                        meta.workspace,
                         config_path=meta.config_path,
                     )
 
                 await self._set_job_status(
-                    job_id, final_status, snapshot_path=snapshot_path,
+                    job_id,
+                    final_status,
+                    snapshot_path=snapshot_path,
                 )
                 if final_status == DaemonJobStatus.PAUSED:
                     pause_reason = "unknown"
@@ -2302,13 +2338,12 @@ class JobManager:
 
             except TimeoutError:
                 elapsed = time.monotonic() - (meta.started_at or 0)
-                error_msg = (
-                    f"Job exceeded timeout of {timeout:.0f}s "
-                    f"(ran for {elapsed:.0f}s)"
-                )
+                error_msg = f"Job exceeded timeout of {timeout:.0f}s (ran for {elapsed:.0f}s)"
                 meta.error_traceback = None
                 await self._set_job_status(
-                    job_id, DaemonJobStatus.FAILED, error_message=error_msg,
+                    job_id,
+                    DaemonJobStatus.FAILED,
+                    error_message=error_msg,
                 )
                 self._recent_failures.append(time.monotonic())
                 _logger.error(
@@ -2323,7 +2358,8 @@ class JobManager:
                 # Only update if it wasn't set yet (e.g. external cancel).
                 if meta.status != DaemonJobStatus.CANCELLED:
                     await self._set_job_status(
-                        job_id, DaemonJobStatus.CANCELLED,
+                        job_id,
+                        DaemonJobStatus.CANCELLED,
                     )
                 cancel_reason = str(cancel_exc) if str(cancel_exc) else "unknown"
                 _logger.error(
@@ -2338,7 +2374,9 @@ class JobManager:
                 # permission denied, missing directories, etc.
                 meta.error_traceback = traceback.format_exc()
                 await self._set_job_status(
-                    job_id, DaemonJobStatus.FAILED, error_message=str(exc),
+                    job_id,
+                    DaemonJobStatus.FAILED,
+                    error_message=str(exc),
                 )
                 self._recent_failures.append(time.monotonic())
                 _logger.error(fail_event, job_id=job_id, error=str(exc))
@@ -2347,12 +2385,14 @@ class JobManager:
                 # Unexpected programming bugs — log with full traceback
                 meta.error_traceback = traceback.format_exc()
                 await self._set_job_status(
-                    job_id, DaemonJobStatus.FAILED,
+                    job_id,
+                    DaemonJobStatus.FAILED,
                     error_message=f"Unexpected internal error: {exc}",
                 )
                 self._recent_failures.append(time.monotonic())
                 _logger.exception(
-                    "job.unexpected_error", job_id=job_id,
+                    "job.unexpected_error",
+                    job_id=job_id,
                 )
 
             finally:
@@ -2381,10 +2421,7 @@ class JobManager:
 
             # Apply daemon-level default thinking method if the job
             # doesn't specify its own (GH#77).
-            if (
-                self._config.default_thinking_method
-                and not config.prompt.thinking_method
-            ):
+            if self._config.default_thinking_method and not config.prompt.thinking_method:
                 config = config.model_copy(
                     update={
                         "prompt": config.prompt.model_copy(
@@ -2434,10 +2471,14 @@ class JobManager:
             max_cost = config.cost_limits.max_cost_per_job
 
         # Publish job.started event
-        await adapter.publish_job_event(job_id, "job.started", {
-            "sheet_count": len(sheets),
-            "instrument": config.backend.type,
-        })
+        await adapter.publish_job_event(
+            job_id,
+            "job.started",
+            {
+                "sheet_count": len(sheets),
+                "instrument": config.backend.type,
+            },
+        )
 
         # F-255.2: Create initial CheckpointState in _live_states BEFORE
         # registering with the baton. Without this, _on_baton_state_sync
@@ -2472,6 +2513,7 @@ class JobManager:
         # as SKIPPED so the baton doesn't dispatch them.
         if request.start_sheet and request.start_sheet > 1:
             from marianne.core.checkpoint import SheetStatus
+
             for snum in list(initial_sheets):
                 if snum < request.start_sheet:
                     initial_sheets[snum] = initial_sheets[snum].model_copy(
@@ -2519,10 +2561,7 @@ class JobManager:
 
             # Update job-level status in the live CheckpointState so
             # Update job-level status so mzt status agrees with mzt list.
-            baton_final = (
-                DaemonJobStatus.COMPLETED if all_success
-                else DaemonJobStatus.FAILED
-            )
+            baton_final = DaemonJobStatus.COMPLETED if all_success else DaemonJobStatus.FAILED
             await self._set_job_status(job_id, baton_final)
             # Set completion timestamp on live state
             live = self._live_states.get(job_id)
@@ -2536,10 +2575,7 @@ class JobManager:
                 {"all_success": all_success},
             )
 
-            return (
-                DaemonJobStatus.COMPLETED if all_success
-                else DaemonJobStatus.FAILED
-            )
+            return DaemonJobStatus.COMPLETED if all_success else DaemonJobStatus.FAILED
 
         except asyncio.CancelledError:
             # Don't deregister if this is a modify-triggered cancel —
@@ -2639,7 +2675,8 @@ class JobManager:
 
         # Publish resume event
         await self._baton_adapter.publish_job_event(
-            job_id, "job.resuming",
+            job_id,
+            "job.resuming",
             {"sheet_count": len(sheets)},
         )
 
@@ -2667,7 +2704,9 @@ class JobManager:
         # _live_states was created after that with the checkpoint's stale
         # status (paused/failed). This ensures consistency.
         await self._set_job_status(
-            job_id, DaemonJobStatus.RUNNING, pid=os.getpid(),
+            job_id,
+            DaemonJobStatus.RUNNING,
+            pid=os.getpid(),
         )
 
         # Recover job with checkpoint state
@@ -2692,6 +2731,7 @@ class JobManager:
         # in_progress sheets to PENDING (dead musicians), but the live
         # CheckpointState still has them as in_progress with stale times.
         from marianne.core.checkpoint import SheetStatus
+
         for sheet_num, sheet_state in checkpoint.sheets.items():
             if sheet_state.status == SheetStatus.IN_PROGRESS:
                 checkpoint.sheets[sheet_num] = sheet_state.model_copy(
@@ -2708,10 +2748,7 @@ class JobManager:
                 meta.completed_new_work = True
 
             # Update job-level status across all three stores.
-            resume_final = (
-                DaemonJobStatus.COMPLETED if all_success
-                else DaemonJobStatus.FAILED
-            )
+            resume_final = DaemonJobStatus.COMPLETED if all_success else DaemonJobStatus.FAILED
             await self._set_job_status(job_id, resume_final)
             live = self._live_states.get(job_id)
             if live is not None:
@@ -2723,10 +2760,7 @@ class JobManager:
                 {"all_success": all_success},
             )
 
-            return (
-                DaemonJobStatus.COMPLETED if all_success
-                else DaemonJobStatus.FAILED
-            )
+            return DaemonJobStatus.COMPLETED if all_success else DaemonJobStatus.FAILED
 
         except asyncio.CancelledError:
             self._baton_adapter.deregister_job(job_id)
@@ -2779,18 +2813,24 @@ class JobManager:
             return None
 
     async def _resume_job_task(
-        self, job_id: str, workspace: Path, no_reload: bool = False,
+        self,
+        job_id: str,
+        workspace: Path,
+        no_reload: bool = False,
     ) -> None:
         """Task coroutine that resumes a paused job."""
 
         async def _execute() -> DaemonJobStatus:
             # Route through the baton execution engine.
             return await self._resume_via_baton(
-                job_id, workspace, no_reload=no_reload,
+                job_id,
+                workspace,
+                no_reload=no_reload,
             )
 
         await self._run_managed_task(
-            job_id, _execute(),
+            job_id,
+            _execute(),
             start_event="job.resuming",
             fail_event="job.resume_failed",
         )
@@ -2848,15 +2888,22 @@ class JobManager:
             try:
                 if hook_type == "run_job":
                     result = await self._execute_hook_run_job(
-                        job_id, hook, concert, meta,
+                        job_id,
+                        hook,
+                        concert,
+                        meta,
                     )
                 elif hook_type == "run_command":
                     result = await self._execute_hook_command(
-                        hook, meta, use_shell=True,
+                        hook,
+                        meta,
+                        use_shell=True,
                     )
                 elif hook_type == "run_script":
                     result = await self._execute_hook_command(
-                        hook, meta, use_shell=False,
+                        hook,
+                        meta,
+                        use_shell=False,
                     )
                 else:
                     result["error_message"] = f"Unknown hook type: {hook_type}"
@@ -2898,7 +2945,8 @@ class JobManager:
         # Store results in registry
         try:
             await self._registry.store_hook_results(
-                job_id, json.dumps(results),
+                job_id,
+                json.dumps(results),
             )
         except Exception:
             _logger.error(
@@ -2911,7 +2959,8 @@ class JobManager:
         if any_failed and meta.status == DaemonJobStatus.COMPLETED:
             try:
                 await self._set_job_status(
-                    job_id, DaemonJobStatus.FAILED,
+                    job_id,
+                    DaemonJobStatus.FAILED,
                     error_message="Post-success hook failed",
                 )
             except Exception:
@@ -2950,7 +2999,9 @@ class JobManager:
 
         # Expand template variables
         job_path_str = self._expand_hook_vars(
-            job_path_str, meta.workspace, parent_job_id,
+            job_path_str,
+            meta.workspace,
+            parent_job_id,
         )
         job_path = Path(job_path_str)
 
@@ -2963,9 +3014,7 @@ class JobManager:
         if concert and concert.get("enabled"):
             max_depth = concert.get("max_chain_depth", 5)
             if current_depth >= max_depth:
-                result["error_message"] = (
-                    f"Concert chain depth limit reached ({max_depth})"
-                )
+                result["error_message"] = f"Concert chain depth limit reached ({max_depth})"
                 return result
 
         # Cooldown before submission
@@ -2978,9 +3027,13 @@ class JobManager:
         chained_workspace: Path | None = None
         raw_ws = hook.get("job_workspace")
         if raw_ws:
-            chained_workspace = Path(self._expand_hook_vars(
-                str(raw_ws), meta.workspace, parent_job_id,
-            ))
+            chained_workspace = Path(
+                self._expand_hook_vars(
+                    str(raw_ws),
+                    meta.workspace,
+                    parent_job_id,
+                )
+            )
         elif concert and concert.get("inherit_workspace", True):
             chained_workspace = meta.workspace
 
@@ -2994,12 +3047,12 @@ class JobManager:
                 "chain_depth": current_depth + 1,
             }
             await self._set_job_status(
-                parent_job_id, DaemonJobStatus.PAUSED_AT_CHAIN,
+                parent_job_id,
+                DaemonJobStatus.PAUSED_AT_CHAIN,
             )
             result["success"] = True
             result["output"] = (
-                "Chain held at pause point — "
-                "use 'mzt resume' to trigger the next cycle"
+                "Chain held at pause point — use 'mzt resume' to trigger the next cycle"
             )
             result["paused_at_chain"] = True
             _logger.info(
@@ -3024,9 +3077,7 @@ class JobManager:
             result["output"] = f"Chained job submitted (job_id={response.job_id})"
             result["chained_job_id"] = response.job_id
         else:
-            result["error_message"] = (
-                f"Chained job rejected: {response.message}"
-            )
+            result["error_message"] = f"Chained job rejected: {response.message}"
 
         return result
 
@@ -3048,13 +3099,9 @@ class JobManager:
         commands — the composer is trusted.  It catches catastrophic typos.
         """
         if len(command) > self._MAX_HOOK_COMMAND_LENGTH:
-            raise ValueError(
-                f"{hook_type} command exceeds {self._MAX_HOOK_COMMAND_LENGTH} chars"
-            )
+            raise ValueError(f"{hook_type} command exceeds {self._MAX_HOOK_COMMAND_LENGTH} chars")
         if self._DESTRUCTIVE_HOOK_PATTERNS.search(command):
-            raise ValueError(
-                f"{hook_type} command contains destructive pattern"
-            )
+            raise ValueError(f"{hook_type} command contains destructive pattern")
 
     async def _execute_hook_command(
         self,
@@ -3084,7 +3131,10 @@ class JobManager:
             return result
 
         command = self._expand_hook_vars(
-            command, meta.workspace, meta.job_id, for_shell=use_shell,
+            command,
+            meta.workspace,
+            meta.job_id,
+            for_shell=use_shell,
         )
         self._validate_hook_command(command, hook_type=hook_type)
         cwd = hook.get("working_directory") or str(meta.workspace)
@@ -3109,11 +3159,12 @@ class JobManager:
 
             try:
                 stdout_bytes, _ = await asyncio.wait_for(
-                    proc.communicate(), timeout=timeout,
+                    proc.communicate(),
+                    timeout=timeout,
                 )
                 stdout = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
                 result["exit_code"] = proc.returncode
-                result["success"] = (proc.returncode == 0)
+                result["success"] = proc.returncode == 0
                 result["output"] = stdout[-2000:] if stdout else None
             except TimeoutError:
                 proc.kill()
@@ -3143,7 +3194,9 @@ class JobManager:
         from marianne.execution.hooks import expand_hook_variables
 
         return expand_hook_variables(
-            template, workspace=workspace, job_id=job_id,
+            template,
+            workspace=workspace,
+            job_id=job_id,
             for_shell=for_shell,
         )
 
@@ -3161,8 +3214,7 @@ class JobManager:
 
         # Clean up config.name → conductor_id mapping entries for this job
         stale_names = [
-            name for name, cid in self._config_name_to_conductor_id.items()
-            if cid == job_id
+            name for name, cid in self._config_name_to_conductor_id.items() if cid == job_id
         ]
         for name in stale_names:
             del self._config_name_to_conductor_id[name]
@@ -3174,8 +3226,10 @@ class JobManager:
         # window where get_job_status() returns stale data.
         meta = self._job_meta.get(job_id)
         if meta is None or meta.status not in (
-            DaemonJobStatus.PAUSED, DaemonJobStatus.PAUSED_AT_CHAIN,
-            DaemonJobStatus.FAILED, DaemonJobStatus.COMPLETED,
+            DaemonJobStatus.PAUSED,
+            DaemonJobStatus.PAUSED_AT_CHAIN,
+            DaemonJobStatus.FAILED,
+            DaemonJobStatus.COMPLETED,
         ):
             self._live_states.pop(job_id, None)
 
@@ -3189,19 +3243,24 @@ class JobManager:
                     # live state, and registry atomically.
                     update_task = asyncio.create_task(
                         self._set_job_status(
-                            job_id, DaemonJobStatus.FAILED,
+                            job_id,
+                            DaemonJobStatus.FAILED,
                             error_message=str(exc),
                         ),
                         name=f"status-update-{job_id}",
                     )
                     update_task.add_done_callback(
                         lambda t: log_task_exception(
-                            t, _logger, "registry.update_failed",
+                            t,
+                            _logger,
+                            "registry.update_failed",
                         ),
                     )
         except RuntimeError:
             _logger.error(
-                "task_done_status_update_failed", job_id=job_id, exc_info=True,
+                "task_done_status_update_failed",
+                job_id=job_id,
+                exc_info=True,
             )
 
         # 2.5. Check for pending modify (pause→resume with new config)
@@ -3219,7 +3278,9 @@ class JobManager:
             raise
         except Exception:
             _logger.error(
-                "task_done_modify_resume_failed", job_id=job_id, exc_info=True,
+                "task_done_modify_resume_failed",
+                job_id=job_id,
+                exc_info=True,
             )
 
         # 2.6. Execute post-success hooks (daemon-owned)
@@ -3255,7 +3316,9 @@ class JobManager:
             raise
         except Exception:
             _logger.error(
-                "task_done_hooks_spawn_failed", job_id=job_id, exc_info=True,
+                "task_done_hooks_spawn_failed",
+                job_id=job_id,
+                exc_info=True,
             )
 
         # 3. TTL-based snapshot cleanup (runs synchronously, fast)
@@ -3265,7 +3328,9 @@ class JobManager:
             )
         except OSError:
             _logger.error(
-                "task_done_snapshot_cleanup_failed", job_id=job_id, exc_info=True,
+                "task_done_snapshot_cleanup_failed",
+                job_id=job_id,
+                exc_info=True,
             )
 
         # 4. Prune old completed/failed/cancelled jobs from history
@@ -3273,7 +3338,9 @@ class JobManager:
             self._prune_job_history()
         except RuntimeError:
             _logger.error(
-                "task_done_prune_failed", job_id=job_id, exc_info=True,
+                "task_done_prune_failed",
+                job_id=job_id,
+                exc_info=True,
             )
 
         # 5. Auto-promote ready patterns (v25 evolution: Pattern Lifecycle)
@@ -3298,7 +3365,9 @@ class JobManager:
             raise
         except Exception:
             _logger.error(
-                "task_done_entropy_check_failed", job_id=job_id, exc_info=True,
+                "task_done_entropy_check_failed",
+                job_id=job_id,
+                exc_info=True,
             )
 
     def _promote_ready_patterns(self) -> None:
@@ -3333,8 +3402,10 @@ class JobManager:
         max_history = self._config.max_job_history
         terminal = sorted(
             (
-                (jid, m) for jid, m in self._job_meta.items()
-                if m.status in (
+                (jid, m)
+                for jid, m in self._job_meta.items()
+                if m.status
+                in (
                     DaemonJobStatus.COMPLETED,
                     DaemonJobStatus.FAILED,
                     DaemonJobStatus.CANCELLED,

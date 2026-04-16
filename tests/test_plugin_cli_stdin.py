@@ -66,13 +66,13 @@ def _make_profile(
 class TestCliCommandStdinFields:
     """Test that CliCommand accepts the new stdin fields."""
 
-    def test_prompt_via_stdin_defaults_false(self) -> None:
+    def test_prompt_via_stdin_defaults_true(self) -> None:
         cmd = CliCommand(executable="test")
-        assert cmd.prompt_via_stdin is False
-
-    def test_prompt_via_stdin_can_be_set_true(self) -> None:
-        cmd = CliCommand(executable="test", prompt_via_stdin=True)
         assert cmd.prompt_via_stdin is True
+
+    def test_prompt_via_stdin_can_be_set_false(self) -> None:
+        cmd = CliCommand(executable="test", prompt_via_stdin=False)
+        assert cmd.prompt_via_stdin is False
 
     def test_stdin_sentinel_defaults_none(self) -> None:
         cmd = CliCommand(executable="test")
@@ -158,9 +158,7 @@ class TestExecuteStdin:
 
         mock_proc = AsyncMock()
         mock_proc.pid = 12345
-        mock_proc.communicate = AsyncMock(
-            return_value=(result_json.encode(), b"")
-        )
+        mock_proc.communicate = AsyncMock(return_value=(result_json.encode(), b""))
         mock_proc.returncode = 0
 
         # Mock stdin as a MagicMock with write/drain/close
@@ -196,9 +194,7 @@ class TestExecuteStdin:
 
         mock_proc = AsyncMock()
         mock_proc.pid = 12345
-        mock_proc.communicate = AsyncMock(
-            return_value=(b'{"result": "ok"}', b"")
-        )
+        mock_proc.communicate = AsyncMock(return_value=(b'{"result": "ok"}', b""))
         mock_proc.returncode = 0
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
@@ -206,8 +202,10 @@ class TestExecuteStdin:
 
         # stdin should not be PIPE
         call_kwargs = mock_exec.call_args
-        assert call_kwargs.kwargs.get("stdin") is None or \
-            call_kwargs.kwargs.get("stdin") != asyncio.subprocess.PIPE
+        assert (
+            call_kwargs.kwargs.get("stdin") is None
+            or call_kwargs.kwargs.get("stdin") != asyncio.subprocess.PIPE
+        )
 
     @pytest.mark.asyncio
     async def test_stdin_mode_with_preamble(self) -> None:
@@ -219,9 +217,7 @@ class TestExecuteStdin:
         result_json = json.dumps({"result": "ok"})
         mock_proc = AsyncMock()
         mock_proc.pid = 12345
-        mock_proc.communicate = AsyncMock(
-            return_value=(result_json.encode(), b"")
-        )
+        mock_proc.communicate = AsyncMock(return_value=(result_json.encode(), b""))
         mock_proc.returncode = 0
 
         mock_stdin = MagicMock()
@@ -277,9 +273,7 @@ class TestStartNewSession:
 
         mock_proc = AsyncMock()
         mock_proc.pid = 12345
-        mock_proc.communicate = AsyncMock(
-            return_value=(b'{"result": "ok"}', b"")
-        )
+        mock_proc.communicate = AsyncMock(return_value=(b'{"result": "ok"}', b""))
         mock_proc.returncode = 0
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
@@ -296,9 +290,7 @@ class TestStartNewSession:
 
         mock_proc = AsyncMock()
         mock_proc.pid = 12345
-        mock_proc.communicate = AsyncMock(
-            return_value=(b'{"result": "ok"}', b"")
-        )
+        mock_proc.communicate = AsyncMock(return_value=(b'{"result": "ok"}', b""))
         mock_proc.returncode = 0
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
@@ -317,7 +309,9 @@ class TestClaudeCodeProfile:
         from marianne.instruments.loader import InstrumentProfileLoader
 
         # Load built-in profiles
-        builtins_dir = Path(__file__).parent.parent / "src" / "marianne" / "instruments" / "builtins"
+        builtins_dir = (
+            Path(__file__).parent.parent / "src" / "marianne" / "instruments" / "builtins"
+        )
         if not builtins_dir.exists():
             pytest.skip("builtins directory not found")
 

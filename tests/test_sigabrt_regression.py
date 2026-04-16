@@ -25,7 +25,6 @@ from marianne.backends.claude_cli import ClaudeCliBackend
 from marianne.core.checkpoint import SheetState
 
 
-
 def _make_mock_process(
     returncode: int | None = None,
     pid: int = 12345,
@@ -57,7 +56,6 @@ def _make_backend(**kwargs) -> ClaudeCliBackend:
     backend = ClaudeCliBackend(**kwargs)
     backend._claude_path = "/usr/local/bin/claude"
     return backend
-
 
 
 class TestCancelledErrorTriggersCleanup:
@@ -143,7 +141,6 @@ class TestCancelledErrorTriggersCleanup:
                 await backend._execute_impl("test prompt")
 
 
-
 class TestStreamCancelledErrorReapsZombie:
     """Verify that _stream_with_progress kills AND waits on the process.
 
@@ -188,7 +185,6 @@ class TestStreamCancelledErrorReapsZombie:
         proc.kill.assert_called_once()
         # Must call process.wait() to reap the zombie
         proc.wait.assert_called_once()
-
 
 
 class TestKillOrphanedProcessAcceptsBaseException:
@@ -258,101 +254,6 @@ class TestKillOrphanedProcessAcceptsBaseException:
         assert proc.kill.called
 
 
-
-@pytest.mark.skip(reason="Runner removed — ParallelExecutor no longer exists")
-class TestParallelCancellationNoCrash:
-    """Verify parallel cancellation — obsolete after runner removal.
-
-    The parallel executor has been removed. The baton handles parallel
-    execution differently.
-    """
-
-    @pytest.fixture
-    def parallel_runner(self):
-        """Create a mock runner for parallel execution testing."""
-        from marianne.state.base import StateBackend
-
-        runner = MagicMock(spec=["_state_lock", "state_backend", "dependency_dag",
-                                   "_execute_sheet_with_recovery"])
-        runner._state_lock = asyncio.Lock()
-        runner.state_backend = MagicMock(spec=StateBackend)
-        runner.state_backend.save = AsyncMock()
-        runner.state_backend.load = AsyncMock(return_value=None)
-        return runner
-
-    @pytest.mark.asyncio
-    async def test_sigabrt_in_one_sheet_doesnt_crash_executor(
-        self, parallel_runner,
-    ) -> None:
-        """One sheet dying with SIGABRT should not crash the parallel executor."""
-        from marianne.core.checkpoint import CheckpointState, SheetStatus
-        from marianne.execution.dag import DependencyDAG
-        from marianne.execution.parallel import ParallelExecutionConfig, ParallelExecutor
-
-        dag = DependencyDAG.from_dependencies(total_sheets=3, dependencies=None)
-        parallel_runner.dependency_dag = dag
-
-        state = MagicMock(spec=CheckpointState)
-        state.total_sheets = 3
-        state.sheets = {}
-
-        async def mock_execute(st, sheet_num):
-            if sheet_num == 2:
-                raise RuntimeError("Process killed by SIGABRT (signal 6)")
-            await asyncio.sleep(0.01)
-            st.sheets[sheet_num] = MagicMock(spec=SheetState, status=SheetStatus.COMPLETED)
-
-        parallel_runner._execute_sheet_with_recovery = AsyncMock(
-            side_effect=mock_execute,
-        )
-
-        config = ParallelExecutionConfig(
-            enabled=True, max_concurrent=3, fail_fast=True,
-        )
-
-        executor = ParallelExecutor(parallel_runner, config)
-        batch = executor.get_next_parallel_batch(state)
-        result = await executor.execute_batch(batch, state)
-        assert not result.success
-        assert 2 in result.failed
-
-    @pytest.mark.asyncio
-    async def test_multiple_sheets_fail_simultaneously(
-        self, parallel_runner,
-    ) -> None:
-        """Multiple sheets failing at the same time should not cause crashes."""
-        from marianne.core.checkpoint import CheckpointState, SheetStatus
-        from marianne.execution.dag import DependencyDAG
-        from marianne.execution.parallel import ParallelExecutionConfig, ParallelExecutor
-
-        dag = DependencyDAG.from_dependencies(total_sheets=4, dependencies=None)
-        parallel_runner.dependency_dag = dag
-
-        state = MagicMock(spec=CheckpointState)
-        state.total_sheets = 4
-        state.sheets = {}
-
-        async def mock_execute(st, sheet_num):
-            if sheet_num in (1, 3):
-                raise RuntimeError(f"Sheet {sheet_num} SIGABRT")
-            await asyncio.sleep(0.01)
-            st.sheets[sheet_num] = MagicMock(spec=SheetState, status=SheetStatus.COMPLETED)
-
-        parallel_runner._execute_sheet_with_recovery = AsyncMock(
-            side_effect=mock_execute,
-        )
-
-        config = ParallelExecutionConfig(
-            enabled=True, max_concurrent=4, fail_fast=True,
-        )
-
-        executor = ParallelExecutor(parallel_runner, config)
-        batch = executor.get_next_parallel_batch(state)
-        result = await executor.execute_batch(batch, state)
-        assert not result.success
-
-
-
 class TestFindJobStateBackendErrors:
     """Verify that find_job_state falls back to the next backend when one errors.
 
@@ -373,6 +274,7 @@ class TestFindJobStateBackendErrors:
 
         # Create a JSON state file that the fallback should find
         import json
+
         state_data = {
             "job_id": "test-job",
             "job_name": "test-job",
@@ -419,14 +321,15 @@ class TestFindJobStateBackendErrors:
 
         # Patch JsonStateBackend.load to raise
         with patch.object(
-            JsonStateBackend, "load", AsyncMock(side_effect=OSError("disk error")),
+            JsonStateBackend,
+            "load",
+            AsyncMock(side_effect=OSError("disk error")),
         ):
             # Should NOT raise — errors are caught internally
             found_state, found_backend = await find_job_state("test-job", workspace)
 
         assert found_state is None
         assert found_backend is None
-
 
 
 class TestLoggerKeywordArgs:
@@ -449,7 +352,9 @@ class TestLoggerKeywordArgs:
         captured_logs: list[dict] = []
 
         def capture_to_list(
-            logger: WrappedLogger, method_name: str, event_dict: EventDict,
+            logger: WrappedLogger,
+            method_name: str,
+            event_dict: EventDict,
         ) -> EventDict:
             captured_logs.append({"level": method_name, **event_dict})
             raise structlog.DropEvent
@@ -467,14 +372,16 @@ class TestLoggerKeywordArgs:
 
         # Make backend raise to trigger the debug log
         with patch.object(
-            JsonStateBackend, "load",
+            JsonStateBackend,
+            "load",
             AsyncMock(side_effect=RuntimeError("test error")),
         ):
             await find_job_state("test-job", workspace)
 
         # Find the backend error log entry (unexpected errors use a different event name)
         error_logs = [
-            log for log in captured_logs
+            log
+            for log in captured_logs
             if log.get("event") in ("error_querying_backend", "unexpected_error_querying_backend")
         ]
 

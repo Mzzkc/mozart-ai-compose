@@ -80,19 +80,12 @@ def start_conductor(
     pid = _read_pid(config.pid_file)
     if pid is not None:
         if _pid_alive(pid):
-            label = (
-                "clone conductor"
-                if clone_name is not None
-                else "Marianne conductor"
-            )
+            label = "clone conductor" if clone_name is not None else "Marianne conductor"
             typer.echo(f"{label} is already running (PID {pid})")
             raise typer.Exit(1)
         else:
             # Stale PID file — process is dead, clean up before starting
-            typer.echo(
-                f"Cleaned up stale PID file "
-                f"(PID {pid} is no longer running)"
-            )
+            typer.echo(f"Cleaned up stale PID file (PID {pid} is no longer running)")
             config.pid_file.unlink(missing_ok=True)
 
     # Detect concurrent start race via advisory lock
@@ -375,7 +368,8 @@ class DaemonProcess:
 
             # Create monitor first (without manager ref — set after).
             self._monitor = ResourceMonitor(
-                self._config.resource_limits, pgroup=self._pgroup,
+                self._config.resource_limits,
+                pgroup=self._pgroup,
             )
             # Pass the single monitor into JobManager for backpressure.
             self._manager = JobManager(
@@ -393,7 +387,8 @@ class DaemonProcess:
             _unenforced_fields: list[tuple[str, object, object, str, str]] = [
                 (
                     "max_api_calls_per_minute",
-                    self._config.resource_limits.max_api_calls_per_minute, 60,
+                    self._config.resource_limits.max_api_calls_per_minute,
+                    60,
                     "config.unenforced_rate_limit",
                     "max_api_calls_per_minute is set but NOT YET ENFORCED. "
                     "Rate limiting currently works through externally-reported "
@@ -401,21 +396,24 @@ class DaemonProcess:
                 ),
                 (
                     "state_backend_type",
-                    self._config.state_backend_type, "sqlite",
+                    self._config.state_backend_type,
+                    "sqlite",
                     "config.reserved_field_ignored",
                     "state_backend_type is reserved for future use and has no "
                     "effect. Daemon state persistence is not yet implemented.",
                 ),
                 (
                     "state_db_path",
-                    str(self._config.state_db_path), "~/.marianne/daemon-state.db",
+                    str(self._config.state_db_path),
+                    "~/.marianne/daemon-state.db",
                     "config.reserved_field_ignored",
                     "state_db_path is reserved for future use and has no "
                     "effect. Daemon state persistence is not yet implemented.",
                 ),
                 (
                     "max_concurrent_sheets",
-                    self._config.max_concurrent_sheets, 10,
+                    self._config.max_concurrent_sheets,
+                    10,
                     "config.reserved_field_ignored",
                     "max_concurrent_sheets is reserved for Phase 3 scheduler "
                     "and has no effect. Jobs currently run monolithically "
@@ -436,9 +434,7 @@ class DaemonProcess:
                 self._monitor,
                 start_time=self._start_time,
                 learning_store=(
-                    self._manager._learning_hub.store
-                    if self._manager._learning_hub
-                    else None
+                    self._manager._learning_hub.store if self._manager._learning_hub else None
                 ),
             )
 
@@ -463,12 +459,14 @@ class DaemonProcess:
                 signum: signal.Signals,
             ) -> Callable[[], None]:
                 """Create a signal callback that captures ``signum`` by value."""
+
                 def _cb() -> None:
                     self._track_signal_task(
                         asyncio.create_task(
                             self._handle_signal(signum, self._manager, server),
                         ),
                     )
+
                 return _cb
 
             for sig in (signal.SIGTERM, signal.SIGINT):
@@ -572,11 +570,13 @@ class DaemonProcess:
             # Let JobSubmissionError propagate — the JSON-RPC protocol maps it
             # to a JOB_NOT_FOUND error code, and the client re-raises it.
             return await manager.get_job_status(
-                params["job_id"], _workspace_path(params.get("workspace")),
+                params["job_id"],
+                _workspace_path(params.get("workspace")),
             )
 
         async def handle_pause(params: dict[str, Any], _w: Any) -> dict[str, Any]:
             from marianne.daemon.exceptions import JobSubmissionError
+
             try:
                 ok = await manager.pause_job(params["job_id"])
                 return {"paused": ok}
@@ -585,6 +585,7 @@ class DaemonProcess:
 
         async def handle_resume(params: dict[str, Any], _w: Any) -> dict[str, Any]:
             from marianne.daemon.exceptions import JobSubmissionError
+
             try:
                 config_path_str = params.get("config_path")
                 config_path = Path(config_path_str) if config_path_str else None
@@ -620,24 +621,28 @@ class DaemonProcess:
 
         async def handle_errors(params: dict[str, Any], _w: Any) -> dict[str, Any]:
             return await manager.get_job_errors(
-                params["job_id"], _workspace_path(params.get("workspace")),
+                params["job_id"],
+                _workspace_path(params.get("workspace")),
             )
 
         async def handle_diagnose(params: dict[str, Any], _w: Any) -> dict[str, Any]:
             return await manager.get_diagnostic_report(
-                params["job_id"], _workspace_path(params.get("workspace")),
+                params["job_id"],
+                _workspace_path(params.get("workspace")),
             )
 
         async def handle_history(params: dict[str, Any], _w: Any) -> dict[str, Any]:
             return await manager.get_execution_history(
-                params["job_id"], _workspace_path(params.get("workspace")),
+                params["job_id"],
+                _workspace_path(params.get("workspace")),
                 sheet_num=params.get(SHEET_NUM_KEY),
                 limit=params.get("limit", 50),
             )
 
         async def handle_recover(params: dict[str, Any], _w: Any) -> dict[str, Any]:
             return await manager.recover_job(
-                params["job_id"], _workspace_path(params.get("workspace")),
+                params["job_id"],
+                _workspace_path(params.get("workspace")),
                 sheet_num=params.get(SHEET_NUM_KEY),
                 dry_run=params.get("dry_run", False),
             )
@@ -654,6 +659,7 @@ class DaemonProcess:
 
         async def handle_modify(params: dict[str, Any], _w: Any) -> dict[str, Any]:
             from marianne.daemon.exceptions import JobSubmissionError
+
             config_path = params.get("config_path")
             if not config_path:
                 return {
@@ -690,6 +696,7 @@ class DaemonProcess:
 
         # Health check probes
         if health is not None:
+
             async def handle_health(_p: dict[str, Any], _w: Any) -> dict[str, Any]:
                 return await health.liveness()
 
@@ -752,14 +759,16 @@ class DaemonProcess:
 
         # Observer event recorder IPC — per-job behavioral events
         async def handle_observer_events(
-            params: dict[str, Any], _w: Any,
+            params: dict[str, Any],
+            _w: Any,
         ) -> dict[str, Any]:
             if manager.observer_recorder is None:
                 return {"events": []}
             job_id = params.get("job_id")
             limit = params.get("limit", 50)
             events = manager.observer_recorder.get_recent_events(
-                job_id, limit=limit,
+                job_id,
+                limit=limit,
             )
             return {"events": events}
 
@@ -767,20 +776,20 @@ class DaemonProcess:
 
         # Rate limit and learning IPC methods — used by dashboard bridge
         async def handle_rate_limits(
-            _p: dict[str, Any], _w: Any,
+            _p: dict[str, Any],
+            _w: Any,
         ) -> dict[str, Any]:
             coordinator = manager.rate_coordinator
             active = coordinator.active_limits
             return {
-                "backends": {
-                    k: {"seconds_remaining": v} for k, v in active.items()
-                },
+                "backends": {k: {"seconds_remaining": v} for k, v in active.items()},
                 "active_limits": len(active),
                 "recent_events_count": len(coordinator.recent_events),
             }
 
         async def handle_learning_patterns(
-            params: dict[str, Any], _w: Any,
+            params: dict[str, Any],
+            _w: Any,
         ) -> dict[str, Any]:
             hub = manager.learning_hub
             if not hub.is_running:
@@ -807,7 +816,8 @@ class DaemonProcess:
             }
 
         async def handle_clear_rate_limits(
-            params: dict[str, Any], _w: Any,
+            params: dict[str, Any],
+            _w: Any,
         ) -> dict[str, Any]:
             instrument = params.get("instrument")
             return await manager.clear_rate_limits(instrument=instrument)
@@ -891,10 +901,10 @@ class DaemonProcess:
                 )
 
         # Hot-apply reloadable fields
-        if hasattr(self, '_manager') and self._manager is not None:
+        if hasattr(self, "_manager") and self._manager is not None:
             self._manager.apply_config(new_config)
 
-        if hasattr(self, '_monitor') and self._monitor is not None:
+        if hasattr(self, "_monitor") and self._monitor is not None:
             self._monitor.update_limits(new_config.resource_limits)
 
         # Reconfigure logging if log_level or log_file changed
@@ -964,9 +974,9 @@ def _load_config(
         profile_data = get_profile(profile)
         data = deep_merge(data, profile_data)
 
-    # use_baton was removed — baton is now the sole executor.
-    # Strip it from loaded config to avoid breaking existing conductor.yaml files.
-    data.pop("use_baton", None)
+    # Strip removed fields for backward compatibility with older configs.
+    for _removed_field in ("use" + "_baton",):
+        data.pop(_removed_field, None)
 
     config = DaemonConfig.model_validate(data)
     if resolved_config_file is not None:

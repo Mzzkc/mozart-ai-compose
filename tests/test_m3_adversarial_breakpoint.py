@@ -125,9 +125,7 @@ class TestDispatchGuardExceptionTaxonomy:
         adapter._baton = baton
 
         state = _make_state(normal_attempts=0, completion_attempts=0)
-        adapter._send_dispatch_failure(
-            "job-1", 1, "claude-code", "test error", state=state
-        )
+        adapter._send_dispatch_failure("job-1", 1, "claude-code", "test error", state=state)
 
         event = baton.inbox.get_nowait()
         assert isinstance(event, SheetAttemptResult)
@@ -143,9 +141,7 @@ class TestDispatchGuardExceptionTaxonomy:
         adapter._baton = baton
 
         state = _make_state(normal_attempts=3, completion_attempts=2)
-        adapter._send_dispatch_failure(
-            "job-1", 1, "claude-code", "test error", state=state
-        )
+        adapter._send_dispatch_failure("job-1", 1, "claude-code", "test error", state=state)
 
         event = baton.inbox.get_nowait()
         assert event.attempt == 6  # 3 + 2 + 1
@@ -159,9 +155,7 @@ class TestDispatchGuardExceptionTaxonomy:
         adapter = BatonAdapter.__new__(BatonAdapter)
         adapter._baton = baton
 
-        adapter._send_dispatch_failure(
-            "job-1", 1, "claude-code", "test error", state=None
-        )
+        adapter._send_dispatch_failure("job-1", 1, "claude-code", "test error", state=None)
 
         event = baton.inbox.get_nowait()
         assert event.attempt == 1
@@ -176,9 +170,7 @@ class TestDispatchGuardExceptionTaxonomy:
         adapter._baton = baton
 
         state = _make_state()
-        adapter._send_dispatch_failure(
-            "job-1", 1, "claude-code", "any error", state=state
-        )
+        adapter._send_dispatch_failure("job-1", 1, "claude-code", "any error", state=state)
 
         event = baton.inbox.get_nowait()
         assert event.error_classification == "E505"
@@ -193,9 +185,7 @@ class TestDispatchGuardExceptionTaxonomy:
         adapter = BatonAdapter.__new__(BatonAdapter)
         adapter._baton = baton
 
-        adapter._send_dispatch_failure(
-            "my-special-job", 42, "gemini-cli", "err", state=None
-        )
+        adapter._send_dispatch_failure("my-special-job", 42, "gemini-cli", "err", state=None)
 
         event = baton.inbox.get_nowait()
         assert event.job_id == "my-special-job"
@@ -334,9 +324,7 @@ class TestRateLimitAutoResume:
         baton._jobs = {}
 
         # Should not raise
-        baton._handle_rate_limit_expired(
-            RateLimitExpired(instrument="nonexistent-instrument")
-        )
+        baton._handle_rate_limit_expired(RateLimitExpired(instrument="nonexistent-instrument"))
 
     def test_rate_limit_cross_instrument_isolation(self) -> None:
         """Rate limit on one instrument must not affect another's sheets."""
@@ -351,11 +339,13 @@ class TestRateLimitAutoResume:
 
         sheets = {
             1: _make_state(
-                sheet_num=1, instrument="claude-code",
+                sheet_num=1,
+                instrument="claude-code",
                 status=BatonSheetStatus.WAITING,
             ),
             2: _make_state(
-                sheet_num=2, instrument="gemini-cli",
+                sheet_num=2,
+                instrument="gemini-cli",
                 status=BatonSheetStatus.WAITING,
             ),
         }
@@ -544,10 +534,12 @@ class TestCompletedNewWork:
         adapter = BatonAdapter.__new__(BatonAdapter)
         baton = MagicMock()
         baton._jobs = {
-            "job-1": _make_job_record(sheets={
-                1: _make_state(sheet_num=1, status=BatonSheetStatus.FAILED),
-                2: _make_state(sheet_num=2, status=BatonSheetStatus.CANCELLED),
-            })
+            "job-1": _make_job_record(
+                sheets={
+                    1: _make_state(sheet_num=1, status=BatonSheetStatus.FAILED),
+                    2: _make_state(sheet_num=2, status=BatonSheetStatus.CANCELLED),
+                }
+            )
         }
         adapter._baton = baton
 
@@ -560,11 +552,13 @@ class TestCompletedNewWork:
         adapter = BatonAdapter.__new__(BatonAdapter)
         baton = MagicMock()
         baton._jobs = {
-            "job-1": _make_job_record(sheets={
-                1: _make_state(sheet_num=1, status=BatonSheetStatus.FAILED),
-                2: _make_state(sheet_num=2, status=BatonSheetStatus.COMPLETED),
-                3: _make_state(sheet_num=3, status=BatonSheetStatus.FAILED),
-            })
+            "job-1": _make_job_record(
+                sheets={
+                    1: _make_state(sheet_num=1, status=BatonSheetStatus.FAILED),
+                    2: _make_state(sheet_num=2, status=BatonSheetStatus.COMPLETED),
+                    3: _make_state(sheet_num=3, status=BatonSheetStatus.FAILED),
+                }
+            )
         }
         adapter._baton = baton
 
@@ -577,10 +571,12 @@ class TestCompletedNewWork:
         adapter = BatonAdapter.__new__(BatonAdapter)
         baton = MagicMock()
         baton._jobs = {
-            "job-1": _make_job_record(sheets={
-                1: _make_state(sheet_num=1, status=BatonSheetStatus.SKIPPED),
-                2: _make_state(sheet_num=2, status=BatonSheetStatus.SKIPPED),
-            })
+            "job-1": _make_job_record(
+                sheets={
+                    1: _make_state(sheet_num=1, status=BatonSheetStatus.SKIPPED),
+                    2: _make_state(sheet_num=2, status=BatonSheetStatus.SKIPPED),
+                }
+            )
         }
         adapter._baton = baton
 
@@ -607,38 +603,6 @@ class TestCompletedNewWork:
         adapter._baton = baton
 
         assert adapter.has_completed_sheets("job-1") is False
-
-
-# =========================================================================
-# 5. F-009/F-144: Semantic Context Tags
-# =========================================================================
-
-
-@pytest.mark.skip(reason="Runner removed — build_semantic_context_tags no longer exists")
-class TestSemanticContextTags:
-    """build_semantic_context_tags() — obsolete after runner removal.
-
-    The runner's PatternsMixin and build_semantic_context_tags have been
-    removed. Pattern management is now in the baton.
-    """
-
-    def test_empty_validations_produce_broad_tags_only(self) -> None:
-        """Obsolete."""
-
-    def test_validation_types_become_tags(self) -> None:
-        """Obsolete."""
-
-    def test_duplicate_validation_types_deduplicated(self) -> None:
-        """Obsolete."""
-
-    def test_tags_match_stored_format(self) -> None:
-        """Obsolete."""
-
-    def test_no_positional_tags_in_output(self) -> None:
-        """Obsolete."""
-
-    def test_broad_tags_always_present(self) -> None:
-        """Obsolete."""
 
 
 # =========================================================================
@@ -870,11 +834,13 @@ class TestClearRateLimits:
         }
 
         sheet1 = _make_state(
-            sheet_num=1, instrument="claude-code",
+            sheet_num=1,
+            instrument="claude-code",
             status=BatonSheetStatus.WAITING,
         )
         sheet2 = _make_state(
-            sheet_num=2, instrument="claude-code",
+            sheet_num=2,
+            instrument="claude-code",
             status=BatonSheetStatus.COMPLETED,
         )
         baton._jobs = {"job-1": _make_job_record(sheets={1: sheet1, 2: sheet2})}
@@ -1033,7 +999,9 @@ class TestTerminalStatusInvariants:
         sheets = {}
         for i, status in enumerate(statuses, start=1):
             sheets[i] = _make_state(
-                sheet_num=i, instrument="claude-code", status=status,
+                sheet_num=i,
+                instrument="claude-code",
+                status=status,
             )
         # Save original statuses for verification
         originals = {i: s.status for i, s in sheets.items()}
@@ -1057,7 +1025,8 @@ class TestTerminalStatusInvariants:
                     f"Terminal sheet {original} was moved to {sheet.status}"
                 )
             elif original in (
-                BatonSheetStatus.DISPATCHED, BatonSheetStatus.IN_PROGRESS,
+                BatonSheetStatus.DISPATCHED,
+                BatonSheetStatus.IN_PROGRESS,
             ):
                 # DISPATCHED/RUNNING → WAITING
                 assert sheet.status == BatonSheetStatus.WAITING
@@ -1085,15 +1054,18 @@ class TestTerminalStatusInvariants:
 
         sheets = {
             1: _make_state(
-                sheet_num=1, instrument="claude-code",
+                sheet_num=1,
+                instrument="claude-code",
                 status=BatonSheetStatus.WAITING,
             ),
             2: _make_state(
-                sheet_num=2, instrument="claude-code",
+                sheet_num=2,
+                instrument="claude-code",
                 status=BatonSheetStatus.COMPLETED,
             ),
             3: _make_state(
-                sheet_num=3, instrument="claude-code",
+                sheet_num=3,
+                instrument="claude-code",
                 status=BatonSheetStatus.FAILED,
             ),
         }

@@ -8,6 +8,7 @@ stale fields when their source config section changed.
 The structural test in test_reconciliation.py ensures every new config
 section gets a mapping entry -- preventing future staleness bugs.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -21,14 +22,16 @@ _logger = get_logger("execution.reconciliation")
 
 # Config sections that are metadata / non-reconcilable (don't map to
 # checkpoint state that needs resetting on change).
-METADATA_FIELDS: frozenset[str] = frozenset({
-    "name",
-    "description",
-    "workspace",
-    "state_backend",
-    "state_path",
-    "pause_between_sheets_seconds",
-})
+METADATA_FIELDS: frozenset[str] = frozenset(
+    {
+        "name",
+        "description",
+        "workspace",
+        "state_backend",
+        "state_path",
+        "pause_between_sheets_seconds",
+    }
+)
 
 # Declarative mapping: config section -> checkpoint fields to reset.
 # When a config section changes, the listed checkpoint fields are reset
@@ -85,6 +88,8 @@ CONFIG_STATE_MAPPING: dict[str, list[str]] = {
     "movements": [],
     # M5: Instrument fallbacks — resolved at sheet construction, no checkpoint state
     "instrument_fallbacks": [],
+    "techniques": [],
+    "agent_card": [],
 }
 
 
@@ -161,7 +166,9 @@ def reconcile_config(
     # Build a fresh instance to read Pydantic defaults reliably
     # (avoids poking at FieldInfo.default_factory internals).
     _defaults = CheckpointState(
-        job_id="", job_name="", total_sheets=1,
+        job_id="",
+        job_name="",
+        total_sheets=1,
     )
 
     # Reset checkpoint fields for changed/removed sections

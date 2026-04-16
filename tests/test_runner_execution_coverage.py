@@ -126,9 +126,7 @@ class TestSetupLearning:
             learning={"enabled": True, "outcome_store_type": "json"},
             workspace=str(tmp_path),
         )
-        outcome, global_store = setup_learning(
-            config, global_learning_store_override=mock_store
-        )
+        outcome, global_store = setup_learning(config, global_learning_store_override=mock_store)
         assert global_store is mock_store
 
 
@@ -243,9 +241,7 @@ class TestExecutionProgress:
         from marianne.utils.time import utc_now
 
         now = utc_now()
-        p = ExecutionProgress(
-            started_at=now, last_activity_at=now, bytes_received=2 * 1024 * 1024
-        )
+        p = ExecutionProgress(started_at=now, last_activity_at=now, bytes_received=2 * 1024 * 1024)
         assert "MB" in p.format_bytes()
 
     def test_format_elapsed_seconds(self) -> None:
@@ -263,8 +259,10 @@ class TestExecutionProgress:
 
         now = utc_now()
         p = ExecutionProgress(
-            started_at=now, last_activity_at=now,
-            bytes_received=1024, lines_received=10,
+            started_at=now,
+            last_activity_at=now,
+            bytes_received=1024,
+            lines_received=10,
         )
         status = p.format_status()
         assert "Still running" in status
@@ -474,7 +472,9 @@ class TestReconcileConfig:
 
         config = _make_config()
         state = CheckpointState(
-            job_id="test", job_name="test", total_sheets=3,
+            job_id="test",
+            job_name="test",
+            total_sheets=3,
             config_snapshot=config.model_dump(mode="json"),
         )
         report = reconcile_config(state, config)
@@ -489,7 +489,9 @@ class TestReconcileConfig:
             backend={"type": "anthropic_api", "model": "claude-sonnet-4-5-20250929"}
         )
         state = CheckpointState(
-            job_id="test", job_name="test", total_sheets=3,
+            job_id="test",
+            job_name="test",
+            total_sheets=3,
             config_snapshot=old_config.model_dump(mode="json"),
         )
         report = reconcile_config(state, new_config)
@@ -516,7 +518,9 @@ class TestReconcileConfig:
             }
         )
         state = CheckpointState(
-            job_id="test", job_name="test", total_sheets=3,
+            job_id="test",
+            job_name="test",
+            total_sheets=3,
             config_snapshot=old_snapshot,
             total_estimated_cost=5.0,
         )
@@ -532,7 +536,9 @@ class TestReconcileConfig:
         old_config = _make_config(description="old desc")
         new_config = _make_config(description="new desc")
         state = CheckpointState(
-            job_id="test", job_name="test", total_sheets=3,
+            job_id="test",
+            job_name="test",
+            total_sheets=3,
             config_snapshot=old_config.model_dump(mode="json"),
         )
         report = reconcile_config(state, new_config)
@@ -544,7 +550,9 @@ class TestReconcileConfig:
 
         new_config = _make_config()
         state = CheckpointState(
-            job_id="test", job_name="test", total_sheets=3,
+            job_id="test",
+            job_name="test",
+            total_sheets=3,
             config_snapshot=None,
         )
         report = reconcile_config(state, new_config)
@@ -743,193 +751,6 @@ class TestCircuitBreaker:
 
 
 # =============================================================================
-# execution/parallel.py tests
-# =============================================================================
-
-
-class TestParallelExecutionError:
-    """Tests for ParallelExecutionError — runner removed."""
-
-    @pytest.mark.skip(reason="Runner removed — ParallelExecutionError no longer exists")
-    def test_creation(self) -> None:
-        """Obsolete: parallel module no longer exists."""
-
-
-@pytest.mark.skip(reason="Runner removed — parallel module no longer exists")
-class TestParallelBatchResult:
-    """Tests for ParallelBatchResult — obsolete after runner removal."""
-
-    def test_success_when_no_failures(self) -> None:
-        """Obsolete."""
-
-    def test_not_success_with_failures(self) -> None:
-        """Obsolete."""
-
-    def test_to_dict(self) -> None:
-        """Obsolete."""
-
-
-@pytest.mark.skip(reason="Runner removed — parallel module no longer exists")
-class TestParallelExecutionConfig:
-    """Tests for ParallelExecutionConfig — obsolete after runner removal."""
-
-    def test_defaults(self) -> None:
-        """Obsolete."""
-
-
-@pytest.mark.skip(reason="Runner removed — parallel module no longer exists")
-class TestLockingStateBackend:
-    """Tests for _LockingStateBackend — obsolete after runner removal."""
-
-    async def test_save_under_lock(self) -> None:
-        from marianne.execution.parallel import _LockingStateBackend
-        from marianne.core.checkpoint import CheckpointState
-
-        inner = AsyncMock()
-        lock = asyncio.Lock()
-        wrapper = _LockingStateBackend(inner, lock)
-        state = CheckpointState(job_id="test", job_name="test", total_sheets=1)
-        await wrapper.save(state)
-        inner.save.assert_awaited_once_with(state)
-
-    async def test_load_under_lock(self) -> None:
-        from marianne.execution.parallel import _LockingStateBackend
-
-        inner = AsyncMock()
-        inner.load.return_value = None
-        lock = asyncio.Lock()
-        wrapper = _LockingStateBackend(inner, lock)
-        result = await wrapper.load("test")
-        inner.load.assert_awaited_once_with("test")
-        assert result is None
-
-    async def test_delete_delegates(self) -> None:
-        from marianne.execution.parallel import _LockingStateBackend
-
-        inner = AsyncMock()
-        inner.delete.return_value = True
-        lock = asyncio.Lock()
-        wrapper = _LockingStateBackend(inner, lock)
-        result = await wrapper.delete("test")
-        assert result is True
-
-    async def test_list_jobs_delegates(self) -> None:
-        from marianne.execution.parallel import _LockingStateBackend
-
-        inner = AsyncMock()
-        inner.list_jobs.return_value = []
-        lock = asyncio.Lock()
-        wrapper = _LockingStateBackend(inner, lock)
-        result = await wrapper.list_jobs()
-        assert result == []
-
-    async def test_get_next_sheet_under_lock(self) -> None:
-        from marianne.execution.parallel import _LockingStateBackend
-
-        inner = AsyncMock()
-        inner.get_next_sheet.return_value = 2
-        lock = asyncio.Lock()
-        wrapper = _LockingStateBackend(inner, lock)
-        result = await wrapper.get_next_sheet("test")
-        assert result == 2
-
-    async def test_mark_sheet_status_under_lock(self) -> None:
-        from marianne.core.checkpoint import SheetStatus
-        from marianne.execution.parallel import _LockingStateBackend
-
-        inner = AsyncMock()
-        lock = asyncio.Lock()
-        wrapper = _LockingStateBackend(inner, lock)
-        await wrapper.mark_sheet_status("test", 1, SheetStatus.COMPLETED)
-        inner.mark_sheet_status.assert_awaited_once()
-
-    async def test_record_execution_under_lock(self) -> None:
-        from marianne.execution.parallel import _LockingStateBackend
-
-        inner = AsyncMock()
-        inner.record_execution.return_value = 1
-        lock = asyncio.Lock()
-        wrapper = _LockingStateBackend(inner, lock)
-        result = await wrapper.record_execution("test", 1, 1, prompt="test")
-        assert result == 1
-
-    async def test_close_delegates(self) -> None:
-        from marianne.execution.parallel import _LockingStateBackend
-
-        inner = AsyncMock()
-        lock = asyncio.Lock()
-        wrapper = _LockingStateBackend(inner, lock)
-        await wrapper.close()
-        inner.close.assert_awaited_once()
-
-    async def test_infer_state_delegates(self) -> None:
-        from marianne.execution.parallel import _LockingStateBackend
-
-        inner = AsyncMock()
-        inner.infer_state_from_artifacts.return_value = 3
-        lock = asyncio.Lock()
-        wrapper = _LockingStateBackend(inner, lock)
-        result = await wrapper.infer_state_from_artifacts("test", "/workspace", "*.md")
-        assert result == 3
-
-
-@pytest.mark.skip(reason="Runner removed — parallel module no longer exists")
-class TestParallelExecutorGetNextBatch:
-    """Tests for ParallelExecutor.get_next_parallel_batch() — obsolete."""
-
-    def _make_executor(
-        self, *, max_concurrent: int = 3, fail_fast: bool = True
-    ) -> Any:
-        from marianne.execution.parallel import ParallelExecutionConfig, ParallelExecutor
-
-        runner = MagicMock()
-        runner.dependency_dag = None
-        config = ParallelExecutionConfig(
-            enabled=True, max_concurrent=max_concurrent, fail_fast=fail_fast,
-        )
-        return ParallelExecutor(runner, config)
-
-    def test_no_dag_returns_first_pending(self) -> None:
-        from marianne.core.checkpoint import CheckpointState
-
-        executor = self._make_executor()
-        state = CheckpointState(
-            job_id="test", job_name="test", total_sheets=3,
-            last_completed_sheet=0,
-        )
-        batch = executor.get_next_parallel_batch(state)
-        assert batch == [1]
-
-    def test_no_dag_skips_permanently_failed(self) -> None:
-        from marianne.core.checkpoint import CheckpointState
-
-        executor = self._make_executor()
-        executor._permanently_failed = {1}
-        state = CheckpointState(
-            job_id="test", job_name="test", total_sheets=3,
-            last_completed_sheet=0,
-        )
-        batch = executor.get_next_parallel_batch(state)
-        assert batch == [2]
-
-    def test_no_dag_returns_empty_when_all_done(self) -> None:
-        from marianne.core.checkpoint import CheckpointState
-
-        executor = self._make_executor()
-        state = CheckpointState(
-            job_id="test", job_name="test", total_sheets=2,
-            last_completed_sheet=2,
-        )
-        batch = executor.get_next_parallel_batch(state)
-        assert batch == []
-
-    def test_estimate_parallel_groups_no_dag(self) -> None:
-        executor = self._make_executor()
-        groups = executor.estimate_parallel_groups()
-        assert groups == []
-
-
-# =============================================================================
 # execution/hooks.py tests
 # =============================================================================
 
@@ -1003,7 +824,9 @@ class TestHookExecutor:
         from marianne.core.config import PostSuccessHookConfig
 
         hook = PostSuccessHookConfig(
-            type="run_command", command="echo hello", timeout_seconds=10,
+            type="run_command",
+            command="echo hello",
+            timeout_seconds=10,
         )
         result = await executor._execute_shell_command(hook)
         assert result.success is True
@@ -1014,7 +837,9 @@ class TestHookExecutor:
         from marianne.core.config import PostSuccessHookConfig
 
         hook = PostSuccessHookConfig(
-            type="run_script", command="echo hello", timeout_seconds=10,
+            type="run_script",
+            command="echo hello",
+            timeout_seconds=10,
         )
         result = await executor._execute_script(hook)
         assert result.success is True
@@ -1032,7 +857,8 @@ class TestHookExecutor:
         from marianne.core.config import PostSuccessHookConfig
 
         hook = PostSuccessHookConfig(
-            type="run_job", job_path=Path("/nonexistent/job.yaml"),
+            type="run_job",
+            job_path=Path("/nonexistent/job.yaml"),
         )
         result = await executor._execute_run_job(hook)
         assert not result.success
@@ -1138,7 +964,9 @@ class TestDelayHistory:
 
         history = DelayHistory()
         outcome = DelayOutcome(
-            error_code=ErrorCode.EXECUTION_TIMEOUT, delay_seconds=5.0, succeeded_after=True,
+            error_code=ErrorCode.EXECUTION_TIMEOUT,
+            delay_seconds=5.0,
+            succeeded_after=True,
         )
         history.record(outcome)
         results = history.query_for_error_code(ErrorCode.EXECUTION_TIMEOUT)
@@ -1150,9 +978,13 @@ class TestDelayHistory:
 
         history = DelayHistory()
         for delay in [5.0, 10.0, 15.0]:
-            history.record(DelayOutcome(
-                error_code=ErrorCode.EXECUTION_TIMEOUT, delay_seconds=delay, succeeded_after=True,
-            ))
+            history.record(
+                DelayOutcome(
+                    error_code=ErrorCode.EXECUTION_TIMEOUT,
+                    delay_seconds=delay,
+                    succeeded_after=True,
+                )
+            )
         avg = history.get_average_successful_delay(ErrorCode.EXECUTION_TIMEOUT)
         assert avg is not None
         assert abs(avg - 10.0) < 0.01
@@ -1162,9 +994,13 @@ class TestDelayHistory:
         from marianne.execution.retry_strategy import DelayHistory, DelayOutcome
 
         history = DelayHistory()
-        history.record(DelayOutcome(
-            error_code=ErrorCode.EXECUTION_TIMEOUT, delay_seconds=5.0, succeeded_after=False,
-        ))
+        history.record(
+            DelayOutcome(
+                error_code=ErrorCode.EXECUTION_TIMEOUT,
+                delay_seconds=5.0,
+                succeeded_after=False,
+            )
+        )
         avg = history.get_average_successful_delay(ErrorCode.EXECUTION_TIMEOUT)
         assert avg is None
 
@@ -1174,9 +1010,13 @@ class TestDelayHistory:
 
         history = DelayHistory()
         for _ in range(3):
-            history.record(DelayOutcome(
-                error_code=ErrorCode.EXECUTION_TIMEOUT, delay_seconds=5.0, succeeded_after=True,
-            ))
+            history.record(
+                DelayOutcome(
+                    error_code=ErrorCode.EXECUTION_TIMEOUT,
+                    delay_seconds=5.0,
+                    succeeded_after=True,
+                )
+            )
         assert history.get_sample_count(ErrorCode.EXECUTION_TIMEOUT) == 3
 
     def test_record_none_raises(self) -> None:
@@ -1192,9 +1032,13 @@ class TestDelayHistory:
 
         history = DelayHistory()
         with pytest.raises(ValueError):
-            history.record(DelayOutcome(
-                error_code=ErrorCode.EXECUTION_TIMEOUT, delay_seconds=-1.0, succeeded_after=True,
-            ))
+            history.record(
+                DelayOutcome(
+                    error_code=ErrorCode.EXECUTION_TIMEOUT,
+                    delay_seconds=-1.0,
+                    succeeded_after=True,
+                )
+            )
 
     def test_pruning(self) -> None:
         from marianne.core.errors import ErrorCode
@@ -1204,9 +1048,13 @@ class TestDelayHistory:
         # After prune, keeps last 5 per error code, then adds more
         history = DelayHistory(max_history=5)
         for i in range(60):
-            history.record(DelayOutcome(
-                error_code=ErrorCode.EXECUTION_TIMEOUT, delay_seconds=float(i), succeeded_after=True,
-            ))
+            history.record(
+                DelayOutcome(
+                    error_code=ErrorCode.EXECUTION_TIMEOUT,
+                    delay_seconds=float(i),
+                    succeeded_after=True,
+                )
+            )
         results = history.query_for_error_code(ErrorCode.EXECUTION_TIMEOUT)
         # After pruning at i=50 (51 items), keeps 5. Then adds 9 more = 14.
         # Important thing: pruning ran and reduced the list
@@ -1271,8 +1119,10 @@ class TestRetryRecommendation:
         from marianne.execution.retry_strategy import RetryRecommendation
 
         rec = RetryRecommendation(
-            should_retry=True, delay_seconds=5.0,
-            reason="test", confidence=0.8,
+            should_retry=True,
+            delay_seconds=5.0,
+            reason="test",
+            confidence=0.8,
         )
         assert rec.should_retry is True
 
@@ -1281,8 +1131,10 @@ class TestRetryRecommendation:
 
         with pytest.raises(ValueError, match="confidence"):
             RetryRecommendation(
-                should_retry=True, delay_seconds=5.0,
-                reason="test", confidence=2.0,
+                should_retry=True,
+                delay_seconds=5.0,
+                reason="test",
+                confidence=2.0,
             )
 
     def test_negative_delay(self) -> None:
@@ -1290,16 +1142,20 @@ class TestRetryRecommendation:
 
         with pytest.raises(ValueError, match="delay_seconds"):
             RetryRecommendation(
-                should_retry=True, delay_seconds=-1.0,
-                reason="test", confidence=0.8,
+                should_retry=True,
+                delay_seconds=-1.0,
+                reason="test",
+                confidence=0.8,
             )
 
     def test_to_dict(self) -> None:
         from marianne.execution.retry_strategy import RetryRecommendation
 
         rec = RetryRecommendation(
-            should_retry=True, delay_seconds=5.0,
-            reason="test", confidence=0.8,
+            should_retry=True,
+            delay_seconds=5.0,
+            reason="test",
+            confidence=0.8,
         )
         d = rec.to_dict()
         assert d["should_retry"] is True
@@ -1342,7 +1198,9 @@ class TestErrorRecord:
             retriable=True,
         )
         result = ClassificationResult(
-            primary=primary, secondary=[], confidence=0.9,
+            primary=primary,
+            secondary=[],
+            confidence=0.9,
         )
         record = ErrorRecord.from_classification_result(result, sheet_num=1)
         assert record.root_cause_confidence == 0.9
@@ -1407,7 +1265,9 @@ class TestAdaptiveRetryStrategy:
 
         strategy = AdaptiveRetryStrategy()
         record = self._make_error_record(
-            code="E101", category="rate_limit", suggested_wait=60.0,
+            code="E101",
+            category="rate_limit",
+            suggested_wait=60.0,
         )
         rec = strategy.analyze([record])
         assert rec.should_retry is True
@@ -1432,19 +1292,28 @@ class TestAdaptiveRetryStrategy:
         base_time = time_mod.monotonic() - 100  # errors from 100s ago
         records = [
             ErrorRecord(
-                timestamp=datetime.now(UTC), error_code=ErrorCode.EXECUTION_TIMEOUT,
-                category=ErrorCategory.TRANSIENT, message="e1",
-                retriable=True, monotonic_time=base_time,
+                timestamp=datetime.now(UTC),
+                error_code=ErrorCode.EXECUTION_TIMEOUT,
+                category=ErrorCategory.TRANSIENT,
+                message="e1",
+                retriable=True,
+                monotonic_time=base_time,
             ),
             ErrorRecord(
-                timestamp=datetime.now(UTC), error_code=ErrorCode.NETWORK_DNS_ERROR,
-                category=ErrorCategory.TRANSIENT, message="e2",
-                retriable=True, monotonic_time=base_time + 30,
+                timestamp=datetime.now(UTC),
+                error_code=ErrorCode.NETWORK_DNS_ERROR,
+                category=ErrorCategory.TRANSIENT,
+                message="e2",
+                retriable=True,
+                monotonic_time=base_time + 30,
             ),
             ErrorRecord(
-                timestamp=datetime.now(UTC), error_code=ErrorCode.BACKEND_AUTH,
-                category=ErrorCategory.TRANSIENT, message="e3",
-                retriable=True, monotonic_time=base_time + 60,
+                timestamp=datetime.now(UTC),
+                error_code=ErrorCode.BACKEND_AUTH,
+                category=ErrorCategory.TRANSIENT,
+                message="e3",
+                retriable=True,
+                monotonic_time=base_time + 60,
             ),
         ]
         rec = strategy.analyze(records)
@@ -1465,24 +1334,36 @@ class TestAdaptiveRetryStrategy:
         base_time = time_mod.monotonic() - 100
         records = [
             ErrorRecord(
-                timestamp=datetime.now(UTC), error_code=ErrorCode.EXECUTION_TIMEOUT,
-                category=ErrorCategory.TRANSIENT, message="e1",
-                retriable=True, monotonic_time=base_time,
+                timestamp=datetime.now(UTC),
+                error_code=ErrorCode.EXECUTION_TIMEOUT,
+                category=ErrorCategory.TRANSIENT,
+                message="e1",
+                retriable=True,
+                monotonic_time=base_time,
             ),
             ErrorRecord(
-                timestamp=datetime.now(UTC), error_code=ErrorCode.NETWORK_DNS_ERROR,
-                category=ErrorCategory.TRANSIENT, message="e2",
-                retriable=True, monotonic_time=base_time + 30,
+                timestamp=datetime.now(UTC),
+                error_code=ErrorCode.NETWORK_DNS_ERROR,
+                category=ErrorCategory.TRANSIENT,
+                message="e2",
+                retriable=True,
+                monotonic_time=base_time + 30,
             ),
             ErrorRecord(
-                timestamp=datetime.now(UTC), error_code=ErrorCode.BACKEND_AUTH,
-                category=ErrorCategory.TRANSIENT, message="e3",
-                retriable=True, monotonic_time=base_time + 60,
+                timestamp=datetime.now(UTC),
+                error_code=ErrorCode.BACKEND_AUTH,
+                category=ErrorCategory.TRANSIENT,
+                message="e3",
+                retriable=True,
+                monotonic_time=base_time + 60,
             ),
             ErrorRecord(
-                timestamp=datetime.now(UTC), error_code=ErrorCode.EXECUTION_CRASHED,
-                category=ErrorCategory.TRANSIENT, message="e4",
-                retriable=True, monotonic_time=base_time + 90,
+                timestamp=datetime.now(UTC),
+                error_code=ErrorCode.EXECUTION_CRASHED,
+                category=ErrorCategory.TRANSIENT,
+                message="e4",
+                retriable=True,
+                monotonic_time=base_time + 90,
             ),
         ]
         rec = strategy.analyze(records)
@@ -1531,9 +1412,13 @@ class TestAdaptiveRetryStrategy:
 
         history = DelayHistory()
         for _ in range(10):
-            history.record(DelayOutcome(
-                error_code=ErrorCode.EXECUTION_TIMEOUT, delay_seconds=20.0, succeeded_after=True,
-            ))
+            history.record(
+                DelayOutcome(
+                    error_code=ErrorCode.EXECUTION_TIMEOUT,
+                    delay_seconds=20.0,
+                    succeeded_after=True,
+                )
+            )
         strategy = AdaptiveRetryStrategy(delay_history=history)
         delay, strat = strategy.blend_historical_delay(ErrorCode.EXECUTION_TIMEOUT, 10.0)
         assert strat == "learned_blend"
@@ -1592,9 +1477,7 @@ class TestAdaptiveRetryStrategy:
         from marianne.execution.retry_strategy import AdaptiveRetryStrategy
 
         mock_store = MagicMock()
-        mock_store.get_learned_wait_time_with_fallback.return_value = (
-            15.0, 0.85, "global_learned"
-        )
+        mock_store.get_learned_wait_time_with_fallback.return_value = (15.0, 0.85, "global_learned")
         strategy = AdaptiveRetryStrategy(global_learning_store=mock_store)
         delay, strat = strategy.blend_historical_delay(ErrorCode.EXECUTION_TIMEOUT, 10.0)
         assert strat == "global_learned"
@@ -1604,9 +1487,7 @@ class TestAdaptiveRetryStrategy:
         from marianne.execution.retry_strategy import AdaptiveRetryStrategy
 
         mock_store = MagicMock()
-        mock_store.get_learned_wait_time_with_fallback.return_value = (
-            10.0, 0.5, "static_fallback"
-        )
+        mock_store.get_learned_wait_time_with_fallback.return_value = (10.0, 0.5, "static_fallback")
         strategy = AdaptiveRetryStrategy(global_learning_store=mock_store)
         delay, strat = strategy.blend_historical_delay(ErrorCode.EXECUTION_TIMEOUT, 10.0)
         assert strat == "static"
@@ -1649,7 +1530,8 @@ class TestValidationEngine:
         engine = self._make_engine(tmp_path)
         (tmp_path / "test.txt").write_text("hello")
         rule = ValidationRule(
-            type="file_exists", path=str(tmp_path / "test.txt"),
+            type="file_exists",
+            path=str(tmp_path / "test.txt"),
             description="file exists",
         )
         result = engine._check_file_exists(rule)
@@ -1660,7 +1542,8 @@ class TestValidationEngine:
 
         engine = self._make_engine(tmp_path)
         rule = ValidationRule(
-            type="file_exists", path=str(tmp_path / "missing.txt"),
+            type="file_exists",
+            path=str(tmp_path / "missing.txt"),
             description="file exists",
         )
         result = engine._check_file_exists(rule)
@@ -1673,8 +1556,10 @@ class TestValidationEngine:
         engine = self._make_engine(tmp_path)
         (tmp_path / "test.txt").write_text("hello world")
         rule = ValidationRule(
-            type="content_contains", path=str(tmp_path / "test.txt"),
-            pattern="hello", description="contains hello",
+            type="content_contains",
+            path=str(tmp_path / "test.txt"),
+            pattern="hello",
+            description="contains hello",
         )
         result = engine._check_content_contains(rule)
         assert result.passed is True
@@ -1685,8 +1570,10 @@ class TestValidationEngine:
         engine = self._make_engine(tmp_path)
         (tmp_path / "test.txt").write_text("hello world")
         rule = ValidationRule(
-            type="content_contains", path=str(tmp_path / "test.txt"),
-            pattern="foobar", description="contains foobar",
+            type="content_contains",
+            path=str(tmp_path / "test.txt"),
+            pattern="foobar",
+            description="contains foobar",
         )
         result = engine._check_content_contains(rule)
         assert result.passed is False
@@ -1696,8 +1583,10 @@ class TestValidationEngine:
 
         engine = self._make_engine(tmp_path)
         rule = ValidationRule(
-            type="content_contains", path=str(tmp_path / "no.txt"),
-            pattern="x", description="test",
+            type="content_contains",
+            path=str(tmp_path / "no.txt"),
+            pattern="x",
+            description="test",
         )
         result = engine._check_content_contains(rule)
         assert result.passed is False
@@ -1708,8 +1597,10 @@ class TestValidationEngine:
         engine = self._make_engine(tmp_path)
         (tmp_path / "test.txt").write_text("version 2.1.0")
         rule = ValidationRule(
-            type="content_regex", path=str(tmp_path / "test.txt"),
-            pattern=r"version \d+\.\d+\.\d+", description="version regex",
+            type="content_regex",
+            path=str(tmp_path / "test.txt"),
+            pattern=r"version \d+\.\d+\.\d+",
+            description="version regex",
         )
         result = engine._check_content_regex(rule)
         assert result.passed is True
@@ -1720,8 +1611,10 @@ class TestValidationEngine:
         engine = self._make_engine(tmp_path)
         (tmp_path / "test.txt").write_text("no version here")
         rule = ValidationRule(
-            type="content_regex", path=str(tmp_path / "test.txt"),
-            pattern=r"version \d+", description="version regex",
+            type="content_regex",
+            path=str(tmp_path / "test.txt"),
+            pattern=r"version \d+",
+            description="version regex",
         )
         result = engine._check_content_regex(rule)
         assert result.passed is False
@@ -1731,8 +1624,10 @@ class TestValidationEngine:
 
         engine = self._make_engine(tmp_path)
         rule = ValidationRule(
-            type="content_regex", path=str(tmp_path / "no.txt"),
-            pattern=r".*", description="test",
+            type="content_regex",
+            path=str(tmp_path / "no.txt"),
+            pattern=r".*",
+            description="test",
         )
         result = engine._check_content_regex(rule)
         assert result.passed is False
@@ -1746,7 +1641,9 @@ class TestValidationEngine:
         test_file = tmp_path / "test.txt"
         test_file.write_text("original")
         rule = ValidationRule(
-            type="file_modified", path=str(test_file), description="modified",
+            type="file_modified",
+            path=str(test_file),
+            description="modified",
         )
         engine.snapshot_mtime_files([rule])
         # Ensure mtime changes by setting it to the future
@@ -1762,7 +1659,9 @@ class TestValidationEngine:
         test_file = tmp_path / "test.txt"
         test_file.write_text("original")
         rule = ValidationRule(
-            type="file_modified", path=str(test_file), description="modified",
+            type="file_modified",
+            path=str(test_file),
+            description="modified",
         )
         engine.snapshot_mtime_files([rule])
         result = engine._check_file_modified(rule)
@@ -1773,7 +1672,9 @@ class TestValidationEngine:
 
         engine = self._make_engine(tmp_path)
         rule = ValidationRule(
-            type="file_modified", path=str(tmp_path / "no.txt"), description="test",
+            type="file_modified",
+            path=str(tmp_path / "no.txt"),
+            description="test",
         )
         result = engine._check_file_modified(rule)
         assert result.passed is False
@@ -1783,7 +1684,8 @@ class TestValidationEngine:
 
         engine = self._make_engine(tmp_path)
         rule = ValidationRule(
-            type="command_succeeds", command="echo hello",
+            type="command_succeeds",
+            command="echo hello",
             description="echo test",
         )
         result = await engine._check_command_succeeds(rule)
@@ -1795,7 +1697,8 @@ class TestValidationEngine:
 
         engine = self._make_engine(tmp_path)
         rule = ValidationRule(
-            type="command_succeeds", command="false",
+            type="command_succeeds",
+            command="false",
             description="always fails",
         )
         result = await engine._check_command_succeeds(rule)
@@ -1806,8 +1709,10 @@ class TestValidationEngine:
 
         engine = self._make_engine(tmp_path)
         rule = ValidationRule(
-            type="command_succeeds", command="sleep 30",
-            description="timeout test", timeout_seconds=0.1,
+            type="command_succeeds",
+            command="sleep 30",
+            description="timeout test",
+            timeout_seconds=0.1,
         )
         result = await engine._check_command_succeeds(rule)
         assert result.passed is False
@@ -1820,7 +1725,8 @@ class TestValidationEngine:
         (tmp_path / "test.txt").write_text("hello")
         rules = [
             ValidationRule(
-                type="file_exists", path=str(tmp_path / "test.txt"),
+                type="file_exists",
+                path=str(tmp_path / "test.txt"),
                 description="exists",
             ),
         ]
@@ -1835,12 +1741,17 @@ class TestValidationEngine:
         (tmp_path / "test.txt").write_text("hello")
         rules = [
             ValidationRule(
-                type="file_exists", path=str(tmp_path / "test.txt"),
-                description="stage 1", stage=1,
+                type="file_exists",
+                path=str(tmp_path / "test.txt"),
+                description="stage 1",
+                stage=1,
             ),
             ValidationRule(
-                type="content_contains", path=str(tmp_path / "test.txt"),
-                pattern="hello", description="stage 2", stage=2,
+                type="content_contains",
+                path=str(tmp_path / "test.txt"),
+                pattern="hello",
+                description="stage 2",
+                stage=2,
             ),
         ]
         result, failed_stage = await engine.run_staged_validations(rules)
@@ -1853,17 +1764,23 @@ class TestValidationEngine:
         engine = self._make_engine(tmp_path)
         rules = [
             ValidationRule(
-                type="file_exists", path=str(tmp_path / "missing.txt"),
-                description="stage 1 - missing", stage=1,
+                type="file_exists",
+                path=str(tmp_path / "missing.txt"),
+                description="stage 1 - missing",
+                stage=1,
             ),
             ValidationRule(
-                type="command_succeeds", command="echo ok",
-                description="stage 2 - skipped", stage=2,
+                type="command_succeeds",
+                command="echo ok",
+                description="stage 2 - skipped",
+                stage=2,
             ),
         ]
         result, failed_stage = await engine.run_staged_validations(rules)
         assert failed_stage == 1
-        stage_2_results = [r for r in result.results if "skipped" in (r.failure_category or "").lower()]
+        stage_2_results = [
+            r for r in result.results if "skipped" in (r.failure_category or "").lower()
+        ]
         assert len(stage_2_results) == 1
 
     async def test_run_staged_validations_empty(self, tmp_path: Path) -> None:
@@ -1897,11 +1814,15 @@ class TestValidationEngine:
         engine = self._make_engine(tmp_path)
         rules = [
             ValidationRule(
-                type="file_exists", path="test", description="always",
+                type="file_exists",
+                path="test",
+                description="always",
                 condition=None,
             ),
             ValidationRule(
-                type="file_exists", path="test", description="conditional",
+                type="file_exists",
+                path="test",
+                description="conditional",
                 condition="sheet_num > 5",
             ),
         ]
@@ -1914,8 +1835,11 @@ class TestValidationEngine:
         engine = self._make_engine(tmp_path)
         test_file = tmp_path / "delayed.txt"
         rule = ValidationRule(
-            type="file_exists", path=str(test_file),
-            description="retry test", retry_count=1, retry_delay_ms=10,
+            type="file_exists",
+            path=str(test_file),
+            description="retry test",
+            retry_count=1,
+            retry_delay_ms=10,
         )
         # File doesn't exist, should fail even after retry
         result = await engine._run_single_validation(rule)
@@ -1940,8 +1864,10 @@ class TestValidationEngine:
 
         engine = self._make_engine(tmp_path)
         rule = ValidationRule(
-            type="command_succeeds", command="pwd",
-            description="cwd test", working_directory=str(tmp_path),
+            type="command_succeeds",
+            command="pwd",
+            description="cwd test",
+            working_directory=str(tmp_path),
         )
         # Just verify it's callable (async test would be better but this validates path)
         assert rule.working_directory == str(tmp_path)
@@ -1953,8 +1879,10 @@ class TestValidationEngine:
         (tmp_path / "test.txt").write_text("short")
         long_pattern = "a" * 100
         rule = ValidationRule(
-            type="content_contains", path=str(tmp_path / "test.txt"),
-            pattern=long_pattern, description="long pattern",
+            type="content_contains",
+            path=str(tmp_path / "test.txt"),
+            pattern=long_pattern,
+            description="long pattern",
         )
         result = engine._check_content_contains(rule)
         assert result.passed is False
@@ -1966,8 +1894,10 @@ class TestValidationEngine:
         (tmp_path / "test.txt").write_text("short")
         long_pattern = "a" * 100
         rule = ValidationRule(
-            type="content_regex", path=str(tmp_path / "test.txt"),
-            pattern=long_pattern, description="long pattern",
+            type="content_regex",
+            path=str(tmp_path / "test.txt"),
+            pattern=long_pattern,
+            description="long pattern",
         )
         result = engine._check_content_regex(rule)
         assert result.passed is False
@@ -1992,7 +1922,9 @@ class TestGroundingTypes:
         from marianne.execution.grounding import GroundingContext
 
         ctx = GroundingContext(
-            job_id="test", sheet_num=1, prompt="test prompt",
+            job_id="test",
+            sheet_num=1,
+            prompt="test prompt",
             output="test output",
         )
         assert ctx.job_id == "test"
@@ -2048,8 +1980,10 @@ class TestGroundingTypes:
         from marianne.execution.grounding import GroundingResult
 
         result = GroundingResult(
-            passed=True, hook_name="test",
-            confidence=0.9, message="ok",
+            passed=True,
+            hook_name="test",
+            confidence=0.9,
+            message="ok",
         )
         assert result.passed is True
         assert result.hook_name == "test"
@@ -2108,7 +2042,10 @@ class TestGroundingEngineRun:
 
         engine = GroundingEngine(hooks=[])
         ctx = GroundingContext(
-            job_id="test", sheet_num=1, prompt="p", output="o",
+            job_id="test",
+            sheet_num=1,
+            prompt="p",
+            output="o",
         )
         results = await engine.run_hooks(ctx, GroundingPhase.POST_VALIDATION)
         assert results == []
@@ -2125,12 +2062,17 @@ class TestGroundingEngineRun:
         mock_hook.name = "mock"
         mock_hook.phase = GroundingPhase.POST_VALIDATION
         mock_hook.validate.return_value = GroundingResult(
-            passed=True, hook_name="mock",
-            confidence=1.0, message="ok",
+            passed=True,
+            hook_name="mock",
+            confidence=1.0,
+            message="ok",
         )
         engine = GroundingEngine(hooks=[mock_hook])
         ctx = GroundingContext(
-            job_id="test", sheet_num=1, prompt="p", output="o",
+            job_id="test",
+            sheet_num=1,
+            prompt="p",
+            output="o",
         )
         results = await engine.run_hooks(ctx, GroundingPhase.POST_VALIDATION)
         assert len(results) == 1
@@ -2148,17 +2090,24 @@ class TestGroundingEngineRun:
         pre_hook.name = "pre"
         pre_hook.phase = GroundingPhase.PRE_VALIDATION
         pre_hook.validate.return_value = GroundingResult(
-            passed=True, hook_name="pre", message="ok",
+            passed=True,
+            hook_name="pre",
+            message="ok",
         )
         post_hook = AsyncMock()
         post_hook.name = "post"
         post_hook.phase = GroundingPhase.POST_VALIDATION
         post_hook.validate.return_value = GroundingResult(
-            passed=True, hook_name="post", message="ok",
+            passed=True,
+            hook_name="post",
+            message="ok",
         )
         engine = GroundingEngine(hooks=[pre_hook, post_hook])
         ctx = GroundingContext(
-            job_id="test", sheet_num=1, prompt="p", output="o",
+            job_id="test",
+            sheet_num=1,
+            prompt="p",
+            output="o",
         )
         # Only pre-validation hooks should run
         results = await engine.run_hooks(ctx, GroundingPhase.PRE_VALIDATION)
@@ -2177,11 +2126,16 @@ class TestGroundingEngineRun:
         both_hook.name = "both"
         both_hook.phase = GroundingPhase.BOTH
         both_hook.validate.return_value = GroundingResult(
-            passed=True, hook_name="both", message="ok",
+            passed=True,
+            hook_name="both",
+            message="ok",
         )
         engine = GroundingEngine(hooks=[both_hook])
         ctx = GroundingContext(
-            job_id="test", sheet_num=1, prompt="p", output="o",
+            job_id="test",
+            sheet_num=1,
+            prompt="p",
+            output="o",
         )
         results = await engine.run_hooks(ctx, GroundingPhase.PRE_VALIDATION)
         assert len(results) == 1
@@ -2211,7 +2165,10 @@ class TestGroundingEngineRun:
 
         engine = GroundingEngine(hooks=[slow_hook], config=config)
         ctx = GroundingContext(
-            job_id="test", sheet_num=1, prompt="p", output="o",
+            job_id="test",
+            sheet_num=1,
+            prompt="p",
+            output="o",
         )
         results = await engine.run_hooks(ctx, GroundingPhase.POST_VALIDATION)
         assert len(results) == 1
@@ -2232,7 +2189,10 @@ class TestGroundingEngineRun:
 
         engine = GroundingEngine(hooks=[failing_hook])
         ctx = GroundingContext(
-            job_id="test", sheet_num=1, prompt="p", output="o",
+            job_id="test",
+            sheet_num=1,
+            prompt="p",
+            output="o",
         )
         results = await engine.run_hooks(ctx, GroundingPhase.POST_VALIDATION)
         assert len(results) == 1
@@ -2247,7 +2207,10 @@ class TestGroundingEngineRun:
 
         hook = FileChecksumGroundingHook()
         ctx = GroundingContext(
-            job_id="test", sheet_num=1, prompt="p", output="o",
+            job_id="test",
+            sheet_num=1,
+            prompt="p",
+            output="o",
         )
         result = await hook.validate(ctx)
         assert result.passed is True
@@ -2262,7 +2225,10 @@ class TestGroundingEngineRun:
             expected_checksums={"/nonexistent/file.txt": "abc123"},
         )
         ctx = GroundingContext(
-            job_id="test", sheet_num=1, prompt="p", output="o",
+            job_id="test",
+            sheet_num=1,
+            prompt="p",
+            output="o",
         )
         result = await hook.validate(ctx)
         assert result.passed is False
@@ -2283,7 +2249,10 @@ class TestGroundingEngineRun:
             expected_checksums={str(test_file): expected_hash},
         )
         ctx = GroundingContext(
-            job_id="test", sheet_num=1, prompt="p", output="o",
+            job_id="test",
+            sheet_num=1,
+            prompt="p",
+            output="o",
         )
         result = await hook.validate(ctx)
         assert result.passed is True
@@ -2301,7 +2270,10 @@ class TestGroundingEngineRun:
             expected_checksums={str(test_file): "wrong_hash"},
         )
         ctx = GroundingContext(
-            job_id="test", sheet_num=1, prompt="p", output="o",
+            job_id="test",
+            sheet_num=1,
+            prompt="p",
+            output="o",
         )
         result = await hook.validate(ctx)
         assert result.passed is False

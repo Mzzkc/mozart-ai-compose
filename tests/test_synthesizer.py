@@ -22,10 +22,6 @@ from marianne.core.config.workspace import IsolationConfig
 import pytest
 
 from marianne.core.checkpoint import CheckpointState
-try:
-    from marianne.execution.parallel import ParallelBatchResult
-except ImportError:
-    ParallelBatchResult = None  # type: ignore[assignment,misc]
 from marianne.execution.synthesizer import (
     ResultSynthesizer,
     SynthesisConfig,
@@ -570,51 +566,6 @@ class TestCheckpointStateSynthesis:
 
 
 # =============================================================================
-# ParallelBatchResult Synthesis Fields Tests
-# =============================================================================
-
-
-@pytest.mark.skipif(ParallelBatchResult is None, reason="ParallelBatchResult removed with runner")
-class TestParallelBatchResultSynthesis:
-    """Tests for ParallelBatchResult synthesis-related fields."""
-
-    def test_default_synthesis_fields(self):
-        """New fields have correct defaults."""
-        result = ParallelBatchResult()
-
-        assert result.sheet_outputs == {}
-        assert result.synthesis_ready is False
-
-    def test_to_dict_includes_synthesis_fields(self):
-        """to_dict includes synthesis fields."""
-        result = ParallelBatchResult(
-            sheets=[1, 2],
-            completed=[1, 2],
-            sheet_outputs={1: "out1", 2: "out2"},
-            synthesis_ready=True,
-        )
-
-        data = result.to_dict()
-
-        assert "sheet_outputs" in data
-        assert data["sheet_outputs"] == {1: "out1", 2: "out2"}
-        assert data["synthesis_ready"] is True
-
-    def test_synthesis_fields_preserved(self):
-        """Synthesis fields can be set and retrieved."""
-        result = ParallelBatchResult(
-            sheets=[1, 2, 3],
-            completed=[1, 2],
-            failed=[3],
-        )
-
-        result.sheet_outputs = {1: "content1", 2: "content2"}
-        result.synthesis_ready = True
-
-        assert len(result.sheet_outputs) == 2
-        assert result.synthesis_ready is True
-
-
 # =============================================================================
 # Error Handling Tests
 # =============================================================================
@@ -664,22 +615,6 @@ class TestSynthesizerErrorHandling:
         # Should still succeed with available outputs
         assert result.status == "ready"
         assert 2 not in result.sheet_outputs
-
-
-# =============================================================================
-# Integration Tests with Mock Runner
-# =============================================================================
-
-
-class TestSynthesizerRunnerIntegration:
-    """Tests for synthesizer integration with runner.
-
-    The runner has been removed — synthesis is now handled by the baton.
-    """
-
-    @pytest.mark.skip(reason="Runner removed — synthesis now in baton")
-    async def test_runner_synthesize_batch_outputs(self):
-        """Obsolete: JobRunner no longer exists."""
 
 
 # =============================================================================
@@ -821,11 +756,19 @@ class TestConflictDetectionResult:
             sheets_analyzed=[1, 2, 3],
             conflicts=[
                 OutputConflict(
-                    key="A", sheet_a=1, value_a="x", sheet_b=2, value_b="y",
+                    key="A",
+                    sheet_a=1,
+                    value_a="x",
+                    sheet_b=2,
+                    value_b="y",
                     severity="error",
                 ),
                 OutputConflict(
-                    key="B", sheet_a=1, value_a="p", sheet_b=3, value_b="q",
+                    key="B",
+                    sheet_a=1,
+                    value_a="p",
+                    sheet_b=3,
+                    value_b="q",
                     severity="warning",
                 ),
             ],
@@ -848,7 +791,11 @@ class TestConflictDetectionResult:
             sheets_analyzed=[1, 2],
             conflicts=[
                 OutputConflict(
-                    key="X", sheet_a=1, value_a="a", sheet_b=2, value_b="b",
+                    key="X",
+                    sheet_a=1,
+                    value_a="a",
+                    sheet_b=2,
+                    value_b="b",
                 ),
             ],
             keys_checked=3,
