@@ -825,21 +825,17 @@ class TestRateLimitExpiryTransitions:
                 return_value=True,
             ),
         ):
-            # Report a very short limit
             await coordinator.report_rate_limit(
                 backend_type="claude_cli",
-                wait_seconds=0.02,
+                wait_seconds=0.5,
                 job_id="job-a",
                 sheet_num=1,
             )
 
-            # Immediately: HIGH
             assert controller.current_level() == PressureLevel.HIGH
 
-            # Wait for expiry
-            await asyncio.sleep(0.03)
+            await asyncio.sleep(0.6)
 
-            # After expiry: back to NONE
             assert controller.current_level() == PressureLevel.NONE
 
     @pytest.mark.asyncio
