@@ -138,7 +138,7 @@ class TestProfileDetails:
         assert profile.cli.command.prompt_flag is None
         assert profile.cli.command.output_format_flag == "--format"
         assert profile.cli.command.output_format_value == "json"
-        assert profile.cli.output.format == "json"
+        assert profile.cli.output.format == "jsonl"
         # All models should be free-tier
         assert len(profile.models) >= 5
         for model in profile.models:
