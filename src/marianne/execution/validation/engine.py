@@ -599,7 +599,7 @@ class ValidationEngine:
                             pass
                         try:
                             await asyncio.wait_for(proc.wait(), timeout=2.0)
-                        except asyncio.TimeoutError:
+                        except TimeoutError:
                             try:
                                 _safe_killpg(pgid, signal.SIGKILL, context="validation.kill_force")
                             except (ProcessLookupError, PermissionError):

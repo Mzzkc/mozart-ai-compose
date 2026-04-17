@@ -79,7 +79,7 @@ async def _kill_process_group_if_alive(
         pass
     try:
         await asyncio.wait_for(proc.wait(), timeout=_KILL_GRACE_SECONDS)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         # Grace expired — SIGKILL the entire group.
         try:
             _safe_killpg(pgid, signal.SIGKILL, context="cli_backend.kill_force")
