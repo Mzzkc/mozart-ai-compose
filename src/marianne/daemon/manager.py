@@ -2546,6 +2546,7 @@ class JobManager:
             cross_sheet=config.cross_sheet,  # F-210
             pacing_seconds=float(config.pause_between_sheets_seconds),
             live_sheets=initial_state.sheets,
+            techniques=config.techniques or None,
         )
 
         try:
@@ -2725,6 +2726,7 @@ class JobManager:
             cross_sheet=config.cross_sheet,  # F-210
             pacing_seconds=float(config.pause_between_sheets_seconds),
             live_sheets=checkpoint.sheets,
+            techniques=config.techniques or None,
         )
 
         # Reconcile live state with baton's view: recover_job resets

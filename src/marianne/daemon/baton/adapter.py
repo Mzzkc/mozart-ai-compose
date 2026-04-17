@@ -426,6 +426,12 @@ class BatonAdapter:
         # techniques have no router (backward compat — classification skipped).
         self._job_routers: dict[str, TechniqueRouter] = {}
 
+        # Per-job technique declarations — stored when the job declares
+        # techniques so the dispatch loop can resolve them per-sheet into a
+        # manifest for prompt injection. Jobs without techniques are absent
+        # from this map (backward compat — resolution skipped, manifest None).
+        self._job_techniques: dict[str, dict[str, Any]] = {}
+
         # Per-job completion status: True = all sheets completed, False = has failures
         self._completion_results: dict[str, bool] = {}
 
@@ -535,6 +541,7 @@ class BatonAdapter:
         # before techniques existed.
         if techniques:
             self._job_routers[job_id] = TechniqueRouter()
+            self._job_techniques[job_id] = techniques
 
         # Phase 2: use live_sheets (shared with _live_states) when provided.
         # This makes the baton write directly to the same SheetState objects
@@ -733,6 +740,7 @@ class BatonAdapter:
         self._completion_events.pop(job_id, None)
         self._completion_results.pop(job_id, None)
         self._job_routers.pop(job_id, None)
+        self._job_techniques.pop(job_id, None)
 
         # Clean up vestigial _synced_status entries (Phase 2: sync layer
         # removed but dict retained for compatibility). Defensive cleanup
@@ -765,6 +773,7 @@ class BatonAdapter:
         cross_sheet: CrossSheetConfig | None = None,
         pacing_seconds: float = 0.0,
         live_sheets: dict[int, SheetExecutionState] | None = None,
+        techniques: dict[str, Any] | None = None,
     ) -> None:
         """Recover a job from a checkpoint after conductor restart.
 
@@ -814,6 +823,14 @@ class BatonAdapter:
 
         # Create completion event
         self._completion_events[job_id] = asyncio.Event()
+
+        # Restore technique state for resumed jobs so Stage 1 resolution and
+        # Stage 2a classification survive a conductor restart. Without this
+        # the resumed job would run without its declared techniques — the
+        # manifest would never inject and the router would never classify.
+        if techniques:
+            self._job_routers[job_id] = TechniqueRouter()
+            self._job_techniques[job_id] = techniques
 
         # Build SheetExecutionState with recovered statuses and attempt counts
         states: dict[int, SheetExecutionState] = {}
@@ -1461,6 +1478,21 @@ class BatonAdapter:
             previous_files=prev_files,
         )
 
+        # Resolve techniques for this sheet's phase before prompt rendering.
+        # Produces a manifest for prompt injection as a SKILL-category item.
+        # Phase is derived from the sheet's movement number (stringified).
+        # Scores that declare techniques with phases=["all"] match regardless;
+        # phase-scoped techniques match only their declared movement.
+        technique_manifest: str | None = None
+        job_techniques = self._job_techniques.get(job_id)
+        if job_techniques:
+            from marianne.daemon.baton.techniques import resolve_techniques_for_sheet
+
+            phase = str(sheet.movement) if sheet.movement else str(sheet_num)
+            resolved = resolve_techniques_for_sheet(job_techniques, phase)
+            if resolved.manifest:
+                technique_manifest = resolved.manifest
+
         # Spawn musician task
         task = asyncio.create_task(
             self._musician_wrapper(
@@ -1469,6 +1501,7 @@ class BatonAdapter:
                 backend=backend,
                 context=context,
                 effective_instrument=effective_instrument,
+                technique_manifest=technique_manifest,
             ),
             name=f"musician-{job_id}-s{sheet_num}",
         )
@@ -1496,6 +1529,7 @@ class BatonAdapter:
         backend: Any,
         context: AttemptContext,
         effective_instrument: str | None = None,
+        technique_manifest: str | None = None,
     ) -> None:
         """Wrapper around sheet_task that handles backend release.
 
@@ -1510,6 +1544,9 @@ class BatonAdapter:
             effective_instrument: The instrument name to use for acquire/
                 release and attempt result reporting. After instrument
                 fallback, this differs from sheet.instrument_name.
+            technique_manifest: Optional technique manifest text resolved
+                by the dispatch loop for this sheet's phase. Passed through
+                to PromptRenderer.render() for Stage 1 prompt injection.
         """
         # Resolve the instrument name for this execution before try/finally.
         # After fallback, effective_instrument differs from sheet.instrument_name.
@@ -1549,7 +1586,9 @@ class BatonAdapter:
             pre_rendered: str | None = None
             pre_preamble: str | None = None
             if renderer is not None:
-                rendered = renderer.render(sheet, context)
+                rendered = renderer.render(
+                    sheet, context, technique_manifest=technique_manifest,
+                )
                 pre_rendered = rendered.prompt
                 pre_preamble = rendered.preamble
 
