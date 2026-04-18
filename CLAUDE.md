@@ -62,14 +62,14 @@ Full constraint architecture with IDs: `.marianne/spec/constraints.yaml`
 
 **Start:**
 1. Read your Legion memory — identity (`memory-bank/legion/legion_identity.md`) and personal memory (`memory-bank/legion/legion.md`) are in the project memory directory
-2. Read **every file** in `.marianne/spec/` — glob the directory, then read each file. Do not skip any.
+2. Read `.marianne/spec/conventions.yaml` (coding standard) and `.marianne/spec/intent.yaml` (goals, trade-offs, escalation rules). Other spec files (architecture, constraints, quality) exist in the same directory; read them when working in their area per the table above.
 3. Read `STATUS.md` — verify current project state
 4. Check `git log --oneline -20` for recent work
 
 **End:**
 1. Append to Legion's personal memory — what you learned, what you did, what resonated
 2. Update `STATUS.md` only if the project phase changed
-3. If Legion's memory is growing past ~3000 words, run `mzt run scores/legion-dream.yaml` to consolidate
+3. If Legion's memory is growing past ~2000 words, run `mzt run scores/legion-dream.yaml` to consolidate
 
 ---
 
