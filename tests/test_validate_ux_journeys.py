@@ -236,3 +236,51 @@ class TestInitValidatePipeline:
 
         validate_result = runner.invoke(app, ["validate", str(score_file)])
         assert validate_result.exit_code == 0
+
+
+# =============================================================================
+# Story: Fleet Configs Through --json
+#
+# A CI pipeline pipes every YAML in a directory through `mzt validate --json`
+# to collect structured results. Fleet configs aren't scores, so validation
+# is skipped — but the JSON caller still needs parseable output, not an
+# empty stdout that breaks the downstream parser.
+# =============================================================================
+
+
+class TestFleetJsonOutput:
+    """Fleet configs produce parseable JSON on the --json path."""
+
+    @pytest.mark.adversarial
+    def test_validate_fleet_json_emits_json_body(self, tmp_path: Path) -> None:
+        """`mzt validate --json fleet.yaml` emits JSON, not empty stdout."""
+        import json as json_mod
+
+        fleet = tmp_path / "fleet.yaml"
+        fleet.write_text(
+            "name: test-fleet\n"
+            "type: fleet\n"
+            "scores:\n"
+            "  - path: a.yaml\n"
+        )
+        result = runner.invoke(app, ["validate", "--json", str(fleet)])
+        assert result.exit_code == 0
+        assert result.stdout.strip(), "fleet --json must not produce empty stdout"
+        payload = json_mod.loads(result.stdout)
+        assert payload["type"] == "fleet"
+        assert payload["valid"] is True
+        assert payload["skipped"] is True
+
+    @pytest.mark.adversarial
+    def test_validate_fleet_human_path_unchanged(self, tmp_path: Path) -> None:
+        """Non-JSON path still prints the human-readable notice."""
+        fleet = tmp_path / "fleet.yaml"
+        fleet.write_text(
+            "name: test-fleet\n"
+            "type: fleet\n"
+            "scores:\n"
+            "  - path: a.yaml\n"
+        )
+        result = runner.invoke(app, ["validate", str(fleet)])
+        assert result.exit_code == 0
+        assert "fleet config" in result.stdout

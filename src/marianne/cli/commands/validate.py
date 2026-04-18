@@ -108,6 +108,34 @@ def validate(
         )
         raise typer.Exit(2) from None
 
+    # Detect fleet configs — they aren't scores, so skip score validation
+    if parsed.get("type") == "fleet":
+        if json_output:
+            import json as json_mod
+
+            console.print(
+                json_mod.dumps(
+                    {
+                        "type": "fleet",
+                        "valid": True,
+                        "skipped": True,
+                        "message": (
+                            "Fleet config — not subject to score validation."
+                        ),
+                        "file": str(config_file),
+                    },
+                    indent=2,
+                ),
+                soft_wrap=True,
+                highlight=False,
+            )
+        else:
+            console.print(
+                f"\n[cyan]{config_file.name}[/cyan] is a fleet config, not a score."
+                " Fleet configs are not subject to score validation.",
+            )
+        raise typer.Exit(0) from None
+
     # Try Pydantic validation
     try:
         config = JobConfig.from_yaml(config_file)
