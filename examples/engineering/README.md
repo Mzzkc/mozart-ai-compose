@@ -6,18 +6,23 @@ These scores automate software development workflows — from solving GitHub iss
 
 | Score | What It Does | Sheets | Patterns Used | Time | Cost |
 |-------|-------------|--------|--------------|------|------|
-| [issue-solver](issue-solver.yaml) | Auto-selects issues from a roadmap, plans phased implementation, executes with parallel quality review, commits and ships | 19 | Succession Pipeline, Fan-out + Synthesis | 2-8h | ~$40-100 |
+| [issue-triage](issue-triage.yaml) | Discovers any project, safely scans open GitHub issues (Cisco AI Defense), builds a dependency DAG ready for autonomous solving | 9 | Source Triangulation, Triage Gate, Prefabrication | 30-90m | ~$5-15 |
+| [issue-solver](issue-solver.yaml) | Consumes the triage DAG, self-chains through solvable issues, plans phased implementation, executes with parallel quality review, commits and ships | 19 | Succession Pipeline, Fan-out + Synthesis, Read-and-React | 2-8h/iter | ~$40-100/iter |
 | [quality-continuous-generic](quality-continuous-generic.yaml) | Language-agnostic quality pipeline — parallel expert reviews, batched fixes by difficulty, commits and files GitHub issues for next iteration | 16 | Immune Cascade, Fan-out + Synthesis | 10-15h | ~$50-130 |
 | [score-composer](score-composer.yaml) | Reads a design document and generates a runnable Marianne score with implementation tasks, validations, and dependencies | 4 | Succession Pipeline | 1-2h | ~$10-20 |
 | [codebase-rewrite](codebase-rewrite.yaml) | Iterative language/framework migration with Cathedral Construction, CEGAR Loop, and Commissioning Cascade patterns | 8 | Cathedral Construction + CEGAR Loop + Commissioning Cascade | 4-12h | ~$20-60 |
 | [saas-app-builder](saas-app-builder.yaml) | Full-stack application generator with contract-first parallel builds and validation gates | 6 | Prefabrication + Shipyard Sequence + Commissioning Cascade | 2-6h | ~$10-30 |
 | [lovable-generator](lovable-generator.yaml) | Web application generator producing a complete deployable app from a concept description | 5 | Succession Pipeline | 1-3h | ~$5-15 |
 
-### issue-solver.yaml
+### issue-triage.yaml + issue-solver.yaml (concert)
 
-Point it at a roadmap file and a GitHub label. It selects the next eligible issue (respecting dependencies), investigates the codebase, plans a 1-4 phase implementation strategy, executes each phase with fix+completion passes, runs three parallel quality reviewers (functional, E2E, code quality) whose findings are synthesized before shipping, updates documentation, verifies all tests pass, commits, pushes, and closes the issue. Then self-chains to solve the next one.
+Two scores composed into a concert that autonomously solves any project's GitHub issues.
 
-The pipeline implements **Succession Pipeline** — each stage fundamentally transforms the workspace substrate (selection → investigation → plan → code → review → ship). Within the review phase, **Fan-out + Synthesis** launches three independent reviewers in parallel. Convergence from isolation produces genuine signal — each reviewer has no knowledge of the others' findings, so agreement indicates real issues.
+**issue-triage** runs first (once per project). It profiles the project (language, frameworks, build/test/lint commands, entry points) via **Source Triangulation**, fetches open issues from the target repository, and passes every issue body through a **Triage Gate**: the Cisco AI skill scanner rejects prompt-injection payloads while a hardened Python pass sanitizes titles/labels of shell-dangerous characters. Surviving issues are classified by tier (trivial → epic), their dependencies extracted by an LLM and triangulated against GitHub cross-references, and emitted as a `issue-dag.yaml` — a typed dependency graph ready for consumption.
+
+**issue-solver** then consumes that DAG. Each iteration picks the next solvable issue (no unresolved deps, lowest tier, lowest number), investigates the codebase, plans a 1-4 phase implementation strategy, executes each phase with fix+completion passes, runs three parallel quality reviewers (functional, E2E, code quality) whose findings are synthesized before shipping, updates documentation, verifies all tests pass, commits, pushes, closes the GitHub issue, atomically appends to the DAG's resolved list, and **self-chains** to solve the next one. When no issues remain, the chain terminates cleanly.
+
+The triage side implements **Source Triangulation** (multiple evidence sources for each dependency claim) and a **Triage Gate** (cheap scanner rejects before expensive classifier runs). The solver side implements **Succession Pipeline** — each stage fundamentally transforms the workspace substrate (selection → investigation → plan → code → review → ship) — with **Fan-out + Synthesis** in the review phase (three independent reviewers converge from isolation) and **Read-and-React** in selection (reads external DAG state at runtime, chooses next work accordingly).
 
 ### quality-continuous-generic.yaml
 
@@ -58,16 +63,28 @@ mzt status score-composer --watch
 
 ## Adapting to Your Project
 
-### issue-solver.yaml
+### issue-triage.yaml + issue-solver.yaml
 
-1. Set `roadmap_file` to your project's roadmap or backlog file (any format — Markdown, YAML, text)
-2. Set `issue_label` to the GitHub label used for target issues (e.g., "ready-for-ai", "good-first-issue")
-3. Configure test/lint/typecheck commands for your stack (test_command, lint_command, typecheck_command)
-4. Set `smoke_test_command` to verify basic functionality after changes
-5. Update `on_success.job_path` to the absolute path of this score (enables self-chaining)
-6. Authenticate GitHub CLI: `gh auth login`
+**Run triage first (once per project):**
 
-**Prerequisites:** gh CLI authenticated, roadmap file exists, issues labeled appropriately
+1. Set `repo` to the `owner/name` of the GitHub repository
+2. Set `project_root` to the absolute path of the project on disk (for discovery)
+3. Authenticate GitHub CLI: `gh auth login`
+4. Run it: `mzt run examples/engineering/issue-triage.yaml`
+
+Output: `examples/workspaces/issue-triage-workspace/issue-dag.yaml` — the dependency graph.
+
+**Then run the solver (self-chains until the DAG is exhausted):**
+
+1. Set `repo` to the same `owner/name` (validated against the DAG)
+2. Set `triage_workspace` to the absolute path of the triage workspace (containing `issue-dag.yaml`)
+3. Set `project_root` to the same absolute path used in triage
+4. Update `on_success.job_path` to the absolute path of `issue-solver.yaml` (enables self-chaining)
+5. Run it: `mzt run examples/engineering/issue-solver.yaml`
+
+**Prerequisites:** gh CLI authenticated, `cisco-ai-skill-scanner` installable via pip (auto-installed by triage), issue-triage has been run and produced a DAG.
+
+**Safety rails:** The solver refuses to push to `main`/`master`/`trunk` unless `ALLOW_PUSH_TO_MAIN=1` is exported. Commit titles are written to a file and committed via `-F` — never interpolated into shell. The DAG is updated atomically before the GitHub issue is closed, so crash-during-close is idempotent on replay.
 
 ### quality-continuous-generic.yaml
 
