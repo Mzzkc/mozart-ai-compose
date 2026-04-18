@@ -26,7 +26,14 @@ cli:
   command:
     executable: goose
     subcommand: "run"
-    prompt_flag: "-t"
+    # goose requires an explicit input-source flag: one of -i, -t, or --recipe.
+    # We deliver the prompt via stdin (consistent with the >32KB auto-stdin
+    # path from GH#188), so the flag pair must be `-i -`. Using `-t -` is
+    # not accepted by goose — only `-i` routes stdin into the instructions
+    # channel.
+    prompt_flag: "-i"
+    prompt_via_stdin: true
+    stdin_sentinel: "-"
     model_flag: "--model"
     output_format_flag: "--output-format"
     output_format_value: "json"
