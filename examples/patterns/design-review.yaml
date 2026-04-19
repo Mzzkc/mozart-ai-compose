@@ -54,7 +54,7 @@
 name: "design-review"
 description: "Multi-perspective design document review using Rashomon Gate pattern — five analytical frames with gap synthesis"
 
-workspace: "../workspaces/design-review-workspace"
+workspace: "../../workspaces/design-review-workspace"
 
 instrument: claude-code
 instrument_fallbacks:

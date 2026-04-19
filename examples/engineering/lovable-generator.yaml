@@ -21,7 +21,7 @@
 name: lovable-generator
 description: "Build an AI app generator — what Lovable raised $15.7M to create"
 
-workspace: ../workspaces/lovable-generator
+workspace: ../../workspaces/lovable-generator
 
 instrument: claude-code
 instrument_config:

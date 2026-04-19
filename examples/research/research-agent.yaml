@@ -59,7 +59,7 @@ description: >
   → learning), and Relay Zone compresses scan output before investigation to
   prevent context overflow.
 
-workspace: ../workspaces/research-agent
+workspace: ../../workspaces/research-agent
 
 instrument: claude-code
 instrument_fallbacks: [anthropic_api]

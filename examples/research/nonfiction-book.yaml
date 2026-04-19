@@ -65,7 +65,7 @@
 name: "nonfiction-book"
 description: "Non-fiction book authoring via Succession Pipeline — 8-phase Snowflake Method with consistency validation and word count gates"
 
-workspace: "../workspaces/book-workspace"
+workspace: "../../workspaces/book-workspace"
 
 instrument: claude-code
 instrument_fallbacks:

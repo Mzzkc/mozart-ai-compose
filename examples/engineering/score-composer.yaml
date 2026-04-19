@@ -49,7 +49,7 @@
 name: "score-composer"
 description: "Compose an implementation score from a design document using the Succession Pipeline pattern"
 
-workspace: "../workspaces/score-composer-workspace"
+workspace: "../../workspaces/score-composer-workspace"
 
 instrument: claude-code
 instrument_fallbacks:

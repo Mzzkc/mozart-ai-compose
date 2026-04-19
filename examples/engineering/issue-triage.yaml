@@ -59,7 +59,7 @@
 
 name: "issue-triage"
 description: "Discover project, safely triage GitHub issues, produce dependency DAG"
-workspace: "../workspaces/issue-triage-workspace"
+workspace: "../../workspaces/issue-triage-workspace"
 
 # Do NOT archive_on_fresh — the solver reads this workspace across its entire
 # self-chain. Overwriting mid-run would corrupt the DAG. Re-run this score

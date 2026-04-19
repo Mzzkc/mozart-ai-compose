@@ -58,7 +58,7 @@
 name: claim-verify
 description: "Verify technical claims through independent source analysis — code, docs, and tests"
 
-workspace: ../workspaces/claim-verify
+workspace: ../../workspaces/claim-verify
 
 instrument: claude-code
 instrument_fallbacks: [anthropic_api]

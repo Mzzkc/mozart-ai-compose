@@ -29,7 +29,7 @@
 name: hello-marianne
 description: "Three movements, three characters, one world — your first Marianne score"
 
-workspace: ../workspaces/hello-marianne
+workspace: ../../workspaces/hello-marianne
 
 instrument: claude-code
 instrument_config:

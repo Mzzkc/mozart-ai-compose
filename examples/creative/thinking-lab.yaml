@@ -38,7 +38,7 @@
 name: "thinking-lab"
 description: "Multi-perspective analysis of a hard question"
 
-workspace: "../workspaces/thinking-lab-workspace"
+workspace: "../../workspaces/thinking-lab-workspace"
 
 instrument: claude-code
 instrument_fallbacks: [anthropic_api]

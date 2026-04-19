@@ -30,7 +30,7 @@
 name: "cross-sheet-example"
 description: "Demonstrates cross-sheet context passing in a three-stage research pipeline"
 
-workspace: "../workspaces/cross-sheet-workspace"
+workspace: "../../workspaces/cross-sheet-workspace"
 
 instrument: claude-code
 instrument_fallbacks:

@@ -55,7 +55,7 @@
 name: "prelude-cadenza-demo"
 description: "Three-stage documentation pipeline demonstrating prelude/cadenza context injection"
 
-workspace: "../workspaces/prelude-demo-workspace"
+workspace: "../../workspaces/prelude-demo-workspace"
 
 instrument: claude-code
 instrument_fallbacks:

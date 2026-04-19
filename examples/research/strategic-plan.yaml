@@ -76,7 +76,7 @@
 name: "strategic-plan"
 description: "Strategic plan development via Succession Pipeline — PESTEL, Porter's Five Forces, and SWOT with parallel environmental analysis and SMART goal validation"
 
-workspace: "../workspaces/strategy-workspace"
+workspace: "../../workspaces/strategy-workspace"
 
 instrument: claude-code
 instrument_fallbacks:

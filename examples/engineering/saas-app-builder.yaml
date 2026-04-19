@@ -91,7 +91,7 @@ description: >
   and system levels). Three independent agents build backend, frontend, and
   database against a shared architecture contract.
 
-workspace: ../workspaces/saas-app-builder
+workspace: ../../workspaces/saas-app-builder
 
 instrument: claude-code
 instrument_fallbacks: [anthropic_api]

@@ -89,7 +89,7 @@
 
 name: "issue-solver"
 description: "Self-chaining issue solver driven by a triage DAG — one issue per iteration"
-workspace: "../workspaces/issue-solver-workspace"
+workspace: "../../workspaces/issue-solver-workspace"
 
 workspace_lifecycle:
   archive_on_fresh: true

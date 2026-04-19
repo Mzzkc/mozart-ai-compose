@@ -86,7 +86,7 @@
 name: "immune-cascade"
 description: "Immune Cascade: graduated security hardening — cheap sweeps narrow to expensive targeted investigation"
 
-workspace: ../workspaces/immune-cascade-workspace
+workspace: ../../workspaces/immune-cascade-workspace
 
 instrument: claude-code
 instrument_fallbacks: [anthropic_api]

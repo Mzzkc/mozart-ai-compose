@@ -97,7 +97,7 @@ description: >-
   for batch assignment, instrument_fallbacks for resilience, per-sheet
   fallback overrides, and cross-family verification.
 
-workspace: ../workspaces/instrument-showcase
+workspace: ../../workspaces/instrument-showcase
 
 # --- Score-Level Instrument Configuration ---
 # Default instrument for sheets not covered by instrument_map or movements.

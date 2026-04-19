@@ -89,7 +89,7 @@ description: >
   (coarse scan, triage, gate), and Commissioning Cascade provides
   multi-scope validation (unit, integration, acceptance).
 
-workspace: ../workspaces/codebase-rewrite
+workspace: ../../workspaces/codebase-rewrite
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # INSTRUMENT CONFIGURATION
