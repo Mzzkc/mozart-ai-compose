@@ -2239,6 +2239,10 @@ class JobManager:
         so that rate limit detections from any running job feed into the
         daemon's centralized RateLimitCoordinator.  The coordinator
         then informs the scheduler to skip the limited backend.
+
+        Also increments the job-level ``rate_limit_waits`` diagnostic
+        counter on CheckpointState so ``mzt status`` and ``mzt diagnose``
+        report accurate rate limit event counts.  (GH#100)
         """
         await self._rate_coordinator.report_rate_limit(
             backend_type=backend_type,
@@ -2246,6 +2250,11 @@ class JobManager:
             job_id=job_id,
             sheet_num=sheet_num,
         )
+
+        # GH#100: Increment the job-level diagnostic counter.
+        live = self._live_states.get(job_id)
+        if live is not None:
+            live.rate_limit_waits += 1
 
     async def _run_managed_task(
         self,
