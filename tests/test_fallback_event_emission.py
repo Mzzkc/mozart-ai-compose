@@ -1,9 +1,12 @@
 """TDD tests for InstrumentFallback event emission and EventBus publishing.
 
 The baton core emits InstrumentFallback events when instrument fallbacks
-occur — both at dispatch time (unavailable) and at exhaustion time
-(rate_limit_exhausted). These events must be collected by the core and
-published to the EventBus by the adapter for observability.
+occur — at dispatch time (``unavailable``) and at exhaustion time (reason
+derived from the last attempt). These events must be collected by the
+core and published to the EventBus by the adapter for observability.
+
+Reason derivation for exhaustion-time fallback is covered by
+``tests/test_baton_fallback_reason_derivation.py``.
 
 Gap identified: _check_and_fallback_unavailable() and _handle_exhaustion()
 log at INFO but never emit InstrumentFallback events. The event type exists,
@@ -11,7 +14,7 @@ the handler exists (passthrough), but the EventBus never sees them.
 
 Tests:
 1. Core collects InstrumentFallback on unavailable fallback
-2. Core collects InstrumentFallback on rate_limit_exhausted fallback
+2. Core collects InstrumentFallback on exhaustion-time fallback
 3. No fallback events emitted when no fallback occurs
 4. Multiple fallbacks in a chain produce multiple events
 5. Dispatch-time fallback produces event
@@ -115,7 +118,15 @@ class TestCoreFallbackEventEmission:
 
     def test_exhaustion_fallback_emits_event(self) -> None:
         """When retry budget is exhausted and a fallback is available,
-        _handle_exhaustion emits an InstrumentFallback event."""
+        _handle_exhaustion emits an InstrumentFallback event.
+
+        The event's ``reason`` is derived from the last recorded attempt
+        (see ``BatonCore._derive_fallback_reason`` and
+        ``tests/test_baton_fallback_reason_derivation.py``). With no
+        recorded attempts the reason falls back to the generic
+        ``"exhausted"`` — this test focuses on event emission mechanics,
+        not classification.
+        """
         baton = BatonCore()
         sheet = _make_sheet(1, "claude-code", ["gemini-cli"], max_retries=2)
         sheet.normal_attempts = 2  # Exhausted
@@ -131,7 +142,7 @@ class TestCoreFallbackEventEmission:
         assert isinstance(ev, InstrumentFallback)
         assert ev.from_instrument == "claude-code"
         assert ev.to_instrument == "gemini-cli"
-        assert ev.reason == "rate_limit_exhausted"
+        assert ev.reason == "exhausted"
         assert ev.job_id == "j1"
         assert ev.sheet_num == 1
 

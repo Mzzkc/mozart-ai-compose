@@ -634,7 +634,8 @@ class BatonCore:
         # Each fallback instrument gets a fresh retry budget.
         if sheet.has_fallback_available:
             from_instrument = sheet.instrument_name or ""
-            to_instrument = sheet.advance_fallback("rate_limit_exhausted")
+            reason = self._derive_fallback_reason(sheet)
+            to_instrument = sheet.advance_fallback(reason)
             if to_instrument is not None:
                 self._ensure_instrument_registered(to_instrument)
                 sheet.status = BatonSheetStatus.PENDING
@@ -645,7 +646,7 @@ class BatonCore:
                         sheet_num=sheet_num,
                         from_instrument=from_instrument,
                         to_instrument=to_instrument,
-                        reason="rate_limit_exhausted",
+                        reason=reason,
                     )
                 )
                 _logger.info(
@@ -655,7 +656,7 @@ class BatonCore:
                         SHEET_NUM_KEY: sheet_num,
                         "from_instrument": from_instrument,
                         "to_instrument": to_instrument,
-                        "reason": "rate_limit_exhausted",
+                        "reason": reason,
                     },
                 )
                 return
@@ -742,6 +743,58 @@ class BatonCore:
             },
         )
         self._propagate_failure_to_dependents(job_id, sheet_num)
+
+    @staticmethod
+    def _derive_fallback_reason(sheet: SheetExecutionState) -> str:
+        """Classify *why* a sheet's budget was exhausted, for fallback diagnostics.
+
+        The baton advances to the next instrument in the fallback chain once
+        the current instrument has exhausted its retry or completion budget.
+        The reason string attached to that transition ends up on the
+        ``InstrumentFallback`` event, in structured logs, and in the
+        ``mzt status`` UI. Historically this was hardcoded to
+        ``"rate_limit_exhausted"`` regardless of cause, which surfaced
+        misleading diagnostics whenever the real cause was something else
+        (validation failure, execution error, timeout, ...).
+
+        The classification reads the most recent attempt recorded on the
+        sheet and returns a stable label. See
+        ``tests/test_baton_fallback_reason_derivation.py`` for the full
+        contract; the short form is:
+
+        - Last attempt rate-limited                → ``"rate_limit_exhausted"``
+        - Last attempt succeeded, 0% validation    → ``"validation_failed"``
+        - Last attempt succeeded, partial pass     → ``"validation_incomplete"``
+        - Last attempt failed, TIMEOUT class       → ``"execution_timeout"``
+        - Last attempt failed, CRASH class         → ``"execution_crashed"``
+        - Last attempt failed, STALE class         → ``"execution_stale"``
+        - Last attempt failed, AUTH class          → ``"auth_failure"``
+        - Last attempt failed, other/unknown class → ``"execution_failed"``
+        - No attempts recorded                     → ``"exhausted"`` (generic)
+        """
+        if not sheet.attempt_results:
+            return "exhausted"
+        last = sheet.attempt_results[-1]
+        if last.rate_limited:
+            return "rate_limit_exhausted"
+        if last.execution_success:
+            if last.validation_pass_rate <= 0.0:
+                return "validation_failed"
+            if last.validation_pass_rate < 100.0:
+                return "validation_incomplete"
+            # 100% pass with success shouldn't reach exhaustion, but keep a
+            # stable label if it somehow does.
+            return "exhausted"
+        classification = (last.error_classification or "").upper()
+        if "TIMEOUT" in classification:
+            return "execution_timeout"
+        if "CRASH" in classification:
+            return "execution_crashed"
+        if "STALE" in classification:
+            return "execution_stale"
+        if "AUTH" in classification:
+            return "auth_failure"
+        return "execution_failed"
 
     def _check_and_fallback_unavailable(self, sheet: SheetExecutionState, job_id: str) -> bool:
         """Check if the sheet's current instrument is unavailable.

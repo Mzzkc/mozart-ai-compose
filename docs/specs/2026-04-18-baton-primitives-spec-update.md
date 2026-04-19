@@ -449,6 +449,102 @@ input-vs-output distinction is a starting point, not the final model.
 `--verbose` only. Authors define variables for documentation, future use, or
 consistency across score variants. This is legitimate.
 
+### Add: Instrument + Model Resolution (Not Just Names)
+
+**Finding (field, 2026-04-19):** The main spec's "Instrument resolution"
+section (2026-04-17, lines 743–747) only checks *instrument names*:
+
+> - Does every sheet's instrument resolve to a registered instrument?
+> - Do fallback chain entries resolve?
+> - Do per-sheet instrument overrides reference valid instruments?
+> - Typo detection via edit distance against known instrument names.
+
+This is insufficient. The `goose-fallback-test` score configured
+`instrument_config.model: "this-model-does-not-exist/invalid:free"` — a
+nonsense string not present in opencode's profile. The score passed
+validation, the conductor dispatched it, and opencode ran. Opencode then
+**exited 0** while writing `{"type":"error","error":{"name":"UnknownError",
+"data":{"message":"Model not found: this-model-does-not-exist/invalid:free."}}}`
+to stdout. Marianne's backend treated exit 0 as success. Only the post-run
+validation layer caught the failure (the prompt-requested file was never
+created), at which point the sheet was marked failed and fallback engaged
+against a budget that should have been protected from this class of failure
+in the first place.
+
+**TDF:**
+- **COMP:** The contract "registered instrument" is the wrong unit. The
+  exercisable unit is `(instrument, model)`. Separating the two lets invalid
+  models slip through.
+- **SCI:** We cannot rely on CLI instruments to exit non-zero on bad config.
+  Opencode is one counterexample; there will be others. Empirically, silent
+  success on misconfiguration is common.
+- **CULT:** Authors expect "validate the score" to mean "if I run it, it
+  won't blow up on something you could have told me about." A bogus model
+  name is exactly the shape of error they expect to catch.
+- **EXP:** The failure surface was terrible — budget burned, fallback
+  engaged with a mislabel (see separate finding on hardcoded
+  `"rate_limit_exhausted"` reason), next instrument got half the remaining
+  budget. All from a typo.
+- **META:** "Validation means resolvable config, not just syntactically
+  correct config." Resolution is the test, not parseability.
+
+**Change:** Expand the "Instrument resolution" check to cover model
+resolution and the full config surface:
+
+1. **Model reference resolution.** For every sheet, for every instrument in
+   the chain (primary + fallbacks + per-sheet overrides), if a model is
+   specified (via `instrument_config.model`, `sheet_overrides[*].model`, or
+   any similar field), the model name must resolve against the instrument
+   profile's declared `models:` list.
+   - Exact match → valid.
+   - No match, edit distance ≤ 2 against any declared model → **ERROR**
+     with a "did you mean" suggestion.
+   - No match, edit distance > 2 → **ERROR** with the list of declared
+     model names for that instrument.
+   - Instrument profile declares no `models:` list (open-ended provider) →
+     INFO only, note that the model will be accepted by the instrument if
+     reachable at runtime. Do NOT silently accept; do surface the choice so
+     authors see that no static check is possible.
+
+2. **Fallback chain model coherence.** If the primary instrument has a
+   model but a fallback has no matching model declared, emit an **ERROR**
+   — "fallback instrument `{name}` does not know model `{model}`" — unless
+   the fallback is explicitly configured with its own model override.
+
+3. **Per-sheet override resolution.** Sheet-level `instrument`/`model`
+   overrides must resolve against the same rules. Overrides bypass the
+   score-level config; validate them independently.
+
+4. **Profile presence, not just registration.** It is not enough that the
+   instrument is "registered." The instrument's profile YAML must be
+   loadable and pass its own schema validation. A malformed profile in
+   `src/marianne/instruments/builtins/` or a user override directory must
+   surface as an ERROR at score validation time, not at job dispatch.
+
+5. **Dry-run capability (future).** A `mzt validate --probe` flag runs a
+   minimal subprocess against each resolved (instrument, model) pair — no
+   prompt, just "can the binary be invoked and does the model resolve at
+   the provider layer?" This catches auth misconfiguration and model names
+   the instrument profile accepts but the provider rejects. Deferred; out
+   of scope for the initial S3 overhaul.
+
+**Why this is validation's job, not runtime's job:**
+Runtime error detection for CLI instruments is inherently lossy. Some CLIs
+exit 0 on provider errors (opencode), some exit 1 without a stable error
+string (goose before the `-i -` fix), some buffer errors to stderr only.
+The CLI contract varies per instrument. Validation, by contrast, has the
+full instrument profile + the full score in hand and can answer
+"is this exercisable?" statically for anything declared in the profile.
+Moving this line of defense to the backend — e.g., teaching the CLI
+backend to parse arbitrary jsonl error events — creates per-instrument
+special cases that drift with each upstream CLI's whims. Keep the contract
+in validation.
+
+**Integration with main spec (2026-04-17):** Replace the "Instrument
+resolution" bullet list at lines 743–747 with the expanded checks above.
+Rename the section to "Instrument + model resolution" to reflect the
+widened scope.
+
 ---
 
 ## S4 Changes: Variables in Validations

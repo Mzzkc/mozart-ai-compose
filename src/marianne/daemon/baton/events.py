@@ -407,12 +407,35 @@ class InstrumentFallback:
     """A sheet's instrument was switched to a fallback.
 
     Emitted when the baton moves a sheet from one instrument to the next
-    in its fallback chain. Reasons:
+    in its fallback chain. The ``reason`` field carries the classified
+    cause; dispatch-time and exhaustion-time transitions use different
+    vocabularies.
 
-    - ``"unavailable"`` — instrument not installed, binary missing, circuit
-      breaker open. Immediate fallback at dispatch time.
-    - ``"rate_limit_exhausted"`` — all retries on the current instrument
-      hit rate limits with no recovery. Fallback after retry exhaustion.
+    Dispatch-time reason:
+
+    - ``"unavailable"`` — instrument not installed, binary missing, or the
+      circuit breaker is open. Decided at dispatch without running the
+      sheet.
+
+    Exhaustion-time reasons (derived from the last attempt recorded on the
+    sheet; see ``BatonCore._derive_fallback_reason``):
+
+    - ``"rate_limit_exhausted"`` — last attempt was rate-limited and failed.
+    - ``"validation_failed"`` — execution succeeded but 0% of validations
+      passed (the classic "model produced nothing useful" case).
+    - ``"validation_incomplete"`` — execution succeeded with partial
+      validation success; completion-mode budget was exhausted.
+    - ``"execution_timeout"`` — execution failed with a TIMEOUT
+      classification.
+    - ``"execution_crashed"`` — execution failed with a PROCESS_CRASH
+      classification.
+    - ``"execution_stale"`` — execution failed with a STALE classification.
+    - ``"auth_failure"`` — auth error surfaced by the exhaustion handler
+      (the ``_handle_attempt_result`` path also emits this reason directly).
+    - ``"execution_failed"`` — execution failed with an unknown or generic
+      classification.
+    - ``"exhausted"`` — defensive fallback for code paths that reach
+      exhaustion without any recorded attempt. Never silently mislabelled.
 
     This is an INFO-level event. Fallback is the system working correctly,
     not failing. Each fallback instrument gets a fresh retry budget.
@@ -422,7 +445,7 @@ class InstrumentFallback:
     sheet_num: int
     from_instrument: str
     to_instrument: str
-    reason: str  # "unavailable" | "rate_limit_exhausted"
+    reason: str  # See docstring above for the canonical reason vocabulary.
     timestamp: float = field(default_factory=time.time)
 
 

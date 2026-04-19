@@ -159,6 +159,12 @@ cli:
   command:
     executable: opencode
     subcommand: "run"
+    # Bypass interactive permission prompts — required for headless/daemon
+    # execution. Without this, opencode's default sandbox blocks file-write
+    # tool calls at an interactive prompt that has no TTY, producing silent
+    # 0-exit "success" with no deliverable (sheet validations then fail at
+    # pass_rate=0.0 — the outcome-level catch, but a full retry budget wasted).
+    auto_approve_flag: "--dangerously-skip-permissions"
     # GH#188: Stdin delivery for large prompt safety. Previously used
     # positional args which crashed on 100KB+ prompts during fallback.
     prompt_via_stdin: true

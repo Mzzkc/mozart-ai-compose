@@ -155,11 +155,18 @@ class TestDuplicateInstrumentsInChain:
         assert sheet.normal_attempts == 0  # Fresh budget again
 
 
-class TestRateLimitVsUnavailableReason:
-    """Fallback reason correctly distinguishes rate_limit_exhausted
-    from unavailable."""
+class TestExhaustionVsUnavailableReason:
+    """Exhaustion-time and dispatch-time fallback reasons are distinct.
 
-    def test_exhaustion_gives_rate_limit_reason(self) -> None:
+    Exhaustion-time reasons are derived per-attempt (see
+    ``tests/test_baton_fallback_reason_derivation.py``). Dispatch-time
+    fallbacks always carry ``"unavailable"``.
+    """
+
+    def test_exhaustion_reason_is_derived_not_hardcoded(self) -> None:
+        """With no attempt history recorded, exhaustion falls back to the
+        generic ``"exhausted"`` label — never silently labelled as a rate
+        limit when the actual cause is unknown."""
         baton = BatonCore()
         sheet = _make_sheet(1, "claude-code", ["gemini-cli"], max_retries=1)
         sheet.normal_attempts = 1
@@ -169,7 +176,7 @@ class TestRateLimitVsUnavailableReason:
         baton._handle_exhaustion("j1", 1, sheet)
 
         ev = baton._fallback_events[0]
-        assert ev.reason == "rate_limit_exhausted"
+        assert ev.reason == "exhausted"
 
     def test_unavailable_gives_unavailable_reason(self) -> None:
         baton = BatonCore()
