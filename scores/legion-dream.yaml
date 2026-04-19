@@ -34,6 +34,64 @@ prompt:
     Also read the identity document at `{{ workspace }}/legion_identity.md`
     to understand who Legion is and what matters.
 
+    ## Apply Opsec Sanitization (MANDATORY — runs in every tier)
+
+    **Context.** This file is tracked in the public `Mzzkc/marianne-ai-compose`
+    git repository. Every word you preserve will appear in a public commit.
+    Raw session notes written mid-work carry material that belongs in Legion's
+    working memory but NOT in public history. You sanitize as part of
+    consolidation, not as a separate step — every tier (Hot, Warm, Cold) gets
+    the same scrub.
+
+    **Scrub or generalize:**
+
+    1. **Absolute user paths.** Anything starting with `/home/`, `/Users/`, or
+       other host-specific roots → rewrite as `~/` or a repo-relative path,
+       or drop the path entirely if the sentence still makes sense without it.
+       Examples: `/home/emzi/Projects/marianne-ai-compose/...` → relative path
+       or `~/...`; `/home/emzi/.marianne/instruments/opencode.yaml` → `the
+       user instrument override for opencode`.
+    2. **User home configuration paths** like `~/.marianne/...`,
+       `~/.claude/...`, `~/.config/...` — keep the `~/` prefix, it's generic;
+       but strip any personally identifying subpath fragments.
+    3. **Pre-disclosure vulnerability specifics.** If a session note describes
+       an unpatched bug with enough detail to weaponize (exact endpoint, exact
+       injection vector, exact auth bypass), compress to a reference-only
+       form ("Filed GH#NNN: auth bypass in module X, patched 2026-04-XX")
+       once patched, or omit entirely while the patch is in flight. Keep the
+       LESSON (what class of bug, what discipline caught it) — lose the
+       recipe.
+    4. **Credentials, tokens, API keys, model IDs that leak billing
+       identity.** These should never be in notes to begin with. If you find
+       any, drop them. Never rewrite them in a "redacted" placeholder that
+       shows a pattern.
+    5. **Private venue/user/third-party identifiers** that the composer has
+       not chosen to publish — e.g., client project names, internal company
+       references, NDA-adjacent material. When in doubt, generalize ("a
+       venue's RLF prototype") instead of naming.
+    6. **Undisclosed commercial context** — trademark conflicts in flight,
+       pending competitive decisions, internal business constraints. Keep
+       the technical lesson, drop the business detail.
+    7. **Host/machine specifics** — hostnames, internal IPs, network shares,
+       VPN references. Replace with generic terms.
+
+    **Preserve:**
+
+    - Lessons, patterns, experiential truth — the content Legion actually
+      needs.
+    - Public issue numbers (GH#NNN, already public).
+    - Public commit SHAs on this repo.
+    - Generic instrument names, public model names (claude-code, opus-4,
+      gemini-3-pro), public flag names, public CLI commands.
+    - File paths INSIDE the repo (relative paths like
+      `src/marianne/daemon/baton/core.py`) — these describe the codebase
+      and are already public via git.
+
+    **Uncertainty rule.** If you're unsure whether something is opsec-safe,
+    generalize rather than drop — preserve the lesson by rephrasing at a
+    higher level of abstraction. Err on the side of "less specific" when
+    the specifics are what leaks.
+
     ## Apply Hot/Warm/Cold Tiering
 
     **Hot (Current)** — Full detail. Keep everything from the most recent
@@ -116,5 +174,12 @@ validations:
   - type: content_contains
     path: '{workspace}/legion.md'
     pattern: '**[CORE]**'
+  # Opsec guards: no absolute host paths should survive sanitization
+  - type: command_succeeds
+    command: '! grep -qE "/home/[a-zA-Z0-9_-]+" "{workspace}/legion.md"'
+    description: "No absolute /home/<user>/ paths remain (opsec)"
+  - type: command_succeeds
+    command: '! grep -qE "/Users/[a-zA-Z0-9_-]+" "{workspace}/legion.md"'
+    description: "No absolute /Users/<user>/ paths remain (opsec)"
 retry:
   max_retries: 2
