@@ -84,13 +84,7 @@ class RateLimitConfig(BaseModel):
         return v
 
     wait_minutes: int = Field(default=60, ge=1, description="Minutes to wait when rate limited")
-    max_waits: int = Field(
-        default=24,
-        ge=1,
-        description="Diagnostic budget for rate limit wait cycles. The baton uses "
-        "timer-based auto-recovery (GH#100); this value is tracked for "
-        "observability via CheckpointState.rate_limit_waits.",
-    )
+    max_waits: int = Field(default=24, ge=1, description="Maximum wait cycles (24 = 24 hours)")
     max_quota_waits: int = Field(
         default=48,
         ge=1,

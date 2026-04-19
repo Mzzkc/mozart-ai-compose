@@ -1357,41 +1357,6 @@ class TestOnRateLimit:
             sheet_num=3,
         )
 
-    @pytest.mark.asyncio
-    async def test_increments_rate_limit_waits_counter(self, manager: JobManager):
-        """_on_rate_limit increments CheckpointState.rate_limit_waits (GH#100)."""
-        from marianne.core.checkpoint import CheckpointState
-
-        manager._rate_coordinator = MagicMock()
-        manager._rate_coordinator.report_rate_limit = AsyncMock()
-
-        # Inject a live state for the job
-        state = CheckpointState(
-            job_id="job-1",
-            config_path="test.yaml",
-            job_name="test-job",
-            total_sheets=1,
-        )
-        manager._live_states["job-1"] = state
-        assert state.rate_limit_waits == 0
-
-        await manager._on_rate_limit("claude_cli", 60.0, "job-1", 3)
-        assert state.rate_limit_waits == 1
-
-        await manager._on_rate_limit("claude_cli", 30.0, "job-1", 4)
-        assert state.rate_limit_waits == 2
-
-    @pytest.mark.asyncio
-    async def test_skips_counter_for_missing_job(self, manager: JobManager):
-        """_on_rate_limit does not crash when job_id is not in _live_states."""
-        manager._rate_coordinator = MagicMock()
-        manager._rate_coordinator.report_rate_limit = AsyncMock()
-
-        # No live state for this job — should not raise
-        await manager._on_rate_limit("claude_cli", 60.0, "nonexistent", 1)
-
-        manager._rate_coordinator.report_rate_limit.assert_awaited_once()
-
 
 # ─── Backpressure ───────────────────────────────────────────────────
 

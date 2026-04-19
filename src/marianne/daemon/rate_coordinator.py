@@ -1,17 +1,18 @@
 """Cross-job rate limit coordination.
 
+Phase 3 infrastructure — write path active, read path not yet driving
+execution.
+
 The write side (``report_rate_limit()``) is wired into the daemon via
 ``JobManager._on_rate_limit`` → ``JobService`` →
 ``RunnerContext.rate_limit_callback``.  Rate limit events from job
 runners flow into the coordinator in real time.
 
-The read side (``is_rate_limited()``) is consumed by:
-
-- **BatonCore** — the primary execution engine handles rate limits
-  directly via ``RateLimitHit`` / ``RateLimitExpired`` events.  Sheets
-  enter WAITING state and auto-recover via the timer wheel.  (GH#100)
-- **GlobalSheetScheduler** — built and tested, provides cross-job
-  scheduling awareness via the ``RateLimitChecker`` protocol.
+The read side (``is_rate_limited()``) is consumed by
+``GlobalSheetScheduler``, which is built and tested but not yet
+driving execution (Phase 3).  When the scheduler is integrated into
+the execution path (see ``scheduler.py`` module docstring), the
+collected rate limit data will inform cross-job scheduling decisions.
 
 When any job hits a rate limit, ALL jobs using that backend are notified
 to back off.  Much faster than the SQLite cross-process approach in
@@ -58,12 +59,13 @@ class RateLimitEvent:
 class RateLimitCoordinator:
     """In-memory rate limit coordination across all daemon jobs.
 
+    **Status: Write path active, read path partially active.**
+
     The write side (``report_rate_limit()``) is wired into the daemon
     via ``JobManager._on_rate_limit`` → ``JobService`` →
     ``RunnerContext.rate_limit_callback``.  The read side
-    (``is_rate_limited()``) is consumed by both BatonCore (for direct
-    rate limit handling via events) and ``GlobalSheetScheduler`` (for
-    cross-job scheduling awareness).
+    (``is_rate_limited()``) is consumed by ``GlobalSheetScheduler``
+    which is built and tested but not yet driving execution (Phase 3).
 
     When any job hits a rate limit, ALL jobs using that backend
     are notified to back off.  The coordinator tracks per-backend
