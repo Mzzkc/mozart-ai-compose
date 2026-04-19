@@ -1099,10 +1099,13 @@ Marianne needs her own memory system, separate from the current learning
 store. The learning store's execution telemetry becomes one input to her
 memory — one of her senses — not her whole brain.
 
-**This section defines requirements. Full memory system design is a separate
-effort.** The requirements below must be clear so that the other subsystems
-(smart conductor, compose, concierge, guardrails) can be designed against
-them.
+**This section defines requirements. The full memory system design lives in
+the companion spec [`2026-04-19-marianne-memory-system-design.md`](./2026-04-19-marianne-memory-system-design.md)**
+(SQLite + sqlite-vec + entity graph substrate, tiered hot/warm/cold/core
+consolidation, multi-signal retrieval, per-venue isolation, CAM readiness).
+Supporting research: [`2026-04-18-marianne-memory-and-unconscious-research-dossier.md`](../research/2026-04-18-marianne-memory-and-unconscious-research-dossier.md).
+The requirements below must be clear so that the other subsystems (smart
+conductor, compose, concierge, guardrails) can be designed against them.
 
 **Requirements:**
 
@@ -1171,6 +1174,12 @@ The smart conductor needs fast judgment — is this sheet in trouble? Should
 this concert run before that one? Is this pattern of failures about to
 cascade? These are not questions for a large remote model with API latency.
 They are intuitions built from experience.
+
+**Full design lives in the companion spec [`2026-04-19-marianne-unconscious-local-model-design.md`](./2026-04-19-marianne-unconscious-local-model-design.md)**
+(pluggable `DecisionSource` Protocol with heuristic/local-model/remote-LLM
+tiers, `ConductorDecision` records, GBNF-constrained local inference via
+llama-cpp-python, event state snapshots, shadow mode, training-data pipeline,
+graceful degradation). Supporting research: [`2026-04-18-marianne-memory-and-unconscious-research-dossier.md`](../research/2026-04-18-marianne-memory-and-unconscious-research-dossier.md).
 
 **Research direction.** A local fine-tuned or distilled model trained on
 Marianne's accumulated knowledge. The large instrument (Claude, Opus, etc.)

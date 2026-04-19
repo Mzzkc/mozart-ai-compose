@@ -246,6 +246,12 @@ directories:
         added: 2026-04-18
       - name: 2026-04-18-generic-issue-solver-design.md
         added: 2026-04-18
+      - name: 2026-04-19-marianne-memory-system-design.md
+        added: 2026-04-19
+        note: "Merged from two independent design runs with adversarial review; supersedes 2026-04-18 version"
+      - name: 2026-04-19-marianne-unconscious-local-model-design.md
+        added: 2026-04-19
+        note: "Merged from two independent design runs with adversarial review; supersedes 2026-04-18 version"
 
   guides:
     description: "Methodology and reference guides"
@@ -284,6 +290,8 @@ directories:
         source: "docs/plans/ (relocated)"
       - name: 2026-04-13-free-model-code-generation-research.md
         added: 2026-04-13
+      - name: 2026-04-18-marianne-memory-and-unconscious-research-dossier.md
+        added: 2026-04-18
 
 semantic_index:
   compose: [plans/compose-system, guides/score-composition-guide.md]
@@ -330,4 +338,7 @@ semantic_index:
   concierge: [specs/2026-04-17-baton-primitives-and-marianne-mozart-design.md]
   decision-authority: [specs/2026-04-17-baton-primitives-and-marianne-mozart-design.md]
   iteration: [plans/features/2026-03-08-iterative-dev-loop-design.md, plans/features/2026-03-08-iterative-dev-loop-implementation.md]
+  memory: [specs/2026-04-19-marianne-memory-system-design.md, research/2026-04-18-marianne-memory-and-unconscious-research-dossier.md]
+  unconscious: [specs/2026-04-19-marianne-unconscious-local-model-design.md, research/2026-04-18-marianne-memory-and-unconscious-research-dossier.md]
+  local-model: [specs/2026-04-19-marianne-unconscious-local-model-design.md, research/2026-04-18-marianne-memory-and-unconscious-research-dossier.md]
   handoffs: [handoffs]
