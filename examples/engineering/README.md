@@ -6,9 +6,10 @@ These scores automate software development workflows — from solving GitHub iss
 
 | Score | What It Does | Sheets | Patterns Used | Time | Cost |
 |-------|-------------|--------|--------------|------|------|
-| [issue-triage](issue-triage.yaml) | Discovers any project, safely scans open GitHub issues (Cisco AI Defense), builds a dependency DAG ready for autonomous solving | 9 | Source Triangulation, Triage Gate, Prefabrication | 30-90m | ~$5-15 |
+| [issue-triage](issue-triage.yaml) | Discovers any project, generates a verified test/lint/typecheck/smoke harness, safely scans open GitHub issues (Cisco AI Defense), builds an issue-solver-compatible dependency DAG | 9 | Source Triangulation, Triage Gate, Prefabrication, Shipyard Sequence | 30-90m | ~$5-15 |
+| [quality-triage](quality-triage.yaml) | Unified local code review + external issues → prioritized DAG. 4-persona TDF review, cross-lens synthesis, escalation-gate flagging, dual emit (internal DAG + ultrareview-compatible findings.json). Complements issue-triage for broader local-code coverage | 17 | Immune Cascade, Fan-out + Synthesis, Source Triangulation, Rashomon Gate | 1-3h | subscription |
 | [issue-solver](issue-solver.yaml) | Consumes the triage DAG, self-chains through solvable issues, plans phased implementation, executes with parallel quality review, commits and ships | 19 | Succession Pipeline, Fan-out + Synthesis, Read-and-React | 2-8h/iter | ~$40-100/iter |
-| [quality-continuous-generic](quality-continuous-generic.yaml) | Language-agnostic quality pipeline — parallel expert reviews, batched fixes by difficulty, commits and files GitHub issues for next iteration | 16 | Immune Cascade, Fan-out + Synthesis | 10-15h | ~$50-130 |
+| [quality-continuous](quality-continuous.yaml) | Language-agnostic quality pipeline — parallel expert reviews, batched fixes by difficulty, commits and files GitHub issues for next iteration | 16 | Immune Cascade, Fan-out + Synthesis | 10-15h | ~$50-130 |
 | [score-composer](score-composer.yaml) | Reads a design document and generates a runnable Marianne score with implementation tasks, validations, and dependencies | 4 | Succession Pipeline | 1-2h | ~$10-20 |
 | [codebase-rewrite](codebase-rewrite.yaml) | Iterative language/framework migration with Cathedral Construction, CEGAR Loop, and Commissioning Cascade patterns | 8 | Cathedral Construction + CEGAR Loop + Commissioning Cascade | 4-12h | ~$20-60 |
 | [saas-app-builder](saas-app-builder.yaml) | Full-stack application generator with contract-first parallel builds and validation gates | 6 | Prefabrication + Shipyard Sequence + Commissioning Cascade | 2-6h | ~$10-30 |
@@ -18,13 +19,22 @@ These scores automate software development workflows — from solving GitHub iss
 
 Two scores composed into a concert that autonomously solves any project's GitHub issues.
 
-**issue-triage** runs first (once per project). It profiles the project (language, frameworks, build/test/lint commands, entry points) via **Source Triangulation**, fetches open issues from the target repository, and passes every issue body through a **Triage Gate**: the Cisco AI skill scanner rejects prompt-injection payloads while a hardened Python pass sanitizes titles/labels of shell-dangerous characters. Surviving issues are classified by tier (trivial → epic), their dependencies extracted by an LLM and triangulated against GitHub cross-references, and emitted as a `issue-dag.yaml` — a typed dependency graph ready for consumption.
+**issue-triage** runs first (once per project). It profiles the project (language, frameworks, build/test/lint commands, entry points) via **Source Triangulation**, generates a verified test/lint/typecheck/smoke harness with a **Shipyard Gate** (the smoke test must pass before expensive downstream work runs), fetches open issues from the target repository, and passes every issue body through a **Triage Gate**: the Cisco AI skill scanner rejects prompt-injection payloads while a hardened Python pass sanitizes titles/labels of shell-dangerous characters. Surviving issues are classified by effort tier (integer, 1 = no deps), their dependencies extracted and triangulated against GitHub cross-references, and emitted as `issue-dag.yaml` + `issues/sanitized-corpus.yaml` + `project-harness/*.sh` + `project-profile.yaml` — the exact artifacts issue-solver consumes.
 
-**issue-solver** then consumes that DAG. Each iteration picks the next solvable issue (no unresolved deps, lowest tier, lowest number), investigates the codebase, plans a 1-4 phase implementation strategy, executes each phase with fix+completion passes, runs three parallel quality reviewers (functional, E2E, code quality) whose findings are synthesized before shipping, updates documentation, verifies all tests pass, commits, pushes, closes the GitHub issue, atomically appends to the DAG's resolved list, and **self-chains** to solve the next one. When no issues remain, the chain terminates cleanly.
+**issue-solver** then consumes those artifacts. Each iteration picks the next solvable issue (no unresolved deps, lowest tier, lowest number), investigates the codebase, plans a 1-4 phase implementation strategy, executes each phase with fix+completion passes, runs three parallel quality reviewers (functional, E2E, code quality) whose findings are synthesized before shipping, updates documentation, verifies all tests pass against the generated harness, commits, pushes, closes the GitHub issue, atomically appends to the DAG's resolved list, and **self-chains** to solve the next one.
 
-The triage side implements **Source Triangulation** (multiple evidence sources for each dependency claim) and a **Triage Gate** (cheap scanner rejects before expensive classifier runs). The solver side implements **Succession Pipeline** — each stage fundamentally transforms the workspace substrate (selection → investigation → plan → code → review → ship) — with **Fan-out + Synthesis** in the review phase (three independent reviewers converge from isolation) and **Read-and-React** in selection (reads external DAG state at runtime, chooses next work accordingly).
+### quality-triage.yaml (complements issue-triage)
 
-### quality-continuous-generic.yaml
+An alternative triage score for cases where you want **multi-perspective review of the local codebase** alongside GitHub issue discovery, not just external issues. Two optional input branches converge on a unified findings set:
+
+- **Local branch**: 4 reviewers with cross-section lens triples — Field Engineer (EXP+SCI+COMP, "debug at 3am"), Architect (SCI+META+CULT, "does this fit?"), New Contributor (COMP+CULT+EXP, "day 3 hire"), Systems Steward (META+CULT+SCI, "three years out") — each runnable on a different instrument family for real cognitive diversity (claude-code / goose / gemini-cli). Local Synthesis triangulates across reviewers (2+ flaggers = corroborated), across lenses (3+ dimensions = multi-dimensional deep issue), and explicitly checks for blind spots.
+- **External branch**: cisco-ai-skill-scanner gate + 3-investigator Source Triangulation (issues/code/tests), same as issue-triage.
+
+Both branches fan in to **Unified Triage**: dedup across sources, E1/E2/E3 risk-tier classification (E1=safe auto-fix, E2=human review, E3=escalate), and escalation-gate flagging (touching `scores/`, `daemon/`, `learning/`, or `.marianne/spec/` triggers issue-filing with no auto-PR). Outputs both an internal `issue-dag.yaml` and `findings.json` in ultrareview's schema for A/B comparison with opaque cloud services.
+
+**Note:** `quality-triage` and `issue-triage` use different DAG schemas optimized for different downstream use cases. `issue-triage` is the direct upstream for `issue-solver`. `quality-triage`'s findings.json is ultrareview-compatible; its `issue-dag.yaml` is consumed by humans or custom solvers. Pick based on what you want to do with the findings.
+
+### quality-continuous.yaml
 
 A self-chaining quality improvement pipeline that discovers and fixes code issues without language-specific configuration. Stage 1 generates test/typecheck/lint runner scripts by examining the project. Three parallel expert reviews (Architecture, Test Coverage, Code Debt) scan the codebase from different analytical lenses. Their findings are synthesized, categorized, and prioritized into three remediation batches (quick wins, medium effort, significant). Each batch gets a fix pass and a completion pass. The pipeline verifies all changes, commits, resolves merge conflicts, and files GitHub issues for unresolved problems. Then chains to the next iteration.
 
@@ -72,7 +82,7 @@ mzt status score-composer --watch
 3. Authenticate GitHub CLI: `gh auth login`
 4. Run it: `mzt run examples/engineering/issue-triage.yaml`
 
-Output: `examples/workspaces/issue-triage-workspace/issue-dag.yaml` — the dependency graph.
+Output: `examples/workspaces/issue-triage-workspace/issue-dag.yaml` (plus `issues/sanitized-corpus.yaml`, `project-harness/*.sh`, `project-profile.yaml`) — the artifacts issue-solver consumes.
 
 **Then run the solver (self-chains until the DAG is exhausted):**
 
@@ -86,7 +96,22 @@ Output: `examples/workspaces/issue-triage-workspace/issue-dag.yaml` — the depe
 
 **Safety rails:** The solver refuses to push to `main`/`master`/`trunk` unless `ALLOW_PUSH_TO_MAIN=1` is exported. Commit titles are written to a file and committed via `-F` — never interpolated into shell. The DAG is updated atomically before the GitHub issue is closed, so crash-during-close is idempotent on replay.
 
-### quality-continuous-generic.yaml
+### quality-triage.yaml
+
+1. Authenticate GitHub CLI if you want the external issue branch: `gh auth login` (optional — branch skips cleanly when unavailable)
+2. Run it: `mzt run examples/engineering/quality-triage.yaml`
+
+Output: `examples/workspaces/quality-triage-workspace/issue-dag.yaml` + `findings.json` (ultrareview schema) + `unified-findings.yaml` + `handoff-manifest.md`.
+
+The score does **not** chain to `issue-solver.yaml` automatically. `quality-triage`'s DAG schema (`quality-triage-dag-v1`, with node-id `depends_on` and E1/E2/E3 tier strings) intentionally differs from `issue-triage`'s (`issue-triage-dag-v1`, with issue-number `depends_on` and integer tiers). The DAG includes both a schema discriminator and a `tier_int` alias (E1→1, E2→2, E3→3), so downstream tools that validate the discriminator can adapt. To get the autonomous triage → solve pipeline, use `issue-triage.yaml` directly as the upstream for `issue-solver.yaml`.
+
+**Generic by default** — the score discovers venue structure from the target repo itself. No hardcoded paths. Works on any codebase without modification.
+
+**Prerequisites:** Target is a git repo. `gh` CLI authenticated (optional — external branch skipped if absent). `.marianne/spec/intent.yaml` is optional; score falls back to README + manifests.
+
+**Safety rails:** Escalation-flagged findings (touching score definitions, daemon lifecycle, learning-store schema, or spec corpus) are filed as issues for human review with no auto-PR. Issue bodies flagged by cisco-ai-skill-scanner are replaced with metadata-only summaries before entering any downstream LLM context. Filing is capped at 50 issues per run.
+
+### quality-continuous.yaml
 
 1. Set `workspace` to your preferred output directory
 2. Customize `github_label` for your project's issue tracking (e.g., "technical-debt", "code-quality")
