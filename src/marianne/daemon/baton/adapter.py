@@ -1479,11 +1479,18 @@ class BatonAdapter:
         )
 
         # Resolve techniques for this sheet's phase before prompt rendering.
-        # Produces a manifest for prompt injection as a SKILL-category item.
+        # Produces a manifest AND skill documents for prompt injection.
         # Phase is derived from the sheet's movement number (stringified).
         # Scores that declare techniques with phases=["all"] match regardless;
         # phase-scoped techniques match only their declared movement.
+        #
+        # Skill-kind techniques auto-discover their documents from known
+        # locations (~/.marianne/techniques/, .marianne/techniques/, or
+        # config.path) and inject the content as skill-category items.
+        # This makes `techniques:` a shorthand injection — name the
+        # technique, content gets wired automatically.
         technique_manifest: str | None = None
+        technique_skill_docs: list[str] = []
         job_techniques = self._job_techniques.get(job_id)
         if job_techniques:
             from marianne.daemon.baton.techniques import resolve_techniques_for_sheet
@@ -1492,6 +1499,9 @@ class BatonAdapter:
             resolved = resolve_techniques_for_sheet(job_techniques, phase)
             if resolved.manifest:
                 technique_manifest = resolved.manifest
+            # Collect discovered skill documents for injection
+            for _tech_name, doc_content in resolved.skill_docs.items():
+                technique_skill_docs.append(doc_content)
 
         # Spawn musician task
         task = asyncio.create_task(
@@ -1502,6 +1512,7 @@ class BatonAdapter:
                 context=context,
                 effective_instrument=effective_instrument,
                 technique_manifest=technique_manifest,
+                technique_skill_docs=technique_skill_docs,
             ),
             name=f"musician-{job_id}-s{sheet_num}",
         )
@@ -1530,6 +1541,7 @@ class BatonAdapter:
         context: AttemptContext,
         effective_instrument: str | None = None,
         technique_manifest: str | None = None,
+        technique_skill_docs: list[str] | None = None,
     ) -> None:
         """Wrapper around sheet_task that handles backend release.
 
@@ -1587,7 +1599,9 @@ class BatonAdapter:
             pre_preamble: str | None = None
             if renderer is not None:
                 rendered = renderer.render(
-                    sheet, context, technique_manifest=technique_manifest,
+                    sheet, context,
+                    technique_manifest=technique_manifest,
+                    technique_skill_docs=technique_skill_docs,
                 )
                 pre_rendered = rendered.prompt
                 pre_preamble = rendered.preamble

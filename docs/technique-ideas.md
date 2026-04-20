@@ -21,3 +21,11 @@ Potential techniques to formalize into the technique corpus. Each came up in con
 8. **Moltbook interaction** — Safe notebook read/write as a technique. Boundaries: what agents can see vs. modify, audit trail. *(2026-04-18, roster-failure session)*
 
 9. **Autonomous marketing** — Probably a *suite* of techniques (content drafting, posting, analytics) plus a recurring concert pattern, not a single technique. Flagged for scoping. *(2026-04-18, roster-failure session)*
+
+10. **File-write hot-reload** — Control mechanism for running external processes via file writes. The agent's artifact IS the control signal. A file watcher (strudel-server, chokidar, inotifywait) bridges the agent's output to the running process. Used in the DJ GestAIt set: AI musicians write `.strudel` files, strudel-server hot-reloads them into the browser. The write frequency (determined by the model's natural generation speed) becomes the performance tempo. *(2026-04-20, DJ GestAIt composition)*
+
+11. **YouTube audio sourcing** — Technique for sourcing audio samples from YouTube via yt-dlp (`python transcribe.py URL --no-transcribe --save-audio`). Combined with ffmpeg/sox/rubberband for chopping, pitch-shifting, and time-stretching into DJ samples. Transformative use in performance mixes. Tool at `~/Projects/yt-transcriber/transcribe.py`. *(2026-04-20, DJ GestAIt composition)*
+
+12. **Interleaved dependency chain** — Two parallel dependency chains that create a sliding window of overlapping agent execution. Odd chain: gate → 1 → 3 → 5 → 7. Even chain: gate → 2 → 4 → 6. At any time, one agent performs while the next prepares. Handoff via workspace signal files. Zero-gap transitions. Core mechanism of the Live Relay pattern. *(2026-04-20, DJ GestAIt composition)*
+
+13. **Gestalt identity across substrates** — Technique for maintaining a single identity across multiple agent instances using different models/harnesses. Performance log as live memory, handoff notes as stream of consciousness, identity document as anchor. "You are [NAME]. The substrate changed — the intelligence flows on." Applied in DJ GestAIt: one DJ, many model substrates. Built on the Legion identity model. *(2026-04-20, DJ GestAIt composition)*
