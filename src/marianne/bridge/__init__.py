@@ -3,10 +3,9 @@
 Originally written as "Marianne Ollama Bridge" during the Ollama
 integration epic, this package is now a generic MCP tool-execution
 proxy used by any instrument that needs MCP servers managed on its
-behalf. The legacy ghost references to ``ContextOptimizer``,
-``HybridRouter``, and ``BridgeCoordinator`` (planned but never
-implemented components of the original Ollama-specific design) were
-removed in Phase 5 of the backend atlas migration.
+behalf. Three ghost component references that were listed here but
+never implemented were removed in Phase 5 of the backend atlas
+migration.
 
 Exposed symbols:
 

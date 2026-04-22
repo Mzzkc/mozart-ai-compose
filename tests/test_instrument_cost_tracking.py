@@ -293,36 +293,40 @@ def test_explicit_non_claude_pricing_overrides_sonnet_fallback() -> None:
 
 # ---------------------------------------------------------------------------
 # Behaviour: the fallback must emit an observable signal naming the
-# instrument whose pricing is missing. This is part of the doctrine but
-# not implemented today — hence xfail.
+# instrument whose pricing is missing. Phase 5e wired the warning; the
+# xfail has been removed.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Doctrine RULE 'cost tracking must use instrument profile pricing' "
-        "calls for the fallback path to log a warning identifying the "
-        "instrument whose pricing is missing. The current implementation at "
-        "musician.py:1005-1008 falls back silently. This test is the "
-        "reminder — flip to non-xfail once the warning is wired. "
-        "Blocked by Phase 5 peripheral cleanup."
-    ),
-)
 def test_fallback_logs_warning_naming_missing_instrument(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A missing-pricing fallback must log something that names the instrument.
 
-    The doctrine rule explicitly lists this behaviour ("so the gap is
-    visible"). Today ``_estimate_cost`` is silent on the fallback branch.
-    This test is the backstop that will begin passing once the warning is
-    added — at which point the xfail can be removed.
+    Phase 5e added a structured warning via ``_logger.warning()`` in the
+    fallback branch. The conftest resets structlog to defaults
+    (PrintLoggerFactory), so this test must temporarily reconfigure
+    structlog to use stdlib LoggerFactory so caplog can capture records.
     """
+    import structlog
+
     result = _make_exec_result(input_tokens=1_000, output_tokens=500)
 
     caplog.clear()
-    with caplog.at_level(logging.WARNING, logger="marianne.daemon.baton.musician"):
+
+    # Reconfigure structlog to emit through stdlib so caplog can see it.
+    structlog.configure_once(
+        processors=[
+            structlog.stdlib.add_log_level,
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+        ],
+        wrapper_class=structlog.stdlib.BoundLogger,
+        context_class=dict,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        cache_logger_on_first_use=False,
+    )
+
+    with caplog.at_level(logging.WARNING):
         _estimate_cost(result, cost_per_1k_input=None, cost_per_1k_output=None)
 
     warning_messages = [rec.message for rec in caplog.records if rec.levelno >= logging.WARNING]
