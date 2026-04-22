@@ -38,8 +38,8 @@ def create_backend_from_config(backend_config: BackendConfig) -> Backend:
         Configured Backend instance.
     """
     from marianne.backends.anthropic_api import AnthropicApiBackend
-    from marianne.execution.instruments.claude_cli_legacy import ClaudeCliBackend
     from marianne.backends.ollama import OllamaBackend
+    from marianne.execution.instruments.claude_cli_legacy import ClaudeCliBackend
 
     if backend_config.type == "recursive_light":
         raise ValueError(

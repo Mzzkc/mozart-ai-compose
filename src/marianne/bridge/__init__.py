@@ -1,12 +1,21 @@
-"""Marianne Ollama Bridge components.
+"""Marianne MCP bridge — MCP server subprocess + tool-execution glue.
 
-This package provides integration between Marianne and local Ollama models
-with MCP tool support. The main components are:
+Originally written as "Marianne Ollama Bridge" during the Ollama
+integration epic, this package is now a generic MCP tool-execution
+proxy used by any instrument that needs MCP servers managed on its
+behalf. The legacy ghost references to ``ContextOptimizer``,
+``HybridRouter``, and ``BridgeCoordinator`` (planned but never
+implemented components of the original Ollama-specific design) were
+removed in Phase 5 of the backend atlas migration.
 
-- MCPProxyService: Manages MCP server subprocesses for tool execution
-- ContextOptimizer: Optimizes tool context for limited context windows (Sheet 5)
-- HybridRouter: Routes between Ollama and Claude based on complexity (Sheet 6)
-- BridgeCoordinator: Top-level orchestrator for bridge components (Sheet 7)
+Exposed symbols:
+
+- ``MCPProxyService``: manages MCP server subprocesses for tool
+  execution
+- ``MCPConnection``, ``MCPTool``, ``ToolResult``, ``ContentBlock``,
+  ``ServerCapabilities``: public data types returned by the proxy
+- ``ToolExecutionTimeout``, ``ToolNotFoundError``: public exception
+  types raised by tool execution
 """
 
 from marianne.bridge.mcp_proxy import (

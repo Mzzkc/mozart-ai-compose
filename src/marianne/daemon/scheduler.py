@@ -63,7 +63,12 @@ class SheetInfo:
 
     job_id: str
     sheet_num: int
-    backend_type: str = "claude_cli"
+    # Phase 5: the scheduler no longer hardcodes a default instrument name.
+    # Callers must supply the instrument name explicitly. An empty string
+    # is only used when the scheduler is asked about a job that has no
+    # resolved instrument yet (e.g. pre-dispatch); rate-limit lookups
+    # should skip such entries rather than match a Claude-specific limiter.
+    backend_type: str = ""
     # Optional model identifier for per-model rate limit tracking.
     # When set, the scheduler forwards it to ``RateLimitChecker.is_rate_limited()``
     # so rate limits can be tracked per model (e.g. claude-sonnet vs claude-haiku)

@@ -115,7 +115,11 @@ def _install_hint_for(instrument: str, binary: str) -> str:
 def _auth_env_var_for(instrument: str) -> str:
     """Return the auth environment variable for an instrument, or a generic hint."""
     normalized = instrument.lower().replace("-", "_")
-    if normalized in _ANTHROPIC_AUTH_INSTRUMENTS or "anthropic" in normalized or "claude" in normalized:
+    if (
+        normalized in _ANTHROPIC_AUTH_INSTRUMENTS
+        or "anthropic" in normalized
+        or "claude" in normalized
+    ):
         return "ANTHROPIC_API_KEY"
     if "openai" in normalized or "openrouter" in normalized:
         return "OPENROUTER_API_KEY" if "openrouter" in normalized else "OPENAI_API_KEY"

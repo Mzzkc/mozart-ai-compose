@@ -405,7 +405,7 @@ class MCPProxyService:
                     "tools": {},
                 },
                 "clientInfo": {
-                    "name": "marianne-ollama-bridge",
+                    "name": "marianne-mcp-bridge",
                     "version": "0.1.0",
                 },
             },

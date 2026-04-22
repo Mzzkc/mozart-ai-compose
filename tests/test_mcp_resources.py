@@ -160,10 +160,12 @@ class TestConfigResources:
         assert "claude_cli" in options["available_backends"]
         assert "anthropic_api" in options["available_backends"]
 
-        # Check claude_cli options
+        # Phase 5c: registry-driven format — each entry is an instrument
+        # profile summary with kind, display_name, capabilities, models, etc.
         claude_cli = options["available_backends"]["claude_cli"]
-        assert "disable_mcp" in claude_cli["options"]
-        assert "timeout_seconds" in claude_cli["options"]
+        assert claude_cli["kind"] == "cli"
+        assert "mcp" in claude_cli["capabilities"]
+        assert "display_name" in claude_cli
 
     async def test_get_validation_types(self, config_resources_basic):
         """Test retrieving validation types reference."""
