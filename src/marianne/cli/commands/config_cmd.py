@@ -26,6 +26,14 @@ _logger = logging.getLogger(__name__)
 
 # Keys shown by default (without --all).  Matches the "Essential Fields"
 # section in docs/configuration-reference.md.
+#
+# Phase 5 note: ``learning.backend.type`` is retained as the YAML key path
+# because ``SemanticLearningConfig.backend`` is still a ``BackendConfig``.
+# Since Phase 2 opened ``BackendConfig.type`` to an arbitrary string, the
+# value stored at this key is now an instrument-registry name (resolved
+# via ``register_native_instruments``) rather than a closed enum. The path
+# itself is preserved for backward compatibility with existing
+# ``~/.marianne/daemon.yaml`` files.
 ESSENTIAL_KEYS: frozenset[str] = frozenset({
     "max_concurrent_jobs",
     "log_level",

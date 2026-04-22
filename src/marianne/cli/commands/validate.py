@@ -186,7 +186,7 @@ def validate(
             console.print()
             console.print("[dim]Configuration summary:[/dim]")
             console.print(f"  Sheets: {config.sheet.total_sheets}")
-            instrument_display = config.instrument or config.backend.type
+            instrument_display = config.effective_instrument_name
             console.print(f"  Instrument: {instrument_display}")
             console.print(f"  Validations: {len(config.validations)}")
             console.print(f"  Notifications: {len(config.notifications)}")

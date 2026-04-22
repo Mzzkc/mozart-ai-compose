@@ -979,3 +979,18 @@ class JobConfig(BaseModel):
         if self.learning.outcome_store_type == "json":
             return self.workspace / ".marianne-outcomes.json"
         return self.workspace / ".marianne-outcomes.db"
+
+    @property
+    def effective_instrument_name(self) -> str:
+        """Return the name used to resolve this score's execution instrument.
+
+        The explicit ``instrument:`` field wins when set; otherwise the
+        legacy ``backend.type`` name is returned. The 4 native backend
+        names (``claude_cli``, ``anthropic_api``, ``ollama``,
+        ``recursive_light``) are also valid instrument registry names
+        thanks to the ``register_native_instruments()`` bridge, so
+        display and dispatch paths can both rely on this single
+        identifier without inspecting the legacy ``backend.type`` field
+        directly.
+        """
+        return self.instrument or self.backend.type

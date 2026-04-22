@@ -125,7 +125,7 @@ def run(
 
     # In quiet mode, skip the config panel
     if not is_quiet() and not json_output:
-        instrument_display = config.instrument or config.backend.type
+        instrument_display = config.effective_instrument_name
         console.print(Panel(
             f"[bold]{config.name}[/bold]\n"
             f"{config.description or 'No description'}\n\n"
