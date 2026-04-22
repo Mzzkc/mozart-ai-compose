@@ -1,15 +1,13 @@
 """Execution layer for Marianne jobs.
 
-Contains validation, retry logic, circuit breaker, and adaptive retry strategy.
+Contains validation primitives and shared types used by the baton-based
+execution engine in ``daemon/baton/``. The legacy retry/circuit-breaker/
+runner modules have been removed (Pre-Instrument Execution Atlas,
+Phase 6) — their responsibilities now live inline in the baton.
 """
 
 from marianne.core.errors.exceptions import FatalError
 from marianne.core.summary import SheetExecutionMode
-from marianne.execution.circuit_breaker import (
-    CircuitBreaker,
-    CircuitBreakerStats,
-    CircuitState,
-)
 from marianne.execution.retry_strategy import (
     AdaptiveRetryStrategy,
     ErrorRecord,
@@ -28,9 +26,6 @@ __all__ = [
     "AdaptiveRetryStrategy",
     "SheetExecutionMode",
     "SheetValidationResult",
-    "CircuitBreaker",
-    "CircuitBreakerStats",
-    "CircuitState",
     "ErrorRecord",
     "FatalError",
     "FileModificationTracker",
