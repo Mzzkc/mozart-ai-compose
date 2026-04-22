@@ -326,25 +326,9 @@ class TestTokenBudgetTracker:
 class TestEstimatorReconciliation:
     """T10.4: Verify divergent estimator behavior is documented and consistent."""
 
-    def test_preflight_uses_canonical_estimator(self) -> None:
-        """After reconciliation, preflight delegates to estimate_tokens().
-
-        Both preflight and tokens.py must produce identical estimates,
-        confirming a single source of truth for token estimation.
-        """
-        from marianne.execution.preflight import PromptMetrics
-
-        text = "x" * 10_000
-
-        # tokens.py canonical estimate
-        centralized = estimate_tokens(text)
-        # preflight estimate (should now delegate to estimate_tokens)
-        preflight = PromptMetrics.from_prompt(text).estimated_tokens
-
-        assert centralized == preflight, (
-            f"tokens.py estimate ({centralized}) should equal preflight estimate ({preflight}) "
-            "after reconciliation — both must use the same estimator"
-        )
+    # Phase 6f: test_preflight_uses_canonical_estimator removed — the
+    # execution/preflight.py module (and PromptMetrics) has been deleted.
+    # Token estimation is now anchored in core/tokens.estimate_tokens().
 
     def test_single_source_of_truth_exists(self) -> None:
         """tokens.py exports estimate_tokens as the canonical estimator."""
