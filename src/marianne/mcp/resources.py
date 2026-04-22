@@ -151,8 +151,11 @@ class ConfigResources:
 job_id: example-review
 description: Example Marianne job configuration
 
+# Phase 5: prefer the top-level ``instrument:`` key — it resolves
+# through the instrument registry and works for any registered
+# instrument profile (claude_cli, anthropic_api, gemini-cli, etc.).
+instrument: claude_cli
 backend:
-  backend_type: claude_cli
   disable_mcp: true  # For faster execution
   timeout_seconds: 300
 
@@ -220,50 +223,49 @@ notifications:
         }
 
     async def _get_backend_options(self) -> dict[str, Any]:
-        """Get backend configuration options."""
-        backend_options = {
-            "available_backends": {
-                "claude_cli": {
-                    "description": "Claude CLI backend using subprocess calls",
-                    "options": {
-                        "disable_mcp": {
-                            "type": "boolean",
-                            "default": True,
-                            "description": "Disable MCP servers for faster execution"
-                        },
-                        "timeout_seconds": {
-                            "type": "integer",
-                            "default": 300,
-                            "description": "Timeout for individual requests"
-                        },
-                        "cli_extra_args": {
-                            "type": "array",
-                            "description": "Additional CLI arguments to pass"
-                        }
-                    }
-                },
-                "anthropic_api": {
-                    "description": "Direct Anthropic API backend",
-                    "options": {
-                        "api_key": {
-                            "type": "string",
-                            "description": "Anthropic API key (or use ANTHROPIC_API_KEY env var)"
-                        },
-                        "model": {
-                            "type": "string",
-                            "default": "claude-3-5-sonnet-20241022",
-                            "description": "Model to use for requests"
-                        },
-                        "max_tokens": {
-                            "type": "integer",
-                            "default": 8192,
-                            "description": "Maximum tokens per response"
-                        }
-                    }
-                }
-            }
-        }
+        """Get backend/instrument configuration options.
 
+        Phase 5: registry-driven. Reads the live ``InstrumentRegistry``
+        (populated by ``register_native_instruments()`` plus any
+        user/project profiles) instead of hardcoding the legacy 4
+        backend options. Each registered profile is surfaced with its
+        kind, capabilities, default model, timeout, and model capacity
+        list so MCP clients see an accurate, extensible picture rather
+        than a stale 2-backend snapshot.
+        """
+        from marianne.instruments.registry import (
+            InstrumentRegistry,
+            register_native_instruments,
+        )
+
+        # Build a local registry view. We avoid holding a registry on the
+        # ConfigResources instance because MCP resources are read-only
+        # snapshots — each call reflects the current native bridge state.
+        registry = InstrumentRegistry()
+        register_native_instruments(registry)
+
+        available: dict[str, Any] = {}
+        for profile in registry.list_all():
+            available[profile.name] = {
+                "display_name": profile.display_name,
+                "description": profile.description,
+                "kind": profile.kind,
+                "capabilities": sorted(profile.capabilities),
+                "default_model": profile.default_model,
+                "default_timeout_seconds": profile.default_timeout_seconds,
+                "models": [
+                    {
+                        "name": m.name,
+                        "context_window": m.context_window,
+                        "cost_per_1k_input": m.cost_per_1k_input,
+                        "cost_per_1k_output": m.cost_per_1k_output,
+                        "max_output_tokens": m.max_output_tokens,
+                    }
+                    for m in profile.models
+                ],
+            }
+
+        backend_options = {"available_backends": available}
         return self._mcp_json_content("config://backend-options", backend_options)
 
     async def _get_validation_types(self) -> dict[str, Any]:
@@ -568,8 +570,8 @@ def _build_code_analysis_template() -> dict[str, Any]:
         "config": {
             "job_id": "code-analysis-{timestamp}",
             "description": "Analyze codebase structure and patterns",
+            "instrument": "claude_cli",
             "backend": {
-                "backend_type": "claude_cli",
                 "disable_mcp": True,
                 "timeout_seconds": 300,
             },
@@ -626,7 +628,8 @@ def _build_test_generation_template() -> dict[str, Any]:
         "config": {
             "job_id": "test-generation-{timestamp}",
             "description": "Generate comprehensive tests for codebase",
-            "backend": {"backend_type": "claude_cli", "disable_mcp": True},
+            "instrument": "claude_cli",
+            "backend": {"disable_mcp": True},
             "sheets": [
                 {
                     "name": "identify-testable-units",
@@ -678,7 +681,8 @@ def _build_documentation_template() -> dict[str, Any]:
         "config": {
             "job_id": "documentation-{timestamp}",
             "description": "Generate comprehensive project documentation",
-            "backend": {"backend_type": "claude_cli", "disable_mcp": True},
+            "instrument": "claude_cli",
+            "backend": {"disable_mcp": True},
             "sheets": [
                 {
                     "name": "create-readme",
@@ -734,7 +738,8 @@ def _build_refactoring_template() -> dict[str, Any]:
         "config": {
             "job_id": "refactoring-{timestamp}",
             "description": "Systematic code refactoring and improvement",
-            "backend": {"backend_type": "claude_cli", "disable_mcp": True},
+            "instrument": "claude_cli",
+            "backend": {"disable_mcp": True},
             "learning": {"enabled": True, "pattern_detection": True},
             "sheets": [
                 {
