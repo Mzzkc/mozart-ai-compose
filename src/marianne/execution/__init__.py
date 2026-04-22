@@ -8,13 +8,6 @@ Phase 6) — their responsibilities now live inline in the baton.
 
 from marianne.core.errors.exceptions import FatalError
 from marianne.core.summary import SheetExecutionMode
-from marianne.execution.retry_strategy import (
-    AdaptiveRetryStrategy,
-    ErrorRecord,
-    RetryPattern,
-    RetryRecommendation,
-    RetryStrategyConfig,
-)
 from marianne.execution.validation import (
     FileModificationTracker,
     SheetValidationResult,
@@ -23,15 +16,10 @@ from marianne.execution.validation import (
 )
 
 __all__ = [
-    "AdaptiveRetryStrategy",
     "SheetExecutionMode",
     "SheetValidationResult",
-    "ErrorRecord",
     "FatalError",
     "FileModificationTracker",
-    "RetryPattern",
-    "RetryRecommendation",
-    "RetryStrategyConfig",
     "ValidationEngine",
     "ValidationResult",
 ]
