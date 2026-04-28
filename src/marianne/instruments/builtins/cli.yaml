@@ -8,9 +8,14 @@
 # The prompt text is passed as the argument to `bash -c "<prompt>"`.
 # stdout/stderr captured as the sheet's output. Exit code 0 = success.
 #
-# IMPORTANT: Do NOT use preludes or cadenzas on sheets using this instrument.
-# The full rendered prompt (including injected context) is passed to bash.
-# Non-bash content in the prompt will cause execution failures.
+# `raw_prompt: true` opts this instrument out of Marianne's prompt-assembly
+# pipeline: the rendered Jinja template is passed verbatim, with no
+# preamble, prelude/cadenza injection, spec fragments, failure history,
+# learned patterns, validation requirements, or completion suffix
+# wrapping. The prompt should be a complete bash command. Validations
+# still run after execution; they just never appear in the prompt.
+# Use preludes/cadenzas freely on OTHER sheets in the same score —
+# raw_prompt is per-instrument, not per-score.
 #
 # This instrument implements the Tool Chain pattern from the Rosetta corpus:
 # non-AI tools do primary work, AI agents appear only at judgment points.
@@ -22,6 +27,7 @@ name: cli
 display_name: "CLI (Shell)"
 description: "Direct shell execution — runs the prompt as a bash command"
 kind: cli
+raw_prompt: true
 
 capabilities:
   - shell_access
