@@ -473,6 +473,19 @@ class InstrumentProfile(BaseModel):
         description="Default per-sheet execution timeout in seconds",
     )
 
+    # Prompt-assembly bypass for instruments that consume raw input
+    raw_prompt: bool = Field(
+        default=False,
+        description="When True, the prompt-assembly pipeline passes the "
+        "rendered Jinja template to this instrument verbatim — no preamble, "
+        "no prelude/cadenza injection, no spec fragments, no failure history, "
+        "no learned patterns, no validation requirements, no completion "
+        "suffix. Use for instruments that consume their input as raw text "
+        "(e.g. bash, deterministic CLIs) and would be corrupted by "
+        "Marianne's prompt-wrapping layers. Validations still RUN after "
+        "execution; they just never appear in the prompt itself.",
+    )
+
     # Kind-specific profiles
     cli: CliProfile | None = Field(
         default=None,

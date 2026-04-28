@@ -102,6 +102,7 @@ class PromptRenderer:
         spec_fragments: list[SpecFragment] | None = None,
         technique_manifest: str | None = None,
         technique_skill_docs: list[str] | None = None,
+        raw_prompt: bool = False,
     ) -> RenderedPrompt:
         """Render a full prompt for a sheet execution.
 
@@ -122,6 +123,13 @@ class PromptRenderer:
                 discovered by the technique resolver. Each entry is the full
                 text of a skill-kind technique document, injected as a
                 skill-category item alongside the manifest.
+            raw_prompt: When True (driven by the instrument profile's
+                ``raw_prompt`` field), skip every wrapping layer:
+                injection resolution, technique injection, completion
+                suffix, and the preamble. The resulting RenderedPrompt
+                carries the rendered Jinja template only, with an empty
+                preamble. Used for instruments like the bash ``cli``
+                profile whose input must be a literal command.
 
         Returns:
             RenderedPrompt with fully rendered prompt and preamble.
@@ -129,24 +137,32 @@ class PromptRenderer:
         # Layer 1: Build SheetContext from Sheet entity (F-210: includes cross-sheet)
         context = self._build_context(sheet, attempt_context)
 
-        # Layer 2-3: Resolve prelude/cadenza injections into the context
-        self._resolve_injections(context, sheet)
+        if not raw_prompt:
+            # Layer 2-3: Resolve prelude/cadenza injections into the context
+            self._resolve_injections(context, sheet)
 
-        # Layer 2.5: Inject technique manifest and skill documents.
-        # Skill docs go FIRST (they're the actual knowledge the musician
-        # needs), then the manifest (lists what's available). Both are
-        # injected as skill-category items so they appear before the
-        # template in the assembled prompt.
-        if technique_skill_docs:
-            for doc in technique_skill_docs:
-                context.injected_skills.append(doc)
-        if technique_manifest:
-            context.injected_skills.append(technique_manifest)
+            # Layer 2.5: Inject technique manifest and skill documents.
+            # Skill docs go FIRST (they're the actual knowledge the musician
+            # needs), then the manifest (lists what's available). Both are
+            # injected as skill-category items so they appear before the
+            # template in the assembled prompt.
+            if technique_skill_docs:
+                for doc in technique_skill_docs:
+                    context.injected_skills.append(doc)
+            if technique_manifest:
+                context.injected_skills.append(technique_manifest)
 
-        # Layer 4-8: Build prompt through PromptBuilder
+        # Layer 4-8: Build prompt through PromptBuilder (raw_prompt short-circuits inside)
         prompt = self._build_prompt(
-            sheet, context, patterns, failure_history, spec_fragments
+            sheet, context, patterns, failure_history, spec_fragments,
+            raw_prompt=raw_prompt,
         )
+
+        if raw_prompt:
+            # No completion suffix, no preamble — the instrument receives
+            # the rendered template verbatim. Empty preamble is the
+            # "no preamble" sentinel.
+            return RenderedPrompt(prompt=prompt, preamble="")
 
         # Layer 9: Completion mode suffix
         if attempt_context.completion_prompt_suffix:
@@ -402,6 +418,8 @@ class PromptRenderer:
         patterns: list[str] | None,
         failure_history: list[HistoricalFailure] | None,
         spec_fragments: list[SpecFragment] | None,
+        *,
+        raw_prompt: bool = False,
     ) -> str:
         """Build the rendered prompt through PromptBuilder.
 
@@ -447,4 +465,5 @@ class PromptRenderer:
             validation_rules=sheet.validations if sheet.validations else None,
             failure_history=failure_history if failure_history else None,
             spec_fragments=spec_fragments if spec_fragments else None,
+            raw_prompt=raw_prompt,
         )

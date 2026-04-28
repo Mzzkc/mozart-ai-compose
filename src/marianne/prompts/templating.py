@@ -220,6 +220,7 @@ class PromptBuilder:
         validation_rules: list[ValidationRule] | None = None,
         failure_history: list["HistoricalFailure"] | None = None,
         spec_fragments: list[SpecFragment] | None = None,
+        raw_prompt: bool = False,
     ) -> str:
         """Build the standard sheet prompt from config.
 
@@ -237,6 +238,14 @@ class PromptBuilder:
                 as project context. Fragments are inserted after injected
                 context and before failure history per the prompt assembly
                 order (Phase 1: Spec Corpus Pipeline).
+            raw_prompt: When True, render the Jinja template against the
+                sheet context and return immediately — skipping every
+                wrapping layer (skills, tools, injected context, spec
+                fragments, failure history, patterns, validations). Honored
+                when the instrument profile declares ``raw_prompt: true``;
+                used for instruments like the bash ``cli`` profile whose
+                prompt must be a literal command, not a wrapped agent
+                instruction.
 
         Returns:
             Rendered prompt string.
@@ -253,6 +262,20 @@ class PromptBuilder:
         # Add stakes and thinking method
         template_context["stakes"] = self.config.stakes or ""
         template_context["thinking_method"] = self.config.thinking_method or ""
+
+        # Raw-prompt bypass: render template only, skip all wrapping.
+        # The instrument knows what it's doing — give it exactly what was
+        # written. Validations still run after execution; they just don't
+        # appear in the prompt itself.
+        if raw_prompt:
+            if self.config.template:
+                template = self.env.from_string(self.config.template)
+                return template.render(**template_context)
+            if self.config.template_file and self.config.template_file.exists():
+                template_content = self.config.template_file.read_text()
+                template = self.env.from_string(template_content)
+                return template.render(**template_context)
+            return self._build_default_prompt(context)
 
         # PROMPT ASSEMBLY ORDER (optimized for prompt caching):
         # 1. Static prelude/cadenza content first (better cache hits)

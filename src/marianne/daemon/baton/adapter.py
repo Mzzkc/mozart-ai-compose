@@ -1596,6 +1596,17 @@ class BatonAdapter:
             # Count distinct movements across all sheets
             total_movements = len({s.movement for s in job_sheets.values()}) or 1
 
+            # Resolve the instrument profile once — used for raw_prompt
+            # bypass on the renderer AND profile-pricing lookup below.
+            profile = None
+            if self._backend_pool is not None:
+                try:
+                    registry = getattr(self._backend_pool, "_registry", None)
+                    if registry is not None:
+                        profile = registry.get(actual_instrument)
+                except Exception:
+                    profile = None
+
             # Use PromptRenderer if available (full 9-layer pipeline)
             renderer = self._job_renderers.get(job_id)
             pre_rendered: str | None = None
@@ -1605,6 +1616,11 @@ class BatonAdapter:
                     sheet, context,
                     technique_manifest=technique_manifest,
                     technique_skill_docs=technique_skill_docs,
+                    raw_prompt=(
+                        getattr(profile, "raw_prompt", False)
+                        if profile is not None
+                        else False
+                    ),
                 )
                 pre_rendered = rendered.prompt
                 pre_preamble = rendered.preamble
@@ -1612,28 +1628,24 @@ class BatonAdapter:
             # Resolve profile pricing from instrument registry (F-180)
             cost_input: float | None = None
             cost_output: float | None = None
-            if self._backend_pool is not None:
+            if profile is not None:
                 try:
-                    registry = getattr(self._backend_pool, "_registry", None)
-                    if registry is not None:
-                        profile = registry.get(actual_instrument)
-                        if (
-                            profile is not None
-                            and hasattr(profile, "models")
-                            and profile.models
-                        ):
-                            # Use default model pricing, or first model
-                            model_cap = None
-                            if profile.default_model:
-                                model_cap = next(
-                                    (m for m in profile.models
-                                     if m.name == profile.default_model),
-                                    None,
-                                )
-                            if model_cap is None:
-                                model_cap = profile.models[0]
-                            cost_input = model_cap.cost_per_1k_input
-                            cost_output = model_cap.cost_per_1k_output
+                    if (
+                        hasattr(profile, "models")
+                        and profile.models
+                    ):
+                        # Use default model pricing, or first model
+                        model_cap = None
+                        if profile.default_model:
+                            model_cap = next(
+                                (m for m in profile.models
+                                 if m.name == profile.default_model),
+                                None,
+                            )
+                        if model_cap is None:
+                            model_cap = profile.models[0]
+                        cost_input = model_cap.cost_per_1k_input
+                        cost_output = model_cap.cost_per_1k_output
                 except Exception:
                     # Profile pricing is best-effort — fall back to hardcoded
                     pass
