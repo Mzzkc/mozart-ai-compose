@@ -36,28 +36,28 @@ PRISMA-compliant academic literature reviews. Strategic planning with multi-fram
 
 ## The Instrument System
 
-Marianne ships with 10+ instruments and an open plugin architecture for adding more.
+An **instrument** is any CLI tool wrapped in a YAML profile. Marianne treats instruments like plugins: drop a profile in `~/.marianne/instruments/` or `.marianne/instruments/` and the conductor discovers it automatically. Agent harnesses, linters, formatters, deployment tools, custom scripts — if it runs in a shell, you can score with it.
 
-**Built-in instruments:**
+**Agent harnesses that ship as built-in profiles:**
 
-| Instrument | What It Is |
-|------------|-----------|
-| `claude-code` | Claude Code CLI — a full-featured Musician profile |
-| `gemini-cli` | Google Gemini CLI |
-| `codex-cli` | OpenAI Codex CLI |
-| `aider` | Aider — AI pair programming |
-| `goose` | Goose — autonomous coding agent |
-| `cline-cli` | Cline CLI |
+| Instrument    | What It Wraps |
+|---------------|---------------|
+| `claude-code` | Claude Code CLI — full Musician profile |
+| `gemini-cli`  | Google Gemini CLI |
+| `codex-cli`   | OpenAI Codex CLI |
+| `aider`       | Aider — AI pair programming |
+| `goose`       | Goose — autonomous coding agent |
+| `cline-cli`   | Cline CLI |
+| `crush`       | Crush — terminal-native AI agent |
+| `opencode`    | OpenCode — OpenRouter + native MCP |
 
-**Plus 4 native backends:** Claude CLI, Anthropic API, Ollama (local models), and Recursive Light.
-
-**Wrap any CLI tool as an instrument.** Write a short YAML profile defining the command, arguments, environment variables, and model mapping. Drop it in `~/.marianne/instruments/` or `.marianne/instruments/`. Marianne discovers it automatically.
+**Beyond agent harnesses:** any CLI takes a YAML profile. Wrap `pytest` to run validation as a sheet. Wrap `gh` to file issues from a score. Wrap your in-house deploy script. Marianne doesn't care what the binary is — only that it speaks stdin/stdout and returns an exit code.
 
 **Mixed-instrument scores.** Use cheap, fast instruments for simple sheets (linting, formatting, boilerplate) and expensive, capable instruments for complex sheets (architecture, synthesis, creative work). One score, multiple instruments, cost-optimized by design.
 
 ```bash
-mzt instruments list    # See what's available
-mzt instruments check claude-code  # Deep diagnostic on one instrument
+mzt instruments list                # See what's available
+mzt instruments check claude-code   # Deep diagnostic on one instrument
 ```
 
 ---
@@ -241,10 +241,10 @@ See [examples/README.md](examples/README.md) for the complete catalogue with com
                     +------------------+------------------+
                     |                  |                  |
            +-------v------+  +-------v------+  +-------v------+
-           | Claude Code  |  | Gemini CLI   |  | Any CLI      |
-           | Anthropic API|  | Codex CLI    |  | Instrument   |
-           | Ollama       |  | Aider/Goose  |  | (YAML profile|
-           | Recursive Lt |  | Cline        |  |  = plugin)   |
+           | claude-code  |  | gemini-cli   |  | aider        |
+           | codex-cli    |  | goose        |  | cline-cli    |
+           | crush        |  | opencode     |  | Any CLI      |
+           |              |  |              |  | (YAML plugin)|
            +--------------+  +--------------+  +--------------+
                     |                  |                  |
                     +------------------+------------------+
@@ -269,7 +269,7 @@ See [examples/README.md](examples/README.md) for the complete catalogue with com
 - CheckpointState is the single state authority
 - State saves are atomic — no corruption on interruption
 - The EventBus never blocks publishers
-- Instruments are interchangeable — scores don't know which backend ran them
+- Instruments are interchangeable — scores don't know which instrument ran them
 
 ---
 
