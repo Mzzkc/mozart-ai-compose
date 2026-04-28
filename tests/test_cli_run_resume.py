@@ -339,16 +339,6 @@ class TestRunDaemonRequired:
 class TestResumeCommand:
     """Tests for resume command entry point validation."""
 
-    def test_resume_nonexistent_workspace(self, tmp_path: Path) -> None:
-        """Resume with nonexistent job should fail (workspace param removed in F-502)."""
-        # Note: --workspace flag removed in F-502. This now tests job not found behavior.
-        result = runner.invoke(
-            app,
-            ["resume", "nonexistent-job"],
-        )
-        assert result.exit_code == 1
-        assert "not found" in result.stdout.lower()
-
     def test_resume_job_not_found(self, tmp_path: Path) -> None:
         """Resume with job ID that doesn't exist should fail."""
         # Note: --workspace flag removed in F-502
